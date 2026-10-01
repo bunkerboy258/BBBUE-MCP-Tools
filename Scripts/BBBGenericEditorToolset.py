@@ -1,0 +1,2112 @@
+import base64
+import datetime
+import json
+import math
+import os
+import re
+import shutil
+import struct
+
+import unreal
+
+import toolset_registry
+from toolset_registry.registration import Registration
+
+
+def _serialize_value(value):
+    if value is None:
+        return None
+
+    if isinstance(value, (bool, int, float, str)):
+        return value
+
+    if isinstance(value, unreal.Object):
+        return value.get_path_name()
+
+    if isinstance(value, (list, tuple)):
+        return [_serialize_value(item) for item in value]
+
+    if isinstance(value, dict):
+        return {
+            str(key): _serialize_value(item)
+            for key, item in value.items()
+        }
+
+    if hasattr(value, "to_tuple"):
+        return _serialize_value(value.to_tuple())
+
+    return str(value)
+
+
+def _load_blueprint_default_object(asset_path):
+    blueprint = unreal.EditorAssetLibrary.load_asset(asset_path)
+    if not isinstance(blueprint, unreal.Blueprint):
+        raise RuntimeError("目标不是蓝图资产: {}".format(asset_path))
+
+    generated_class = blueprint.generated_class()
+    if generated_class is None:
+        raise RuntimeError("蓝图尚未生成有效类: {}".format(asset_path))
+
+    default_object = unreal.get_default_object(generated_class)
+    if default_object is None:
+        raise RuntimeError("无法读取蓝图类默认对象: {}".format(asset_path))
+
+    return blueprint, generated_class, default_object
+
+
+def _apply_editor_property(target, property_name, requested_value):
+    current_value = target.get_editor_property(property_name)
+
+    if isinstance(requested_value, dict) and "refPath" in requested_value:
+        reference_path = requested_value["refPath"]
+        loaded_object = unreal.load_asset(reference_path) if reference_path else None
+        if reference_path and loaded_object is None:
+            raise RuntimeError("引用资产不存在: {}".format(reference_path))
+        target.set_editor_property(property_name, loaded_object)
+        return
+
+    if isinstance(requested_value, dict):
+        if current_value is None or not hasattr(current_value, "set_editor_property"):
+            raise RuntimeError("属性不支持结构化更新: {}".format(property_name))
+
+        for child_name, child_value in requested_value.items():
+            _apply_editor_property(current_value, str(child_name), child_value)
+
+        target.set_editor_property(property_name, current_value)
+        return
+
+    if isinstance(current_value, unreal.Object) and isinstance(requested_value, str):
+        loaded_object = unreal.load_asset(requested_value) if requested_value else None
+        if requested_value and loaded_object is None:
+            raise RuntimeError("引用资产不存在: {}".format(requested_value))
+        target.set_editor_property(property_name, loaded_object)
+        return
+
+    target.set_editor_property(property_name, requested_value)
+
+
+@unreal.uclass()
+class BBBGenericEditorToolset(unreal.ToolsetDefinition):
+    """提供不绑定具体领域的官方 UE 编辑器工具"""
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def inspect_control_rig_graphs(asset_path: str) -> str:
+        """只读导出 Control Rig 模型与本地函数的节点引脚和连线"""
+        asset = unreal.EditorAssetLibrary.load_asset(asset_path)
+        if not isinstance(asset, unreal.ControlRigBlueprint):
+            raise RuntimeError("资产不是 Control Rig 蓝图")
+
+        models = list(asset.get_all_models())
+        library = asset.get_local_function_library()
+        if library is not None:
+            models.append(library)
+
+        visited = set()
+        graphs = []
+        while models:
+            model = models.pop(0)
+            path = model.get_path_name()
+            if path in visited:
+                continue
+
+            visited.add(path)
+            graph = {
+                "name": model.get_name(),
+                "path": path,
+                "class": model.get_class().get_name(),
+                "nodes": [],
+                "links": [],
+            }
+            for node in model.get_nodes():
+                node_data = {
+                    "name": node.get_name(),
+                    "path": node.get_node_path(),
+                    "class": node.get_class().get_name(),
+                    "title": node.get_node_title(),
+                    "pins": [],
+                }
+                pins = list(node.get_pins())
+                while pins:
+                    pin = pins.pop(0)
+                    pins.extend(pin.get_sub_pins())
+                    node_data["pins"].append({
+                        "name": pin.get_name(),
+                        "path": pin.get_pin_path(),
+                        "direction": str(pin.get_direction()),
+                        "cpp_type": pin.get_cpp_type(),
+                        "default_value": pin.get_default_value(),
+                        "linked_sources": [
+                            source.get_pin_path()
+                            for source in pin.get_linked_source_pins(False)
+                        ],
+                        "linked_targets": [
+                            target.get_pin_path()
+                            for target in pin.get_linked_target_pins(False)
+                        ],
+                    })
+
+                graph["nodes"].append(node_data)
+
+            for link in model.get_links():
+                source_pin = link.get_source_pin()
+                target_pin = link.get_target_pin()
+                if source_pin is None or target_pin is None:
+                    raise RuntimeError("Control Rig 连线存在缺失引脚 {}".format(path))
+
+                graph["links"].append({
+                    "source": source_pin.get_pin_path(),
+                    "target": target_pin.get_pin_path(),
+                })
+
+            graphs.append(graph)
+            for node in model.get_nodes():
+                if isinstance(node, unreal.RigVMCollapseNode):
+                    models.append(node.get_contained_graph())
+
+        if not graphs:
+            raise RuntimeError("Control Rig 模型为空")
+
+        return json.dumps({"asset": asset.get_path_name(), "graphs": graphs}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def probe_pie_character_ground_contacts() -> str:
+        """
+        /**
+         * 只读采样本地角色脚部地面命中和运行中的贴地绑定变量
+         * @return 脚骨世界位置 地面接触点 高度差与绑定补偿
+         */
+        """
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if world is None:
+            raise RuntimeError("PIE 尚未运行")
+
+        pawn = unreal.GameplayStatics.get_player_pawn(world, 0)
+        if not isinstance(pawn, unreal.Character):
+            raise RuntimeError("本地玩家不是角色")
+
+        mesh = pawn.get_editor_property("mesh")
+        bones = {}
+        contacts = {}
+        for bone_name in ("pelvis", "ik_foot_l", "ik_foot_r", "foot_l", "foot_r", "ball_l", "ball_r"):
+            if mesh.get_bone_index(bone_name) < 0:
+                raise RuntimeError("角色缺少验收骨骼 {}".format(bone_name))
+
+            location = mesh.get_socket_location(bone_name)
+            bones[bone_name] = [location.x, location.y, location.z]
+            if bone_name not in ("ball_l", "ball_r"):
+                continue
+
+            start = location + unreal.Vector(0.0, 0.0, 50.0)
+            end = location - unreal.Vector(0.0, 0.0, 100.0)
+            hit = unreal.SystemLibrary.line_trace_single(
+                world, start, end, unreal.TraceTypeQuery.TRACE_TYPE_QUERY1,
+                True, [pawn], unreal.DrawDebugTrace.NONE, True)
+            contact = {"hit": hit is not None}
+            if hit is not None:
+                fields = hit.to_tuple()
+                if len(fields) != 18:
+                    raise RuntimeError("UE 地面命中结构字段数量异常 {}".format(len(fields)))
+
+                point = fields[5]
+                normal = fields[7]
+                contact["point"] = [point.x, point.y, point.z]
+                contact["normal"] = [normal.x, normal.y, normal.z]
+                contact["ballHeightAboveGround"] = location.z - point.z
+
+            contacts[bone_name] = contact
+
+        rigs = []
+        for rig in unreal.ObjectIterator(unreal.ControlRig):
+            if pawn.get_path_name() not in rig.get_path_name():
+                continue
+
+            if "CR_BBB_MannequinFootPlant_C" not in rig.get_class().get_name():
+                continue
+
+            variables = {}
+            for name in (
+                "DidLeftFootTraceHit", "DidRightFootTraceHit",
+                "TargetLeftFootOffsetZ", "TargetRightFootOffsetZ",
+                "CurrentLeftFootOffsetZ", "CurrentRightFootOffsetZ",
+                "CurrentPelvisOffsetZ", "CurrentLeftFootHitNormal", "CurrentRightFootHitNormal"):
+                variables[name] = rig.get_variable_as_string(name)
+
+            rigs.append({"path": rig.get_path_name(), "variables": variables})
+
+        if len(rigs) != 1:
+            raise RuntimeError("运行中的脚部绑定数量异常 {}".format(len(rigs)))
+
+        result = {
+            "worldTime": unreal.GameplayStatics.get_time_seconds(world),
+            "pawn": pawn.get_path_name(),
+            "traceChannel": "Visibility",
+            "bones": bones,
+            "contacts": contacts,
+            "rigs": rigs,
+        }
+        return json.dumps(result, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def inspect_animation_float_curves(asset_paths: list[str], curve_names: list[str]) -> str:
+        """只读返回动画浮点曲线的原始时间与值 缺少曲线时明确标记"""
+        results = []
+        for asset_path in asset_paths:
+            asset = unreal.EditorAssetLibrary.load_asset(asset_path)
+            if not isinstance(asset, unreal.AnimSequence):
+                raise RuntimeError("资产不是动画序列 {}".format(asset_path))
+
+            available = {
+                str(name).casefold(): str(name)
+                for name in unreal.AnimationLibrary.get_animation_curve_names(asset, unreal.RawCurveTrackTypes.RCT_FLOAT)
+            }
+            curves = {}
+            for curve_name in curve_names:
+                stored_curve_name = available.get(curve_name.casefold())
+                if stored_curve_name is None:
+                    curves[curve_name] = {"exists": False}
+                    continue
+
+                times, values = unreal.AnimationLibrary.get_float_keys(asset, stored_curve_name)
+                curves[curve_name] = {"exists": True, "times": list(times), "values": list(values)}
+
+            results.append({"asset": asset.get_path_name(), "curves": curves})
+
+        return json.dumps(results, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def replace_animation_float_curve(asset_path: str, curve_name: str, keys_json: str, dry_run: bool = True) -> str:
+        """
+        /**
+         * 校验并原位替换动画浮点曲线
+         * @param asset_path		动画序列路径
+         * @param curve_name		曲线名称
+         * @param keys_json		关键帧数组
+         * @param dry_run		仅预检开关
+         * @return			审计结果与备份路径
+         */
+        """
+        from editor_toolset.toolsets.asset import AssetTools
+        from toolset_registry.helpers import require_editable
+
+        def fail(message: str) -> None:
+            unreal.log_error("[BBB][LeftHandIKCurve] " + message)
+            raise RuntimeError(message)
+
+        if not asset_path.startswith("/Game/"):
+            fail("动画路径必须位于 Game 内容目录")
+
+        if not curve_name.strip():
+            fail("曲线名称不能为空")
+
+        try:
+            keys = json.loads(keys_json)
+        except Exception as error:
+            fail("关键帧 JSON 无效: {}".format(error))
+
+        if not isinstance(keys, list) or len(keys) < 2:
+            fail("关键帧必须是至少包含两项的数组")
+
+        animation = unreal.EditorAssetLibrary.load_asset(asset_path)
+        if not isinstance(animation, unreal.AnimSequence):
+            fail("目标必须是 AnimSequence: {}".format(asset_path))
+
+        game_world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if game_world is not None:
+            fail("PIE 期间禁止修改动画曲线")
+
+        animation_length = float(animation.get_play_length())
+        if not math.isfinite(animation_length) or animation_length <= 0.0:
+            fail("动画时长无效: {}".format(asset_path))
+
+        validated_keys = []
+        for item in keys:
+            if not isinstance(item, dict) or "time" not in item or "value" not in item:
+                fail("每个关键帧必须包含 time 与 value")
+
+            try:
+                time_seconds = float(item["time"])
+                value = float(item["value"])
+            except (TypeError, ValueError):
+                fail("关键帧时间与数值必须是数字")
+
+            if not math.isfinite(time_seconds) or not math.isfinite(value):
+                fail("关键帧包含非有限数值")
+            if time_seconds < 0.0 or time_seconds > animation_length + 0.00001:
+                fail("关键帧时间超出动画范围: {}".format(time_seconds))
+
+            validated_keys.append({"time": time_seconds, "value": value})
+
+        validated_keys.sort(key=lambda item: item["time"])
+        for index in range(1, len(validated_keys)):
+            if abs(validated_keys[index]["time"] - validated_keys[index - 1]["time"]) <= 0.000001:
+                fail("关键帧时间不能重复")
+
+        library = unreal.AnimationLibrary
+        float_curve_type = unreal.RawCurveTrackTypes.RCT_FLOAT
+        available_curves = {
+            str(name).casefold(): str(name)
+            for name in library.get_animation_curve_names(animation, float_curve_type)
+        }
+        stored_curve_name = available_curves.get(curve_name.casefold())
+        original_keys = []
+        if stored_curve_name is not None:
+            original_times, original_values = library.get_float_keys(animation, stored_curve_name)
+            original_keys = [
+                {"time": float(time_seconds), "value": float(value)}
+                for time_seconds, value in zip(original_times, original_values)
+            ]
+
+        is_dirty = AssetTools.is_dirty(asset_path)
+        if is_dirty:
+            fail("目标动画已有未保存修改: {}".format(asset_path))
+
+        checked_out = AssetTools.is_checked_out(asset_path)
+        can_edit = AssetTools.can_edit_asset(asset_path)
+        if dry_run:
+            return json.dumps(
+                {
+                    "asset": asset_path,
+                    "curveName": curve_name,
+                    "storedCurveName": stored_curve_name,
+                    "animationLength": animation_length,
+                    "originalKeys": original_keys,
+                    "requestedKeys": validated_keys,
+                    "checkedOut": checked_out,
+                    "canEdit": can_edit,
+                    "dryRun": True,
+                },
+                ensure_ascii=False,
+            )
+
+        require_editable(animation)
+        state = unreal.SourceControl.query_file_state(asset_path)
+        writable = checked_out and can_edit
+        if state.is_valid and state.is_added and state.can_edit and not state.is_checked_out_other:
+            writable = True
+
+        if not writable:
+            fail("写入前必须独占签出且可编辑目标动画: {}".format(asset_path))
+
+        package_path = animation.get_path_name().split(".", 1)[0]
+        relative_package_path = package_path[len("/Game/"):].replace("/", os.sep)
+        source_asset_path = os.path.join(unreal.Paths.project_content_dir(), relative_package_path + ".uasset")
+        if not os.path.isfile(source_asset_path):
+            fail("目标动画文件不存在: {}".format(source_asset_path))
+
+        timestamp = datetime.datetime.now().strftime("%Y%m%dT%H%M%S%f")
+        backup_directory = os.path.join(
+            unreal.Paths.project_saved_dir(),
+            "Diagnostics",
+            "LeftHandIKCurves",
+            "Backups",
+        )
+        os.makedirs(backup_directory, exist_ok=True)
+
+        package_name = os.path.basename(relative_package_path)
+        backup_base_name = "{}_{}_{}".format(package_name, curve_name, timestamp)
+        backup_asset_path = os.path.join(backup_directory, backup_base_name + ".uasset")
+        backup_report_path = os.path.join(backup_directory, backup_base_name + ".json")
+        shutil.copy2(source_asset_path, backup_asset_path)
+
+        backup_report = {
+            "asset": asset_path,
+            "curveName": curve_name,
+            "storedCurveName": stored_curve_name,
+            "animationLength": animation_length,
+            "originalKeys": original_keys,
+            "requestedKeys": validated_keys,
+            "backupAsset": backup_asset_path,
+            "timestamp": timestamp,
+        }
+        with open(backup_report_path, "x", encoding="utf-8") as backup_file:
+            json.dump(backup_report, backup_file, ensure_ascii=False, indent=4)
+
+        curve_name_to_write = stored_curve_name or curve_name
+        with unreal.ScopedEditorTransaction("替换动画浮点曲线"):
+            animation.modify()
+            if stored_curve_name is not None:
+                library.remove_curve(animation, stored_curve_name, False)
+            library.add_curve(animation, curve_name_to_write, float_curve_type, False)
+            for key in validated_keys:
+                library.add_float_curve_key(animation, curve_name_to_write, key["time"], key["value"])
+
+        written_times, written_values = library.get_float_keys(animation, curve_name_to_write)
+        written_keys = [
+            {"time": float(time_seconds), "value": float(value)}
+            for time_seconds, value in zip(written_times, written_values)
+        ]
+        if len(written_keys) != len(validated_keys):
+            fail("曲线关键帧写入数量不匹配 备份位于 {}".format(backup_asset_path))
+
+        for written, expected in zip(written_keys, validated_keys):
+            if abs(written["time"] - expected["time"]) > 0.0001 or abs(written["value"] - expected["value"]) > 0.0001:
+                fail("曲线关键帧写入校验失败 备份位于 {}".format(backup_asset_path))
+
+        if not unreal.EditorAssetLibrary.save_loaded_asset(animation, False):
+            fail("动画曲线保存失败 备份位于 {}".format(backup_asset_path))
+
+        saved_times, saved_values = library.get_float_keys(animation, curve_name_to_write)
+        saved_keys = [
+            {"time": float(time_seconds), "value": float(value)}
+            for time_seconds, value in zip(saved_times, saved_values)
+        ]
+        if len(saved_keys) != len(validated_keys):
+            fail("保存后曲线关键帧数量不匹配 备份位于 {}".format(backup_asset_path))
+
+        for saved, expected in zip(saved_keys, validated_keys):
+            if abs(saved["time"] - expected["time"]) > 0.0001 or abs(saved["value"] - expected["value"]) > 0.0001:
+                fail("保存后曲线关键帧校验失败 备份位于 {}".format(backup_asset_path))
+
+        unreal.log("[BBB][LeftHandIKCurve] 已更新 {} 的 {} 曲线".format(asset_path, curve_name_to_write))
+        return json.dumps(
+            {
+                "asset": asset_path,
+                "curveName": curve_name_to_write,
+                "keys": saved_keys,
+                "backupAsset": backup_asset_path,
+                "backupReport": backup_report_path,
+                "dryRun": False,
+            },
+            ensure_ascii=False,
+        )
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def set_instanced_struct_array(asset_path: str, struct_property: str, array_property: str, instances_json: str) -> str:
+        """为资产结构体内的实例化对象数组创建真实子对象并保存"""
+        from toolset_registry.helpers import require_editable
+
+        asset = unreal.load_asset(asset_path)
+        if asset is None:
+            raise RuntimeError("资产不存在")
+        require_editable(asset)
+        descriptions = json.loads(instances_json)
+        if not isinstance(descriptions, list):
+            raise RuntimeError("实例配置必须为数组")
+
+        structure = asset.get_editor_property(struct_property)
+        objects = []
+        for description in descriptions:
+            object_class = unreal.load_class(None, description["class"])
+            if object_class is None:
+                raise RuntimeError("子对象类不存在")
+            instance = unreal.new_object(object_class, outer=asset)
+            if not unreal.ToolsetLibrary.set_object_properties(instance, json.dumps(description.get("properties", {}))):
+                raise RuntimeError("子对象属性配置失败")
+            objects.append(instance)
+
+        asset.modify()
+        structure.set_editor_property(array_property, objects)
+        asset.set_editor_property(struct_property, structure)
+        applied = asset.get_editor_property(struct_property).get_editor_property(array_property)
+        if len(applied) != len(objects) or any(item is None for item in applied):
+            raise RuntimeError("实例数组写回失败")
+        if not unreal.EditorAssetLibrary.save_loaded_asset(asset):
+            raise RuntimeError("资产保存失败")
+        return json.dumps({"asset": asset.get_path_name(), "instances": [item.get_path_name() for item in applied]})
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def create_asset_with_factory(asset_path: str, asset_class_path: str, factory_class_path: str, factory_properties_json: str = "{}") -> str:
+        """通过指定原生工厂创建新资产 拒绝覆盖已有资产"""
+        if not asset_path.startswith("/Game/") or unreal.EditorAssetLibrary.does_asset_exist(asset_path):
+            raise RuntimeError("必须提供尚不存在的 Game 资产路径")
+        asset_class = unreal.load_class(None, asset_class_path)
+        factory_class = unreal.load_class(None, factory_class_path)
+        if asset_class is None or factory_class is None:
+            raise RuntimeError("资产或工厂类不存在")
+        factory = unreal.new_object(factory_class)
+        if not unreal.ToolsetLibrary.set_object_properties(factory, factory_properties_json):
+            raise RuntimeError("工厂属性无效")
+        folder, name = asset_path.rsplit("/", 1)
+        asset = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, folder, asset_class, factory)
+        if asset is None:
+            raise RuntimeError("工厂创建失败")
+        if not unreal.EditorAssetLibrary.save_loaded_asset(asset):
+            raise RuntimeError("资产保存失败")
+        return asset.get_path_name()
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def import_files_from_directory(source_directory: str, destination_path: str, extensions_json: str, recursive: bool = True) -> str:
+        """将目录中的指定文件批量导入 Game 内容目录 保留目录结构并拒绝覆盖"""
+        source_root = os.path.realpath(source_directory)
+        if not os.path.isdir(source_root):
+            raise RuntimeError("源目录不存在: {}".format(source_directory))
+
+        destination_parts = destination_path.split("/")
+        if not destination_path.startswith("/Game/") or any(part in {"", ".", ".."} for part in destination_parts[2:]):
+            raise RuntimeError("目标必须是有效的 /Game/ 内容目录")
+
+        extensions = json.loads(extensions_json)
+        if not isinstance(extensions, list) or not extensions:
+            raise RuntimeError("extensions_json 必须是非空扩展名数组")
+
+        normalized_extensions = set()
+        for extension in extensions:
+            if not isinstance(extension, str) or not extension.strip():
+                raise RuntimeError("扩展名必须是非空字符串")
+            normalized_extension = extension.strip().lower()
+            if not normalized_extension.startswith("."):
+                normalized_extension = "." + normalized_extension
+            if not re.fullmatch(r"\.[a-z0-9]+", normalized_extension):
+                raise RuntimeError("扩展名格式无效: {}".format(extension))
+            normalized_extensions.add(normalized_extension)
+
+        editor_assets = unreal.EditorAssetLibrary
+        if editor_assets.does_asset_exist(destination_path):
+            raise RuntimeError("目标路径已是资产 拒绝覆盖: {}".format(destination_path))
+        if editor_assets.does_directory_exist(destination_path):
+            existing_assets = editor_assets.list_assets(destination_path, recursive=True, include_folder=False)
+            if existing_assets:
+                raise RuntimeError("目标目录已有资产 拒绝覆盖: {}".format(destination_path))
+
+        source_files = []
+        target_packages = set()
+        target_directories = {destination_path}
+        for current_directory, child_directories, file_names in os.walk(source_root, followlinks=False):
+            child_directories.sort()
+            if not recursive:
+                child_directories[:] = []
+
+            for file_name in sorted(file_names):
+                source_file = os.path.join(current_directory, file_name)
+                if os.path.splitext(file_name)[1].lower() not in normalized_extensions:
+                    continue
+                if os.path.islink(source_file) or not os.path.isfile(source_file):
+                    raise RuntimeError("源文件不是普通文件: {}".format(source_file))
+
+                relative_directory = os.path.relpath(current_directory, source_root)
+                target_directory = destination_path
+                if relative_directory != ".":
+                    safe_directories = []
+                    for source_segment in relative_directory.split(os.sep):
+                        safe_segment = re.sub(r"[^A-Za-z0-9_-]+", "_", source_segment).strip("_")
+                        if not safe_segment:
+                            raise RuntimeError("源目录名无法转换为有效资产目录: {}".format(source_segment))
+                        safe_directories.append(safe_segment)
+                    target_directory = destination_path + "/" + "/".join(safe_directories)
+
+                source_asset_name = os.path.splitext(file_name)[0]
+                asset_name = re.sub(r"[^A-Za-z0-9_-]+", "_", source_asset_name).strip("_")
+                if not asset_name:
+                    raise RuntimeError("源文件名无法转换为有效资产名: {}".format(file_name))
+                target_package = target_directory + "/" + asset_name
+                if target_package.casefold() in target_packages:
+                    raise RuntimeError("源目录中存在重名资产: {}".format(target_package))
+                if editor_assets.does_asset_exist(target_package):
+                    raise RuntimeError("目标资产已存在 拒绝覆盖: {}".format(target_package))
+
+                target_packages.add(target_package.casefold())
+                target_directories.add(target_directory)
+                source_files.append((source_file, target_directory, asset_name))
+
+        if not source_files:
+            raise RuntimeError("源目录中没有匹配扩展名的文件")
+        if len(source_files) > 5000:
+            raise RuntimeError("单次导入文件数超过安全上限 5000")
+
+        for directory in sorted(target_directories, key=lambda item: (item.count("/"), item)):
+            created = editor_assets.make_directory(directory)
+            if not created and not editor_assets.does_directory_exist(directory):
+                raise RuntimeError("无法创建目标目录: {}".format(directory))
+
+        import_tasks = []
+        for source_file, target_directory, asset_name in source_files:
+            task = unreal.AssetImportTask()
+            task.set_editor_property("filename", source_file)
+            task.set_editor_property("destination_path", target_directory)
+            task.set_editor_property("destination_name", asset_name)
+            task.set_editor_property("automated", True)
+            task.set_editor_property("replace_existing", False)
+            task.set_editor_property("save", False)
+            import_tasks.append(task)
+
+        unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks(import_tasks)
+
+        imported_assets = []
+        failed_sources = []
+        for source_file, task in zip(source_files, import_tasks):
+            objects = list(task.get_objects())
+            if not objects:
+                failed_sources.append(source_file[0])
+                continue
+
+            for asset in objects:
+                asset_path = asset.get_path_name()
+                if not asset_path.startswith(destination_path + "/"):
+                    failed_sources.append(source_file[0] + " -> " + asset_path)
+                    continue
+                imported_assets.append(asset)
+
+        if failed_sources:
+            unreal.log_error("[BBBGenericImport] 导入结果校验失败: " + json.dumps(failed_sources, ensure_ascii=False))
+            raise RuntimeError("部分源文件未生成有效目标资产 未保存导入结果: {}".format(len(failed_sources)))
+
+        saved_paths = []
+        for asset in imported_assets:
+            if not editor_assets.save_loaded_asset(asset, only_if_is_dirty=False):
+                unreal.log_error("[BBBGenericImport] 资产保存失败: " + asset.get_path_name())
+                raise RuntimeError("资产保存失败: {}".format(asset.get_path_name()))
+            saved_paths.append(asset.get_path_name())
+
+        unreal.log("[BBBGenericImport] Saved {} assets from {} files to {}".format(
+            len(saved_paths), len(source_files), destination_path))
+        return json.dumps({
+            "sourceDirectory": source_root,
+            "destinationPath": destination_path,
+            "sourceFileCount": len(source_files),
+            "importedAssetCount": len(saved_paths),
+            "assets": saved_paths,
+        }, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def reimport_sound_waves(source_directory: str, destination_path: str, source_suffix: str = "_Shot", recursive: bool = True) -> str:
+        """将目录中的 WAV 原位重导入已有 SoundWave 并仅保存目标资产"""
+        from toolset_registry.helpers import require_editable
+
+        source_root = os.path.realpath(source_directory)
+        if not os.path.isdir(source_root):
+            raise RuntimeError("源目录不存在: {}".format(source_directory))
+
+        if not destination_path.startswith("/Game/") or "." in destination_path:
+            raise RuntimeError("目标必须是有效的 /Game/ 内容目录")
+
+        if not source_suffix or not re.fullmatch(r"_[A-Za-z0-9_]+", source_suffix):
+            raise RuntimeError("源文件后缀必须以一个下划线开头且仅包含字母数字和下划线")
+
+        editor_assets = unreal.EditorAssetLibrary
+        dirty_packages = {
+            package.get_path_name()
+            for package in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()
+        }
+
+        imports = []
+        target_paths = set()
+        for current_directory, child_directories, file_names in os.walk(source_root, followlinks=False):
+            child_directories.sort()
+            if not recursive:
+                child_directories[:] = []
+
+            for file_name in sorted(file_names):
+                if not file_name.lower().endswith(source_suffix.lower() + ".wav"):
+                    continue
+
+                source_file = os.path.join(current_directory, file_name)
+                if os.path.islink(source_file) or not os.path.isfile(source_file):
+                    raise RuntimeError("源文件不是普通 WAV: {}".format(source_file))
+
+                relative_directory = os.path.relpath(current_directory, source_root)
+                target_directory = destination_path
+                if relative_directory != ".":
+                    safe_directories = []
+                    for source_segment in relative_directory.split(os.sep):
+                        safe_segment = re.sub(r"[^A-Za-z0-9_-]+", "_", source_segment).strip("_")
+                        if not safe_segment:
+                            raise RuntimeError("源目录名无法转换为有效资产目录: {}".format(source_segment))
+                        safe_directories.append(safe_segment)
+                    target_directory += "/" + "/".join(safe_directories)
+
+                asset_name = file_name[:-(len(source_suffix) + 4)]
+                if not re.fullmatch(r"[A-Za-z0-9_-]+", asset_name):
+                    raise RuntimeError("源文件名无法转换为已有资产名: {}".format(file_name))
+
+                asset_path = target_directory + "/" + asset_name
+                if asset_path.casefold() in target_paths:
+                    raise RuntimeError("源目录中存在重名目标资产: {}".format(asset_path))
+                target_paths.add(asset_path.casefold())
+
+                asset = unreal.load_asset(asset_path)
+                if not isinstance(asset, unreal.SoundWave):
+                    raise RuntimeError("目标不是已有 SoundWave: {}".format(asset_path))
+                if asset_path in dirty_packages:
+                    raise RuntimeError("目标 SoundWave 有未保存修改: {}".format(asset_path))
+                require_editable(asset)
+                imports.append((source_file, asset_path, asset))
+
+        if not imports:
+            raise RuntimeError("源目录中没有匹配后缀的 WAV")
+        if len(imports) > 256:
+            raise RuntimeError("单次重导入数量超过安全上限 256")
+
+        saved_assets = []
+        for source_file, asset_path, original_asset in imports:
+            task = unreal.AssetImportTask()
+            task.set_editor_property("filename", source_file)
+            task.set_editor_property("destination_path", asset_path.rsplit("/", 1)[0])
+            task.set_editor_property("destination_name", asset_path.rsplit("/", 1)[1])
+            task.set_editor_property("automated", True)
+            task.set_editor_property("replace_existing", True)
+            task.set_editor_property("replace_existing_settings", False)
+            task.set_editor_property("save", False)
+
+            unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])
+
+            imported = list(task.get_objects())
+            if len(imported) != 1 or imported[0].get_path_name() != original_asset.get_path_name():
+                unreal.log_error("[BBBSoundReimport] 原位重导入失败: " + asset_path)
+                raise RuntimeError("重导入未返回唯一目标 SoundWave: {}".format(asset_path))
+
+            sound_wave = imported[0]
+            if not isinstance(sound_wave, unreal.SoundWave):
+                unreal.log_error("[BBBSoundReimport] 重导入后的资产类型无效: " + asset_path)
+                raise RuntimeError("重导入后的资产类型无效: {}".format(asset_path))
+
+            duration = sound_wave.get_editor_property("duration")
+            if duration <= 0:
+                unreal.log_error("[BBBSoundReimport] 重导入后的 SoundWave 无效: " + asset_path)
+                raise RuntimeError("重导入后的 SoundWave 无效: {}".format(asset_path))
+
+            if not editor_assets.save_loaded_asset(sound_wave, only_if_is_dirty=False):
+                unreal.log_error("[BBBSoundReimport] 资产保存失败: " + asset_path)
+                raise RuntimeError("SoundWave 保存失败: {}".format(asset_path))
+
+            saved_assets.append({"asset": asset_path, "duration": duration, "source": source_file})
+
+        unreal.log("[BBBSoundReimport] Saved {} existing SoundWave assets".format(len(saved_assets)))
+        return json.dumps({"savedCount": len(saved_assets), "assets": saved_assets}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def import_animation_fbx(source_file: str, asset_path: str, skeleton_path: str) -> str:
+        """从单动作 FBX 精确覆盖已签出的动画 保持骨骼和资产路径不变"""
+        from toolset_registry.helpers import require_editable
+        from editor_toolset.toolsets.asset import AssetTools
+
+        if not os.path.isfile(source_file) or not source_file.lower().endswith(".fbx"):
+            raise RuntimeError("必须提供存在的 FBX 文件")
+
+        if not asset_path.startswith("/Game/") or "." in asset_path:
+            raise RuntimeError("必须提供精确的 Game 动画包路径")
+
+        asset = unreal.load_asset(asset_path)
+        skeleton = unreal.load_asset(skeleton_path)
+        if not isinstance(asset, unreal.AnimSequence) or not isinstance(skeleton, unreal.Skeleton):
+            raise RuntimeError("目标必须是已有动画和骨骼")
+
+        if asset.get_editor_property("skeleton") != skeleton:
+            raise RuntimeError("目标动画骨骼与指定骨骼不一致")
+
+        require_editable(asset)
+        if not AssetTools.is_checked_out(asset_path):
+            raise RuntimeError("覆盖前必须独占签出目标动画")
+
+        if asset_path in {package.get_path_name() for package in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}:
+            raise RuntimeError("目标动画存在未保存修改")
+
+        options = unreal.FbxImportUI()
+        options.set_editor_property("automated_import_should_detect_type", False)
+        options.set_editor_property("mesh_type_to_import", unreal.FBXImportType.FBXIT_ANIMATION)
+        options.set_editor_property("original_import_type", unreal.FBXImportType.FBXIT_ANIMATION)
+        options.set_editor_property("import_mesh", False)
+        options.set_editor_property("import_animations", True)
+        options.set_editor_property("import_materials", False)
+        options.set_editor_property("import_textures", False)
+        options.set_editor_property("skeleton", skeleton)
+        options.anim_sequence_import_data.set_editor_property("use_default_sample_rate", True)
+
+        task = unreal.AssetImportTask()
+        task.set_editor_property("filename", source_file)
+        task.set_editor_property("destination_path", asset_path.rsplit("/", 1)[0])
+        task.set_editor_property("destination_name", asset_path.rsplit("/", 1)[1])
+        task.set_editor_property("automated", True)
+        task.set_editor_property("replace_existing", True)
+        task.set_editor_property("save", False)
+        task.set_editor_property("factory", unreal.FbxFactory())
+        task.set_editor_property("options", options)
+        unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])
+
+        imported = list(task.get_objects())
+        if len(imported) != 1 or imported[0].get_path_name() != asset.get_path_name():
+            raise RuntimeError("导入未返回唯一目标动画 禁止保存")
+
+        animation = imported[0]
+        if animation.get_editor_property("skeleton") != skeleton or animation.get_play_length() <= 0:
+            raise RuntimeError("导入动画的骨骼或时长无效 禁止保存")
+
+        if not unreal.EditorAssetLibrary.save_loaded_asset(animation, only_if_is_dirty=False):
+            raise RuntimeError("动画保存失败")
+
+        unreal.log("[BBBAnimationImport] Saved " + asset_path)
+        return json.dumps({"asset": animation.get_path_name(), "length": animation.get_play_length(),
+            "skeleton": skeleton.get_path_name(), "source": source_file}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def capture_editor_screenshot(widget_ref: str, file_name: str) -> str:
+        """通过官方 Slate 截图保存指定编辑器窗口或控件 不切换焦点 不发送输入"""
+        if not widget_ref:
+            raise RuntimeError("必须先通过官方 Slate Snapshot 获取明确的窗口或控件引用")
+
+        if not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*\.png", file_name, re.IGNORECASE):
+            raise RuntimeError("文件名必须为不包含目录的 PNG 名称")
+
+        output_directory = os.path.realpath(os.path.join(unreal.Paths.project_saved_dir(), "Screenshots", "MCP"))
+        output_path = os.path.realpath(os.path.join(output_directory, file_name))
+        if os.path.commonpath([output_directory, output_path]) != output_directory:
+            raise RuntimeError("截图输出超出指定目录")
+
+        if os.path.exists(output_path):
+            raise RuntimeError("截图文件已存在 请使用新的文件名")
+
+        toolset_class = unreal.load_class(None, "/Script/SlateInspectorToolset.SlateInspectorToolset")
+        if toolset_class is None:
+            raise RuntimeError("请在宿主启动时启用官方 SlateInspectorToolset 插件")
+
+        toolset = unreal.get_default_object(toolset_class)
+        captured = toolset.call_method("Screenshot", (widget_ref,))
+        encoded = captured.get_editor_property("data")
+        if not encoded:
+            raise RuntimeError("截图失败 请检查窗口引用及真实渲染宿主 NullRHI 不支持截图")
+
+        pixels = base64.b64decode(encoded, validate=True)
+        if len(pixels) < 24 or pixels[:8] != b"\x89PNG\r\n\x1a\n":
+            raise RuntimeError("官方截图未返回有效 PNG")
+
+        width, height = struct.unpack(">II", pixels[16:24])
+        if width <= 0 or height <= 0:
+            raise RuntimeError("截图尺寸无效")
+
+        os.makedirs(output_directory, exist_ok=True)
+        with open(output_path, "xb") as output_file:
+            output_file.write(pixels)
+
+        return json.dumps({"path": output_path, "width": width, "height": height, "widgetRef": widget_ref}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def resize_pie_window(width: int, height: int) -> str:
+        """仅调整唯一浮动 PIE 窗口尺寸 不修改编辑器主窗口和桌面分辨率"""
+        if type(width) is not int or type(height) is not int:
+            raise RuntimeError("窗口宽高必须是整数")
+
+        if width < 320 or height < 320 or width > 4096 or height > 4096 or width * height > 8388608:
+            raise RuntimeError("窗口尺寸超出允许范围")
+
+        result = json.loads(unreal.BBBPIEWindowEditorLibrary.resize_pie_window(width, height))
+        if not result.get("success"):
+            raise RuntimeError(json.dumps(result, ensure_ascii=False))
+
+        return json.dumps(result, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def render_asset_thumbnails(requests_json: str) -> str:
+        """按显式源网格与目标纹理列表生成真实部件缩略图 每项保存并返回结果"""
+        if unreal.EditorLevelLibrary.get_pie_worlds(False):
+            raise RuntimeError("请先停止 PIE 再生成并导入缩略图")
+
+        requests = json.loads(requests_json)
+        if not isinstance(requests, list) or not requests or len(requests) > 100:
+            raise RuntimeError("请求必须是非空列表 且不超过一百项")
+
+        results = []
+        for request in requests:
+            source = str(request["source"])
+            destination = str(request["destination"])
+            if not source.startswith("/Game/") or not destination.startswith("/Game/") or "." in destination:
+                raise RuntimeError("源资产与目标包必须位于 Game 目录")
+
+            exists = unreal.EditorAssetLibrary.does_asset_exist(destination)
+            if exists and not unreal.EditorAssetLibrary.checkout_asset(destination):
+                results.append({"destination": destination, "error": "独占签出失败"})
+                continue
+
+            file_name = destination.rsplit("/", 1)[1] + ".png"
+            image_path = unreal.BBBAssetThumbnailEditorLibrary.render_mesh_thumbnail(
+                source, file_name, float(request.get("yaw", 75.0)))
+            if not image_path:
+                results.append({"destination": destination, "error": "网格渲染失败"})
+                continue
+
+            task = unreal.AssetImportTask()
+            task.filename = image_path
+            task.destination_path = destination.rsplit("/", 1)[0]
+            task.destination_name = destination.rsplit("/", 1)[1]
+            task.automated = True
+            task.replace_existing = exists
+            task.save = False
+            unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])
+            if not task.imported_object_paths:
+                results.append({"destination": destination, "error": "纹理导入未返回结果"})
+                continue
+
+            texture = unreal.EditorAssetLibrary.load_asset(destination)
+            if not isinstance(texture, unreal.Texture2D):
+                results.append({"destination": destination, "error": "纹理导入失败"})
+                continue
+
+            texture.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_EDITOR_ICON)
+            texture.set_editor_property("lod_group", unreal.TextureGroup.TEXTUREGROUP_UI)
+            texture.set_editor_property("never_stream", True)
+            texture.set_editor_property("mip_gen_settings", unreal.TextureMipGenSettings.TMGS_NO_MIPMAPS)
+            saved = unreal.EditorAssetLibrary.save_loaded_asset(texture, False)
+            results.append({"destination": destination, "source": source, "image": image_path, "saved": saved})
+
+        return json.dumps(results, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def inspect_animation_notifies(asset_path: str) -> str:
+        """只读返回动画序列或蒙太奇的通知类 时间与所属轨道"""
+        asset = unreal.EditorAssetLibrary.load_asset(asset_path)
+        if not isinstance(asset, unreal.AnimSequenceBase):
+            raise RuntimeError("资产不是动画序列或蒙太奇: {}".format(asset_path))
+
+        library = unreal.AnimationLibrary
+        tracks = list(library.get_animation_notify_track_names(asset))
+        results = []
+        for track in tracks:
+            for event in library.get_animation_notify_events_for_track(asset, track):
+                notify = event.get_editor_property("notify")
+                state = event.get_editor_property("notify_state_class")
+                instance = notify if notify is not None else state
+                results.append({
+                    "track": str(track),
+                    "name": str(event.get_editor_property("notify_name")),
+                    "classPath": instance.get_class().get_path_name() if instance else None,
+                    "time": library.get_anim_notify_event_trigger_time(event),
+                    "duration": library.get_anim_notify_event_duration(event),
+                    "isState": state is not None,
+                })
+
+        return json.dumps({"asset": asset_path, "length": asset.get_play_length(),
+            "tracks": [str(track) for track in tracks], "events": results}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def inspect_animation_notify_properties(asset_path: str, class_path: str, property_names: list[str]) -> str:
+        """只读返回动画中唯一通知实例的指定可编辑属性"""
+        asset = unreal.EditorAssetLibrary.load_asset(asset_path)
+        if not isinstance(asset, unreal.AnimSequenceBase) or not property_names:
+            raise RuntimeError("动画资产或属性名称无效")
+
+        matches = []
+        for event in unreal.AnimationLibrary.get_animation_notify_events(asset):
+            instance = event.get_editor_property("notify") or event.get_editor_property("notify_state_class")
+            if instance is not None and instance.get_class().get_path_name() == class_path:
+                matches.append(instance)
+        if len(matches) != 1:
+            raise RuntimeError("目标通知实例必须恰好出现一次")
+
+        properties = {}
+        for name in property_names:
+            value = matches[0].get_editor_property(name)
+            properties[name] = value.export_text() if isinstance(value, unreal.Transform) else _serialize_value(value)
+        return json.dumps({"asset": asset_path, "class": class_path,
+            "properties": properties}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def remove_empty_animation_notify_track(asset_path: str, track_name: str) -> str:
+        """仅删除动画序列或蒙太奇中已清空的通知轨道"""
+        from toolset_registry.helpers import require_editable
+
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止删除通知轨道")
+
+        asset = unreal.EditorAssetLibrary.load_asset(asset_path)
+        if not isinstance(asset, unreal.AnimSequenceBase) or not track_name.strip():
+            raise RuntimeError("动画资产或通知轨道无效")
+
+        require_editable(asset)
+        library = unreal.AnimationLibrary
+        if not library.is_valid_anim_notify_track_name(asset, track_name):
+            raise RuntimeError("通知轨道不存在: {}".format(track_name))
+
+        if library.get_animation_notify_events_for_track(asset, track_name):
+            raise RuntimeError("通知轨道非空 禁止删除: {}".format(track_name))
+
+        with unreal.ScopedEditorTransaction("删除空动画通知轨道"):
+            asset.modify()
+            library.remove_animation_notify_track(asset, track_name)
+
+        if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
+            raise RuntimeError("保存通知轨道删除结果失败")
+
+        return BBBGenericEditorToolset.inspect_animation_notifies(asset_path)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def resave_asset(asset_path: str) -> str:
+        """按当前类定义重新序列化已经独占签出的资产"""
+        from toolset_registry.helpers import require_editable
+
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止重新保存资产")
+
+        asset = unreal.EditorAssetLibrary.load_asset(asset_path)
+        if asset is None:
+            raise RuntimeError("资产不存在: {}".format(asset_path))
+        require_editable(asset)
+        if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
+            raise RuntimeError("重新保存资产失败")
+
+        return json.dumps({"asset": asset_path, "class": asset.get_class().get_path_name()}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def inspect_animation_montage_segments(asset_path: str) -> str:
+        """
+        /**
+         * 只读返回蒙太奇插槽中引用的动画片段
+         * @param asset_path	蒙太奇路径
+         * @return 插槽与片段资产列表
+         */
+        """
+        montage = unreal.EditorAssetLibrary.load_asset(asset_path)
+        if not isinstance(montage, unreal.AnimMontage):
+            raise RuntimeError("资产不是动画蒙太奇")
+
+        tracks = []
+        for slot in montage.get_editor_property("slot_anim_tracks"):
+            segments = []
+            for segment in slot.get_editor_property("anim_track").get_editor_property("anim_segments"):
+                reference = segment.get_editor_property("anim_reference")
+                segments.append({
+                    "animation": reference.get_path_name() if reference else None,
+                    "start": segment.get_editor_property("start_pos"),
+                    "animationStart": segment.get_editor_property("anim_start_time"),
+                    "animationEnd": segment.get_editor_property("anim_end_time"),
+                    "playRate": segment.get_editor_property("anim_play_rate"),
+                })
+            tracks.append({"slot": str(slot.get_editor_property("slot_name")), "segments": segments})
+
+        return json.dumps({"asset": asset_path, "length": montage.get_play_length(),
+            "tracks": tracks}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def add_animation_notify_events(asset_path: str, track_name: str, events_json: str) -> str:
+        """
+        /**
+         * 向动画序列或蒙太奇轨道添加单次通知并保留全部已有事件
+         * @param asset_path	动画资产路径
+         * @param track_name	通知轨道名称
+         * @param events_json	通知类路径与触发时间数组
+         * @return 保存后的完整通知列表
+         */
+        """
+        from toolset_registry.helpers import require_editable
+
+        asset = unreal.EditorAssetLibrary.load_asset(asset_path)
+        if not isinstance(asset, unreal.AnimSequenceBase) or not track_name.strip():
+            raise RuntimeError("动画资产或通知轨道无效")
+        require_editable(asset)
+
+        events = json.loads(events_json)
+        if not isinstance(events, list) or not events:
+            raise RuntimeError("新增通知配置必须是非空数组")
+
+        library = unreal.AnimationLibrary
+        existing = list(library.get_animation_notify_events(asset))
+        validated = []
+        for event in events:
+            notify_class = unreal.load_class(None, event["class_path"])
+            time_seconds = float(event["time"])
+            if notify_class is None or not unreal.MathLibrary.class_is_child_of(notify_class, unreal.AnimNotify.static_class()):
+                raise RuntimeError("通知类不存在或不是单次通知")
+            if not math.isfinite(time_seconds) or time_seconds < 0.0 or time_seconds >= asset.get_play_length():
+                raise RuntimeError("通知时间超出动画范围")
+            for previous in existing:
+                previous_notify = previous.get_editor_property("notify")
+                previous_time = library.get_anim_notify_event_trigger_time(previous)
+                if previous_notify is not None and previous_notify.get_class() == notify_class and abs(previous_time - time_seconds) < 0.001:
+                    raise RuntimeError("通知类和触发时间已经存在")
+            validated.append((notify_class, time_seconds))
+
+        with unreal.ScopedEditorTransaction("添加动画通知事件"):
+            asset.modify()
+            if not library.is_valid_anim_notify_track_name(asset, track_name):
+                library.add_animation_notify_track(asset, track_name)
+            for notify_class, time_seconds in validated:
+                created = library.add_animation_notify_event(asset, track_name, time_seconds, notify_class)
+                if created is None:
+                    raise RuntimeError("创建动画通知失败")
+
+        if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
+            raise RuntimeError("保存动画通知失败")
+        return BBBGenericEditorToolset.inspect_animation_notifies(asset_path)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def replace_animation_notify_track(asset_path: str, track_name: str, events_json: str) -> str:
+        """校验后仅替换指定通知轨道 保留其它轨道并保存动画资产"""
+        from toolset_registry.helpers import require_editable
+
+        asset = unreal.EditorAssetLibrary.load_asset(asset_path)
+        if not isinstance(asset, unreal.AnimSequenceBase) or not track_name.strip():
+            raise RuntimeError("动画资产或通知轨道无效")
+        require_editable(asset)
+
+        events = json.loads(events_json)
+        if not isinstance(events, list):
+            raise RuntimeError("通知配置必须是数组")
+
+        length = asset.get_play_length()
+        validated = []
+        for event in events:
+            class_path = event["class_path"]
+            notify_class = unreal.load_class(None, class_path)
+            if notify_class is None:
+                raise RuntimeError("通知类不存在: {}".format(class_path))
+            is_state = unreal.MathLibrary.class_is_child_of(notify_class, unreal.AnimNotifyState.static_class())
+            is_notify = unreal.MathLibrary.class_is_child_of(notify_class, unreal.AnimNotify.static_class())
+            start = float(event["time"])
+            duration = float(event.get("duration", 0.0))
+            if not (is_state or is_notify) or not math.isfinite(start) or not math.isfinite(duration):
+                raise RuntimeError("通知类型或时间无效")
+            if start < 0.0 or start >= length or duration < 0.0 or start + duration > length + 0.00001:
+                raise RuntimeError("通知超出动画时间范围")
+            if is_state and duration <= 0.0:
+                raise RuntimeError("通知状态必须指定正的持续时间")
+            if is_notify and duration != 0.0:
+                raise RuntimeError("单次通知不能指定持续时间")
+            properties = event.get("properties", {})
+            if not isinstance(properties, dict):
+                raise RuntimeError("通知实例属性必须是对象")
+            validated.append((notify_class, start, duration, is_state, properties))
+
+        library = unreal.AnimationLibrary
+        with unreal.ScopedEditorTransaction("配置动画通知轨道"):
+            asset.modify()
+            if library.is_valid_anim_notify_track_name(asset, track_name):
+                library.remove_animation_notify_events_by_track(asset, track_name)
+            if not library.is_valid_anim_notify_track_name(asset, track_name):
+                library.add_animation_notify_track(asset, track_name)
+            for notify_class, start, duration, is_state, properties in validated:
+                if is_state:
+                    created = library.add_animation_notify_state_event(asset, track_name, start, duration, notify_class)
+                if not is_state:
+                    created = library.add_animation_notify_event(asset, track_name, start, notify_class)
+                if created is None:
+                    raise RuntimeError("创建通知失败 未保存资产 请检查当前脏包")
+                instance = created
+                for property_name, requested_value in properties.items():
+                    current_value = instance.get_editor_property(property_name)
+                    if isinstance(current_value, unreal.Transform):
+                        location = requested_value.get("location")
+                        rotation = requested_value.get("rotation")
+                        quaternion = requested_value.get("rotation_quaternion")
+                        scale = requested_value.get("scale", [1.0, 1.0, 1.0])
+                        if not isinstance(location, list) or len(location) != 3:
+                            raise RuntimeError("通知实例变换必须提供位置旋转缩放数组")
+                        if not isinstance(scale, list) or len(scale) != 3:
+                            raise RuntimeError("通知实例变换缩放必须是三个数值")
+                        if quaternion is not None:
+                            if not isinstance(quaternion, list) or len(quaternion) != 4:
+                                raise RuntimeError("通知实例四元数必须是四个数值")
+                            rotation_value = unreal.Quat(*[float(value) for value in quaternion]).rotator()
+                            rotation = [rotation_value.pitch, rotation_value.yaw, rotation_value.roll]
+                        if not isinstance(rotation, list) or len(rotation) != 3:
+                            raise RuntimeError("通知实例旋转必须是三个数值")
+                        numbers = [float(value) for item in (location, rotation, scale) for value in item]
+                        if not all(math.isfinite(value) for value in numbers):
+                            raise RuntimeError("通知实例变换包含无效数值")
+                        requested_value = unreal.Transform(
+                            location=unreal.Vector(*numbers[0:3]),
+                            rotation=unreal.Rotator(pitch=numbers[3], yaw=numbers[4], roll=numbers[5]),
+                            scale=unreal.Vector(*numbers[6:9]),
+                        )
+                    _apply_editor_property(instance, property_name, requested_value)
+
+        if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
+            raise RuntimeError("通知资产保存失败")
+        return BBBGenericEditorToolset.inspect_animation_notifies(asset_path)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def move_animation_notify_event(asset_path: str, notify_class_path: str, time_seconds: float) -> str:
+        """
+        /**
+         * 移动唯一的单次动画通知并保留其他通知
+         * @param asset_path	动画资产路径
+         * @param notify_class_path	通知类路径
+         * @param time_seconds	新的触发时间
+         * @return 保存后的完整通知列表
+         */
+        """
+        from toolset_registry.helpers import require_editable
+
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止移动动画通知")
+
+        asset = unreal.EditorAssetLibrary.load_asset(asset_path)
+        notify_class = unreal.load_class(None, notify_class_path)
+        if not isinstance(asset, unreal.AnimSequenceBase) or notify_class is None:
+            raise RuntimeError("动画资产或通知类无效")
+        if not unreal.MathLibrary.class_is_child_of(notify_class, unreal.AnimNotify.static_class()):
+            raise RuntimeError("目标类不是单次动画通知")
+        if not math.isfinite(time_seconds) or time_seconds < 0.0 or time_seconds >= asset.get_play_length():
+            raise RuntimeError("通知时间超出动画范围")
+        require_editable(asset)
+
+        library = unreal.AnimationLibrary
+        matches = []
+        for event in library.get_animation_notify_events(asset):
+            notify = event.get_editor_property("notify")
+            if notify is not None and notify.get_class() == notify_class:
+                matches.append(event)
+
+        if len(matches) != 1:
+            raise RuntimeError("目标通知必须在资产中恰好出现一次")
+
+        event = matches[0]
+        notify_name = str(event.get_editor_property("notify_name"))
+        same_name = [item for item in library.get_animation_notify_events(asset)
+                     if str(item.get_editor_property("notify_name")) == notify_name]
+        if len(same_name) != 1:
+            raise RuntimeError("通知名称不唯一 无法安全移动")
+
+        track_names = []
+        for track in library.get_animation_notify_track_names(asset):
+            track_events = library.get_animation_notify_events_for_track(asset, track)
+            if any(item.get_editor_property("notify") == event.get_editor_property("notify")
+                   for item in track_events):
+                track_names.append(str(track))
+        if len(track_names) != 1:
+            raise RuntimeError("无法确定目标通知所属的唯一轨道")
+
+        track_name = track_names[0]
+        with unreal.ScopedEditorTransaction("移动动画通知"):
+            asset.modify()
+            removed = library.remove_animation_notify_events_by_name(asset, notify_name)
+            if removed != 1:
+                raise RuntimeError("移除原通知失败 请检查当前脏包")
+            created = library.add_animation_notify_event(asset, track_name, time_seconds, notify_class)
+            if created is None:
+                raise RuntimeError("在目标帧创建通知失败 请检查当前脏包")
+
+        if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
+            raise RuntimeError("保存动画通知失败")
+        return BBBGenericEditorToolset.inspect_animation_notifies(asset_path)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def inspect_pie_player_control(player_index: int = 0) -> str:
+        """只读检查 PIE 玩家控制器与组件的注册和更新状态"""
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if world is None:
+            raise RuntimeError("PIE 尚未运行")
+
+        controller = unreal.GameplayStatics.get_player_controller(world, player_index)
+        if controller is None:
+            raise RuntimeError("玩家控制器不存在")
+
+        input_properties = {}
+        input_errors = {}
+        for name in ("DefaultMappingContext", "show_mouse_cursor"):
+            try:
+                input_properties[name] = _serialize_value(controller.get_editor_property(name))
+            except Exception as error:
+                input_errors[name] = str(error)
+
+        manager = unreal.GameplayStatics.get_player_camera_manager(world, player_index)
+        camera = {}
+        if manager is not None:
+            camera["location"] = _serialize_value(manager.get_camera_location())
+            camera["rotation"] = _serialize_value(manager.get_camera_rotation())
+            camera["fov"] = manager.get_fov_angle()
+        target = controller.get_view_target()
+        if target is not None:
+            camera["arms"] = [{
+                "path": arm.get_path_name(),
+                "length": arm.get_editor_property("target_arm_length"),
+                "collisionEnabled": arm.get_editor_property("do_collision_test"),
+                "collisionFixApplied": arm.is_collision_fix_applied(),
+                "unfixedPosition": _serialize_value(arm.get_unfixed_camera_position()),
+            } for arm in target.get_components_by_class(unreal.SpringArmComponent)]
+
+        pawn = controller.get_controlled_pawn()
+        actors = [controller]
+        if pawn is not None:
+            actors.append(pawn)
+
+        results = []
+        for actor in actors:
+            components = []
+            for component in actor.get_components_by_class(unreal.ActorComponent):
+                components.append({
+                    "path": component.get_path_name(),
+                    "class": component.get_class().get_path_name(),
+                    "active": component.is_active(),
+                    "tickEnabled": component.is_component_tick_enabled(),
+                })
+            results.append({
+                "path": actor.get_path_name(),
+                "tickEnabled": actor.is_actor_tick_enabled(),
+                "components": components,
+            })
+
+        return json.dumps({
+            "world": world.get_path_name(),
+            "localController": controller.is_local_controller(),
+            "localPawn": pawn.is_locally_controlled() if pawn else False,
+            "viewTarget": _serialize_value(controller.get_view_target()),
+            "controlRotation": str(controller.get_control_rotation()),
+            "inputProperties": input_properties,
+            "camera": camera,
+            "inputPropertyErrors": input_errors,
+            "actors": results,
+        }, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def invoke_pie_actor_function(actor_path: str, function_name: str, arguments_json: str = "[]") -> str:
+        """调用当前 PIE 世界中指定 Actor 的反射函数 不接受编辑器世界对象"""
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        actor = unreal.find_object(None, actor_path)
+        arguments = json.loads(arguments_json)
+        if world is None or not isinstance(actor, unreal.Actor) or actor.get_world() != world:
+            raise RuntimeError("目标必须是当前 PIE 世界中已存在的 Actor")
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", function_name) or not isinstance(arguments, list):
+            raise RuntimeError("函数名或位置参数数组无效")
+        result = actor.call_method(function_name, tuple(arguments))
+        return json.dumps({"actor": actor_path, "function": function_name, "result": _serialize_value(result)}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def capture_pie_player_view(file_name: str, width: int = 1280, height: int = 720, player_index: int = 0) -> str:
+        """使用玩家实际视点与视野渲染截图 不包含界面 不修改资产"""
+        if not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*\.png", file_name, re.IGNORECASE):
+            raise RuntimeError("文件名必须为不包含目录的 PNG 名称")
+        if width < 64 or height < 64 or width > 2048 or height > 2048:
+            raise RuntimeError("截图尺寸必须在六十四至二千零四十八之间")
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if world is None:
+            raise RuntimeError("PIE 尚未运行")
+        manager = unreal.GameplayStatics.get_player_camera_manager(world, player_index)
+        if manager is None:
+            raise RuntimeError("玩家相机不存在")
+        directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "Diagnostics", "PlayerView"))
+        path = os.path.join(directory, file_name)
+        if os.path.exists(path):
+            raise RuntimeError("截图文件已存在 请使用新的文件名")
+        location = manager.get_camera_location()
+        rotation = manager.get_camera_rotation()
+        fov = manager.get_fov_angle()
+        actor = unreal.BBBBlueprintEditorLibrary.spawn_transient_pie_actor(
+            world, unreal.SceneCapture2D, unreal.Transform(location=location, rotation=rotation))
+        if actor is None:
+            raise RuntimeError("无法创建临时相机截图组件")
+        try:
+            target = unreal.RenderingLibrary.create_render_target2d(
+                world, width, height, unreal.TextureRenderTargetFormat.RTF_RGBA8)
+            component = actor.capture_component2d
+            component.set_editor_property("texture_target", target)
+            component.set_editor_property("capture_source", unreal.SceneCaptureSource.SCS_FINAL_COLOR_LDR)
+            component.set_editor_property("fov_angle", fov)
+            component.capture_scene()
+            os.makedirs(directory, exist_ok=True)
+            unreal.RenderingLibrary.export_render_target(world, target, directory, file_name)
+            if not os.path.isfile(path):
+                raise RuntimeError("截图未生成 请使用启用渲染的编辑器")
+            return json.dumps({"imagePath": path, "location": _serialize_value(location),
+                "rotation": _serialize_value(rotation), "fov": fov}, ensure_ascii=False)
+        finally:
+            actor.destroy_actor()
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def export_pie_render_target(target_path: str, file_name: str) -> str:
+        """导出当前 PIE 本地玩家持有的临时渲染目标"""
+        if not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*\.png", file_name, re.IGNORECASE):
+            raise RuntimeError("文件名必须为不包含目录的 PNG 名称")
+
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if world is None:
+            raise RuntimeError("PIE 尚未运行")
+
+        target = unreal.find_object(None, target_path)
+        if not isinstance(target, unreal.TextureRenderTarget2D):
+            raise RuntimeError("目标不是已加载的渲染目标")
+        if target.get_editor_property("render_target_format") != unreal.TextureRenderTargetFormat.RTF_RGBA8:
+            raise RuntimeError("仅支持 RTF_RGBA8 目标以确保导出文件确实为 PNG")
+
+        owner = target.get_outer()
+        while owner is not None and not isinstance(owner, unreal.LocalPlayer):
+            owner = owner.get_outer()
+        if owner is None:
+            raise RuntimeError("目标不属于本地玩家")
+
+        directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "Diagnostics", "PreviewTarget"))
+        path = os.path.join(directory, file_name)
+        if os.path.exists(path):
+            raise RuntimeError("截图文件已存在 请使用新的文件名")
+
+        os.makedirs(directory, exist_ok=True)
+        unreal.RenderingLibrary.export_render_target(world, target, directory, file_name)
+        if not os.path.isfile(path):
+            raise RuntimeError("截图未生成 请使用启用渲染的编辑器")
+
+        return json.dumps({
+            "imagePath": path,
+            "target": target_path,
+            "width": target.get_editor_property("size_x"),
+            "height": target.get_editor_property("size_y"),
+        }, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def duplicate_loaded_actors_to_current_level(actor_paths: list[str]) -> str:
+        """将已加载关卡的指定对象独立复制到当前关卡"""
+        if not actor_paths:
+            raise RuntimeError("对象路径不能为空")
+
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+        if world is None:
+            raise RuntimeError("当前编辑器世界不可用")
+
+        actors = []
+        for actor_path in actor_paths:
+            actor = unreal.find_object(None, actor_path)
+            if not isinstance(actor, unreal.Actor) or not unreal.SystemLibrary.is_valid(actor):
+                raise RuntimeError("源对象未加载或无效: {}".format(actor_path))
+
+            if actor.get_world() == world:
+                raise RuntimeError("源对象已经位于当前关卡: {}".format(actor_path))
+
+            actors.append(actor)
+
+        subsystem = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+        duplicated = subsystem.duplicate_actors(actors, world, unreal.Vector(0.0, 0.0, 0.0))
+        if len(duplicated) != len(actors):
+            raise RuntimeError("对象复制数量不符 预期 {} 实际 {}".format(len(actors), len(duplicated)))
+
+        return json.dumps(
+            {"duplicated": [actor.get_path_name() for actor in duplicated]},
+            ensure_ascii=False,
+        )
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def refresh_material_instances(asset_paths: list[str]) -> str:
+        """刷新材质实例缓存并强制保存指定资产"""
+        if not asset_paths:
+            raise RuntimeError("资产路径不能为空")
+
+        results = []
+        for asset_path in asset_paths:
+            asset = unreal.EditorAssetLibrary.load_asset(asset_path)
+            if not isinstance(asset, unreal.MaterialInstanceConstant):
+                raise RuntimeError("资产不是材质实例: {}".format(asset_path))
+
+            unreal.MaterialEditingLibrary.update_material_instance(asset)
+            saved = unreal.EditorAssetLibrary.save_asset(asset_path, only_if_is_dirty=False)
+            if not saved:
+                raise RuntimeError("材质实例保存失败: {}".format(asset_path))
+
+            results.append(asset.get_path_name())
+
+        return json.dumps({"refreshed": results}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def inspect_dirty_packages() -> str:
+        """只读列出未保存的内容包和关卡包，供编辑器生命周期操作前检查"""
+        packages = list(unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages())
+        packages.extend(unreal.EditorLoadingAndSavingUtils.get_dirty_map_packages())
+        return json.dumps(sorted({package.get_path_name() for package in packages}), ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def inspect_asset_properties(
+        asset_paths: list[str],
+        property_names: list[str],
+    ) -> str:
+        """只读读取任意 UE 资产的类型、路径和指定编辑器属性"""
+        if not asset_paths:
+            raise RuntimeError("资产路径不能为空")
+
+        requested_properties = [str(name) for name in property_names]
+        results = []
+        for asset_path in asset_paths:
+            if not asset_path:
+                raise RuntimeError("资产路径不能包含空值")
+
+            asset = unreal.EditorAssetLibrary.load_asset(asset_path)
+            if asset is None:
+                raise RuntimeError("资产不存在: {}".format(asset_path))
+
+            properties = {}
+            property_errors = {}
+            for property_name in requested_properties:
+                if not property_name:
+                    property_errors["<empty>"] = "属性名不能为空"
+                    continue
+
+                try:
+                    value = asset.get_editor_property(property_name)
+                    properties[property_name] = _serialize_value(value)
+                except Exception as error:
+                    property_errors[property_name] = str(error)
+
+            results.append(
+                {
+                    "assetPath": asset.get_path_name(),
+                    "classPath": asset.get_class().get_path_name(),
+                    "properties": properties,
+                    "propertyErrors": property_errors,
+                }
+            )
+
+        return json.dumps(
+            {
+                "assets": results,
+                "propertyNames": requested_properties,
+                "readOnly": True,
+            },
+            ensure_ascii=False,
+        )
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def set_asset_object_property(asset_path: str, property_name: str, object_path: str) -> str:
+        """
+        /**
+         * 为已签出的资产设置单个对象引用属性
+         * @param asset_path	目标资产路径
+         * @param property_name	目标属性名称
+         * @param object_path	引用对象路径
+         * @return 保存后的属性值
+         */
+        """
+        from toolset_registry.helpers import require_editable
+
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止修改资产引用")
+
+        asset = unreal.EditorAssetLibrary.load_asset(asset_path)
+        target = unreal.EditorAssetLibrary.load_asset(object_path)
+        if asset is None or target is None or not property_name:
+            raise RuntimeError("目标资产 引用对象或属性名称无效")
+        require_editable(asset)
+
+        current = asset.get_editor_property(property_name)
+        if current is not None and not isinstance(current, unreal.Object):
+            raise RuntimeError("目标属性不是对象引用")
+
+        with unreal.ScopedEditorTransaction("设置资产对象引用"):
+            asset.modify()
+            asset.set_editor_property(property_name, target)
+
+        if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
+            raise RuntimeError("保存资产对象引用失败")
+        value = asset.get_editor_property(property_name)
+        return json.dumps({"asset": asset_path, "property": property_name,
+            "value": value.get_path_name() if value else None}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def set_asset_transform_property(asset_path: str, property_name: str, transform_json: str) -> str:
+        """
+        /**
+         * 为已签出的资产设置单个变换属性
+         * @param asset_path	目标资产路径
+         * @param property_name	变换属性名称
+         * @param transform_json	位置旋转和缩放数组
+         * @return 保存后的变换文本
+         */
+        """
+        from toolset_registry.helpers import require_editable
+
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止修改资产变换")
+
+        asset = unreal.EditorAssetLibrary.load_asset(asset_path)
+        if asset is None or not property_name:
+            raise RuntimeError("目标资产或属性名称无效")
+        require_editable(asset)
+
+        current = asset.get_editor_property(property_name)
+        if not isinstance(current, unreal.Transform):
+            raise RuntimeError("目标属性不是变换")
+
+        values = json.loads(transform_json)
+        location = values.get("location")
+        rotation = values.get("rotation")
+        scale = values.get("scale", [1.0, 1.0, 1.0])
+        if any(not isinstance(item, list) or len(item) != 3 for item in (location, rotation, scale)):
+            raise RuntimeError("变换必须提供三个长度为三的数组")
+
+        components = [float(value) for item in (location, rotation, scale) for value in item]
+        if not all(math.isfinite(value) for value in components):
+            raise RuntimeError("变换包含无效数值")
+        if any(value <= 0.0 for value in components[6:9]):
+            raise RuntimeError("变换缩放必须为正数")
+
+        transform = unreal.Transform(
+            location=unreal.Vector(*components[0:3]),
+            rotation=unreal.Rotator(
+                pitch=components[3],
+                yaw=components[4],
+                roll=components[5],
+            ),
+            scale=unreal.Vector(*components[6:9]),
+        )
+        with unreal.ScopedEditorTransaction("设置资产变换属性"):
+            asset.modify()
+            asset.set_editor_property(property_name, transform)
+
+        if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
+            raise RuntimeError("保存资产变换失败")
+        saved = asset.get_editor_property(property_name)
+        if not isinstance(saved, unreal.Transform):
+            raise RuntimeError("保存后变换属性无效")
+        return json.dumps({"asset": asset_path, "property": property_name,
+            "value": saved.export_text()}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def inspect_static_mesh_bounds(asset_path: str) -> str:
+        """
+        /**
+         * 只读返回静态网格的局部包围盒
+         * @param asset_path	静态网格资产路径
+         * @return 网格包围盒
+         */
+        """
+        asset = unreal.EditorAssetLibrary.load_asset(asset_path)
+        if not isinstance(asset, unreal.StaticMesh):
+            raise RuntimeError("资产不是静态网格")
+
+        bounds = asset.get_bounds()
+        return json.dumps({
+            "asset": asset_path,
+            "origin": list(bounds.origin.to_tuple()),
+            "extent": list(bounds.box_extent.to_tuple()),
+        }, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def inspect_pie_hand_attachments(bone_names: list[str]) -> str:
+        """
+        /**
+         * 只读检查本地角色手部骨骼和附着静态网格
+         * @param bone_names	需要读取的手部骨骼名称
+         * @return 骨骼与附着网格的世界变换
+         */
+        """
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if world is None:
+            raise RuntimeError("PIE 尚未运行")
+
+        pawn = unreal.GameplayStatics.get_player_pawn(world, 0)
+        if pawn is None or not bone_names:
+            raise RuntimeError("本地角色或骨骼名称无效")
+
+        meshes = [component for component in pawn.get_components_by_class(unreal.SkeletalMeshComponent)
+                  if component.get_name() == "CharacterMesh0"]
+        hand_mesh = meshes[0] if len(meshes) == 1 else None
+        if hand_mesh is None or any(hand_mesh.get_bone_index(name) < 0 for name in bone_names):
+            raise RuntimeError("角色主网格缺少指定手部骨骼")
+        bones = {name: hand_mesh.get_socket_transform(name).export_text() for name in bone_names}
+        attachments = []
+        for component in hand_mesh.get_children_components(True):
+            if not isinstance(component, unreal.StaticMeshComponent):
+                continue
+
+            static_mesh = component.get_editor_property("static_mesh")
+            attachments.append({
+                "component": component.get_path_name(),
+                "mesh": static_mesh.get_path_name() if static_mesh else None,
+                "socket": str(component.get_attach_socket_name()),
+                "relativeTransform": component.get_relative_transform().export_text(),
+                "worldTransform": component.get_socket_transform(unreal.Name("None")).export_text(),
+            })
+
+        return json.dumps({"pawn": pawn.get_path_name(), "bones": bones,
+            "attachments": attachments}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def inspect_pie_actor_skeletal_bones(class_path: str, bone_names: list[str]) -> str:
+        """只读返回 PIE 中指定 Actor 的骨骼网格骨骼世界变换"""
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        actor_class = unreal.load_class(None, class_path)
+        if world is None or actor_class is None or not bone_names:
+            raise RuntimeError("PIE 世界 Actor 类或骨骼名无效")
+
+        actors = unreal.GameplayStatics.get_all_actors_of_class(world, actor_class)
+        result = []
+        for actor in actors:
+            meshes = actor.get_components_by_class(unreal.SkeletalMeshComponent)
+            for mesh in meshes:
+                if any(mesh.get_bone_index(name) < 0 for name in bone_names):
+                    continue
+                result.append({
+                    "actor": actor.get_path_name(),
+                    "mesh": mesh.get_path_name(),
+                    "bones": {name: mesh.get_socket_transform(name).export_text() for name in bone_names},
+                })
+
+        return json.dumps({"class": class_path, "instances": result}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def inspect_pie_bone_alignment(class_path: str, actor_bone_name: str, pawn_bone_name: str) -> str:
+        """只读计算 PIE 中装备骨骼相对本地角色骨骼的变换"""
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        actor_class = unreal.load_class(None, class_path)
+        if world is None or actor_class is None:
+            raise RuntimeError("PIE 世界或 Actor 类无效")
+
+        pawn = unreal.GameplayStatics.get_player_pawn(world, 0)
+        if pawn is None:
+            raise RuntimeError("本地角色不存在")
+
+        hand_mesh = next((mesh for mesh in pawn.get_components_by_class(unreal.SkeletalMeshComponent)
+                          if mesh.get_bone_index(pawn_bone_name) >= 0), None)
+        if hand_mesh is None:
+            raise RuntimeError("角色骨骼不存在")
+
+        for actor in unreal.GameplayStatics.get_all_actors_of_class(world, actor_class):
+            if actor.get_owner() != pawn:
+                continue
+            for mesh in actor.get_components_by_class(unreal.SkeletalMeshComponent):
+                if mesh.get_bone_index(actor_bone_name) < 0:
+                    continue
+                actor_world = mesh.get_socket_transform(actor_bone_name)
+                pawn_world = hand_mesh.get_socket_transform(pawn_bone_name)
+                relative = unreal.MathLibrary.make_relative_transform(actor_world, pawn_world)
+                return json.dumps({
+                    "actor": actor.get_path_name(),
+                    "actorBone": actor_world.export_text(),
+                    "pawnBone": pawn_world.export_text(),
+                    "relative": relative.export_text(),
+                }, ensure_ascii=False)
+
+        raise RuntimeError("本地角色未持有指定 Actor 骨骼")
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def inspect_blueprint_class_defaults(
+        asset_paths: list[str],
+        property_names: list[str],
+    ) -> str:
+        """只读读取蓝图生成类默认对象的指定属性"""
+        if not asset_paths:
+            raise RuntimeError("资产路径不能为空")
+
+        requested_properties = [str(name) for name in property_names]
+        results = []
+        for asset_path in asset_paths:
+            blueprint, generated_class, default_object = _load_blueprint_default_object(asset_path)
+            properties = {}
+            property_errors = {}
+            for property_name in requested_properties:
+                if not property_name:
+                    property_errors["<empty>"] = "属性名不能为空"
+                    continue
+
+                try:
+                    value = default_object.get_editor_property(property_name)
+                    properties[property_name] = _serialize_value(value)
+                except Exception as error:
+                    property_errors[property_name] = str(error)
+
+            results.append(
+                {
+                    "assetPath": blueprint.get_path_name(),
+                    "generatedClass": generated_class.get_path_name(),
+                    "defaultObject": default_object.get_path_name(),
+                    "properties": properties,
+                    "propertyErrors": property_errors,
+                }
+            )
+
+        return json.dumps(
+            {
+                "assets": results,
+                "propertyNames": requested_properties,
+                "readOnly": True,
+            },
+            ensure_ascii=False,
+        )
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def set_blueprint_class_defaults(asset_path: str, values_json: str) -> str:
+        """校验后更新蓝图生成类默认对象属性并编译保存"""
+        from toolset_registry.helpers import require_editable
+        from editor_toolset.toolsets.asset import AssetTools
+
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 运行期间禁止修改蓝图默认值")
+
+        values = json.loads(values_json)
+        if not isinstance(values, dict) or not values:
+            raise RuntimeError("默认值配置必须是非空对象")
+
+        blueprint, generated_class, default_object = _load_blueprint_default_object(asset_path)
+        require_editable(blueprint)
+        if not AssetTools.is_checked_out(asset_path):
+            raise RuntimeError("修改前必须独占签出目标蓝图")
+
+        for property_name in values:
+            default_object.get_editor_property(str(property_name))
+
+        with unreal.ScopedEditorTransaction("更新蓝图类默认值"):
+            blueprint.modify()
+            default_object.modify()
+
+            for property_name, requested_value in values.items():
+                _apply_editor_property(default_object, str(property_name), requested_value)
+
+        unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
+        if blueprint.get_editor_property("status") == unreal.BlueprintStatus.BS_ERROR:
+            raise RuntimeError("蓝图编译失败 禁止保存: {}".format(asset_path))
+
+        if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
+            raise RuntimeError("蓝图保存失败: {}".format(asset_path))
+
+        return BBBGenericEditorToolset.inspect_blueprint_class_defaults(
+            [asset_path],
+            [str(name) for name in values],
+        )
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def remove_input_action_mappings(mapping_context_path: str, action_paths: list[str]) -> str:
+        """从输入映射中移除指定动作的全部按键映射 保留其它映射原样"""
+        from toolset_registry.helpers import require_editable
+
+        if not action_paths or len(set(action_paths)) != len(action_paths):
+            raise RuntimeError("必须提供不重复的输入动作路径")
+
+        context = unreal.EditorAssetLibrary.load_asset(mapping_context_path)
+        if not isinstance(context, unreal.InputMappingContext):
+            raise RuntimeError("目标不是输入映射资产")
+
+        require_editable(context)
+        default_data = context.get_editor_property("default_key_mappings")
+        default_mappings = list(default_data.get_editor_property("mappings"))
+        legacy_mappings = list(context.get_editor_property("mappings"))
+        removed = []
+
+        for mapping in default_mappings + legacy_mappings:
+            action = mapping.get_editor_property("action")
+            action_path = action.get_path_name() if action else None
+            if action_path and action_path.split(".")[0] in action_paths:
+                removed.append(action_path)
+
+        missing = set(action_paths) - {path.split(".")[0] for path in removed}
+        if missing:
+            raise RuntimeError("输入映射未找到动作: {}".format(", ".join(sorted(missing))))
+
+        with unreal.ScopedEditorTransaction("移除输入动作映射"):
+            context.modify()
+
+            for action_path in action_paths:
+                action = unreal.EditorAssetLibrary.load_asset(action_path)
+                if not isinstance(action, unreal.InputAction):
+                    raise RuntimeError("输入动作不存在: {}".format(action_path))
+
+                context.unmap_all_keys_from_action(action)
+
+            remaining_legacy = []
+            for mapping in legacy_mappings:
+                action = mapping.get_editor_property("action")
+                action_path = action.get_path_name() if action else None
+                if action_path and action_path.split(".")[0] in action_paths:
+                    continue
+
+                remaining_legacy.append(mapping)
+
+            context.set_editor_property("mappings", remaining_legacy)
+
+        remaining_default = list(context.get_editor_property("default_key_mappings").get_editor_property("mappings"))
+        for mapping in remaining_default:
+            action = mapping.get_editor_property("action")
+            if action and action.get_path_name().split(".")[0] in action_paths:
+                raise RuntimeError("输入动作仍存在于默认映射 禁止继续删除资产")
+
+        if not unreal.EditorAssetLibrary.save_loaded_asset(context):
+            raise RuntimeError("输入映射保存失败")
+
+        return json.dumps({"asset": context.get_path_name(), "removed": removed,
+            "remainingCount": len(remaining_default)}, ensure_ascii=False)
+
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def create_channel_sprite_system(channel_path: str, system_path: str) -> str:
+        """通过原生 Niagara 图表 API 创建空间通道批量线段光效 拒绝覆盖"""
+        from toolset_registry.helpers import require_editable
+
+        channel = unreal.EditorAssetLibrary.load_asset(channel_path)
+        if channel is None or not system_path.startswith("/Game/"):
+            raise RuntimeError("通道必须存在 系统路径必须位于 Game")
+
+        require_editable(channel)
+        return unreal.BBBNiagaraEditorLibrary.create_channel_sprite_system(channel_path, system_path)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def set_struct_array_object(object_path: str, array_property: str, index: int,
+                                object_property: str, class_path: str, properties_json: str = "{}") -> str:
+        """为结构体数组的指定元素创建实例化子对象 不影响其它字段"""
+        from toolset_registry.helpers import require_editable
+
+        target = unreal.load_object(None, object_path)
+        if target is None:
+            raise RuntimeError("对象不存在")
+
+        require_editable(target)
+        values = list(target.get_editor_property(array_property))
+        if index < 0 or index >= len(values):
+            raise RuntimeError("数组下标越界")
+
+        subobject = unreal.new_object(unreal.load_class(None, class_path), outer=target)
+        if not unreal.ToolsetLibrary.set_object_properties(subobject, properties_json):
+            raise RuntimeError("子对象属性配置失败")
+
+        target.modify()
+        values[index].set_editor_property(object_property, subobject)
+        target.set_editor_property(array_property, values)
+        return subobject.get_path_name()
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def inspect_pie_actor_properties(class_path: str, property_paths: list[str]) -> str:
+        """只读检查所有 PIE 世界指定 Actor 类型的属性 数组仅返回数量与前三项"""
+        actor_class = unreal.load_class(None, class_path)
+        results = []
+        for world in unreal.EditorLevelLibrary.get_pie_worlds(False):
+            actors = unreal.GameplayStatics.get_all_actors_of_class(world, actor_class)
+            items = []
+            for actor in actors[:3]:
+                values = {}
+                for path in property_paths:
+                    try:
+                        value = actor
+                        for field in path.split("."):
+                            value = value.get_editor_property(field)
+
+                        if isinstance(value, (list, tuple, unreal.Array)):
+                            values[path] = {"count": len(value), "sample": [_serialize_value(item) for item in list(value)[:3]]}
+                        else:
+                            values[path] = _serialize_value(value)
+                    except Exception as error:
+                        values[path] = {"error": str(error)}
+                items.append({"path": actor.get_path_name(), "values": values})
+            results.append({"world": world.get_path_name(), "count": len(actors), "actors": items})
+        return json.dumps(results, ensure_ascii=False)
+
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def inspect_pie_niagara_system(system_path: str) -> str:
+        """只读检查指定系统的 PIE 光效组件与粒子数量"""
+        return unreal.BBBNiagaraEditorLibrary.inspect_pie_system(system_path)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def set_niagara_spawn_update_mode(system_path: str, mode: int) -> str:
+        """设置原生首帧更新模式 0 跳过首帧更新 1 执行更新 2 插值更新"""
+        from toolset_registry.helpers import require_editable
+
+        system = unreal.EditorAssetLibrary.load_asset(system_path)
+        if system is None:
+            raise RuntimeError("系统资产不存在")
+
+        require_editable(system)
+        return unreal.BBBNiagaraEditorLibrary.set_spawn_update_mode(system_path, mode)
+
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def inspect_niagara_graphs(system_path: str) -> str:
+        """只读导出系统内节点引脚与连接"""
+        return unreal.BBBNiagaraEditorLibrary.inspect_graphs(system_path)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def set_niagara_pin_default(system_path: str, node_path: str, pin_name: str, value: str) -> str:
+        """修改系统内未连接引脚默认值并保存"""
+        from toolset_registry.helpers import require_editable
+
+        system = unreal.EditorAssetLibrary.load_asset(system_path)
+        if system is None or not node_path.startswith(system.get_path_name() + ":"):
+            raise RuntimeError("节点必须属于指定系统")
+
+        require_editable(system)
+        return unreal.BBBNiagaraEditorLibrary.set_pin_default(node_path, pin_name, value)
+
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def bind_niagara_channel_reader(system_path: str, channel_path: str) -> str:
+        """将共享通道读取器绑定到发射器参数并保存"""
+        from toolset_registry.helpers import require_editable
+
+        system = unreal.EditorAssetLibrary.load_asset(system_path)
+        if system is None:
+            raise RuntimeError("系统不存在")
+
+        require_editable(system)
+        return unreal.BBBNiagaraEditorLibrary.bind_channel_reader(system_path, channel_path)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def set_niagara_channel_reader_frame_mode(system_path: str, read_current_frame: bool) -> str:
+        """
+        /**
+         * 设置系统内通道读取帧并编译保存 拒绝覆盖未保存改动
+         * @param system_path		系统资产路径
+         * @param read_current_frame	是否读取当前帧
+         * @return 编译与保存结果
+         */
+        """
+        from toolset_registry.helpers import require_editable
+
+        if unreal.EditorLevelLibrary.get_pie_worlds(False):
+            raise RuntimeError("PIE 期间禁止修改光效读取帧")
+
+        system = unreal.EditorAssetLibrary.load_asset(system_path)
+        if not isinstance(system, unreal.NiagaraSystem):
+            raise RuntimeError("资产不是 Niagara 系统")
+
+        dirty_packages = unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()
+        system_package_path = system.get_path_name().split(".", 1)[0]
+        if system_package_path in {package.get_path_name() for package in dirty_packages}:
+            raise RuntimeError("系统存在未保存改动 请先保存")
+
+        require_editable(system)
+        result = unreal.BBBNiagaraEditorLibrary.set_channel_reader_frame_mode(system_path, read_current_frame)
+        if result.startswith("失败"):
+            raise RuntimeError(result)
+
+        return result
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def configure_persistent_projectile_tracer(system_path: str, channel_path: str) -> str:
+        """将已有共享子弹系统配置为每颗子弹持续更新同一光段"""
+        from toolset_registry.helpers import require_editable
+
+        system = unreal.EditorAssetLibrary.load_asset(system_path)
+        channel = unreal.EditorAssetLibrary.load_asset(channel_path)
+        if system is None or channel is None:
+            raise RuntimeError("子弹光效系统或通道不存在")
+
+        require_editable(system)
+        require_editable(channel)
+        return unreal.BBBNiagaraEditorLibrary.configure_persistent_projectile_tracer(
+            system_path, channel_path)
+
+
+_registration = Registration([BBBGenericEditorToolset])
+
+if __name__ == "__bbb_editor_script__":
+    def register_after_reload(delta_seconds):
+        _registration.unregister()
+        _registration.register()
+        unreal.unregister_slate_post_tick_callback(registration_handle)
+
+    registration_handle = unreal.register_slate_post_tick_callback(register_after_reload)

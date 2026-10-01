@@ -1,0 +1,223 @@
+# BBB 通用编辑器 MCP
+
+工具集名称：`Game.Scripts.BBBGenericEditorToolset.BBBGenericEditorToolset`
+
+## bind_niagara_channel_reader
+
+参数 system_path channel_path
+在发射器生成图表创建共享的 Emitter.Channel 读取器 用于数据通道生成与读取的编译期绑定
+仅对尚未绑定该参数的系统调用 修改前要求独占签出 完成后编译保存
+
+## set_niagara_channel_reader_frame_mode
+
+参数 `system_path` 与 `read_current_frame`
+
+统一设置指定 Niagara 系统内的数据通道读取器 包含源图与编译缓存 然后重编译并保存
+`true` 读取当前帧 `false` 读取上一帧
+仅在无 PIE 且目标资产没有未保存改动时调用 要求已独占签出 不修改其它资产
+读取当前帧时 调用方必须保证通道发布先于光效模拟 工具不会替运行时代码建立 Tick 依赖
+
+## inspect_niagara_graphs 与 set_niagara_pin_default
+
+inspect_niagara_graphs 使用 system_path 读取系统内部节点 引脚 默认值与连接
+结果开头还会列出脚本编译状态：2 为错误 3 为最新 5 为带警告的最新 6 为计算脚本带警告的最新
+set_niagara_pin_default 使用 system_path node_path pin_name value 修改未连接输入引脚
+节点必须来自该系统图表的检查结果 系统必须独占签出 修改后编译并保存
+
+## set_niagara_spawn_update_mode
+
+参数 system_path 与 mode
+mode 为原生模式 0 跳过新粒子的首帧更新 1 执行首帧更新 2 插值更新
+作用于系统内全部发射器 修改前要求独占签出 完成后重新编译并保存
+
+## inspect_pie_niagara_system
+
+参数 system_path 为完整 Niagara 系统对象路径
+只读列出 PIE 组件的激活状态 粒子数量 位置与边界
+原生检查会等待当前并行模拟结束 不改变资产
+
+## inspect_pie_actor_properties
+
+只读检查所有 PIE 世界中指定 class_path 的 Actor
+property_paths 支持以点分隔的反射属性路径 数组返回数量与前三项 避免大量实例刷屏
+返回每个世界的对象数量以及前三个对象的属性样本
+
+## set_struct_array_object
+
+在已签出对象的结构体数组指定元素上创建实例化子对象
+参数为 object_path array_property index object_property class_path properties_json
+不修改数组中其它元素 调用后使用 save_assets 保存宿主包
+
+## create_channel_sprite_system
+
+为尚未配置的 Niagara Data Channel 创建 Islands 子对象和共享的线段 Sprite 系统
+参数 `channel_path` 指向已有空通道 `system_path` 指向尚不存在的 Game 系统路径
+数据字段固定为 Position SpriteAlignment SpriteSize Color 可用于任意批量线段表现
+原生图表操作由 BBBNiagaraEditorLibrary 执行 调用入口在 Scripts 注册
+拒绝覆盖已有系统与已配置通道 完成后保存两份资产
+
+## configure_persistent_projectile_tracer
+
+参数 `system_path` 指向已有共享子弹 Niagara 系统 `channel_path` 指向其数据通道
+
+把数据通道改为全局共享记录 并让粒子生成时记住槽位 后续每帧从同一槽位更新光段 命中时结束
+
+要求两份资产均已完成 Perforce 独占签出 工具只修改并保存这两份指定资产 无 PIE 时调用
+
+## set_instanced_struct_array
+
+为指定资产结构体中的实例化对象数组创建真实子对象并保存
+参数为 `asset_path` `struct_property` `array_property` `instances_json`
+JSON 数组每项包含 `class` 原生类路径和可选的 `properties` 属性对象
+适用于 Mass 配置的 `config.traits` 等实例数组
+拒绝空引用并在写回后核对实际对象
+修改现有资产前要求已独占签出
+
+## create_asset_with_factory
+
+使用原生工厂创建尚不存在的 Game 资产并保存
+参数为 `asset_path` `asset_class_path` `factory_class_path` 和可选的 `factory_properties_json`
+拒绝覆盖已有资产
+
+## import_files_from_directory
+
+参数为本地 `source_directory` `destination_path` `extensions_json` 和可选的 `recursive`
+按扩展名调用 UE 原生资产工厂批量导入文件 保留源目录层级并保存生成资产
+`extensions_json` 为 JSON 字符串数组 例如 `["wav"]` 或 `[".wav"]`
+目标必须是空的 `/Game/` 目录 工具拒绝覆盖 重名或超出 5000 个文件的任务
+源目录和文件名中的非字母数字 下划线或连字符字符会转换为下划线以符合 UE 资产路径要求
+单个源文件未生成资产或生成路径不在目标目录时会报警并停止保存
+
+## reimport_sound_waves
+
+参数为本地 `source_directory` 目标 `/Game/` 内容目录 `destination_path` 可选 `source_suffix` 默认 `_Shot` 和 `recursive` 默认 `true`
+按源目录层级寻找 `<原资产名>_Shot.wav` 并原位重导入同名已有 SoundWave 保留资产路径与引用
+重导入前验证全部源文件 目标类型 可编辑状态及未保存状态 限制单次最多 256 个
+每个资产重导入后检查原路径与有效时长 仅保存该目标资产 失败时报警并停止 后续可重试
+不会保存目标目录外的未保存资产 也不会创建新资产
+
+## inspect_pie_player_control
+
+只读检查当前 PIE 中指定玩家的控制器本地性 人物控制状态 视角目标 以及所属组件的激活和 Tick 状态
+参数 `player_index` 默认为 `0` 未启动 PIE 或玩家不存在时明确报错 不修改资产或游戏状态
+
+输出包含默认输入映射与鼠标指针显示状态 属性读取失败写入 `inputPropertyErrors` 不把读取失败视为空引用
+
+`camera` 返回玩家实际视点 FOV 以及视角目标上的相机臂当前长度 遮挡检测开关 遮挡收缩状态和未遮挡位置 用于核对真实玩家视角而不是外部拍摄视角
+
+## capture_pie_player_view
+
+按当前玩家相机管理器的实际位置 旋转和 FOV 生成无 UI 的场景截图 用于视角构图验证 不是视口像素截图 不包含 HUD 与相机后处理效果保证
+参数 `file_name` 必填且必须是新的 PNG 文件名 `width` 默认 1280 `height` 默认 720 `player_index` 默认 0
+输出保存到 `Saved/Diagnostics/PlayerView` 仅在当前 PIE 创建临时 SceneCapture 并在完成或失败后销毁 不修改地图资产 需要启用渲染的宿主
+
+## resize_pie_window
+
+参数 `width` 与 `height` 是目标 PIE 渲染视口像素尺寸
+仅调整唯一浮动 PIE 窗口 不调整编辑器主窗口 不改变桌面分辨率 不发送桌面输入
+尺寸范围为 320 到 4096 且总像素不超过 8388608 必须正在运行单个浮动 PIE
+调整后读取 FSceneViewport 实际像素并按测量差值修正一次 仍不匹配会报警并返回实际宽高 视口内 PIE 或多个浮动 PIE 会明确拒绝
+用于视觉验收时 先启动浮动 PIE 再调用此工具 然后通过 Slate Snapshot 获取 PIE 视口引用并使用 `capture_editor_screenshot` 保存真实视口截图
+
+## export_pie_render_target
+
+将当前 PIE 本地玩家持有的临时 Render Target 导出为 PNG 用于检查独立预览世界的实际画面 不修改内容资产
+
+参数为 `target_path` 和仅含文件名的 `file_name` 输出位于 `Saved/Diagnostics/PreviewTarget` 仅支持 `RTF_RGBA8` 目标 拒绝无 PIE 非渲染目标 非本地玩家持有的目标以及覆盖已有文件
+
+此工具需要启用渲染的单一 UE5.8 MCP 宿主 `-NullRHI` 宿主不能用于像素验收
+
+## invoke_pie_actor_function
+
+调用当前 PIE 世界中指定 Actor 的反射函数 参数为 `actor_path` `function_name` 和 JSON 位置参数数组 `arguments_json` 默认 `[]`
+仅接受当前 PIE 中已加载 Actor 拒绝编辑器对象 此工具会改变运行时状态 调用前必须确认函数语义与任务授权 不用于资产保存或编辑器生命周期管理
+
+## inspect_asset_properties
+
+只读读取一个或多个 UE 资产的完整路径、类路径和指定编辑器属性。
+
+```json
+{
+    "asset_paths": ["/Game/BBBC/AnimationSystem/Layers/ABP_BBB_LocomotionLayer_Base"],
+    "property_names": ["target_skeleton", "preview_mesh"]
+}
+```
+
+工具不会修改、保存或签出资产。属性读取失败会写入 `propertyErrors`，不会伪造属性值。
+
+## inspect_blueprint_class_defaults
+
+只读读取一个或多个蓝图生成类默认对象的指定属性 用于检查继承变量在具体蓝图类上的最终默认值
+参数 `asset_paths` 是蓝图资产路径数组 `property_names` 是属性名数组
+输出同时包含生成类和默认对象路径 属性读取失败写入 `propertyErrors` 不修改或保存资产
+
+## set_blueprint_class_defaults
+
+更新一个蓝图生成类默认对象的指定属性 编译蓝图并在无编译错误后保存
+参数 `asset_path` 是蓝图资产路径 `values_json` 是属性名到目标值的 JSON 对象字符串
+结构体属性使用嵌套对象表达 对象引用使用 `{"refPath":"/Game/...Asset.Asset"}` 表达
+工具拒绝 PIE 期间修改 未独占签出 无效属性 无效引用 编译失败和保存失败
+调用后必须使用 `inspect_blueprint_class_defaults` 与 PIE 运行时探针核对最终值和实际动画播放器
+
+## remove_input_action_mappings
+
+按动作资产包路径移除输入映射中的全部对应按键 保留其它映射及其修饰器和触发器
+参数 `mapping_context_path` 是输入映射资产路径 `action_paths` 是待移除动作包路径数组
+调用前须完成输入映射资产的 Perforce 独占签出 工具会拒绝缺失动作与重复路径 成功后保存该输入映射资产
+UE5.8 以 `DefaultKeyMappings` 为实际映射来源 工具调用引擎的 `unmap_all_keys_from_action` 并清理旧 `Mappings` 字段 避免表面移除但运行时仍生效
+
+## refresh_material_instances
+
+刷新指定材质实例的缓存并强制保存，用于修改父材质或纹理参数后清理持久化的旧引用。只接受材质实例路径；类型错误或保存失败会明确报错。调用前须完成 Perforce 独占签出，新建资产须已纳入工作区。
+
+```json
+{
+    "asset_paths": ["/Game/_Project/Environment/ScifiSkies06/Materials/Instances/MI_ScifiSkies_Skybox_Bg_Inst_06"]
+}
+```
+
+## duplicate_loaded_actors_to_current_level
+
+将已加载的其他关卡对象直接复制进当前关卡，返回独立对象路径，不创建 Level Instance 或源关卡引用。调用前须签出当前地图、确认无其他未保存地图，并在返回后校验对象数量与保存目标地图。源对象必须仍加载在编辑器内；无效路径或复制数量不符会报错。
+
+```json
+{
+    "actor_paths": ["/Game/Maps/Source.Source:PersistentLevel.DirectionalLight_0"]
+}
+```
+
+## 蓝图图表语言映射
+
+工具集 `Game.Scripts.BBBBlueprintGraphToolset.BBBBlueprintGraphToolset` 的 `write_graph` 复用官方蓝图 DSL 写入器，解决本地化节点名称和执行引脚类型与英文 DSL 不一致的问题。参数为 `graph_path`、`code`、`node_aliases_json`、`pin_aliases_json`。
+
+节点映射为英文 DSL 类型到当前编辑器实际类型的 JSON 字符串对象。引脚映射为当前编辑器类型到 DSL 类型的对象，例如 `{"执行":"Exec"}`。先使用官方 `find_node_types` 和 `get_node_type_pins` 验证实际名称，不猜测名称。工具只接受 `/Game/` 蓝图直属图表，拒绝 PIE 期间编辑，不修改引擎或编辑器语言。写入会修改目标图表并编译，但不自动保存。失败会明确报警且可能留下部分图表，须检查或撤销，禁止在失败后保存。调用前完成资产独占签出。
+
+编辑器启动由 `Content/Python/init_unreal.py` 注册。已运行宿主可通过 `run_editor_script` 加载该工具集脚本本身完成注册，不创建临时任务脚本。
+
+同工具集的 `inspect_owned_objects(asset_path, class_path)` 只读列出指定资产内部的对象路径和类型。用于查找官方 ObjectTools 自动转为 CDO 后无法访问的蓝图内部对象，例如控件设计树或关卡蓝图。控件附带父控件、可见性和文本，不修改对象。后续编辑仍需使用返回的确切对象路径。
+
+`asset_path` 为空时只读枚举指定类型的已加载对象，可用于定位运行时实例；返回结果包含默认对象和编辑器对象，不能把枚举结果直接当作 PIE 对象修改。
+
+`optimize_blueprint_node_layout(graph_path, horizontal_spacing, vertical_spacing)` 按蓝图图表的输出引脚连线构建拓扑层级，从左到右重新设置节点位置。同层节点按原有位置稳定排序，默认水平间距为 `320`，垂直间距为 `180`，两个间距都必须为正整数且不超过 `10000`。
+
+工具使用编辑器事务并标记蓝图图表修改，但不自动保存资产；调用前完成资产独占签出，完成后由调用方检查图表并保存。工具拒绝 PIE 期间修改，跳过注释节点并在日志与返回值中报告数量。检测到环路时会选择断点继续排版，并通过警告说明该图层只用于视觉排版。
+
+`invoke_pie_object_function(object_path, function_name, arguments_json)` 用于运行时蓝图接口验证，支持组件、控件和子系统持有的对象。目标或其所有者链必须属于当前 PIE 世界，否则拒绝。参数为 JSON 位置参数数组，结果会返回。此工具会改变运行时状态，调用前必须核对函数语义；不得用于编辑器资产编辑。
+
+## 扩展原则
+
+`remove_empty_animation_notify_track(asset_path, track_name)` 支持动画序列和蒙太奇 只删除已清空的指定通知轨道
+工具拒绝 PIE 未独占签出 非动画资产 不存在的轨道和仍含事件的轨道 成功后保存并返回完整通知列表
+重建通知布局时先用 `replace_animation_notify_track` 清空旧事件 再调用本工具删除旧空轨道
+
+### 网格实物缩略图
+
+`render_asset_thumbnails(requests_json)` 接收显式列表 每项为 `source` 网格包路径 `destination` 纹理包路径以及可选 `yaw` 观察方向 默认七十五度 一次最多一百项
+
+工具由 `BBBAssetThumbnailEditorLibrary` 在临时独立场景按真实顶点边界生成 512 方形 PNG 再导入普通 UI Texture2D 每项立即保存 已有目标必须独占签出成功 失败项明确返回 不修改源网格或当前关卡 需要启用渲染的宿主 不支持 NullRHI 组合预设需另行提供实际组合网格
+
+输出源图位于项目 Saved/Diagnostics/AssetThumbnails 纹理不生成 mip 且不流送 用于解决衣物共用骨架导致取景过远的问题
+
+工具拒绝 PIE 期间导入 等待源材质编译完成后分别捕获色调映射后的浮点颜色与反向不透明度 输出带透明背景的实际部件图 导入任务必须返回实际对象路径才允许报告成功 不将已有旧纹理当成新导入结果
+
+遇到现有 MCP 无法完成的功能时，先判断是否只是对象路径、属性名或批量参数不足。能用通用输入表达时，扩展本工具；只有通用接口无法安全表达明确领域语义时，才新增领域工具。新增工具集时更新 `Content/Python/init_unreal.py`；扩展已注册工具集时无需改动注册文件。每次扩展都须更新本文档或 `AGENTS.md`，并通过官方 MCP 的 `list_toolsets`、`describe_toolset`、`call_tool` 验证。

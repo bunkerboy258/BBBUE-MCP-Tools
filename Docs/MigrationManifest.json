@@ -1,0 +1,157 @@
+{
+    "source_root": "E:\\BBB_Evac",
+    "repository_root": "E:\\UE5.8\\BBBUE-MCP-Tools",
+    "source_cleanup": "pending_execution_policy",
+    "source_files_removed": 0,
+    "preserved_remote_parent": "a6ebc05732c95c3239d42040fe8e1a79621844f3",
+    "retired_remote_files": [
+        "BBBUE_McpClient.py",
+        "BBBUE_McpServer.py"
+    ],
+    "files": [
+        {
+            "path": "Scripts/BBBAnimationMigrationToolset.py",
+            "hash": "0D44E344509E7D7DF173C9B1FA82418D74984014048893C994CEE8A23BF35159"
+        },
+        {
+            "path": "Scripts/BBBGenericEditorToolset.py",
+            "hash": "D920B36CF4D5AE87ACB2B05467035F7E21384AFCFEDD5BBAB6937AD7D33B0095"
+        },
+        {
+            "path": "Scripts/BBBControlRigAuthoringToolset.py",
+            "hash": "991078CE4E1874A60B6FC697E8AAF7BDAFD962FBEFEBD278B78BAAD6460279BA"
+        },
+        {
+            "path": "Scripts/BBBExternalToolset.py",
+            "hash": "FC49B457CCE0A38A2C42EB2F0CCCEA1ECAAB020984E1FFE9FB1AC53CB50008C1"
+        },
+        {
+            "path": "Scripts/BBBBlueprintGraphToolset.py",
+            "hash": "EF686714F3883A6759BC7A9B8B34B2E128637D72F1C4CB0CC5C8FF3B0FE80F58"
+        },
+        {
+            "path": "Scripts/BBBLevelEditingToolset.py",
+            "hash": "ED1FE16DBBB5024E361F4E5D0118453C50CC25008BA2934DB96A338E49BA96FE"
+        },
+        {
+            "path": "Scripts/BBBMcpRuntimeToolset.py",
+            "hash": "63C44FDE8B3DAFFF1EB6C48893133E4199C0A447A131B5C190B1E98F8D3C5E94"
+        },
+        {
+            "path": "Scripts/BBBAssetMaintenanceToolset.py",
+            "hash": "EA38E1B280232263396600DF618CC5E28D3A6BA4B5368B56CF1098622C1B806E"
+        },
+        {
+            "path": "Scripts/BBBAnimationMotionTools.py",
+            "hash": "8F038B5650D847A2EFC75A67E71C3F9D101024E2CD1B00A2096AA98116339591"
+        },
+        {
+            "path": "Scripts/BBBAnimationTrajectoryTools.py",
+            "hash": "A2FBC5136088208BD5AC82111FC25FDA8A526D28D564A957910DC50D821F1467"
+        },
+        {
+            "path": "Scripts/BBBArmTwistTools.py",
+            "hash": "002B980E242D7F0969FC081B98CEC27571D428EA9BD88BD0B44B79E7002B5A73"
+        },
+        {
+            "path": "Scripts/ProbeScripts/probe_locomotion_sync_runtime.py",
+            "hash": "344DAF43D6A32A56B22E241F15D1858B8122CFB1A50AD18E6449DBA6DD43269D"
+        },
+        {
+            "path": "Scripts/MCP/mcp_call.py",
+            "hash": "EBF816DCFA6179F9994FB30D2938EB177EBD39EFCA1370EDD30CC9CC2C2E3CD0"
+        },
+        {
+            "path": "Scripts/MCP/Start-UE58OfficialMcpEditor.ps1",
+            "hash": "0180F72C2427A557EEA08212684A682F8556E6C9B03AA57BF63123C06F487AC2"
+        },
+        {
+            "path": "Scripts/MCP/ThirdParty/GenOrca/animation_actions.py",
+            "hash": "9928DA502BDA24D0AFEF6AFBDE084F97C9B17A5BB7A006D744824B244481933A"
+        },
+        {
+            "path": "Scripts/MCP/ThirdParty/GenOrca/control_rig_actions.py",
+            "hash": "CA107F8ACA84460F98100A6AB825314A0A35FF91B610134C2DAB330FB489754A"
+        },
+        {
+            "path": "Scripts/MCP/ThirdParty/GenOrca/data_table_actions.py",
+            "hash": "3D43BAD4213538C0367C993EB94C45E2A7BE9D1AA1860D9ADFF696CC17CB9992"
+        },
+        {
+            "path": "Scripts/MCP/ThirdParty/GenOrca/editor_actions.py",
+            "hash": "59D341FE3C58DBB3F342DA2CF610D4C8BC5221245ADC85256C932996EE8577DA"
+        },
+        {
+            "path": "Scripts/MCP/ThirdParty/GenOrca/game_actions.py",
+            "hash": "C4DFF90049CC2BB9CEA1E6B964B4D449B3F933319E8DE0F4933E2C3622D073C3"
+        },
+        {
+            "path": "Scripts/MCP/ThirdParty/GenOrca/layer_actions.py",
+            "hash": "6FF63BE83652FD127DAE241AD94FDAED4656354A1F41C69D02EC34FDAC646287"
+        },
+        {
+            "path": "Scripts/MCP/ThirdParty/GenOrca/level_actions.py",
+            "hash": "2C3C6BA7A468F2D9E3CB67116229B4A96CEED087D2E60B88E2EC29B40D2AC304"
+        },
+        {
+            "path": "Scripts/MCP/ThirdParty/GenOrca/level_sequence_actions.py",
+            "hash": "D7E37DBD13CFE8018D9F16DF50D48BBA8E247B4F05E08DE7C852C89AA213F98F"
+        },
+        {
+            "path": "Scripts/MCP/ThirdParty/GenOrca/LICENSE.txt",
+            "hash": "1EB85FC97224598DAD1852B5D6483BBCF0AA8608790DCC657A5A2A761AE9C8C6"
+        },
+        {
+            "path": "Scripts/MCP/ThirdParty/GenOrca/retarget_actions.py",
+            "hash": "CA62FC1FDF744F4C4CED68E6E59DBBB7D82C9FF1302C8310AE8231A2A1084E80"
+        },
+        {
+            "path": "Scripts/MCP/ThirdParty/GenOrca/util_actions.py",
+            "hash": "68F7B696C97E7E97A0C6D5CB1DA96E08347A90D17C79298B7E8BCD1A24C20E9D"
+        },
+        {
+            "path": "Scripts/MCP/ThirdParty/GenOrca/vision_actions.py",
+            "hash": "D51106360EF69FB873B00847E16EF609DB9BFDBA992DD90CABB52DAF7AE6B44A"
+        },
+        {
+            "path": "Docs/BBBAnimationMigrationMCP.md",
+            "hash": "C6A563D0EFBDD36A2F5E76322B2D38B896C158AD94BFB169EBF1F0E4BC3B9FF4"
+        },
+        {
+            "path": "Docs/BBBAnimationNotifyMCP.md",
+            "hash": "2FFAA40B494A1D147CEE4E4CB18BC894EF72CF4765F5CA442D94AEAAC7042696"
+        },
+        {
+            "path": "Docs/BBBAssetMaintenanceMCP.md",
+            "hash": "B151F828370D6B39FBCEB64993D6173D7D16EE97176811FDDA6A6CC416F0D68B"
+        },
+        {
+            "path": "Docs/BBBControlRigAuthoringMCP.md",
+            "hash": "D684DBFDA165FC2DF4A6E05902425A9ADAA2C360EE732909150EEA81F6D5D23A"
+        },
+        {
+            "path": "Docs/BBBControlRigMCP.md",
+            "hash": "71B33C680516B6EA9F4EEC333F0C485C2D45A2A3DE17490F9852ECBCAA176F3B"
+        },
+        {
+            "path": "Docs/BBBExternalMcp.md",
+            "hash": "5682BF0D157AC11B3038380746C8E081EED6B486CB33F344B217011D7B8F5B47"
+        },
+        {
+            "path": "Docs/BBBFootIKTurnMCP.md",
+            "hash": "CDB895D847F4709505FA47AAD2953CF53B0CD9E178FF52334A7D9B66142CB2AD"
+        },
+        {
+            "path": "Docs/BBBFunctionThreadSafetyMCP.md",
+            "hash": "87AFB8D6E68CF48A3DEEE1B37F19A3E0D8F464CD69301D9CAE36D85F3A70D7C6"
+        },
+        {
+            "path": "Docs/BBBGenericEditorMCP.md",
+            "hash": "A19CCF6E9FD5E5C07331CBE0328EE7218502A223E93D186A3F16B32637ED7C05"
+        },
+        {
+            "path": "Docs/UnrealMcpCanonical.md",
+            "hash": "8A590F7BD54125C5C2697B8819EFA63E1B9F2E992710054816FA8C7CC0754371"
+        }
+    ]
+}

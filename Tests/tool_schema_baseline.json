@@ -1,0 +1,5241 @@
+{
+  "BBBAnimationMigrationToolset": {
+    "hold_animation_bone_tracks": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "animation_path": {
+            "type": "string"
+          },
+          "bone_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "source_frame": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "animation_path",
+          "bone_names",
+          "source_frame"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "replace_montage_animation_references": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "montage_path": {
+            "type": "string"
+          },
+          "replacements_json": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "montage_path",
+          "replacements_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "restore_animation_from_source": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_path": {
+            "type": "string"
+          },
+          "destination_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_path",
+          "destination_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "export_animation_motion_context": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "animation_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "mesh_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "file_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "animation_paths",
+          "mesh_paths",
+          "file_name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "get_pie_montage_motion_capture_status": {
+      "inputSchema": {
+        "type": "object"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "start_pie_montage_motion_capture": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "montage_path": {
+            "type": "string"
+          },
+          "sample_times": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "file_prefix": {
+            "type": "string"
+          },
+          "interrupt_time": {
+            "type": "number",
+            "default": -1
+          },
+          "capture_images": {
+            "type": "boolean",
+            "default": true
+          },
+          "post_roll_seconds": {
+            "type": "number",
+            "default": 0.6
+          },
+          "exposure_compensation": {
+            "type": "number",
+            "default": 1
+          },
+          "fill_light_intensity": {
+            "type": "number",
+            "default": 5000
+          },
+          "focus_bone": {
+            "type": "string",
+            "default": "spine_03"
+          }
+        },
+        "required": [
+          "montage_path",
+          "sample_times",
+          "file_prefix"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "limit_hand_swing_tracks": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "animation_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "目标动画 *"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "目标网格 *"
+          },
+          "maximum_swing_degrees": {
+            "type": "number",
+            "description": "最大摆动角度 *"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "仅预检开关 *",
+            "default": true
+          }
+        },
+        "required": [
+          "animation_paths",
+          "mesh_path",
+          "maximum_swing_degrees"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "修复和验证报告 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "capture_pie_bone_pose": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "focus_bone": {
+            "type": "string",
+            "description": "关注骨骼 *"
+          },
+          "camera_offset": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "相机偏移 *"
+          },
+          "file_name": {
+            "type": "string",
+            "description": "输出图像名称 *"
+          }
+        },
+        "required": [
+          "focus_bone",
+          "camera_offset",
+          "file_name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "图像路径 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_pie_arm_pose": {
+      "inputSchema": {
+        "type": "object"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "本地角色各网格的手臂姿势和活动动画报告 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "capture_animation_pose": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "animation_path": {
+            "type": "string",
+            "description": "动画资产路径 *"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "目标网格路径 *"
+          },
+          "time_seconds": {
+            "type": "number",
+            "description": "采样时间 *"
+          },
+          "focus_bone": {
+            "type": "string",
+            "description": "相机关注骨骼 *"
+          },
+          "camera_offset": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "相机偏移 *"
+          },
+          "file_name": {
+            "type": "string",
+            "description": "输出图像名称 *"
+          }
+        },
+        "required": [
+          "animation_path",
+          "mesh_path",
+          "time_seconds",
+          "focus_bone",
+          "camera_offset",
+          "file_name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "图像路径和拍摄参数 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "rebuild_arm_twist_tracks": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "animation_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "动画资产路径 *"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "目标骨骼网格 *"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "仅预检开关 *",
+            "default": true
+          }
+        },
+        "required": [
+          "animation_paths",
+          "mesh_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "修复摘要与验证报告路径 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "audit_arm_twist_tracks": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "animation_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "动画资产路径 *"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "目标骨骼网格 *"
+          }
+        },
+        "required": [
+          "animation_paths",
+          "mesh_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "审计摘要与报告路径 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "remap_animation_sequence_notify_classes": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "animation_path": {
+            "type": "string"
+          },
+          "class_paths": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "animation_path",
+          "class_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "probe_animation_instance_runtime": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "instance_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "instance_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "remap_animation_blueprint_class_references": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_path": {
+            "type": "string"
+          },
+          "class_paths": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "blueprint_path",
+          "class_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "rebind_animation_blueprint_interface": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_path": {
+            "type": "string"
+          },
+          "source_interface_path": {
+            "type": "string"
+          },
+          "target_interface_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "blueprint_path",
+          "source_interface_path",
+          "target_interface_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "copy_animation_skeleton_metadata": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_skeleton_path": {
+            "type": "string"
+          },
+          "target_skeleton_path": {
+            "type": "string"
+          },
+          "target_to_source_bones": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "source_skeleton_path",
+          "target_skeleton_path",
+          "target_to_source_bones"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "rebuild_blend_space_skeleton": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blend_space_path": {
+            "type": "string"
+          },
+          "skeleton_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "blend_space_path",
+          "skeleton_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "remap_animation_blueprint_blend_profiles": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_path": {
+            "type": "string"
+          },
+          "skeleton_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "blueprint_path",
+          "skeleton_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "build_weapon_animation_graph": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_path": {
+            "type": "string"
+          },
+          "fire_animation_path": {
+            "type": "string"
+          },
+          "reload_animation_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "blueprint_path",
+          "fire_animation_path",
+          "reload_animation_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "probe_pie_character_animation_runtime": {
+      "inputSchema": {
+        "type": "object"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "capture_pie_character_pose": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "camera_offset": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "file_name": {
+            "type": "string"
+          },
+          "width": {
+            "type": "integer",
+            "default": 960
+          },
+          "height": {
+            "type": "integer",
+            "default": 960
+          }
+        },
+        "required": [
+          "camera_offset",
+          "file_name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "restore_lyra_stop_pose": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "blueprint_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "export_animation_blueprint_graphs": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "blueprint_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "stop_pie_input_sequence": {
+      "inputSchema": {
+        "type": "object"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "get_pie_input_sequence_status": {
+      "inputSchema": {
+        "type": "object"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "run_pie_input_sequence": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "steps_json": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "steps_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "set_animation_folder_preview_meshes": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "folder_path": {
+            "type": "string"
+          },
+          "mesh_path": {
+            "type": "string"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "folder_path",
+          "mesh_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "set_animation_sequence_preview_meshes": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "animation_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "mesh_path": {
+            "type": "string"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "animation_paths",
+          "mesh_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "set_animation_asset_preview_meshes": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mesh_path": {
+            "type": "string"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "mesh_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "set_animation_blueprint_preview_mesh": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_path": {
+            "type": "string"
+          },
+          "mesh_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "blueprint_path",
+          "mesh_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "set_animation_blueprint_skeletons": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "skeleton_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "blueprint_paths",
+          "skeleton_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "retarget_missing_animations": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "retargeter_path": {
+            "type": "string"
+          },
+          "target_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_asset_paths",
+          "retargeter_path",
+          "target_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "replace_lyra_animation_references": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_root": {
+            "type": "string"
+          },
+          "target_root": {
+            "type": "string"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "source_root",
+          "target_root"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "clean_retargeted_animation_dependencies": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "root_path": {
+            "type": "string"
+          },
+          "legacy_root": {
+            "type": "string"
+          },
+          "compression_source_path": {
+            "type": "string"
+          },
+          "compression_target_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "root_path",
+          "legacy_root",
+          "compression_source_path",
+          "compression_target_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "finalize_animation_runtime_assets": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "notify_source_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "notify_target_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rebuild_animation_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "notify_source_paths",
+          "notify_target_paths",
+          "rebuild_animation_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "audit_animation_migration_metadata": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "root_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "root_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "audit_animation_dependencies": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "root_path": {
+            "type": "string"
+          },
+          "dependency_prefixes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "root_path",
+          "dependency_prefixes"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "probe_animation_bone_trajectories": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "bone_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sample_count": {
+            "type": "integer",
+            "default": 9
+          }
+        },
+        "required": [
+          "asset_paths",
+          "bone_names"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "probe_animation_component_poses": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "mesh_path": {
+            "type": "string"
+          },
+          "bone_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sample_count": {
+            "type": "integer",
+            "default": 9
+          },
+          "incorporate_root_motion": {
+            "type": "boolean",
+            "default": false
+          },
+          "should_retarget": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "asset_paths",
+          "mesh_path",
+          "bone_names"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "probe_animation_assets": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "asset_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "rename_animation_blueprint_variables": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_path": {
+            "type": "string"
+          },
+          "variable_names": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "blueprint_path",
+          "variable_names"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "rewrite_animation_property_access_paths": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "path_replacements_json": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "blueprint_paths",
+          "path_replacements_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "probe_animation_property_access_paths": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "asset_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "probe_animation_blueprint": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "stop_locomotion_runtime_probe": {
+      "inputSchema": {
+        "type": "object"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "run_editor_script": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "script_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "script_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "start_locomotion_runtime_probe": {
+      "inputSchema": {
+        "type": "object"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "rebuild_ik_foot_tracks": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "animation_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "mesh_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "animation_paths",
+          "mesh_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "audit_ik_foot_tracks_against_reference": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "current_root_path": {
+            "type": "string"
+          },
+          "reference_root_path": {
+            "type": "string"
+          },
+          "current_mesh_path": {
+            "type": "string"
+          },
+          "reference_mesh_path": {
+            "type": "string"
+          },
+          "sample_count": {
+            "type": "integer",
+            "default": 9
+          }
+        },
+        "required": [
+          "current_root_path",
+          "reference_root_path",
+          "current_mesh_path",
+          "reference_mesh_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "audit_ik_foot_tracks": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "root_path": {
+            "type": "string"
+          },
+          "mesh_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "root_path",
+          "mesh_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_control_rig_anim_graph_node": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_path": {
+            "type": "string"
+          },
+          "graph_path": {
+            "type": "string"
+          },
+          "rig_asset_path": {
+            "type": "string"
+          },
+          "exposed_input_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "position_x": {
+            "type": "integer"
+          },
+          "position_y": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "blueprint_path",
+          "graph_path",
+          "rig_asset_path",
+          "exposed_input_names",
+          "position_x",
+          "position_y"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_recoil_animation_graphs": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "interface_blueprint_path": {
+            "type": "string"
+          },
+          "base_blueprint_path": {
+            "type": "string"
+          },
+          "main_blueprint_path": {
+            "type": "string"
+          },
+          "magnitude_property_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "interface_blueprint_path",
+          "base_blueprint_path",
+          "main_blueprint_path",
+          "magnitude_property_name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "add_animation_layer_boolean_input": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_path": {
+            "type": "string"
+          },
+          "graph_name": {
+            "type": "string"
+          },
+          "pose_name": {
+            "type": "string"
+          },
+          "input_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "blueprint_path",
+          "graph_name",
+          "pose_name",
+          "input_name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_control_rig_anim_graph_node": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_path": {
+            "type": "string"
+          },
+          "node_path": {
+            "type": "string"
+          },
+          "rig_asset_path": {
+            "type": "string"
+          },
+          "exposed_input_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "blueprint_path",
+          "node_path",
+          "rig_asset_path",
+          "exposed_input_names"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "probe_python_api": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "type_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "type_names"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_lyra_rifle_character_montages": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_root": {
+            "type": "string"
+          },
+          "target_root": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_root",
+          "target_root"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_animation_bone_track_keys": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "动画序列路径 *"
+          },
+          "bone_name": {
+            "type": "string",
+            "description": "骨骼轨道名称 *"
+          },
+          "sample_count": {
+            "type": "integer",
+            "description": "输出采样数量 *",
+            "default": 12
+          }
+        },
+        "required": [
+          "asset_path",
+          "bone_name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "轨道帧数与采样位移 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_rifle_magazine_reload_animation": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_path": {
+            "type": "string",
+            "description": "武器原始动画路径 *"
+          },
+          "animation_path": {
+            "type": "string",
+            "description": "新动画序列路径 *"
+          },
+          "montage_path": {
+            "type": "string",
+            "description": "新武器蒙太奇路径 *"
+          },
+          "definition_path": {
+            "type": "string",
+            "description": "步枪配置路径 *"
+          },
+          "magazine_mesh_path": {
+            "type": "string",
+            "description": "独立弹匣网格路径 *"
+          }
+        },
+        "required": [
+          "source_path",
+          "animation_path",
+          "montage_path",
+          "definition_path",
+          "magazine_mesh_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "新动画与配置的校验摘要 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_equipment_action_montages": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "target_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "slot_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_paths",
+          "target_paths",
+          "slot_name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_character_rifle_actions": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "character_blueprint_path": {
+            "type": "string"
+          },
+          "equip_montage_path": {
+            "type": "string"
+          },
+          "reload_montage_path": {
+            "type": "string"
+          },
+          "fire_montage_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "character_blueprint_path",
+          "equip_montage_path",
+          "reload_montage_path",
+          "fire_montage_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "repair_main_anim_instance_accesses": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "blueprint_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "apply_try_weapon_animation_fallbacks": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "blueprint_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "repair_raise_weapon_after_firing_transition": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "blueprint_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "migrate_animation_data_accesses": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "getter_paths_json": {
+            "type": "string"
+          },
+          "duration_query": {
+            "type": "string"
+          },
+          "elapsed_path": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "removed_functions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "nullable_object_getter": {
+            "type": "string"
+          },
+          "missing_value_defaults_json": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "blueprint_paths",
+          "getter_paths_json",
+          "duration_query",
+          "elapsed_path",
+          "removed_functions",
+          "nullable_object_getter",
+          "missing_value_defaults_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "simplify_animation_data_accesses": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "node_class_path": {
+            "type": "string"
+          },
+          "removed_input_pins": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "removed_access_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "direct_access_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "blueprint_paths",
+          "node_class_path",
+          "removed_input_pins",
+          "removed_access_paths",
+          "direct_access_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    }
+  },
+  "BBBGenericEditorToolset": {
+    "configure_persistent_projectile_tracer": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "system_path": {
+            "type": "string"
+          },
+          "channel_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "system_path",
+          "channel_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "set_niagara_channel_reader_frame_mode": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "system_path": {
+            "type": "string",
+            "description": "系统资产路径 *"
+          },
+          "read_current_frame": {
+            "type": "boolean",
+            "description": "是否读取当前帧 *"
+          }
+        },
+        "required": [
+          "system_path",
+          "read_current_frame"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "编译与保存结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "bind_niagara_channel_reader": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "system_path": {
+            "type": "string"
+          },
+          "channel_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "system_path",
+          "channel_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "set_niagara_pin_default": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "system_path": {
+            "type": "string"
+          },
+          "node_path": {
+            "type": "string"
+          },
+          "pin_name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "system_path",
+          "node_path",
+          "pin_name",
+          "value"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_niagara_graphs": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "system_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "system_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "set_niagara_spawn_update_mode": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "system_path": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "system_path",
+          "mode"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_pie_niagara_system": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "system_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "system_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_pie_actor_properties": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "class_path": {
+            "type": "string"
+          },
+          "property_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "class_path",
+          "property_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "set_struct_array_object": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "object_path": {
+            "type": "string"
+          },
+          "array_property": {
+            "type": "string"
+          },
+          "index": {
+            "type": "integer"
+          },
+          "object_property": {
+            "type": "string"
+          },
+          "class_path": {
+            "type": "string"
+          },
+          "properties_json": {
+            "type": "string",
+            "default": "{}"
+          }
+        },
+        "required": [
+          "object_path",
+          "array_property",
+          "index",
+          "object_property",
+          "class_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_channel_sprite_system": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "channel_path": {
+            "type": "string"
+          },
+          "system_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel_path",
+          "system_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "remove_input_action_mappings": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mapping_context_path": {
+            "type": "string"
+          },
+          "action_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "mapping_context_path",
+          "action_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "set_blueprint_class_defaults": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          },
+          "values_json": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_path",
+          "values_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_blueprint_class_defaults": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "property_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "asset_paths",
+          "property_names"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_pie_bone_alignment": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "class_path": {
+            "type": "string"
+          },
+          "actor_bone_name": {
+            "type": "string"
+          },
+          "pawn_bone_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "class_path",
+          "actor_bone_name",
+          "pawn_bone_name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_pie_actor_skeletal_bones": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "class_path": {
+            "type": "string"
+          },
+          "bone_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "class_path",
+          "bone_names"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_pie_hand_attachments": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "bone_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "需要读取的手部骨骼名称 *"
+          }
+        },
+        "required": [
+          "bone_names"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "骨骼与附着网格的世界变换 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_static_mesh_bounds": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "静态网格资产路径 *"
+          }
+        },
+        "required": [
+          "asset_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "网格包围盒 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "set_asset_transform_property": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "目标资产路径 *"
+          },
+          "property_name": {
+            "type": "string",
+            "description": "变换属性名称 *"
+          },
+          "transform_json": {
+            "type": "string",
+            "description": "位置旋转和缩放数组 *"
+          }
+        },
+        "required": [
+          "asset_path",
+          "property_name",
+          "transform_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "保存后的变换文本 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "set_asset_object_property": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "目标资产路径 *"
+          },
+          "property_name": {
+            "type": "string",
+            "description": "目标属性名称 *"
+          },
+          "object_path": {
+            "type": "string",
+            "description": "引用对象路径 *"
+          }
+        },
+        "required": [
+          "asset_path",
+          "property_name",
+          "object_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "保存后的属性值 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_asset_properties": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "property_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "asset_paths",
+          "property_names"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_dirty_packages": {
+      "inputSchema": {
+        "type": "object"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "refresh_material_instances": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "asset_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "duplicate_loaded_actors_to_current_level": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "actor_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "actor_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "export_pie_render_target": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "target_path": {
+            "type": "string"
+          },
+          "file_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_path",
+          "file_name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "capture_pie_player_view": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "file_name": {
+            "type": "string"
+          },
+          "width": {
+            "type": "integer",
+            "default": 1280
+          },
+          "height": {
+            "type": "integer",
+            "default": 720
+          },
+          "player_index": {
+            "type": "integer",
+            "default": 0
+          }
+        },
+        "required": [
+          "file_name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "invoke_pie_actor_function": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "actor_path": {
+            "type": "string"
+          },
+          "function_name": {
+            "type": "string"
+          },
+          "arguments_json": {
+            "type": "string",
+            "default": "[]"
+          }
+        },
+        "required": [
+          "actor_path",
+          "function_name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_pie_player_control": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "player_index": {
+            "type": "integer",
+            "default": 0
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "move_animation_notify_event": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "动画资产路径 *"
+          },
+          "notify_class_path": {
+            "type": "string",
+            "description": "通知类路径 *"
+          },
+          "time_seconds": {
+            "type": "number",
+            "description": "新的触发时间 *"
+          }
+        },
+        "required": [
+          "asset_path",
+          "notify_class_path",
+          "time_seconds"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "保存后的完整通知列表 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "replace_animation_notify_track": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          },
+          "track_name": {
+            "type": "string"
+          },
+          "events_json": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_path",
+          "track_name",
+          "events_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "add_animation_notify_events": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "动画资产路径 *"
+          },
+          "track_name": {
+            "type": "string",
+            "description": "通知轨道名称 *"
+          },
+          "events_json": {
+            "type": "string",
+            "description": "通知类路径与触发时间数组 *"
+          }
+        },
+        "required": [
+          "asset_path",
+          "track_name",
+          "events_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "保存后的完整通知列表 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_animation_montage_segments": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "蒙太奇路径 *"
+          }
+        },
+        "required": [
+          "asset_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "插槽与片段资产列表 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "resave_asset": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "remove_empty_animation_notify_track": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          },
+          "track_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_path",
+          "track_name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_animation_notify_properties": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          },
+          "class_path": {
+            "type": "string"
+          },
+          "property_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "asset_path",
+          "class_path",
+          "property_names"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_animation_notifies": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "render_asset_thumbnails": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "requests_json": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "requests_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "resize_pie_window": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "width": {
+            "type": "integer"
+          },
+          "height": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "width",
+          "height"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "capture_editor_screenshot": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "widget_ref": {
+            "type": "string"
+          },
+          "file_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "widget_ref",
+          "file_name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "import_animation_fbx": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_file": {
+            "type": "string"
+          },
+          "asset_path": {
+            "type": "string"
+          },
+          "skeleton_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_file",
+          "asset_path",
+          "skeleton_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "reimport_sound_waves": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_directory": {
+            "type": "string"
+          },
+          "destination_path": {
+            "type": "string"
+          },
+          "source_suffix": {
+            "type": "string",
+            "default": "_Shot"
+          },
+          "recursive": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "source_directory",
+          "destination_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "import_files_from_directory": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_directory": {
+            "type": "string"
+          },
+          "destination_path": {
+            "type": "string"
+          },
+          "extensions_json": {
+            "type": "string"
+          },
+          "recursive": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "source_directory",
+          "destination_path",
+          "extensions_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_asset_with_factory": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          },
+          "asset_class_path": {
+            "type": "string"
+          },
+          "factory_class_path": {
+            "type": "string"
+          },
+          "factory_properties_json": {
+            "type": "string",
+            "default": "{}"
+          }
+        },
+        "required": [
+          "asset_path",
+          "asset_class_path",
+          "factory_class_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "set_instanced_struct_array": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          },
+          "struct_property": {
+            "type": "string"
+          },
+          "array_property": {
+            "type": "string"
+          },
+          "instances_json": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_path",
+          "struct_property",
+          "array_property",
+          "instances_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "replace_animation_float_curve": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "动画序列路径 *"
+          },
+          "curve_name": {
+            "type": "string",
+            "description": "曲线名称 *"
+          },
+          "keys_json": {
+            "type": "string",
+            "description": "关键帧数组 *"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "仅预检开关 *",
+            "default": true
+          }
+        },
+        "required": [
+          "asset_path",
+          "curve_name",
+          "keys_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "审计结果与备份路径 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_animation_float_curves": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "curve_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "asset_paths",
+          "curve_names"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "probe_pie_character_ground_contacts": {
+      "inputSchema": {
+        "type": "object"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "脚骨世界位置 地面接触点 高度差与绑定补偿 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_control_rig_graphs": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    }
+  },
+  "BBBControlRigAuthoringToolset": {
+    "export_sequence_pose_audit": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sequence_path": {
+            "type": "string",
+            "description": "编辑序列 *"
+          },
+          "source_path": {
+            "type": "string",
+            "description": "源动画 *"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "角色网格 *"
+          },
+          "sample_times": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "取样秒数 *"
+          },
+          "report_name": {
+            "type": "string",
+            "description": "诊断报告文件名 *"
+          }
+        },
+        "required": [
+          "sequence_path",
+          "source_path",
+          "mesh_path",
+          "sample_times",
+          "report_name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "烘焙及差异报告路径 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_sequence_bindings": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sequence_path": {
+            "type": "string",
+            "description": "序列路径 *"
+          }
+        },
+        "required": [
+          "sequence_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "模板网格及轨道信息 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_sequence_pose": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sequence_path": {
+            "type": "string",
+            "description": "序列路径 *"
+          },
+          "frame": {
+            "type": "integer",
+            "description": "显示帧 *"
+          },
+          "bone_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "骨骼名称 *"
+          }
+        },
+        "required": [
+          "sequence_path",
+          "frame",
+          "bone_names"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "实际组件骨骼与控制器状态 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "add_pose_controls": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "绑定路径 *"
+          },
+          "bone_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "按层级排序的源骨骼 *"
+          }
+        },
+        "required": [
+          "asset_path",
+          "bone_names"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "控制器数量 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "apply_baked_bone_deltas": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_path": {
+            "type": "string",
+            "description": "原始底稿 *"
+          },
+          "baked_path": {
+            "type": "string",
+            "description": "官方烘焙结果 *"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "评估网格 *"
+          },
+          "targets_json": {
+            "type": "string",
+            "description": "目标及各自原始动画路径 *"
+          },
+          "bone_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "允许调整的骨骼 *"
+          }
+        },
+        "required": [
+          "source_path",
+          "baked_path",
+          "mesh_path",
+          "targets_json",
+          "bone_names"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "修改数量及最终检查 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inject_pie_action": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action_path": {
+            "type": "string",
+            "description": "输入动作资产 *"
+          },
+          "value": {
+            "type": "number",
+            "description": "第一轴输入值 *"
+          }
+        },
+        "required": [
+          "action_path",
+          "value"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "注入的动作和玩家 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_attachment_preview_animation": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_path": {
+            "type": "string",
+            "description": "装备原动画 *"
+          },
+          "destination_path": {
+            "type": "string",
+            "description": "预览资产路径 *"
+          },
+          "bone_name": {
+            "type": "string",
+            "description": "显隐骨骼 *"
+          },
+          "first_hidden_frame": {
+            "type": "integer",
+            "description": "隐藏起始帧 *"
+          },
+          "last_hidden_frame": {
+            "type": "integer",
+            "description": "恢复显示帧 *"
+          }
+        },
+        "required": [
+          "source_path",
+          "destination_path",
+          "bone_name",
+          "first_hidden_frame",
+          "last_hidden_frame"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "创建的预览路径 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_sequence_attachment": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sequence_path": {
+            "type": "string",
+            "description": "序列路径 *"
+          },
+          "label": {
+            "type": "string",
+            "description": "唯一绑定名称 *"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "骨骼或静态网格 *"
+          },
+          "socket_name": {
+            "type": "string",
+            "description": "角色挂接骨骼 *"
+          },
+          "transform_json": {
+            "type": "string",
+            "description": "相对挂接变换 *"
+          },
+          "ranges_json": {
+            "type": "string",
+            "description": "显示帧区间 *"
+          },
+          "animation_path": {
+            "type": "string",
+            "description": "可选骨骼动画 *"
+          }
+        },
+        "required": [
+          "sequence_path",
+          "label",
+          "mesh_path",
+          "socket_name",
+          "transform_json",
+          "ranges_json",
+          "animation_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "创建的绑定名称 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "compute_attachment_contacts": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "animation_path": {
+            "type": "string",
+            "description": "角色动画 *"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "角色网格 *"
+          },
+          "definition_path": {
+            "type": "string",
+            "description": "装备定义 *"
+          },
+          "attachment_bone": {
+            "type": "string",
+            "description": "装备上的接触骨骼 *"
+          },
+          "held_bone": {
+            "type": "string",
+            "description": "角色持物骨骼 *"
+          },
+          "contact_frames_json": {
+            "type": "string",
+            "description": "接触名称和帧号 *"
+          },
+          "grip_position_json": {
+            "type": "string",
+            "description": "物体相对手的局部位置 *"
+          }
+        },
+        "required": [
+          "animation_path",
+          "mesh_path",
+          "definition_path",
+          "attachment_bone",
+          "held_bone",
+          "contact_frames_json",
+          "grip_position_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "接触目标和手持相对变换 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_sequence_rig": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sequence_path": {
+            "type": "string",
+            "description": "独立序列路径 *"
+          },
+          "rig_path": {
+            "type": "string",
+            "description": "绑定路径 *"
+          },
+          "keys_json": {
+            "type": "string",
+            "description": "帧号 控制器和组件空间变换 *"
+          },
+          "is_layered": {
+            "type": "boolean"
+          },
+          "mesh_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence_path",
+          "rig_path",
+          "keys_json",
+          "is_layered",
+          "mesh_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "绑定轨道和关键帧数 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "sample_animation_poses": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "animation_path": {
+            "type": "string",
+            "description": "动画路径 *"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "网格路径 *"
+          },
+          "times": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "取样秒数 *"
+          },
+          "bone_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "骨骼名称 *"
+          }
+        },
+        "required": [
+          "animation_path",
+          "mesh_path",
+          "times",
+          "bone_names"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "组件空间取样 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "prepare_animation_sequence": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sequence_path": {
+            "type": "string",
+            "description": "新序列路径 *"
+          },
+          "animation_path": {
+            "type": "string",
+            "description": "源动画路径 *"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "目标角色网格 *"
+          }
+        },
+        "required": [
+          "sequence_path",
+          "animation_path",
+          "mesh_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "序列绑定和帧范围 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_control_rig_graph": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "绑定路径 *"
+          },
+          "request_json": {
+            "type": "string",
+            "description": "节点 引脚默认值及连线 *"
+          }
+        },
+        "required": [
+          "asset_path",
+          "request_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "编译后的节点数 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "audit_control_rig_round_trip": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "绑定路径 *"
+          },
+          "animation_path": {
+            "type": "string",
+            "description": "源动画路径 *"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "实际角色网格 *"
+          },
+          "sample_times": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "取样秒数 *"
+          },
+          "control_deltas_json": {
+            "type": "string",
+            "description": "控制器局部增量变换 *"
+          },
+          "bone_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "详细报告骨骼 *"
+          }
+        },
+        "required": [
+          "asset_path",
+          "animation_path",
+          "mesh_path",
+          "sample_times",
+          "control_deltas_json",
+          "bone_names"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "骨骼误差与控制器求解报告 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "evaluate_rig_pose": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "绑定路径 *"
+          },
+          "animation_path": {
+            "type": "string",
+            "description": "源动画路径 *"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "实际角色网格 *"
+          },
+          "time_seconds": {
+            "type": "number",
+            "description": "取样时间 *"
+          },
+          "controls_json": {
+            "type": "string",
+            "description": "控制器位置 旋转或权重 *"
+          },
+          "bone_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "返回的骨骼 *"
+          }
+        },
+        "required": [
+          "asset_path",
+          "animation_path",
+          "mesh_path",
+          "time_seconds",
+          "controls_json",
+          "bone_names"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "源姿势和求解姿势 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_control_rig": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "新绑定路径 *"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "目标网格路径 *"
+          },
+          "controls_json": {
+            "type": "string",
+            "description": "控制器类型和参考骨骼 *"
+          },
+          "graph_json": {
+            "type": "string",
+            "description": "官方节点 默认值和连线 *"
+          }
+        },
+        "required": [
+          "asset_path",
+          "mesh_path",
+          "controls_json",
+          "graph_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "创建报告 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "set_background_budget": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "maximum_fps": {
+            "type": "number",
+            "description": "每秒最大帧数 *"
+          }
+        },
+        "required": [
+          "maximum_fps"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "实际请求的预算 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_authoring_api": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "type_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "反射类型名 *"
+          },
+          "method_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "方法名 空数组列出接口 *"
+          }
+        },
+        "required": [
+          "type_names",
+          "method_names"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "接口文档 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "play_pie_montages": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "montages_json": {
+            "type": "string",
+            "description": "实例路径和蒙太奇路径 *"
+          }
+        },
+        "required": [
+          "montages_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "播放时长 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "set_sequence_spawn_range": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sequence_path": {
+            "type": "string",
+            "description": "编辑序列 *"
+          },
+          "label": {
+            "type": "string",
+            "description": "附件绑定名 *"
+          },
+          "first_frame": {
+            "type": "integer",
+            "description": "出现帧 *"
+          },
+          "last_frame": {
+            "type": "integer",
+            "description": "结束帧 *"
+          }
+        },
+        "required": [
+          "sequence_path",
+          "label",
+          "first_frame",
+          "last_frame"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "更新区间 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "compute_palm_contact": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "animation_path": {
+            "type": "string",
+            "description": "原动画 *"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "角色网格 *"
+          },
+          "definition_path": {
+            "type": "string",
+            "description": "装备定义 *"
+          },
+          "frame": {
+            "type": "integer",
+            "description": "接触帧 *"
+          },
+          "equipment_point": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "装备组件空间接触点 *"
+          },
+          "palm_point": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "手骨骼空间掌心点 *"
+          }
+        },
+        "required": [
+          "animation_path",
+          "mesh_path",
+          "definition_path",
+          "frame",
+          "equipment_point",
+          "palm_point"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "接触腕部变换 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "normalize_authoring_bindings": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sequence_path": {
+            "type": "string",
+            "description": "编辑序列 *"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "控制绑定唯一目标网格 *"
+          },
+          "rig_path": {
+            "type": "string",
+            "description": "指定控制绑定 *"
+          }
+        },
+        "required": [
+          "sequence_path",
+          "mesh_path",
+          "rig_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "清理轨道数 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "build_pose_control_keys": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "animation_path": {
+            "type": "string",
+            "description": "原始动画 *"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "目标网格 *"
+          },
+          "overrides_json": {
+            "type": "string",
+            "description": "参考帧 骨骼和逐帧混合权重 *"
+          }
+        },
+        "required": [
+          "animation_path",
+          "mesh_path",
+          "overrides_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "控制器关键帧 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_mesh_bounds": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mesh_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "mesh_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "网格组件空间包围盒 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "set_sequence_attachment_transform": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sequence_path": {
+            "type": "string",
+            "description": "编辑序列 *"
+          },
+          "label": {
+            "type": "string",
+            "description": "附件绑定名 *"
+          },
+          "transform_json": {
+            "type": "string",
+            "description": "局部变换 *"
+          }
+        },
+        "required": [
+          "sequence_path",
+          "label",
+          "transform_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "更新结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "convert_component_mesh_grips": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mesh_path": {
+            "type": "string",
+            "description": "装备骨骼网格 *"
+          },
+          "attachment_bone": {
+            "type": "string",
+            "description": "原附件骨骼 *"
+          },
+          "grips_json": {
+            "type": "string",
+            "description": "命名握持变换 *"
+          }
+        },
+        "required": [
+          "mesh_path",
+          "attachment_bone",
+          "grips_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "静态附件握持变换 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "capture_attachment_pose": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "animation_path": {
+            "type": "string",
+            "description": "动画路径 *"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "角色网格 *"
+          },
+          "time_seconds": {
+            "type": "number",
+            "description": "采样时刻 *"
+          },
+          "attachments_json": {
+            "type": "string",
+            "description": "附件和相对插槽变换 *"
+          },
+          "camera_offset": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "相机相对胸部位置 *"
+          },
+          "file_name": {
+            "type": "string",
+            "description": "输出文件名 *"
+          }
+        },
+        "required": [
+          "animation_path",
+          "mesh_path",
+          "time_seconds",
+          "attachments_json",
+          "camera_offset",
+          "file_name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "图像路径 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    }
+  },
+  "BBBExternalToolset": {
+    "util": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "params_json": {
+            "type": "string",
+            "default": "{}"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "vision": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "params_json": {
+            "type": "string",
+            "default": "{}"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "game": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "params_json": {
+            "type": "string",
+            "default": "{}"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "layer": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "params_json": {
+            "type": "string",
+            "default": "{}"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "level_sequence": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "params_json": {
+            "type": "string",
+            "default": "{}"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "retarget": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "params_json": {
+            "type": "string",
+            "default": "{}"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "level": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "params_json": {
+            "type": "string",
+            "default": "{}"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "editor": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "params_json": {
+            "type": "string",
+            "default": "{}"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "data_table": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "params_json": {
+            "type": "string",
+            "default": "{}"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "control_rig": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "params_json": {
+            "type": "string",
+            "default": "{}"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "animation": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "params_json": {
+            "type": "string",
+            "default": "{}"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "list_available_actions": {
+      "inputSchema": {
+        "type": "object"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    }
+  },
+  "BBBBlueprintGraphToolset": {
+    "write_graph": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_path": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "node_aliases_json": {
+            "type": "string"
+          },
+          "pin_aliases_json": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "graph_path",
+          "code",
+          "node_aliases_json",
+          "pin_aliases_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "optimize_blueprint_node_layout": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_path": {
+            "type": "string"
+          },
+          "horizontal_spacing": {
+            "type": "integer",
+            "default": 320
+          },
+          "vertical_spacing": {
+            "type": "integer",
+            "default": 180
+          }
+        },
+        "required": [
+          "graph_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_owned_objects": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          },
+          "class_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_path",
+          "class_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "invoke_pie_object_function": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "object_path": {
+            "type": "string"
+          },
+          "function_name": {
+            "type": "string"
+          },
+          "arguments_json": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "object_path",
+          "function_name",
+          "arguments_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_blueprint_function_thread_safety": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_path": {
+            "type": "string"
+          },
+          "function_name": {
+            "type": "string"
+          },
+          "thread_safe": {
+            "type": "boolean"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "blueprint_path",
+          "function_name",
+          "thread_safe"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    }
+  },
+  "BBBLevelEditingToolset": {
+    "break_level_instance_to_current_level": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "level_instance_path": {
+            "type": "string"
+          },
+          "keep_folders": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "level_instance_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    }
+  },
+  "BBBMcpRuntimeToolset": {
+    "get_mcp_usage_guide": {
+      "inputSchema": {
+        "type": "object"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "使用指南 JSON 完整参数以目标工具集的描述为准 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_mcp_performance": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "profile": {
+            "type": "string",
+            "description": "Speed Balanced Economy *",
+            "default": "Speed"
+          },
+          "max_fps": {
+            "type": "integer",
+            "description": "帧率上限 负一使用默认 零不限制 *",
+            "default": -1
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "生效配置 JSON */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_mcp_performance": {
+      "inputSchema": {
+        "type": "object"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "性能状态 JSON */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    }
+  }
+}

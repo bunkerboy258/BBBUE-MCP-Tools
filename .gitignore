@@ -2,4 +2,16 @@ __pycache__/
 *.pyc
 *.log
 .vscode/
+*.pyo
+.venv/
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+*.uasset
+*.umap
+*.dll
+*.pdb
+*.exe
+.env
 
