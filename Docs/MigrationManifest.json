@@ -1,8 +1,11 @@
 {
     "source_root": "E:\\BBB_Evac",
     "repository_root": "E:\\UE5.8\\BBBUE-MCP-Tools",
-    "source_cleanup": "pending_execution_policy",
-    "source_files_removed": 0,
+    "source_cleanup": "completed_manual_verified",
+    "source_files_removed": 36,
+    "related_cache_files_removed": 20,
+    "source_files_remaining": 0,
+    "cleanup_live_verification": "not_run_no_editor",
     "preserved_remote_parent": "a6ebc05732c95c3239d42040fe8e1a79621844f3",
     "retired_remote_files": [
         "BBBUE_McpClient.py",

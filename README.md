@@ -1,5 +1,11 @@
 # BBBUE-MCP-Tools
 
+## 当前清理核验结果
+
+用户已手动执行迁移清理脚本 实际复核清单内三十六个旧文件与二十个相关缓存均已删除 新仓库对应文件完整 源码检查通过 当前没有运行中的 UE 编辑器 所以清理后的实时 MCP 验证尚未进行
+
+下文清理尚未完成的说明保留为迁移初期历史记录 当前状态以本节及 Docs/MigrationManifest.json 为准 不执行 Perforce Revert Submit 或 Get Latest
+
 基于官方 UE5.8 ModelContextProtocol 与 ToolsetRegistry 的编辑器工具集
 
 本仓库是 Python 工具和文档的唯一源码位置 不启动旧 socket 服务 不复制工具到游戏项目 不修改 UE 引擎安装目录
