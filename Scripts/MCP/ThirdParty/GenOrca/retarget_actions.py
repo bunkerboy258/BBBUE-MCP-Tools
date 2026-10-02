@@ -204,6 +204,11 @@ def ue_create_retargeter(asset_path: str = None, source_ik_rig_path: str = None,
         tc = unreal.IKRetargeterController.get_controller(rtg)
         tc.set_ik_rig(unreal.RetargetSourceOrTarget.SOURCE, src)
         tc.set_ik_rig(unreal.RetargetSourceOrTarget.TARGET, tgt)
+        tc.add_default_ops()
+        tc.assign_ik_rig_to_all_ops(unreal.RetargetSourceOrTarget.SOURCE, src)
+        tc.assign_ik_rig_to_all_ops(unreal.RetargetSourceOrTarget.TARGET, tgt)
+        if tc.get_num_retarget_ops() == 0:
+            raise RuntimeError("重定向器没有求解操作，禁止保存无效资产")
         if auto_map:
             tc.auto_map_chains(unreal.AutoMapChainType.FUZZY, True)
         unreal.EditorAssetLibrary.save_loaded_asset(rtg)
@@ -343,7 +348,8 @@ def ue_auto_map_chains(retargeter_path: str = None, mode: str = "FUZZY", force: 
 def ue_batch_retarget(retargeter_path: str = None, anim_paths: list = None,
                       source_mesh_path: str = None, target_mesh_path: str = None,
                       search: str = "", replace: str = "", prefix: str = "",
-                      suffix: str = "_Retargeted") -> str:
+                      suffix: str = "_Retargeted", target_path: str = None,
+                      overwrite_existing: bool = False) -> str:
     """Duplicates and retargets animations through an IK Retargeter; returns the new asset paths (requires the IKRig plugin)."""
     guard = _plugin_missing()
     if guard:
@@ -352,7 +358,14 @@ def ue_batch_retarget(retargeter_path: str = None, anim_paths: list = None,
         return json.dumps({"success": False,
                            "message": "Required: retargeter_path, anim_paths (non-empty), source_mesh_path, target_mesh_path."})
     try:
+        if not target_path or not target_path.startswith("/Game/"):
+            raise ValueError("必须指定 Game 内的目标目录，禁止导出到内容根目录")
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("其他会话正在运行 PIE，禁止重定向写入")
         rtg = _load_typed(retargeter_path, unreal.IKRetargeter, "IKRetargeter")
+        controller = unreal.IKRetargeterController.get_controller(rtg)
+        if controller.get_num_retarget_ops() == 0:
+            raise RuntimeError("重定向器求解操作栈为空，禁止生成静止动画")
         src_mesh = _load_typed(source_mesh_path, unreal.SkeletalMesh, "SkeletalMesh")
         tgt_mesh = _load_typed(target_mesh_path, unreal.SkeletalMesh, "SkeletalMesh")
         asset_data = []
@@ -362,13 +375,85 @@ def ue_batch_retarget(retargeter_path: str = None, anim_paths: list = None,
             (asset_data.append(ad) if ad and ad.is_valid() else missing.append(p))
         if missing:
             return json.dumps({"success": False, "message": f"Animations not found: {missing}"})
-        out = unreal.IKRetargetBatchOperation.duplicate_and_retarget(
-            asset_data, src_mesh, tgt_mesh, rtg,
-            search=search or "", replace=replace or "", prefix=prefix or "", suffix=suffix or "")
+        for source_path in anim_paths:
+            name = source_path.rsplit("/", 1)[-1]
+            target_name = prefix + name.replace(search, replace) + suffix
+            destination = target_path.rstrip("/") + "/" + target_name
+            if not unreal.EditorAssetLibrary.does_asset_exist(destination):
+                continue
+            if not overwrite_existing:
+                raise RuntimeError("目标已经存在，拒绝生成编号副本: " + destination)
+            state = unreal.SourceControl.query_file_state(destination)
+            if not state.is_valid or not state.can_edit or state.is_checked_out_other:
+                raise RuntimeError("覆盖前必须独占签出目标: " + destination)
+            if not state.is_added and not state.is_checked_out:
+                raise RuntimeError("覆盖目标没有签出: " + destination)
+        inputs = unreal.IKRetargetBatchOperationInputs()
+        inputs.assets_to_retarget = asset_data
+        inputs.source_mesh = src_mesh
+        inputs.target_mesh = tgt_mesh
+        inputs.ik_retarget_asset = rtg
+        inputs.target_path = target_path
+        inputs.search = search
+        inputs.replace = replace
+        inputs.prefix = prefix
+        inputs.suffix = suffix
+        inputs.include_referenced_assets = False
+        inputs.overwrite_existing_files = overwrite_existing
+        inputs.retain_additive_flags = True
+        out = unreal.IKRetargetBatchOperation.run_batch_retarget(inputs)
         paths = [str(a.package_name) for a in (out or [])]
-        if not paths:
-            return json.dumps({"success": False, "message": "duplicate_and_retarget produced no assets (check chain mapping)."})
+        if len(paths) != len(anim_paths):
+            raise RuntimeError("重定向结果数量与请求不一致")
+        for path in paths:
+            if not path.startswith(target_path.rstrip("/") + "/"):
+                raise RuntimeError("重定向导出路径越界: " + path)
+            if not unreal.EditorAssetLibrary.save_asset(path):
+                raise RuntimeError("重定向动画保存失败: " + path)
         return json.dumps({"success": True, "retargeter_path": retargeter_path,
                            "count": len(paths), "retargeted_assets": paths})
     except Exception as e:
+        unreal.log_error("[BBBExternal] 重定向导出失败 " + str(e))
         return json.dumps({"success": False, "message": str(e), "traceback": traceback.format_exc()})
+
+
+def ue_initialize_retarget_ops(retargeter_path: str, dry_run: bool = True) -> str:
+    """
+    /**
+     * 检查求解操作栈，仅允许初始化空栈，不修改已有求解配置
+     * @param retargeter_path	目标重定向器路径
+     * @param dry_run		仅检查，不写入资产
+     * @return 操作栈与链映射检查结果
+     */
+    """
+    if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+        raise RuntimeError("其他会话正在运行 PIE，请等待空闲窗口")
+    asset = _load_typed(retargeter_path, unreal.IKRetargeter, "IKRetargeter")
+    controller = unreal.IKRetargeterController.get_controller(asset)
+    before = controller.get_num_retarget_ops()
+    if not dry_run:
+        state = unreal.SourceControl.query_file_state(retargeter_path)
+        if not state.is_valid or not state.can_edit or state.is_checked_out_other:
+            raise RuntimeError("初始化前必须独占签出目标重定向器")
+        if not state.is_added and not state.is_checked_out:
+            raise RuntimeError("重定向器没有签出")
+        if before != 0:
+            raise RuntimeError("已有求解操作栈，拒绝重复初始化")
+        source = controller.get_ik_rig(unreal.RetargetSourceOrTarget.SOURCE)
+        target = controller.get_ik_rig(unreal.RetargetSourceOrTarget.TARGET)
+        if source is None or target is None:
+            raise RuntimeError("源或目标 IK Rig 缺失")
+        controller.add_default_ops()
+        controller.assign_ik_rig_to_all_ops(unreal.RetargetSourceOrTarget.SOURCE, source)
+        controller.assign_ik_rig_to_all_ops(unreal.RetargetSourceOrTarget.TARGET, target)
+        controller.auto_map_chains(unreal.AutoMapChainType.EXACT, True)
+        if controller.get_num_retarget_ops() == 0:
+            raise RuntimeError("初始化没有产生求解操作")
+        if not unreal.EditorAssetLibrary.save_loaded_asset(asset):
+            raise RuntimeError("重定向器保存失败")
+    count = controller.get_num_retarget_ops()
+    operations = [str(controller.get_op_name(index)) for index in range(count)]
+    target = controller.get_ik_rig(unreal.RetargetSourceOrTarget.TARGET)
+    chains = unreal.IKRigController.get_controller(target).get_retarget_chains()
+    mappings = {str(chain.chain_name): str(controller.get_source_chain(chain.chain_name)) for chain in chains}
+    return json.dumps({"success": True, "before": before, "count": count, "operations": operations, "mappings": mappings, "dryRun": dry_run})

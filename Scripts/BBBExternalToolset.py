@@ -115,6 +115,7 @@ _DOMAIN_ACTIONS = {
         "create_ik_rig",
         "create_retargeter",
         "get_ik_rig_info",
+        "initialize_retarget_ops",
         "set_retarget_chain_bones",
         "set_retargeter_source_ik_rig",
     },
