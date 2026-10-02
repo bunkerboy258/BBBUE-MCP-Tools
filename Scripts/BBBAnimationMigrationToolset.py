@@ -3459,6 +3459,95 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
         return json.dumps(BBBWeaponHandlingTools.create_backward_additive(source_path, destination_path, bone_name, local_offset, duration), ensure_ascii=False)
 
 
+    @toolset_registry.tool_call
+    @staticmethod
+    def create_animation_slice(source_path: str, destination_path: str, start_frame: int, end_frame: int) -> str:
+        """
+        /**
+         * 将无事件的普通骨骼动画按闭区间帧范围复制为新资产并逐帧校验
+         * @param source_path		只读源动画路径
+         * @param destination_path	不存在的新动画路径
+         * @param start_frame		起始帧 包含该帧
+         * @param end_frame		结束帧 包含该帧
+         * @return 新资产时长与逐帧校验结果 失败时不自动重试
+         */
+        """
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止创建动画切片")
+
+        source = unreal.load_asset(source_path)
+        if not isinstance(source, unreal.AnimSequence):
+            raise RuntimeError("切片源必须为动画序列")
+
+        if not destination_path.startswith("/Game/") or "." in destination_path or unreal.EditorAssetLibrary.does_asset_exist(destination_path):
+            raise RuntimeError("切片目标必须为不存在的项目资产路径")
+
+        model = source.data_model_interface
+        frames = model.get_number_of_frames()
+        if start_frame < 0 or end_frame <= start_frame or end_frame > frames:
+            raise RuntimeError("切片帧范围越界或没有持续时间")
+
+        if source.get_editor_property("additive_anim_type") != unreal.AdditiveAnimationType.AAT_NONE:
+            raise RuntimeError("切片工具不接受加法动画")
+
+        if unreal.AnimationLibrary.get_animation_notify_events(source) or unreal.AnimationLibrary.get_animation_sync_markers(source):
+            raise RuntimeError("切片工具不接受通知或同步标记 避免事件时间错位")
+
+        if unreal.AnimationLibrary.get_animation_curve_names(source, unreal.RawCurveTrackTypes.RCT_TRANSFORM):
+            raise RuntimeError("切片工具不接受变换修正曲线")
+
+        options = unreal.AnimPoseEvaluationOptions()
+        options.evaluation_type = unreal.AnimDataEvalType.RAW
+        options.should_retarget = False
+        bones = list(model.get_bone_track_names())
+        expected = [source.get_anim_pose_at_frame(frame, options) for frame in range(start_frame, end_frame + 1)]
+
+        target = unreal.EditorAssetLibrary.duplicate_asset(source_path, destination_path)
+        if not isinstance(target, unreal.AnimSequence):
+            raise RuntimeError("创建切片资产失败")
+
+        controller = target.controller
+        controller.open_bracket("创建独立动画切片", False)
+        try:
+            if end_frame < frames:
+                controller.resize_in_frames(unreal.FrameNumber(end_frame), unreal.FrameNumber(end_frame), unreal.FrameNumber(frames), False)
+
+            if start_frame > 0:
+                controller.resize_in_frames(unreal.FrameNumber(end_frame - start_frame), unreal.FrameNumber(0), unreal.FrameNumber(start_frame), False)
+
+            for bone in bones:
+                transforms = [pose.get_bone_pose(bone, unreal.AnimPoseSpaces.LOCAL) for pose in expected]
+                positions = [transform.translation for transform in transforms]
+                rotations = [transform.rotation for transform in transforms]
+                scales = [transform.scale3d for transform in transforms]
+                if not controller.set_bone_track_keys(bone, positions, rotations, scales, False):
+                    raise RuntimeError("写入切片轨道失败 尚未保存: " + str(bone))
+        finally:
+            controller.close_bracket(False)
+
+        if target.data_model_interface.get_number_of_keys() != end_frame - start_frame + 1:
+            raise RuntimeError("切片关键帧数量验证失败 尚未保存")
+
+        maximum_position_error = 0.0
+        for frame, expected_pose in enumerate(expected):
+            actual_pose = target.get_anim_pose_at_frame(frame, options)
+            for bone in bones:
+                before = expected_pose.get_bone_pose(bone, unreal.AnimPoseSpaces.LOCAL)
+                after = actual_pose.get_bone_pose(bone, unreal.AnimPoseSpaces.LOCAL)
+                error = _vector_distance(before.translation, after.translation)
+                maximum_position_error = max(maximum_position_error, error)
+                rotation_dot = abs(before.rotation.x * after.rotation.x + before.rotation.y * after.rotation.y + before.rotation.z * after.rotation.z + before.rotation.w * after.rotation.w)
+                if error > 0.001 or rotation_dot < 0.99999 or _vector_distance(before.scale3d, after.scale3d) > 0.00001:
+                    raise RuntimeError("切片骨骼校验失败 尚未保存: {} 帧 {}".format(bone, frame))
+
+        if not unreal.EditorAssetLibrary.save_loaded_asset(target, False):
+            raise RuntimeError("切片资产独立保存失败")
+
+        report = {"source": source_path, "destination": target.get_path_name(), "startFrame": start_frame, "endFrame": end_frame, "keys": len(expected), "seconds": target.get_play_length(), "maximumPositionErrorCm": maximum_position_error, "saved": True}
+        unreal.log("[BBBAnimationSlice] PASS " + json.dumps(report, ensure_ascii=False))
+        return json.dumps(report, ensure_ascii=False)
+
+
 _registration = Registration([BBBAnimationMigrationToolset])
 
 if __name__ == "__bbb_editor_script__":

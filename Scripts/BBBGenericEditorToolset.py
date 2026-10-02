@@ -2231,6 +2231,36 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         return json.dumps({"actor": actor_path, "graph": graph_path, "generated": generated,
             "instance_count": count, "instances": instances}, ensure_ascii=False)
 
+    @toolset_registry.tool_call
+    @staticmethod
+    def invoke_pie_object_function(object_path: str, function_name: str, arguments_json: str = "[]") -> str:
+        """
+        /**
+         * 调用 PIE 演员或其组件的公开反射函数 不接受资产与编辑器世界
+         * @param object_path		PIE 演员或组件路径
+         * @param function_name	反射函数名称
+         * @param arguments_json	位置参数数组 结构体参数按反射接口传入
+         * @return 目标世界与实际返回值 不保存资产
+         */
+        """
+        target = unreal.find_object(None, object_path)
+        owner = target
+        if isinstance(target, unreal.ActorComponent):
+            owner = target.get_owner()
+
+        if not isinstance(owner, unreal.Actor) or owner.get_world() not in unreal.EditorLevelLibrary.get_pie_worlds(False):
+            raise RuntimeError("目标必须是 PIE 世界的演员或其组件")
+
+        arguments = json.loads(arguments_json)
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", function_name) or not isinstance(arguments, list):
+            raise RuntimeError("函数名或位置参数数组无效")
+
+        result = target.call_method(function_name, tuple(arguments))
+        report = {"object": object_path, "world": owner.get_world().get_path_name(), "function": function_name, "result": _serialize_value(result)}
+        unreal.log("[BBBPIEObjectCall] " + object_path + " " + function_name)
+        return json.dumps(report, ensure_ascii=False)
+
+
 _registration = Registration([BBBGenericEditorToolset])
 
 if __name__ == "__bbb_editor_script__":
