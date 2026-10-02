@@ -11,6 +11,7 @@ _TOOLSET_MODULES = (
     "BBBGenericEditorToolset",
     "BBBLevelEditingToolset",
     "BBBBlueprintGraphToolset",
+    "BBBRigidPartToolset",
     "BBBControlRigAuthoringToolset",
     "BBBMcpRuntimeToolset",
 )
