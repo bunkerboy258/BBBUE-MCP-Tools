@@ -190,6 +190,19 @@ IK 重建通过网格查询真实父骨名，使用 FK 脚组件变换相对于�
 
 `remap_animation_sequence_notify_classes(animation_path, class_paths)` 原位替换 AnimSequence 中的通知实例类，保留通知时间、持续时间、轨道及实例属性。`Scripts/UA_RepointNotifies.py` 先从 BBBC 原动画复制通知，再将 BBBC 通知类替换为 UA 对应类，避免状态判断与通知实例类型不一致。
 
+## 持枪后坐力图表工具
+
+- `sample_weapon_handling_runtime` 的 `start` 与 `status` 记录角色角度冲击 动画层跟随速度 后震权重 世界手部位置 武器开火序号和镜头角度 `equip` 只在 PIE 中创建现有装备注入调试演员 不保存关卡
+
+- `render_asset_thumbnails` 请求项可设置 `diagnostic_only=true` 只输出网格 PNG 不导入纹理 不修改资产 `yaw` 用于选择辨认模型所需角度 诊断图片验收后删除
+
+- `create_backward_additive_animation` 从指定持枪动画首帧新建局部空间加法动画 通过右臂双骨旋转让右手向后移动 保持骨段长度与手部朝向 末帧返回基准姿势 目标路径已存在时拒绝覆盖
+- `configure_weapon_handling_graphs` 根据步枪动画快照重建持枪表现函数 默认用于角色基础动画层 `camera=true` 用于相机蓝图 `ReadRecoilSource` 函数
+- 角色图选择腰射或瞄准设置 再叠加空中倍率 用武器快照时间计算摇摆 用最近开火经过时间求值后震动画 不再根据角度大小增加推测是否开火
+- 相机图只读取武器动画快照 自行选择镜头冲量 角度上限和回正速度 不依赖步枪玩法黑板
+- 图表工具仅编译不保存 必须先签出资产 调用后检查编译结果再显式保存
+- 原生辅助接口 `BindAnimationNodeInput` 用于暴露动画节点输入并绑定属性路径 `ConfigureTimedAdditiveLayer` 用于重建按外部时间求值的非循环加法层
+
 ## IK 重定向链配置
 
 通过 `Game.Scripts.BBBExternalToolset.BBBExternalToolset.retarget` 调用以下动作：

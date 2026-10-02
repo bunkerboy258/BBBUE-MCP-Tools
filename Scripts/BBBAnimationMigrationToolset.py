@@ -3372,6 +3372,66 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
 
 
+    @toolset_registry.tool_call
+    @staticmethod
+    def configure_weapon_handling_graphs(blueprint_path: str, animation_path: str = "", camera: bool = False) -> str:
+        """
+        /**
+         * 通过固定动画快照接口建立持枪或镜头后坐力蓝图
+         * @param blueprint_path	目标蓝图
+         * @param animation_path	角色向后后震加法动画 相机模式不使用
+         * @param camera		是否配置相机贡献图
+         * @return 编译状态 不自动保存
+         */
+        """
+        import importlib
+        import BBBWeaponHandlingTools
+        importlib.reload(BBBWeaponHandlingTools)
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止改造持枪图表")
+        if camera:
+            return json.dumps(BBBWeaponHandlingTools.configure_camera_recoil(blueprint_path), ensure_ascii=False)
+        return json.dumps(BBBWeaponHandlingTools.configure_animation_handling(blueprint_path, animation_path), ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def sample_weapon_handling_runtime(action: str, seconds: float = 8.0, equipment_class_path: str = "") -> str:
+        """
+        /**
+         * 采样 PIE 持枪表现 或通过现有调试演员提交装备
+         * @param action		start status equip
+         * @param seconds		采样游戏秒数
+         * @param equipment_class_path	目标装备类 仅 equip 使用
+         * @return 实际采样或注入结果 不保存资产
+         */
+        """
+        import importlib
+        import BBBWeaponHandlingTools
+        importlib.reload(BBBWeaponHandlingTools)
+        return json.dumps(BBBWeaponHandlingTools.sample_runtime(action, seconds, equipment_class_path), ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def create_backward_additive_animation(source_path: str, destination_path: str, bone_name: str, local_offset: list[float], duration: float = 0.2) -> str:
+        """
+        /**
+         * 从持枪基准帧生成保持臂长与手部朝向的向后加法后震序列
+         * @param source_path		基准动画
+         * @param destination_path	新动画路径
+         * @param bone_name		受控骨骼
+         * @param local_offset		峰值局部平移厘米
+         * @param duration		时长秒
+         * @return 实际创建结果
+         */
+        """
+        import importlib
+        import BBBWeaponHandlingTools
+        importlib.reload(BBBWeaponHandlingTools)
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止创建后震动画")
+        return json.dumps(BBBWeaponHandlingTools.create_backward_additive(source_path, destination_path, bone_name, local_offset, duration), ensure_ascii=False)
+
+
 _registration = Registration([BBBAnimationMigrationToolset])
 
 if __name__ == "__bbb_editor_script__":

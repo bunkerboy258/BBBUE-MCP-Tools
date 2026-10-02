@@ -913,7 +913,8 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
                 raise RuntimeError("源资产与目标包必须位于 Game 目录")
 
             exists = unreal.EditorAssetLibrary.does_asset_exist(destination)
-            if exists and not unreal.EditorAssetLibrary.checkout_asset(destination):
+            diagnostic_only = bool(request.get("diagnostic_only", False))
+            if exists and not diagnostic_only and not unreal.EditorAssetLibrary.checkout_asset(destination):
                 results.append({"destination": destination, "error": "独占签出失败"})
                 continue
 
@@ -922,6 +923,10 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
                 source, file_name, float(request.get("yaw", 75.0)))
             if not image_path:
                 results.append({"destination": destination, "error": "网格渲染失败"})
+                continue
+
+            if diagnostic_only:
+                results.append({"source": source, "image": image_path, "saved": False})
                 continue
 
             task = unreal.AssetImportTask()
