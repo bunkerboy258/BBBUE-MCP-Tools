@@ -3412,6 +3412,33 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
     @toolset_registry.tool_call
     @staticmethod
+    def submit_character_diagnostic_inputs(requests_json: str) -> str:
+        """
+        /**
+         * 在同一 PIE 游戏线程回调中向角色输入槽位提交诊断包
+         * @param requests_json	数组 每项包含 name 与三维 value
+         * @return 各次输入提交结果 不修改资产
+         */
+        """
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if world is None:
+            raise RuntimeError("诊断输入需要正在运行的 PIE")
+        pawn = unreal.GameplayStatics.get_player_pawn(world, 0)
+        requests = json.loads(requests_json)
+        if not isinstance(requests, list) or not requests or len(requests) > 16:
+            raise RuntimeError("诊断输入必须为一到十六项的数组")
+        for request in requests:
+            if request.get("name") not in ("Camera", "Unequip", "AimFact", "AimImpulseFact") or len(request.get("value", [])) != 3:
+                raise RuntimeError("诊断输入名称或数值格式无效")
+        results = []
+        for request in requests:
+            submitted = unreal.BBBBlueprintEditorLibrary.submit_character_diagnostic_input(
+                pawn, request["name"], unreal.Vector(*request["value"]))
+            results.append({"name": request["name"], "submitted": submitted})
+        return json.dumps({"pawn": pawn.get_path_name(), "results": results}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
     def create_backward_additive_animation(source_path: str, destination_path: str, bone_name: str, local_offset: list[float], duration: float = 0.2) -> str:
         """
         /**

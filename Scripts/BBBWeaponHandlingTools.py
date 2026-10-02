@@ -35,7 +35,9 @@ def sample_runtime(action, seconds, equipment_class_path):
         return {"state": state["state"], "errors": state["errors"], "sampleCount": len(samples),
             "first": samples[:1], "last": samples[-1:], "shotEvents": events, "modes": modes,
             "peakCharacter": [max((abs(s["characterOffset"][axis]) for s in samples), default=0) for axis in (0, 1)],
-            "peakCamera": [max((abs(s["camera"][axis]) for s in samples), default=0) for axis in (0, 1)]}
+            "peakCamera": [max((abs(s["camera"][axis]) for s in samples), default=0) for axis in (0, 1)],
+            "sampleColumns": ["time", "shot", "pitch", "yaw", "roll", "aimPitch", "aimYaw"],
+            "samples": [[s["time"], s.get("shot"), *s.get("cameraActor", s["camera"]), *s["characterOffset"]] for s in samples]}
     world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
     if world is None:
         raise RuntimeError("需要已开始的 PIE")
@@ -58,6 +60,8 @@ def sample_runtime(action, seconds, equipment_class_path):
     pawn = unreal.GameplayStatics.get_player_pawn(world, 0)
     mesh = pawn.get_editor_property("Mesh")
     main = mesh.get_anim_instance()
+    cameras = unreal.GameplayStatics.get_all_actors_of_class(world, unreal.BBBPlayerCameraSystem)
+    camera_actor = cameras[0] if len(cameras) == 1 else None
     layer_class = unreal.load_class(None, "/Game/BBBC_UA/AnimationSystem/Layers/ABP_BBB_LocomotionLayer_Rifle.ABP_BBB_LocomotionLayer_Rifle_C")
     start = unreal.GameplayStatics.get_time_seconds(world)
     state = {"state": "running", "duration": seconds, "samples": [], "errors": []}
@@ -82,6 +86,9 @@ def sample_runtime(action, seconds, equipment_class_path):
                 "hand": str(mesh.get_socket_location("hand_r")), "elbow": str(mesh.get_socket_location("lowerarm_r"))}
             if isinstance(weapon, unreal.BBBRifleAnimInstance):
                 sample.update({"weapon": weapon.get_path_name(), "shot": weapon.get_fire_sequence(), "shotTime": weapon.get_time_since_last_fire_seconds()})
+            if camera_actor:
+                rotation = camera_actor.get_actor_rotation()
+                sample["cameraActor"] = [rotation.pitch, rotation.yaw, rotation.roll]
             if layer:
                 sample["follow"] = layer.get_editor_property("WeaponAimFollowSpeed")
                 sample["backwardAlpha"] = layer.get_editor_property("WeaponBackwardRecoilAlpha")
@@ -257,15 +264,14 @@ def configure_animation_handling(blueprint_path, animation_path):
     cast, rifle = _rifle_source(g, character, execute)
     execute = cast.find_then_pin()
     aiming, falling = _aim_air(g, character)
-    hip = g.break_struct(_rifle_get(g, rifle, "GetHipFireSettings"), "BBBRifleHandlingSettings")
-    ads = g.break_struct(_rifle_get(g, rifle, "GetAimFireSettings"), "BBBRifleHandlingSettings")
-    air = g.break_struct(_rifle_get(g, rifle, "GetAirborneModifiers"), "BBBRifleAirborneModifiers")
+    def snapshot(name):
+        return g.get(name, rifle, "/Script/ABBB_Evac.BBBRifleAnimInstance")
 
     def field(name):
-        return g.select(g.out(ads, name), g.out(hip, name), aiming)
+        return g.select(snapshot("AimFire" + name), snapshot("HipFire" + name), aiming)
 
     def scale(name):
-        return g.select(g.out(air, name), 1, falling)
+        return g.select(snapshot("Airborne" + name), 1, falling)
 
     follow = g.binary("Multiply_DoubleDouble", field("AimFollowSpeed"), scale("AimFollowScale"))
     recoil = g.binary("Multiply_DoubleDouble", field("BackwardRecoilAlpha"), scale("BackwardRecoilScale"))
@@ -277,10 +283,10 @@ def configure_animation_handling(blueprint_path, animation_path):
     elapsed = _rifle_get(g, rifle, "GetTimeSinceLastFireSeconds")
     time = _rifle_get(g, rifle, "GetSnapshotTimeSeconds")
     sway_parts = []
-    hip_amplitude = g.call("BreakVector2D", inputs={"InVec": g.out(hip, "SwayAmplitudeDegrees")})
-    ads_amplitude = g.call("BreakVector2D", inputs={"InVec": g.out(ads, "SwayAmplitudeDegrees")})
-    hip_frequency = g.call("BreakVector2D", inputs={"InVec": g.out(hip, "SwayFrequency")})
-    ads_frequency = g.call("BreakVector2D", inputs={"InVec": g.out(ads, "SwayFrequency")})
+    hip_amplitude = g.call("BreakVector2D", inputs={"InVec": snapshot("HipFireSwayAmplitudeDegrees")})
+    ads_amplitude = g.call("BreakVector2D", inputs={"InVec": snapshot("AimFireSwayAmplitudeDegrees")})
+    hip_frequency = g.call("BreakVector2D", inputs={"InVec": snapshot("HipFireSwayFrequency")})
+    ads_frequency = g.call("BreakVector2D", inputs={"InVec": snapshot("AimFireSwayFrequency")})
     for axis in ("X", "Y"):
         amplitude = g.select(g.out(ads_amplitude, axis), g.out(hip_amplitude, axis), aiming)
         frequency = g.select(g.out(ads_frequency, axis), g.out(hip_frequency, axis), aiming)

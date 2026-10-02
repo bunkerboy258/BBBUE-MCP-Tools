@@ -192,6 +192,9 @@ IK 重建通过网格查询真实父骨名，使用 FK 脚组件变换相对于�
 
 ## 持枪后坐力图表工具
 
+- `submit_character_diagnostic_inputs` 只在 PIE 向本地角色正式输入入口提交固定诊断包 请求为含 `name` 与三维 `value` 的数组 `Camera` 使用三轴冲量 `Unequip` 使用零向量 `AimFact` 使用 X 作为瞄准标记 `AimImpulseFact` 使用 X 腰射冲量 Y 瞄准冲量 Z 回零速度 多项在同一回调提交 可检查槽位覆盖与权威事实包读取 已由原生端限制到 PIE 游戏线程
+- 持枪运行探针额外返回逐帧样本与相机 Actor 实际角度 可对照武器开火序号检查响应时序及回零曲线 不读取相机私有状态 动画图仅读取独立的 `HipFire` `AimFire` 与 `Airborne` 表现字段 不再读取整份冲量配置
+
 - `sample_weapon_handling_runtime` 的 `start` 与 `status` 记录角色角度冲击 动画层跟随速度 后震权重 世界手部位置 武器开火序号和镜头角度 `equip` 只在 PIE 中创建现有装备注入调试演员 不保存关卡
 
 - `render_asset_thumbnails` 请求项可设置 `diagnostic_only=true` 只输出网格 PNG 不导入纹理 不修改资产 `yaw` 用于选择辨认模型所需角度 诊断图片验收后删除
