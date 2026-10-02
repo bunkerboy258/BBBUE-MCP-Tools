@@ -2330,6 +2330,110 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @toolset_registry.tool_call
     @staticmethod
+    def set_scene_actor_collision(expected_level: str, actor_paths: list[str], enabled: bool) -> str:
+        """
+        /**
+         * 通过原生接口同步演员与静态网格组件碰撞状态
+         * @param expected_level\t预期关卡路径
+         * @param actor_paths\t显式演员路径列表
+         * @param enabled\t是否启用 BlockAll 碰撞
+         * @return 已处理演员与组件回读值 不自动保存
+         */
+        """
+        from toolset_registry.helpers import require_editable
+
+        if unreal.EditorLevelLibrary.get_pie_worlds(False):
+            raise RuntimeError("PIE 期间禁止编辑场景碰撞")
+
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+        if world.get_path_name().split(".", 1)[0] != expected_level:
+            raise RuntimeError("活动关卡不匹配")
+
+        if not actor_paths or len(actor_paths) > 400 or len(set(actor_paths)) != len(actor_paths):
+            raise RuntimeError("目标数量或唯一性无效")
+
+        actors = []
+        for path in actor_paths:
+            actor = unreal.find_object(None, path)
+            if not isinstance(actor, unreal.StaticMeshActor) or actor.get_world() != world:
+                raise RuntimeError("目标不是当前世界静态网格演员")
+
+            require_editable(actor)
+            actors.append(actor)
+
+        result = []
+        for actor in actors:
+            actor.modify()
+            component = actor.static_mesh_component
+            component.modify()
+            component.set_collision_profile_name("BlockAll" if enabled else "NoCollision")
+            actor.set_actor_enable_collision(enabled)
+            result.append({"actor": actor.get_path_name(), "actor_enabled": actor.get_actor_enable_collision(),
+                "component_enabled": str(component.get_collision_enabled()),
+                "profile": str(component.get_collision_profile_name())})
+
+        unreal.log("[BBBSceneCollision]更新数量 {} 状态 {}".format(len(result), enabled))
+        return json.dumps(result)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def configure_static_mesh_surface_collision(mesh_path: str, apply_changes: bool = False) -> str:
+        """
+        /**
+         * 核验并配置静态地表的逐三角形与分段碰撞
+         * @param mesh_path\t目标静态网格包路径
+         * @param apply_changes\t为真时启用所有分段碰撞并重建网格
+         * @return 修改前后复杂度与分段碰撞状态 不自动保存
+         */
+        """
+        from toolset_registry.helpers import require_editable
+
+        if unreal.EditorLevelLibrary.get_pie_worlds(False):
+            raise RuntimeError("PIE 期间禁止重建地表碰撞")
+
+        mesh = unreal.EditorAssetLibrary.load_asset(mesh_path)
+        if not isinstance(mesh, unreal.StaticMesh):
+            raise RuntimeError("目标不是静态网格")
+
+        subsystem = unreal.get_editor_subsystem(unreal.StaticMeshEditorSubsystem)
+        before = []
+        for lod in range(mesh.get_num_lods()):
+            for section in range(mesh.get_num_sections(lod)):
+                before.append({"lod": lod, "section": section,
+                    "enabled": subsystem.is_section_collision_enabled(mesh, lod, section)})
+
+        complexity = str(subsystem.get_collision_complexity(mesh))
+        if not apply_changes:
+            return json.dumps({"mesh": mesh_path, "complexity": complexity, "sections": before})
+
+        require_editable(mesh)
+        mesh.modify()
+        body = mesh.get_editor_property("body_setup")
+        if body is None:
+            raise RuntimeError("网格缺少碰撞设置")
+
+        body.modify()
+        body.set_editor_property("collision_trace_flag", unreal.CollisionTraceFlag.CTF_USE_COMPLEX_AS_SIMPLE)
+        body.set_editor_property("double_sided_geometry", True)
+        for section in before:
+            subsystem.enable_section_collision(mesh, True, section["lod"], section["section"])
+
+        subsystem.set_nanite_settings(mesh, subsystem.get_nanite_settings(mesh))
+        after = []
+        for section in before:
+            enabled = subsystem.is_section_collision_enabled(mesh, section["lod"], section["section"])
+            if not enabled:
+                unreal.log_error("[BBBSurfaceCollision]分段碰撞未生效 " + mesh_path)
+                raise RuntimeError("分段碰撞回读失败")
+
+            after.append({"lod": section["lod"], "section": section["section"], "enabled": enabled})
+
+        unreal.log("[BBBSurfaceCollision]已启用地表碰撞 " + mesh_path)
+        return json.dumps({"mesh": mesh_path, "previous_complexity": complexity,
+            "complexity": str(subsystem.get_collision_complexity(mesh)), "before": before, "sections": after})
+
+    @toolset_registry.tool_call
+    @staticmethod
     def create_static_mesh_points_graph(graph_path: str, mesh_path: str, points_json: str, collision: bool = False) -> str:
         """
         /**
@@ -2527,7 +2631,8 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
                 for index in range(component.get_num_materials()):
                     component.set_material(index, materials[material_path])
             if not item.get("collision", True):
-                component.set_collision_enabled(unreal.CollisionEnabled.NO_COLLISION)
+                component.set_collision_profile_name("NoCollision")
+                actor.set_actor_enable_collision(False)
             created.append({"name": item["name"], "actor": actor.get_path_name()})
         unreal.log("[BBBSceneBatch]已创建 {} 个静态网格演员".format(len(created)))
         return json.dumps({"created": created}, ensure_ascii=False)

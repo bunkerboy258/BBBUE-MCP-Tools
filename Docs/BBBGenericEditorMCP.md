@@ -226,6 +226,10 @@ UE5.8 以 `DefaultKeyMappings` 为实际映射来源 工具调用引擎的 `unma
 
 ### 显式点集 PCG 图
 
+`set_scene_actor_collision(expected_level, actor_paths, enabled)` 通过原生接口同步 Actor 总开关与组件 BlockAll/NoCollision 配置，回读实际状态。最多 400 个显式静态网格演员，要求当前关卡和编辑权限，不自动保存。大型背景与道路装饰面应关闭碰撞，避免导入时的简化凸包将玩家推出场地；必须在重新加载和 PIE 中复验。
+
+`configure_static_mesh_surface_collision(mesh_path, apply_changes=False)` 默认只读检查所有 LOD 分段是否启用碰撞及复杂度。显式开启修改时要求编辑权限，启用各分段碰撞、双面几何和 ComplexAsSimple 并重建网格，不自动保存。适用于不模拟自身物理的静态地表；修改后必须通过实际角色落地验证，不能仅以编辑器射线命中判定通过。
+
 `spawn_static_mesh_batch(expected_level, items_json)` 在校验关卡、编辑权限、全量输入变换、网格与唯一标签后创建最多400个独立静态网格演员。可选material、folder和collision，输入包含完整location/rotation/scale，不自动保存关卡。中途错误需按已返回/日志中的标签核对，禁止盲目重放。
 
 `remove_scene_mesh_actors(expected_level, actor_paths, dry_run=True)` 只接受最多5000个明确对象路径；先用dry_run预览，再对同一列表执行。仅删除StaticMeshActor与TextRenderActor，其它Actor保留并报告，拒绝PIE、错误世界与无编辑权限。不删除网格资产，不自动保存关卡。
