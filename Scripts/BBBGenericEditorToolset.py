@@ -1520,6 +1520,72 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @toolset_registry.tool_call
     @staticmethod
+    def reload_assets_from_disk(asset_paths: list[str], discard_dirty_packages: list[str], dry_run: bool = True) -> str:
+        """
+        /**
+         * 从磁盘重载显式资产 仅允许丢弃逐项声明的未保存内容包
+         * @param asset_paths			资产包路径 不接受目录或地图
+         * @param discard_dirty_packages	明确允许丢弃的脏包路径 默认应传空数组
+         * @param dry_run				只预检而不执行重载
+         * @return 预检目标 重载结果与剩余脏包 不执行保存或版本控制操作
+         */
+        """
+        if unreal.EditorLevelLibrary.get_pie_worlds(False):
+            raise RuntimeError("运行测试期间拒绝重载资产")
+
+        if not asset_paths or len(asset_paths) > 64 or len(set(asset_paths)) != len(asset_paths):
+            raise RuntimeError("资产列表必须包含一至六十四个不重复包路径")
+
+        permitted = set(discard_dirty_packages)
+        if not permitted.issubset(set(asset_paths)):
+            raise RuntimeError("丢弃列表必须是目标资产包路径的子集")
+
+        packages = []
+        for path in asset_paths:
+            if not path.startswith("/Game/") or "." in path or ".." in path or ":" in path:
+                raise RuntimeError("只接受精确 Game 内容包路径: " + path)
+
+            filename = os.path.join(unreal.Paths.project_content_dir(), path[len("/Game/"):] + ".uasset")
+            if not os.path.isfile(filename):
+                raise RuntimeError("磁盘上不存在已保存的内容资产: " + path)
+
+            asset = unreal.EditorAssetLibrary.load_asset(path)
+            if asset is None or isinstance(asset, unreal.World):
+                raise RuntimeError("目标不存在或属于地图: " + path)
+
+            package = asset.get_outer()
+            if not isinstance(package, unreal.Package) or package.get_path_name() != path:
+                raise RuntimeError("目标不是资产直属包: " + path)
+
+            packages.append(package)
+
+        dirty_before = {package.get_path_name() for package in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
+        blocked = (set(asset_paths) & dirty_before) - permitted
+        if blocked:
+            raise RuntimeError("存在未授权丢弃的脏包: " + ", ".join(sorted(blocked)))
+
+        report = {"dry_run": dry_run, "targets": list(asset_paths), "discarding": sorted(set(asset_paths) & dirty_before)}
+        if dry_run:
+            return json.dumps(report, ensure_ascii=False)
+
+        unreal.log_warning("[BBBAssetReload] 显式重载内容包: " + ", ".join(asset_paths))
+        any_reloaded, error_message = unreal.EditorLoadingAndSavingUtils.reload_packages(
+            packages,
+            unreal.ReloadPackagesInteractionMode.ASSUME_POSITIVE,
+        )
+        dirty_after = {package.get_path_name() for package in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
+        remaining = sorted(set(asset_paths) & dirty_after)
+        report.update({"reloaded": bool(any_reloaded), "error": str(error_message), "remaining_dirty_targets": remaining})
+        if not any_reloaded or str(error_message) or remaining:
+            unreal.log_error("[BBBAssetReload] 重载未完整通过: " + json.dumps(report, ensure_ascii=False))
+            raise RuntimeError(json.dumps(report, ensure_ascii=False))
+
+        unreal.log("[BBBAssetReload] 全部目标已重载且无脏标记")
+        return json.dumps(report, ensure_ascii=False)
+
+
+    @toolset_registry.tool_call
+    @staticmethod
     def inspect_asset_properties(
         asset_paths: list[str],
         property_names: list[str],
@@ -2260,6 +2326,211 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         unreal.log("[BBBPIEObjectCall] " + object_path + " " + function_name)
         return json.dumps(report, ensure_ascii=False)
 
+
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def create_static_mesh_points_graph(graph_path: str, mesh_path: str, points_json: str, collision: bool = False) -> str:
+        """
+        /**
+         * 从显式世界变换创建可编辑的 PCG 点集与网格生成图 拒绝覆盖
+         * @param graph_path	新建图路径
+         * @param mesh_path	已入库静态网格路径
+         * @param points_json	包含 location rotation scale 三元数组的点列表 单位厘米与角度
+         * @param collision	是否启用实例查询和物理碰撞
+         * @return 图路径与预计实例数量
+         */
+        """
+        if unreal.EditorLevelLibrary.get_pie_worlds(False):
+            raise RuntimeError("PIE 期间禁止创建点集图")
+        if not re.fullmatch(r"/Game/(?:[A-Za-z0-9_]+/)*[A-Za-z0-9_]+", graph_path):
+            raise RuntimeError("PCG 图路径无效")
+        if unreal.EditorAssetLibrary.does_asset_exist(graph_path):
+            raise RuntimeError("PCG 图已经存在 拒绝覆盖")
+        records = json.loads(points_json)
+        if isinstance(records, dict):
+            source_path = os.path.realpath(records["file"])
+            project_path = os.path.realpath(unreal.Paths.project_dir())
+            if os.path.commonpath([source_path, project_path]) != project_path or not source_path.endswith(".json"):
+                raise RuntimeError("点集文件必须是项目目录内的 JSON")
+            with open(source_path, "r", encoding="utf-8-sig") as source:
+                manifest = json.load(source)
+            records = manifest["pcg_groups"][records["group"]]
+        if not isinstance(records, list) or not 1 <= len(records) <= 12000:
+            raise RuntimeError("点集数量必须在一到一万二千之间")
+        points = []
+        for index, record in enumerate(records):
+            for key in ("location", "rotation", "scale"):
+                values = record[key]
+                if not isinstance(values, list) or len(values) != 3:
+                    raise RuntimeError("变换必须为三元数组: " + key)
+                if not all(isinstance(value, (int, float)) and math.isfinite(value) for value in values):
+                    raise RuntimeError("变换必须为有限数字")
+            if min(record["scale"]) <= 0.0 or max(record["scale"]) > 100.0:
+                raise RuntimeError("缩放必须在零到一百之间")
+            point = unreal.PCGPoint()
+            transform = unreal.Transform(
+                location=unreal.Vector(*record["location"]),
+                rotation=unreal.Rotator(pitch=record["rotation"][0], yaw=record["rotation"][1], roll=record["rotation"][2]),
+                scale=unreal.Vector(*record["scale"]))
+            point.set_editor_property("transform", transform)
+            point.set_editor_property("seed", index + 1)
+            points.append(point)
+        mesh = unreal.EditorAssetLibrary.load_asset(mesh_path)
+        if not isinstance(mesh, unreal.StaticMesh):
+            raise RuntimeError("点集网格资产无效")
+        factory_class = unreal.load_class(None, "/Script/PCGEditor.PCGGraphFactory")
+        if factory_class is None:
+            raise RuntimeError("PCG 编辑器工厂不可用")
+        folder, name = graph_path.rsplit("/", 1)
+        graph = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
+            name, folder, unreal.PCGGraph, unreal.new_object(factory_class))
+        if graph is None:
+            raise RuntimeError("点集图创建失败")
+        point_node, point_settings = graph.add_node_of_type(unreal.PCGCreatePointsSettings)
+        point_settings.set_editor_property("points_to_create", points)
+        point_settings.set_editor_property("coordinate_space", unreal.PCGCoordinateSpace.WORLD)
+        point_settings.set_editor_property("cull_points_outside_volume", False)
+        spawn_node, spawn_settings = graph.add_node_of_type(unreal.PCGStaticMeshSpawnerSettings)
+        selector = spawn_settings.get_editor_property("mesh_selector_parameters")
+        if not isinstance(selector, unreal.PCGMeshSelectorWeighted):
+            raise RuntimeError("默认网格选择器不是加权选择器")
+        entry = unreal.PCGMeshSelectorWeightedEntry()
+        descriptor = entry.get_editor_property("descriptor")
+        descriptor.set_editor_property("static_mesh", mesh)
+        body = descriptor.get_editor_property("body_instance")
+        body.set_editor_property("collision_enabled",
+            unreal.CollisionEnabled.QUERY_AND_PHYSICS if collision else unreal.CollisionEnabled.NO_COLLISION)
+        descriptor.set_editor_property("body_instance", body)
+        entry.set_editor_property("descriptor", descriptor)
+        entry.set_editor_property("weight", 1)
+        selector.set_editor_property("mesh_entries", [entry])
+        point_node.set_node_position(0, 0)
+        spawn_node.set_node_position(400, 0)
+        if graph.add_edge(point_node, "Out", spawn_node, "In") is None:
+            raise RuntimeError("点集到网格生成器连线失败")
+        if not unreal.EditorAssetLibrary.save_loaded_asset(graph, False):
+            unreal.log_error("[BBBPCGPoints]图保存失败 " + graph_path)
+            raise RuntimeError("PCG 图保存失败")
+        unreal.log("[BBBPCGPoints]创建 {} 点数 {}".format(graph_path, len(points)))
+        return json.dumps({"graph": graph.get_path_name(), "expected_points": len(points),
+            "mesh": mesh_path, "collision": collision}, ensure_ascii=False)
+
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def remove_scene_mesh_actors(expected_level: str, actor_paths: list[str], dry_run: bool = True) -> str:
+        """
+        /**
+         * 删除显式列出的静态网格和文字演员 其它类型保留
+         * @param expected_level	预期活动关卡
+         * @param actor_paths	明确对象路径列表
+         * @param dry_run	只检查不删除
+         * @return 已删除或预览目标和保留对象
+         */
+        """
+        from toolset_registry.helpers import require_editable
+
+        if unreal.EditorLevelLibrary.get_pie_worlds(False):
+            raise RuntimeError("PIE 期间禁止删除场景对象")
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+        if world.get_path_name().split(".", 1)[0] != expected_level:
+            raise RuntimeError("活动关卡不匹配")
+        if not 1 <= len(actor_paths) <= 5000 or len(set(actor_paths)) != len(actor_paths):
+            raise RuntimeError("对象路径列表数量或唯一性无效")
+        targets = []
+        kept = []
+        for path in actor_paths:
+            actor = unreal.find_object(None, path)
+            if not isinstance(actor, unreal.Actor) or actor.get_world() != world:
+                raise RuntimeError("对象不属于当前编辑器世界: " + path)
+            if not isinstance(actor, (unreal.StaticMeshActor, unreal.TextRenderActor)):
+                kept.append({"path": path, "label": actor.get_actor_label()})
+                continue
+            require_editable(actor)
+            targets.append(actor)
+        result = [{"path": actor.get_path_name(), "label": actor.get_actor_label()} for actor in targets]
+        if not dry_run:
+            subsystem = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+            for actor in targets:
+                if not subsystem.destroy_actor(actor):
+                    unreal.log_error("[BBBSceneBatch]删除失败 " + actor.get_path_name())
+                    raise RuntimeError("删除失败 需检查已处理对象")
+        unreal.log("[BBBSceneBatch]删除预览={} 数量={}".format(dry_run, len(result)))
+        return json.dumps({"dry_run": dry_run, "targets": result, "kept": kept}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def spawn_static_mesh_batch(expected_level: str, items_json: str) -> str:
+        """
+        /**
+         * 按完整变换批量创建独立静态网格演员 拒绝重复标签
+         * @param expected_level	预期活动关卡
+         * @param items_json	含 name mesh location rotation scale 及可选 material folder collision 的列表
+         * @return 新演员完整对象路径
+         */
+        """
+        from toolset_registry.helpers import require_editable
+
+        if unreal.EditorLevelLibrary.get_pie_worlds(False):
+            raise RuntimeError("PIE 期间禁止批量创建")
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+        if world.get_path_name().split(".", 1)[0] != expected_level:
+            raise RuntimeError("活动关卡不匹配")
+        require_editable(world)
+        items = json.loads(items_json)
+        if not isinstance(items, list) or not 1 <= len(items) <= 400:
+            raise RuntimeError("批次需要一到四百项")
+        subsystem = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+        labels = {actor.get_actor_label() for actor in subsystem.get_all_level_actors()}
+        meshes = {}
+        materials = {}
+        for item in items:
+            name = item["name"]
+            if not isinstance(name, str) or not name or name in labels:
+                raise RuntimeError("演员标签为空或重复: " + str(name))
+            labels.add(name)
+            for key in ("location", "rotation", "scale"):
+                values = item[key]
+                if not isinstance(values, list) or len(values) != 3:
+                    raise RuntimeError("变换必须为三元数组")
+                if not all(isinstance(value, (int, float)) and math.isfinite(value) for value in values):
+                    raise RuntimeError("变换存在非有限数字")
+            if any(value == 0.0 or abs(value) > 10000.0 for value in item["scale"]):
+                raise RuntimeError("缩放无效")
+            mesh_path = item["mesh"]
+            if mesh_path not in meshes:
+                mesh = unreal.EditorAssetLibrary.load_asset(mesh_path)
+                if not isinstance(mesh, unreal.StaticMesh):
+                    raise RuntimeError("网格无效: " + mesh_path)
+                meshes[mesh_path] = mesh
+            material_path = item.get("material", "")
+            if material_path and material_path not in materials:
+                material = unreal.EditorAssetLibrary.load_asset(material_path)
+                if not isinstance(material, unreal.MaterialInterface):
+                    raise RuntimeError("材质无效: " + material_path)
+                materials[material_path] = material
+        created = []
+        for item in items:
+            actor = subsystem.spawn_actor_from_class(unreal.StaticMeshActor,
+                unreal.Vector(*item["location"]), unreal.Rotator(pitch=item["rotation"][0], yaw=item["rotation"][1], roll=item["rotation"][2]))
+            if actor is None:
+                unreal.log_error("[BBBSceneBatch]创建失败 " + item["name"])
+                raise RuntimeError("创建中途失败 必须核对现有标签")
+            actor.set_actor_label(item["name"])
+            actor.set_actor_scale3d(unreal.Vector(*item["scale"]))
+            actor.set_folder_path(item.get("folder", ""))
+            component = actor.static_mesh_component
+            component.set_static_mesh(meshes[item["mesh"]])
+            material_path = item.get("material", "")
+            if material_path:
+                for index in range(component.get_num_materials()):
+                    component.set_material(index, materials[material_path])
+            if not item.get("collision", True):
+                component.set_collision_enabled(unreal.CollisionEnabled.NO_COLLISION)
+            created.append({"name": item["name"], "actor": actor.get_path_name()})
+        unreal.log("[BBBSceneBatch]已创建 {} 个静态网格演员".format(len(created)))
+        return json.dumps({"created": created}, ensure_ascii=False)
 
 _registration = Registration([BBBGenericEditorToolset])
 

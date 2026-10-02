@@ -1,5 +1,13 @@
 # BBB 通用编辑器 MCP
 
+## 精确重载已保存资产
+
+`reload_assets_from_disk(asset_paths, discard_dirty_packages, dry_run=True)` 接受一至六十四个精确 `/Game/` 内容资产包路径，不接受目录、地图、PIE 或尚未保存的新资产。默认只预检；正式调用前核对返回的 `discarding`。
+
+脏包只有逐项出现在 `discard_dirty_packages` 中才允许重载；该数组必须是目标列表子集。调用方必须确认这些未保存修改属于本任务且确实应放弃，不以此丢弃用户或其他会话的改动。工具使用原生 ReloadPackages，无弹窗、不保存、不执行 Perforce Revert，结束后回读目标脏状态；部分失败会报警，不自动重试。重载会替换内存对象，后续重新查询对象引用。
+
+适用场景包括读取磁盘上的最新保存结果，以及清理本任务造成的源资产脏标记。它不等于从版本库获取最新版本，也不是资产修改回滚事务。
+
 ## 静态网格 PCG 入库验证
 
 通过实际发现的通用工具集调用 `create_static_mesh_grid_graph(graph_path, mesh_paths, grid_extent=600.0, cell_size=300.0)` 创建新图。仅接受未占用的 Game 包路径、一到三十二个已加载静态网格及有限正网格参数，最多二百五十六个点。创建 CPU 平面网格和加权 Static Mesh Spawner，默认使用原组件坐标，不裁切体积。该图用于验证导入资源可以实例化，不包含地形投射、道路避让或营地规划。修改不存在的资产不需要签出；创建后由调用方核对 Perforce 添加状态。
@@ -215,6 +223,18 @@ UE5.8 以 `DefaultKeyMappings` 为实际映射来源 工具调用引擎的 `unma
 `invoke_pie_object_function(object_path, function_name, arguments_json)` 用于运行时蓝图接口验证，支持组件、控件和子系统持有的对象。目标或其所有者链必须属于当前 PIE 世界，否则拒绝。参数为 JSON 位置参数数组，结果会返回。此工具会改变运行时状态，调用前必须核对函数语义；不得用于编辑器资产编辑。
 
 ## 扩展原则
+
+### 显式点集 PCG 图
+
+`spawn_static_mesh_batch(expected_level, items_json)` 在校验关卡、编辑权限、全量输入变换、网格与唯一标签后创建最多400个独立静态网格演员。可选material、folder和collision，输入包含完整location/rotation/scale，不自动保存关卡。中途错误需按已返回/日志中的标签核对，禁止盲目重放。
+
+`remove_scene_mesh_actors(expected_level, actor_paths, dry_run=True)` 只接受最多5000个明确对象路径；先用dry_run预览，再对同一列表执行。仅删除StaticMeshActor与TextRenderActor，其它Actor保留并报告，拒绝PIE、错误世界与无编辑权限。不删除网格资产，不自动保存关卡。
+
+`create_static_mesh_points_graph(graph_path, mesh_path, points_json, collision=False)` 创建一个 CreatePoints 到 StaticMeshSpawner 的可编辑图。点列表每项包含 `location`、`rotation`、`scale` 三元数组，分别为世界厘米坐标、Pitch/Yaw/Roll 角度和正缩放。每图限制 1–12000 点，拒绝 PIE、非有限数值、无效网格及已有图覆盖，成功保存后日志报告点数。默认关闭实例碰撞，需阻挡的组显式开启。
+
+使用已有 `generate_and_inspect_pcg` 在目标关卡的 PCG Actor 生成并回读实际实例数。输入点应提前完成地形贴合与道路/建筑避让；本工具不自行推断落点，不把点数当作视觉或性能验收。修改图后不得盲目重复生成，先检查生成状态。
+
+点集较大时，`points_json` 可传入 `{"file":"E:/BBB_Evac/Docs/Design/Camp01/布局.json","group":"Trees"}`，读取该文件的 `pcg_groups.Trees`。文件必须是实际项目目录内的 JSON，不接受外部路径。旋转数组始终按 Pitch、Yaw、Roll 解释，内部显式使用命名参数，禁止依赖 Unreal Python 构造器的位置参数顺序。场景布置后应通过官方 ActorTools 回读至少一个非零角度对象，避免静态输入正确但实际轴错误。
 
 `remove_empty_animation_notify_track(asset_path, track_name)` 支持动画序列和蒙太奇 只删除已清空的指定通知轨道
 工具拒绝 PIE 未独占签出 非动画资产 不存在的轨道和仍含事件的轨道 成功后保存并返回完整通知列表

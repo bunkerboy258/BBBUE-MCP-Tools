@@ -115,15 +115,15 @@ class RepositoryTests(unittest.TestCase):
             runtime._snapshot = lambda: {"profile": "GamingBackground", "configured_max_fps": 10}
             sys.modules["BBBExternalToolset"]._DOMAIN_MODULES = {}
             report = bootstrap.register_mcp_toolsets()
-            self.assertEqual(len(registered), 7)
+            self.assertEqual(len(registered), len(bootstrap._TOOLSET_MODULES))
             self.assertEqual(runtime._active_profile, "GamingBackground")
             self.assertEqual(runtime._configured_max_fps, 10)
             self.assertTrue(report["modules"]["BBBBlueprintGraphToolset"]["missing_native_classes"])
             self.assertEqual(bootstrap.get_toolset_name("BBBMcpRuntimeToolset"), "Game.Scripts.BBBMcpRuntimeToolset.BBBMcpRuntimeToolset")
             bootstrap.reload_mcp_toolsets()
-            self.assertEqual(len(registered), 7)
+            self.assertEqual(len(registered), len(bootstrap._TOOLSET_MODULES))
             self.assertEqual(runtime._configured_max_fps, 10)
-            self.assertEqual(sum(value in bootstrap._TOOLSET_MODULES for value in events), 7)
+            self.assertEqual(sum(value in bootstrap._TOOLSET_MODULES for value in events), len(bootstrap._TOOLSET_MODULES))
             runtime_definition = runtime.BBBMcpRuntimeToolset
             runtime_definition.static_class = lambda: types.SimpleNamespace(get_path_name=lambda: "/Engine/PythonTypes.BBBMcpRuntimeToolset_0x1234ABCD")
             self.assertEqual(bootstrap.get_toolset_name("BBBMcpRuntimeToolset"), "PythonTypes.BBBMcpRuntimeToolset_0x1234ABCD")
@@ -135,6 +135,20 @@ class RepositoryTests(unittest.TestCase):
             for name in set(sys.modules) - set(existing):
                 del sys.modules[name]
             sys.modules.update(existing)
+
+    def test_scene_rotation_uses_named_axes(self):
+        """/** @return 批量演员和 PCG 变换必须显式指定旋转轴 */"""
+        source = ROOT / "Scripts/BBBGenericEditorToolset.py"
+        tree = ast.parse(source.read_text(encoding="utf-8-sig"))
+        expected = {"create_static_mesh_points_graph", "spawn_static_mesh_batch"}
+        for method in ast.walk(tree):
+            if not isinstance(method, ast.FunctionDef) or method.name not in expected:
+                continue
+            rotations = [node for node in ast.walk(method) if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute) and node.func.attr == "Rotator"]
+            self.assertEqual(len(rotations), 1, method.name)
+            self.assertEqual(rotations[0].args, [], method.name)
+            self.assertEqual({keyword.arg for keyword in rotations[0].keywords}, {"pitch", "yaw", "roll"})
 
 
 if __name__ == "__main__":
