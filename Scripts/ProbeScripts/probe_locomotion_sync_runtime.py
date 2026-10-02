@@ -9,33 +9,6 @@ import traceback
 import unreal
 
 
-STATE_MACHINE_CANDIDATES = ("LocomotionSM", "BBBLocomotionV2")
-SYNC_GROUP_NAME = "GroundedLocomotion"
-KNOWN_STATES = {
-    "Idle",
-    "Start",
-    "Cycle",
-    "Stop",
-    "Pivot",
-    "JumpStart",
-    "JumpApex",
-    "FallLand",
-    "FallLoop",
-    "JumpStartLoop",
-    "Move",
-    "LStop",
-    "RStop",
-    "AimTurn",
-    "Takeoff",
-    "Fall",
-    "Land",
-}
-LINKED_LAYER_GROUP_CANDIDATES = (
-    "ItemAnimLayers",
-    "Locomotion",
-    "DefaultSharedGroup",
-    "LayerGroup",
-)
 OUTPUT_PATH = os.path.join(
     unreal.Paths.project_saved_dir(),
     "Diagnostics",
@@ -57,10 +30,10 @@ class BBBLocomotionSyncRuntimeProbe:
         self.start_time = time.time()
         self.frame_index = 0
         self.log_enabled_worlds = set()
-        self.anim_instance_paths = set()
         self.last_states = {}
         self.previous_pose_samples = {}
         self.prepared_mesh_paths = set()
+        self.original_mesh_tick_options = {}
 
     def start(self):
         self.stop()
@@ -108,8 +81,7 @@ class BBBLocomotionSyncRuntimeProbe:
         self.feet_writer.writeheader()
         self.write_record({
             "event": "probe_started",
-            "state_machine_candidates": STATE_MACHINE_CANDIDATES,
-            "sync_group": SYNC_GROUP_NAME,
+            "native_runtime_snapshot": True,
             "feet_output": FEET_OUTPUT_PATH,
         })
 
@@ -121,6 +93,15 @@ class BBBLocomotionSyncRuntimeProbe:
 
     def stop(self):
         self.disable_runtime_logs()
+
+        for mesh, tick_option in self.original_mesh_tick_options.values():
+            try:
+                mesh.set_editor_property("visibility_based_anim_tick_option", tick_option)
+            except Exception:
+                unreal.log_warning("[BBB Runtime Locomotion Probe] PIE 网格已销毁 无需恢复求值策略")
+
+        self.original_mesh_tick_options.clear()
+        self.prepared_mesh_paths.clear()
 
         if self.callback_handle is not None:
             try:
@@ -245,194 +226,6 @@ class BBBLocomotionSyncRuntimeProbe:
 
         return results
 
-    def find_machine(self, anim_instance):
-        for machine_index in range(16):
-            try:
-                state_name = str(anim_instance.get_current_state_name(machine_index))
-            except Exception:
-                continue
-
-            if state_name in KNOWN_STATES:
-                return machine_index, state_name
-
-        return None, ""
-
-    def read_sync_position(self, anim_instance):
-        try:
-            position = anim_instance.get_sync_group_position(SYNC_GROUP_NAME)
-        except Exception as error:
-            return {"available": False, "error": str(error)}
-
-        previous_marker = self.read_property(
-            position,
-            "previous_marker_name",
-            "previous_marker",
-        )
-        next_marker = self.read_property(
-            position,
-            "next_marker_name",
-            "next_marker",
-        )
-        marker_alpha = self.read_property(
-            position,
-            "position_between_markers",
-            "position",
-        )
-
-        return {
-            "available": True,
-            "previous_marker": str(previous_marker),
-            "next_marker": str(next_marker),
-            "alpha": self.to_float(marker_alpha),
-        }
-
-    def read_closest_marker_time(self, anim_instance, marker_name):
-        try:
-            result = anim_instance.get_time_to_closest_marker(
-                SYNC_GROUP_NAME,
-                marker_name,
-            )
-        except Exception as error:
-            return {"available": False, "error": str(error)}
-
-        if isinstance(result, tuple):
-            valid = bool(result[0]) if len(result) > 0 else False
-            marker_time = self.to_float(result[1]) if len(result) > 1 else None
-            return {"available": valid, "time": marker_time}
-
-        return {"available": bool(result), "time": None}
-
-    def read_asset_player(self, anim_instance, state_name):
-        errors = []
-        get_player_index = getattr(
-            anim_instance,
-            "get_instance_asset_player_index",
-            None,
-        )
-        if get_player_index is None:
-            return {
-                "available": False,
-                "reason": "Python API does not expose asset player index",
-            }
-
-        for machine_name in STATE_MACHINE_CANDIDATES:
-            try:
-                player_index = get_player_index(
-                    machine_name,
-                    state_name,
-                )
-            except Exception as error:
-                errors.append(f"{machine_name}: {error}")
-                continue
-
-            if player_index < 0:
-                continue
-
-            try:
-                return {
-                    "available": True,
-                    "machine": machine_name,
-                    "player_index": player_index,
-                    "time": float(
-                        anim_instance.get_instance_asset_player_time(player_index),
-                    ),
-                    "time_ratio": float(
-                        anim_instance.get_instance_asset_player_time_fraction(
-                            player_index,
-                        ),
-                    ),
-                    "length": float(
-                        anim_instance.get_instance_asset_player_length(player_index),
-                    ),
-                }
-            except Exception as error:
-                errors.append(f"{machine_name}: {error}")
-
-        return {"available": False, "errors": errors}
-
-    def find_linked_instances(self, mesh, anim_instance):
-        linked_instances = []
-        seen_paths = set()
-        get_mesh_instances = getattr(mesh, "get_linked_anim_instances", None)
-        get_group_sub_instance = getattr(
-            mesh,
-            "get_layer_sub_instance_by_group",
-            None,
-        )
-
-        if get_mesh_instances is not None:
-            try:
-                linked_instances.extend(get_mesh_instances())
-            except Exception:
-                pass
-
-        if get_group_sub_instance is not None:
-            for group_name in LINKED_LAYER_GROUP_CANDIDATES:
-                try:
-                    linked_instance = get_group_sub_instance(group_name)
-                except Exception:
-                    continue
-
-                if linked_instance is not None:
-                    linked_instances.append(linked_instance)
-
-        get_group_instance = getattr(
-            anim_instance,
-            "get_linked_anim_layer_instance_by_group",
-            None,
-        )
-        if get_group_instance is not None:
-            for group_name in LINKED_LAYER_GROUP_CANDIDATES:
-                try:
-                    linked_instance = get_group_instance(group_name)
-                except Exception:
-                    continue
-
-                if linked_instance is not None:
-                    linked_instances.append(linked_instance)
-
-        results = []
-        for linked_instance in linked_instances:
-            if linked_instance is None:
-                continue
-
-            path = linked_instance.get_path_name()
-            if path in seen_paths:
-                continue
-
-            seen_paths.add(path)
-            results.append(linked_instance)
-
-        return results
-
-    def read_linked_instance(self, linked_instance):
-        return {
-            "path": linked_instance.get_path_name(),
-            "class": linked_instance.get_class().get_path_name(),
-            "displacement_speed": self.to_float(self.read_property(
-                linked_instance,
-                "DisplacementSpeed",
-                "displacementSpeed",
-            )),
-            "stride_cycle_alpha": self.to_float(self.read_property(
-                linked_instance,
-                "StrideWarpingCycleAlpha",
-            )),
-            "stride_start_alpha": self.to_float(self.read_property(
-                linked_instance,
-                "StrideWarpingStartAlpha",
-            )),
-            "stride_pivot_alpha": self.to_float(self.read_property(
-                linked_instance,
-                "StrideWarpingPivotAlpha",
-            )),
-            "orientation_angle": self.to_float(self.read_property(
-                linked_instance,
-                "OrientationAngle",
-            )),
-            "curves": self.read_curves(linked_instance),
-        }
-
     def read_curves(self, anim_instance):
         result = {}
 
@@ -452,68 +245,6 @@ class BBBLocomotionSyncRuntimeProbe:
                 result[curve_name] = None
 
         return result
-
-    def read_animation_state(self, anim_instance):
-        return {
-            "gait": self.call_int(anim_instance, "get_gait"),
-            "movement_mode": self.call_int(anim_instance, "get_movement_mode"),
-            "is_walking": self.call_bool(anim_instance, "is_walking"),
-            "is_running": self.call_bool(anim_instance, "is_running"),
-            "is_sprinting": self.call_bool(anim_instance, "is_sprinting"),
-            "has_main_hand_equipment": self.call_bool(
-                anim_instance,
-                "has_main_hand_equipment",
-            ),
-            "is_aiming": self.call_bool(anim_instance, "is_aiming"),
-            "aim_intent_alpha": self.call_float(
-                anim_instance,
-                "get_aim_intent_alpha",
-            ),
-            "is_reloading": self.call_bool(anim_instance, "is_reloading"),
-            "time_since_last_fire": self.call_float(
-                anim_instance,
-                "get_time_since_last_fire",
-            ),
-            "has_valid_aim_source": self.call_bool(
-                anim_instance,
-                "has_valid_aim_source",
-            ),
-            "has_valid_aim_target": self.call_bool(
-                anim_instance,
-                "has_valid_aim_target",
-            ),
-            "aim_ik_alpha": self.call_float(anim_instance, "get_aim_ik_alpha"),
-            "ground_speed": self.call_float(anim_instance, "get_ground_speed"),
-            "displacement_speed": self.call_float(
-                anim_instance,
-                "get_displacement_speed",
-            ),
-            "local_forward_speed": self.call_float(
-                anim_instance,
-                "get_local_forward_speed",
-            ),
-            "local_right_speed": self.call_float(
-                anim_instance,
-                "get_local_right_speed",
-            ),
-            "velocity_direction_angle": self.call_float(
-                anim_instance,
-                "get_velocity_direction_angle",
-            ),
-            "predicted_stop_distance": self.call_float(
-                anim_instance,
-                "get_predicted_stop_distance",
-            ),
-            "predicted_pivot_distance": self.call_float(
-                anim_instance,
-                "get_predicted_pivot_distance",
-            ),
-            "has_velocity": self.call_bool(anim_instance, "has_velocity"),
-            "has_acceleration": self.call_bool(anim_instance, "has_acceleration"),
-            "is_moving": self.call_bool(anim_instance, "is_moving"),
-            "is_stopping": self.call_bool(anim_instance, "is_stopping"),
-            "is_pivoting": self.call_bool(anim_instance, "is_pivoting"),
-        }
 
     def read_blueprint_state(self, anim_instance):
         return {
@@ -593,6 +324,10 @@ class BBBLocomotionSyncRuntimeProbe:
         mesh_path = mesh.get_path_name()
 
         if mesh_path not in self.prepared_mesh_paths:
+            self.original_mesh_tick_options[mesh_path] = (
+                mesh,
+                mesh.get_editor_property("visibility_based_anim_tick_option"),
+            )
             mesh.set_editor_property(
                 "visibility_based_anim_tick_option",
                 unreal.VisibilityBasedAnimTickOption.ALWAYS_TICK_POSE_AND_REFRESH_BONES,
@@ -644,7 +379,9 @@ class BBBLocomotionSyncRuntimeProbe:
         }
 
         curves = self.read_curves(anim_instance)
-        animation_state = self.read_animation_state(anim_instance)
+        displacement_speed = self.to_float(
+            self.read_property(anim_instance, "displacementSpeed"),
+        )
         use_foot_placement = self.read_property(
             anim_instance,
             "useFootPlacement",
@@ -659,7 +396,7 @@ class BBBLocomotionSyncRuntimeProbe:
                 "state": state_name,
                 "velocity_2d": math.hypot(velocity.x, velocity.y),
                 "actual_displacement_speed": actual_displacement_speed,
-                "anim_displacement_speed": animation_state["displacement_speed"],
+                "anim_displacement_speed": displacement_speed,
                 "actor_x": actor_location.x,
                 "actor_y": actor_location.y,
                 "actor_z": actor_location.z,
@@ -698,32 +435,18 @@ class BBBLocomotionSyncRuntimeProbe:
 
     def sample_anim_instance(self, world, actor, mesh, anim_instance):
         anim_path = anim_instance.get_path_name()
-        linked_instances = self.find_linked_instances(mesh, anim_instance)
-        state_owner = anim_instance
-        machine_index, state_name = self.find_machine(state_owner)
+        runtime = json.loads(
+            unreal.BBBBlueprintEditorLibrary.probe_character_animation_runtime(actor),
+        )
+        if runtime.get("status") != "ok":
+            raise RuntimeError(f"角色动画原生快照失败 {runtime}")
 
-        if machine_index is None:
-            for linked_instance in linked_instances:
-                linked_machine_index, linked_state_name = self.find_machine(
-                    linked_instance,
-                )
-                if linked_machine_index is None:
-                    continue
-
-                state_owner = linked_instance
-                machine_index = linked_machine_index
-                state_name = linked_state_name
-                break
-
-        if machine_index is None:
-            if anim_path not in self.anim_instance_paths:
-                self.anim_instance_paths.add(anim_path)
-                self.write_record({
-                    "event": "state_machine_not_found",
-                    "anim_instance": anim_path,
-                })
-
-        state_owner_path = state_owner.get_path_name()
+        state_owner = runtime["mainInstance"]
+        state_owner_path = state_owner.get("path", anim_path)
+        states = state_owner.get("states", [])
+        state_name = ""
+        if states:
+            state_name = states[0].get("state", "")
         previous_state = self.last_states.get(state_owner_path)
         state_changed = previous_state != state_name
         self.last_states[state_owner_path] = state_name
@@ -745,8 +468,7 @@ class BBBLocomotionSyncRuntimeProbe:
             "anim_instance": anim_path,
             "anim_class": anim_instance.get_class().get_path_name(),
             "state_owner": state_owner_path,
-            "state_owner_class": state_owner.get_class().get_path_name(),
-            "machine_index": machine_index,
+            "state_owner_class": state_owner.get("class", ""),
             "state": state_name,
             "state_changed": state_changed,
             "previous_state": previous_state,
@@ -755,28 +477,25 @@ class BBBLocomotionSyncRuntimeProbe:
                 movement,
                 pose["actual_displacement_speed"],
             ),
-            "animation_state": self.read_animation_state(anim_instance),
+            "native_runtime": runtime,
+            "camera": {
+                "location": self.vector_to_dict(
+                    unreal.GameplayStatics.get_player_camera_manager(world, 0).get_camera_location(),
+                ),
+                "rotation": self.rotator_to_dict(
+                    unreal.GameplayStatics.get_player_camera_manager(world, 0).get_camera_rotation(),
+                ),
+            },
             "blueprint_state": self.read_blueprint_state(anim_instance),
             "pose": pose,
             "curves": self.read_curves(anim_instance),
-            "linked_instances": [
-                self.read_linked_instance(linked_instance)
-                for linked_instance in linked_instances
-            ],
-            "sync_position": self.read_sync_position(state_owner),
-            "closest_foot_l": self.read_closest_marker_time(state_owner, "L"),
-            "closest_foot_r": self.read_closest_marker_time(state_owner, "R"),
-            "active_state_player": self.read_asset_player(
-                state_owner,
-                state_name,
-            ),
         }
         self.write_record(record)
 
         if state_changed:
             unreal.log_warning(
                 f"[BBB Runtime Locomotion Probe] 状态切换："
-                f"{previous_state} -> {state_name}; Sync={record['sync_position']}"
+                f"{previous_state} -> {state_name}"
             )
 
     def tick(self, delta_seconds):
@@ -840,42 +559,6 @@ class BBBLocomotionSyncRuntimeProbe:
     def to_float(value):
         try:
             return float(value)
-        except Exception:
-            return None
-
-    @staticmethod
-    def call_float(target, function_name):
-        function = getattr(target, function_name, None)
-        if function is None:
-            return None
-
-        try:
-            return float(function())
-        except Exception:
-            return None
-
-    @staticmethod
-    def call_int(target, function_name):
-        function = getattr(target, function_name, None)
-        if function is None:
-            return None
-
-        try:
-            value = function()
-            numeric_value = getattr(value, "value", value)
-
-            return int(numeric_value)
-        except Exception:
-            return None
-
-    @staticmethod
-    def call_bool(target, function_name):
-        function = getattr(target, function_name, None)
-        if function is None:
-            return None
-
-        try:
-            return bool(function())
         except Exception:
             return None
 

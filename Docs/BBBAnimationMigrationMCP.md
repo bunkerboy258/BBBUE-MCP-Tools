@@ -185,6 +185,26 @@ IK 重建通过网格查询真实父骨名，使用 FK 脚组件变换相对于�
 
 ### 运行时动画实例检查
 
+运行时采样不得调用 `TickPose` 或 `RefreshBoneTransforms` 不得更改网格可见性求值策略 两个原生探针只等待已经存在的并行求值任务并读取结果 `frame` 使用游戏更新计数 `GFrameCounter` 而非渲染计数
+
+逐帧探针通过 `native_runtime` 保存完整原生快照 主状态读取主动画实例的真实状态机 不猜测索引或沿用已删除的步态接口 `camera` 记录同一回调内玩家相机管理器实际使用的位置与旋转 停止时恢复探针准备阶段的网格求值策略 同步组详细信息仍由原生 `LogAnimMarkerSync` 日志提供
+
+`probe_animation_instance_runtime` 拒绝默认对象 模板对象及外层不是骨骼网格的实例 避免无效对象在获取所属网格时触发强制转换崩溃
+
+`probe_pie_character_animation_runtime` 的 `skeletalComponents` 包含 `leaderPoseComponent` `tickGroup` `visibilityBasedAnimTickOption` `enableUpdateRateOptimizations` 和组件世界变换 用于核对可见身体与隐藏主网格的实际更新关系
+
+离屏动态测试应在开始采样前显式设置被测网格的求值策略 并在测试结束时恢复或销毁 PIE 世界 不能在每次读取时主动推进动画 使用旧版主动推进探针生成的时序数据不得用于证明运行时更新正确 持续移动测试必须确认路线未碰撞障碍物
+
+### 二零二六年十月二日相机跟随时序验收
+
+本机 UE5.8 `Engine/Source/Runtime/Engine/Private/LevelTick.cpp` 先运行 `TG_PostPhysics` 然后调用 `UpdateCameraManager` 最后才运行 `TG_PostUpdateWork` 和 `TG_LastDemotable` 相机 Actor 与 SpringArm 若在最后一组更新 玩家视图会缓存上一帧相机位置
+
+项目相机与 `CameraBoom` 已改为 `TG_PostPhysics` 保留 CMC 到相机以及相机到 SpringArm 的已有依赖 不移动装备更新 不新增游戏接口 镜头贡献仍读取最近已发布的装备快照 初始化检查四个 TickGroup 与 EndTickGroup 防止蓝图覆盖后重新出现延迟
+
+开启渲染的无障碍持续右移测试中 修复前两百七十五个稳定样本的相机横向偏移为四十二点九五六至四十五厘米 配置值为五十厘米 修复后六十帧率的两百五十八个稳定样本均为五十厘米 三十帧率无武器测试的两百六十八个移动样本也均为五十厘米 其中八十八个为蹲伏移动 两组完整相机偏移均保持配置值负三百三十 五十 六十五厘米 输入序列全部完成并确认释放
+
+稳定移动动画播放器的时间推进与声明速率一致 主动画事实与角色位置一致 可见身体组件变换与主网格一致 不据此修改循环同步组或身体跟随逻辑 本次结论证明已定位的一帧相机滞后被移除 不代表已完成用户显示器上的主观视觉验收
+
 `probe_animation_instance_runtime(instance_path)` 接受 PIE 动画实例对象路径，返回状态机名称、状态时间及活跃播放器资产、时间、权重。原生端先等待并行动画计算完成，再按实际节点类型读取；禁止通过猜测状态机索引调用 GetCurrentStateName。持续 UA 测试通过 `run_editor_script` 执行 `Scripts/UA_RuntimeProbe.py`。
 
 
