@@ -2101,6 +2101,131 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             system_path, channel_path)
 
 
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def create_static_mesh_grid_graph(graph_path: str, mesh_paths: list[str], grid_extent: float = 600.0, cell_size: float = 300.0) -> str:
+        """
+        /**
+         * 创建用于静态网格入库验证的平面网格 PCG 图 拒绝覆盖
+         * @param graph_path	新建图的 Game 包路径
+         * @param mesh_paths	已经入库的静态网格路径
+         * @param grid_extent	平面网格半宽 厘米
+         * @param cell_size	网格间距 厘米
+         * @return 图路径和预计点数
+         */
+        """
+        if unreal.EditorLevelLibrary.get_pie_worlds(False):
+            raise RuntimeError("PIE 期间禁止创建验证图")
+        if not re.fullmatch(r"/Game/(?:[A-Za-z0-9_]+/)*[A-Za-z0-9_]+", graph_path):
+            raise RuntimeError("图路径必须是合法 Game 包路径")
+        if unreal.EditorAssetLibrary.does_asset_exist(graph_path):
+            raise RuntimeError("验证图已存在 拒绝覆盖")
+        if not mesh_paths or len(mesh_paths) > 32 or len(set(mesh_paths)) != len(mesh_paths):
+            raise RuntimeError("需要一到三十二个不同静态网格")
+        if not math.isfinite(grid_extent) or not math.isfinite(cell_size):
+            raise RuntimeError("网格参数必须为有限数值")
+        if cell_size <= 0.0 or grid_extent < cell_size:
+            raise RuntimeError("网格范围或间距无效")
+        points_per_axis = math.floor(2.0 * grid_extent / cell_size)
+        expected_points = points_per_axis * points_per_axis
+        if expected_points > 256:
+            raise RuntimeError("验证图超过二百五十六点安全上限")
+        for path in mesh_paths:
+            mesh = unreal.EditorAssetLibrary.load_asset(path)
+            if not path.startswith("/Game/") or not isinstance(mesh, unreal.StaticMesh):
+                raise RuntimeError("输入不是已入库 Game 静态网格: " + path)
+        factory_class = unreal.load_class(None, "/Script/PCGEditor.PCGGraphFactory")
+        if factory_class is None:
+            raise RuntimeError("缺少 PCG 编辑器插件")
+        folder, name = graph_path.rsplit("/", 1)
+        graph = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
+            name, folder, unreal.PCGGraph, unreal.new_object(factory_class))
+        if graph is None:
+            raise RuntimeError("PCG 图创建失败")
+        grid_node, grid_settings = graph.add_node_of_type(unreal.PCGCreatePointsGridSettings)
+        grid_settings.set_editor_property("grid_extents", unreal.Vector(grid_extent, grid_extent, 0.0))
+        grid_settings.set_editor_property("cell_size", unreal.Vector(cell_size, cell_size, 100.0))
+        grid_settings.set_editor_property("coordinate_space", unreal.PCGCoordinateSpace.ORIGINAL_COMPONENT)
+        grid_settings.set_editor_property("cull_points_outside_volume", False)
+        spawner_node, spawner_settings = graph.add_node_of_type(unreal.PCGStaticMeshSpawnerSettings)
+        selector = spawner_settings.get_editor_property("mesh_selector_parameters")
+        if not isinstance(selector, unreal.PCGMeshSelectorWeighted):
+            raise RuntimeError("默认网格选择器不是加权选择器")
+        entries = []
+        for path in mesh_paths:
+            entry = unreal.PCGMeshSelectorWeightedEntry()
+            descriptor = entry.get_editor_property("descriptor")
+            descriptor.set_editor_property("static_mesh", unreal.EditorAssetLibrary.load_asset(path))
+            entry.set_editor_property("descriptor", descriptor)
+            entry.set_editor_property("weight", 1)
+            entries.append(entry)
+        selector.set_editor_property("mesh_entries", entries)
+        grid_node.set_node_position(0, 0)
+        spawner_node.set_node_position(400, 0)
+        if graph.add_edge(grid_node, "Out", spawner_node, "In") is None:
+            raise RuntimeError("PCG 网格到生成节点连线失败")
+        if not unreal.EditorAssetLibrary.save_loaded_asset(graph, False):
+            unreal.log_error("[BBBPCGValidation]验证图保存失败 " + graph_path)
+            raise RuntimeError("验证图保存失败")
+        unreal.log("[BBBPCGValidation]已创建图 {} 预计 {} 点".format(graph_path, expected_points))
+        return json.dumps({"graph": graph.get_path_name(), "mesh_paths": list(mesh_paths),
+            "expected_points": expected_points}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def generate_and_inspect_pcg(actor_path: str, graph_path: str, expected_level: str, generate: bool = False) -> str:
+        """
+        /**
+         * 在指定已签出关卡的 PCG Actor 上生成或只读核验实例
+         * @param actor_path	目标 PCG Actor 的完整对象路径
+         * @param graph_path	已保存 PCG 图路径
+         * @param expected_level	必须匹配的活动关卡包路径
+         * @param generate	为真时启动生成 为假时仅回读
+         * @return 生成状态 实例数量与网格路径
+         */
+        """
+        from toolset_registry.helpers import require_editable
+
+        if unreal.EditorLevelLibrary.get_pie_worlds(False):
+            raise RuntimeError("PIE 期间禁止执行编辑器生成验证")
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+        if world.get_path_name().split(".", 1)[0] != expected_level:
+            raise RuntimeError("活动关卡与预期不符")
+        actor = unreal.find_object(None, actor_path)
+        graph = unreal.EditorAssetLibrary.load_asset(graph_path)
+        if not isinstance(actor, unreal.Actor) or actor.get_world() != world:
+            raise RuntimeError("Actor 不属于目标编辑器世界")
+        if not isinstance(graph, unreal.PCGGraph):
+            raise RuntimeError("目标不是 PCG 图")
+        components = actor.get_components_by_class(unreal.PCGComponent)
+        if len(components) != 1:
+            raise RuntimeError("Actor 必须恰好包含一个 PCG 组件")
+        component = components[0]
+        if not generate and component.get_graph() != graph:
+            raise RuntimeError("组件使用的 PCG 图与预期不符")
+
+        if generate:
+            require_editable(actor)
+            if component.get_editor_property("generated"):
+                raise RuntimeError("组件已经生成 拒绝自动重放")
+            component.modify()
+            component.set_graph(graph)
+            component.generate_local(True)
+        instances = []
+        for mesh_component in actor.get_components_by_class(unreal.InstancedStaticMeshComponent):
+            mesh = mesh_component.get_editor_property("static_mesh")
+            instances.append({"component": mesh_component.get_path_name(),
+                "mesh": mesh.get_path_name() if mesh else None,
+                "count": mesh_component.get_instance_count()})
+        generated = bool(component.get_editor_property("generated"))
+        count = sum(item["count"] for item in instances)
+        if not generate and generated and count == 0:
+            unreal.log_error("[BBBPCGValidation]生成标记有效但没有网格实例 " + actor_path)
+            raise RuntimeError("PCG 生成未产生实例")
+        return json.dumps({"actor": actor_path, "graph": graph_path, "generated": generated,
+            "instance_count": count, "instances": instances}, ensure_ascii=False)
+
 _registration = Registration([BBBGenericEditorToolset])
 
 if __name__ == "__bbb_editor_script__":

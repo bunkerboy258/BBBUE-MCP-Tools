@@ -1,5 +1,15 @@
 # BBB 通用编辑器 MCP
 
+## 静态网格 PCG 入库验证
+
+通过实际发现的通用工具集调用 `create_static_mesh_grid_graph(graph_path, mesh_paths, grid_extent=600.0, cell_size=300.0)` 创建新图。仅接受未占用的 Game 包路径、一到三十二个已加载静态网格及有限正网格参数，最多二百五十六个点。创建 CPU 平面网格和加权 Static Mesh Spawner，默认使用原组件坐标，不裁切体积。该图用于验证导入资源可以实例化，不包含地形投射、道路避让或营地规划。修改不存在的资产不需要签出；创建后由调用方核对 Perforce 添加状态。
+
+`generate_and_inspect_pcg(actor_path, graph_path, expected_level, generate=False)` 默认只读，核对活动关卡和 Actor 世界，要求恰好一个 PCG 组件，返回生成标记、ISM 网格及实例数。传 `generate=True` 时先检查可编辑状态并启动异步生成；不会等待任务结束，也不自动重放已生成组件。调用方之后用 `generate=False` 回读确认实例数，并只保存自己的关卡。生成标记有效但零实例会报警。
+
+两工具在 PIE 中拒绝写入。失败可能留下未保存的新图；批次不是事务，不自动重试、覆盖或回滚。调用出错后先检查实际图与生成状态。工具只负责图和实例技术验证，资源许可、视觉质量、碰撞及性能仍须分别检查。
+
+本项目验证资产：`/Game/_Project/PCG/AssetLibrary/PCG_BBBAssetLibraryValidation` 与 `L_BBBAssetLibraryValidation`；首次 CPU 生成核验为桶炉四个、塑料箱六个、水桶六个，共十六个实例。资产库索引见项目 `Docs/PCG/AssetLibraryManifest.md`。
+
 工具集名称：`Game.Scripts.BBBGenericEditorToolset.BBBGenericEditorToolset`
 
 ## bind_niagara_channel_reader
