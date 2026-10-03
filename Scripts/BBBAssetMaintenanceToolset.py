@@ -290,6 +290,152 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
 
     @toolset_registry.tool_call
     @staticmethod
+    def inspect_pose_asset_source_guids(asset_paths: list[str]) -> str:
+        """
+        /**
+         * 只读比较姿势源的新旧 GUID 算法和持久化载荷
+         * @param asset_paths\t明确姿势包路径 最多 64 项
+         * @return 每项姿势的源 GUID 匹配情况和载荷指纹
+         */
+        """
+        if not asset_paths or len(asset_paths) > 64 or len(set(asset_paths)) != len(asset_paths):
+            raise RuntimeError("必须提供 1 至 64 个不重复姿势包")
+        native = getattr(unreal, "BBBAssetRepairEditorLibrary", None)
+        if native is None:
+            raise RuntimeError("宿主缺少 BBBAssetRepairEditorLibrary 原生校验能力")
+        results = []
+        for path in asset_paths:
+            asset = unreal.EditorAssetLibrary.load_asset(_move_path(path))
+            if not isinstance(asset, unreal.PoseAsset):
+                raise RuntimeError("目标不是姿势资产: " + path)
+            report = native.inspect_pose_source(asset)
+            if not report:
+                raise RuntimeError("无法校验姿势源: " + path)
+            results.append(json.loads(report))
+        return json.dumps(results, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def repair_pose_asset_source_guids(expected_reports_json: str, dry_run: bool = True, allow_verified_samples: bool = False) -> str:
+        """
+        /**
+         * 仅修复通过 GUID 或逐键校验的姿势缓存 全批预检且不重新生成姿势
+         * @param expected_reports_json\t检查工具的完整报告 JSON
+         * @param dry_run\t默认只预检 执行前必须备份并独占签出
+         * @param allow_verified_samples\t显式允许固定精度的逐键校验 默认禁用
+         * @return 保存后重新检查的报告
+         */
+        """
+        expected = json.loads(expected_reports_json)
+        if not isinstance(expected, list) or not expected or len(expected) > 64:
+            raise RuntimeError("必须提供 1 至 64 项检查报告")
+        paths = [_move_path(item["asset"].split(".")[0]) for item in expected]
+        current = json.loads(BBBAssetMaintenanceToolset.inspect_pose_asset_source_guids(paths))
+        for before, item in zip(expected, current):
+            verified = item["legacy_matches"] or (allow_verified_samples and item.get("samples_match", False))
+            if before != item or not verified or item["current_matches"]:
+                raise RuntimeError("报告发生变化或不属于已证明的 GUID 算法升级: " + item["asset"])
+        if dry_run:
+            return json.dumps(current, ensure_ascii=False)
+        if _move_dirty_packages():
+            raise RuntimeError("存在脏包 拒绝开始姿势缓存维护")
+        _require_move_checkout(paths, [])
+        results = []
+        for path, before in zip(paths, current):
+            asset = unreal.EditorAssetLibrary.load_asset(path)
+            raw = unreal.BBBAssetRepairEditorLibrary.repair_pose_source_guid(asset, before["stored_guid"], allow_verified_samples)
+            if not raw:
+                raise RuntimeError("姿势缓存修复失败 未保存: " + path)
+            after = json.loads(raw)
+            if not after["current_matches"] or before["payload_hash"] != after["payload_hash"]:
+                raise RuntimeError("姿势缓存修复后校验失败 未保存: " + path)
+            if not unreal.EditorAssetLibrary.save_loaded_asset(asset, only_if_is_dirty=False):
+                raise RuntimeError("姿势缓存保存失败: " + path)
+            results.append(after)
+        return json.dumps(results, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def inspect_animation_access_errors(asset_paths: list[str]) -> str:
+        """
+        /**
+         * 只读检查动画属性访问节点的路径和编译错误
+         * @param asset_paths\t明确动画蓝图包路径 最多 16 项
+         * @return 按蓝图分组的节点诊断
+         */
+        """
+        if not asset_paths or len(asset_paths) > 16:
+            raise RuntimeError("动画蓝图批次必须为 1 至 16 项")
+        results = {}
+        for path in asset_paths:
+            asset = unreal.EditorAssetLibrary.load_asset(_move_path(path))
+            if not isinstance(asset, unreal.AnimBlueprint):
+                raise RuntimeError("目标不是动画蓝图: " + path)
+            results[path] = json.loads(unreal.BBBAssetRepairEditorLibrary.inspect_access_errors(asset))
+        return json.dumps(results, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def repair_animation_property_queries(operations_json: str, save: bool = False) -> str:
+        """
+        /**
+         * 按显式计划创建安全标量查询并修复指定节点 最终编译通过后才允许保存
+         * @param operations_json\t每个蓝图的 guarded_queries weights paths calls 计划
+         * @param save\t默认仅修改内存并编译 保存前须备份和独占签出
+         * @return 每项蓝图的编译和保存结果 失败保留内存便于检查
+         */
+        """
+        plans = json.loads(operations_json)
+        if not isinstance(plans, list) or not plans or len(plans) > 16:
+            raise RuntimeError("必须提供 1 至 16 项蓝图修复计划")
+        for item in plans:
+            if not isinstance(item, dict) or set(item) - {"asset", "guarded_queries", "weights", "paths", "calls"}:
+                raise RuntimeError("蓝图计划存在未知操作或格式错误")
+        paths = [_move_path(item["asset"]) for item in plans]
+        if len(set(paths)) != len(paths):
+            raise RuntimeError("蓝图计划不得重复")
+        _require_move_checkout(paths, [])
+        assets = [unreal.EditorAssetLibrary.load_asset(path) for path in paths]
+        if any(not isinstance(asset, unreal.AnimBlueprint) for asset in assets):
+            raise RuntimeError("计划包含非动画蓝图")
+        native = unreal.BBBAssetRepairEditorLibrary
+        for plan, asset in zip(plans, assets):
+            for item in plan.get("guarded_queries", []):
+                target = unreal.load_class(None, item["class"])
+                fallback = str(item["fallback"]).lower()
+                if not native.create_guarded_value_query(asset, item["name"], item["object_getter"], target, item["value_getter"], fallback):
+                    raise RuntimeError("安全查询创建失败 未保存: " + plan["asset"])
+            for item in plan.get("weights", []):
+                if not native.append_smoothed_bool_weight(asset, item["update"], item["variable"], item["boolean_getter"], item["object_getter"], item["speed"]):
+                    raise RuntimeError("平滑权重创建失败 未保存: " + plan["asset"])
+            for item in plan.get("paths", []):
+                node = unreal.find_object(None, item["node"])
+                if node is None or node.get_outermost() != asset.get_outermost():
+                    raise RuntimeError("目标节点不属于指定蓝图")
+                old = list(unreal.BBBBlueprintEditorLibrary.get_property_access_path(node))
+                if old != item["old"]:
+                    raise RuntimeError("目标属性路径发生漂移")
+                if not unreal.BBBBlueprintEditorLibrary.set_property_access_path(node, item["new"]):
+                    raise RuntimeError("属性路径修复失败 未保存")
+            for item in plan.get("calls", []):
+                if not native.replace_access_with_query(asset, item["node"], item["old"], item["query"]):
+                    raise RuntimeError("属性节点替换失败 未保存: " + plan["asset"])
+        results = []
+        for path, asset in zip(paths, assets):
+            unreal.BlueprintEditorLibrary.compile_blueprint(asset)
+            status = asset.get_editor_property("status")
+            results.append({"asset": path, "status": str(status), "saved": False})
+        if any(asset.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE for asset in assets):
+            raise RuntimeError("编译未通过 整批未保存: " + json.dumps(results, ensure_ascii=False))
+        if save:
+            for asset, result in zip(assets, results):
+                if not unreal.EditorAssetLibrary.save_loaded_asset(asset, only_if_is_dirty=False):
+                    raise RuntimeError("编译通过但保存失败: " + result["asset"])
+                result["saved"] = True
+        return json.dumps(results, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
     def inspect_asset_packages(asset_paths: list[str]) -> str:
         """
         /**
@@ -605,7 +751,10 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
             objects.append(obj)
         if _move_dirty_packages() or any(_move_referencers(registry, path) for path in asset_paths):
             raise RuntimeError("加载后出现脏包或新增引用 拒绝删除")
-        report["engine_success"] = bool(unreal.EditorAssetLibrary.delete_loaded_assets(objects))
+        native = getattr(unreal, "BBBAssetRepairEditorLibrary", None)
+        if native is None:
+            raise RuntimeError("宿主缺少原包重定向清理能力 必须先编译 BBBAssetRepairEditorLibrary")
+        report["engine_success"] = bool(native.delete_redirector_packages(objects))
         report["remaining_files"] = [path for path in asset_paths if os.path.isfile(_move_filename(path))]
         report["remaining_packages"] = [path for path in asset_paths if registry.get_assets_by_package_name(path)]
         report["unsaved_packages"] = _move_dirty_packages()

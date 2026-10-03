@@ -27,6 +27,7 @@ _NATIVE_DEPENDENCIES = {
     "BBBLevelEditingToolset": ("BBBBlueprintEditorLibrary",),
     "BBBBlueprintGraphToolset": ("BBBBlueprintEditorLibrary",),
     "BBBControlRigAuthoringToolset": ("BBBBlueprintEditorLibrary",),
+    "BBBAssetMaintenanceToolset": ("BBBAssetRepairEditorLibrary",),
 }
 
 
