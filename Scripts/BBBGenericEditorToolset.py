@@ -2645,6 +2645,93 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         unreal.log("[BBBSceneBatch]已创建 {} 个静态网格演员".format(len(created)))
         return json.dumps({"created": created}, ensure_ascii=False)
 
+    @toolset_registry.tool_call
+    @staticmethod
+    def inspect_pie_static_mesh_instances(mesh_path: str) -> str:
+        """
+        /**
+         * 检查指定静态网格的 PIE 物理表现对象
+         * @param mesh_path	静态网格资产路径
+         * @return 对象数量与物理状态
+         */
+        """
+        mesh = unreal.load_asset(mesh_path)
+        if not isinstance(mesh, unreal.StaticMesh):
+            raise RuntimeError("物理对象检查需要有效静态网格")
+        rows = []
+        for world in unreal.EditorLevelLibrary.get_pie_worlds(False):
+            for actor in unreal.GameplayStatics.get_all_actors_of_class(world, unreal.StaticMeshActor):
+                component = actor.static_mesh_component
+                if component.get_editor_property("static_mesh") != mesh:
+                    continue
+                rows.append({"actor": actor.get_path_name(), "simulatingPhysics": component.is_simulating_physics(),
+                             "velocity": _serialize_value(component.get_physics_linear_velocity()),
+                             "remainingLifeSeconds": actor.get_life_span()})
+        return json.dumps({"mesh": mesh_path, "count": len(rows), "instances": rows}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def capture_niagara_preview(system_path: str, age_seconds: float, file_name: str) -> str:
+        """
+        /**
+         * 渲染指定 Niagara 系统的固定模拟时刻
+         * @param system_path	系统资产路径
+         * @param age_seconds	模拟时间
+         * @param file_name	输出图像名称
+         * @return 图像路径与系统模拟时间
+         */
+        """
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        system = unreal.load_asset(system_path)
+        if world is None or not isinstance(system, unreal.NiagaraSystem):
+            raise RuntimeError("特效截图需要启用渲染的 PIE 世界与有效系统")
+        if not math.isfinite(age_seconds) or age_seconds < 0.0 or age_seconds > 5.0:
+            raise RuntimeError("特效模拟时间必须在零至五秒之间")
+        if os.path.basename(file_name) != file_name or not file_name.endswith(".png"):
+            raise RuntimeError("特效截图名称无效")
+        directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "Diagnostics", "NiagaraCaptures"))
+        path = os.path.join(directory, file_name)
+        if os.path.exists(path):
+            raise RuntimeError("特效截图文件已存在")
+        actor = None
+        camera = None
+        try:
+            origin = unreal.Vector(0.0, 0.0, 10000.0)
+            actor = unreal.BBBBlueprintEditorLibrary.spawn_transient_pie_actor(
+                world, unreal.NiagaraActor, unreal.Transform(location=origin))
+            if actor is None:
+                raise RuntimeError("特效预览对象创建失败")
+            component = actor.get_component_by_class(unreal.NiagaraComponent)
+            component.set_asset(system)
+            component.activate(True)
+            component.advance_simulation(max(1, int(age_seconds * 120.0)), 1.0 / 120.0)
+            target = origin + unreal.Vector(15.0, 0.0, 0.0)
+            location = target + unreal.Vector(65.0, 90.0, 35.0)
+            rotation = unreal.MathLibrary.find_look_at_rotation(location, target)
+            camera = unreal.BBBBlueprintEditorLibrary.spawn_transient_pie_actor(
+                world, unreal.SceneCapture2D, unreal.Transform(location=location, rotation=rotation))
+            if camera is None:
+                raise RuntimeError("特效截图相机创建失败")
+            capture = camera.capture_component2d
+            render_target = unreal.RenderingLibrary.create_render_target2d(
+                world, 1024, 1024, unreal.TextureRenderTargetFormat.RTF_RGBA8)
+            capture.set_editor_property("texture_target", render_target)
+            capture.set_editor_property("capture_source", unreal.SceneCaptureSource.SCS_FINAL_COLOR_LDR)
+            capture.set_editor_property("primitive_render_mode", unreal.SceneCapturePrimitiveRenderMode.PRM_USE_SHOW_ONLY_LIST)
+            capture.set_editor_property("show_only_actors", [actor])
+            capture.set_editor_property("fov_angle", 60.0)
+            capture.capture_scene()
+            os.makedirs(directory, exist_ok=True)
+            unreal.RenderingLibrary.export_render_target(world, render_target, directory, file_name)
+            if not os.path.isfile(path) or os.path.getsize(path) < 1024:
+                raise RuntimeError("特效截图未产生有效输出")
+            return json.dumps({"imagePath": path, "system": system_path, "ageSeconds": age_seconds})
+        finally:
+            if camera is not None:
+                camera.destroy_actor()
+            if actor is not None:
+                actor.destroy_actor()
+
 _registration = Registration([BBBGenericEditorToolset])
 
 if __name__ == "__bbb_editor_script__":

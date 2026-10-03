@@ -326,7 +326,10 @@ def capture(animation_path, mesh_path, time_seconds, focus_bone, camera_offset, 
     world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
     if world is None:
         _fail("姿势截图需要启用渲染的 PIE 世界")
-    mesh, skeleton, specs = _context(mesh_path)
+    mesh = unreal.load_asset(mesh_path)
+    if not isinstance(mesh, unreal.SkeletalMesh):
+        _fail("截图网格必须是骨骼网格")
+    skeleton = mesh.get_editor_property("skeleton")
     animation = unreal.load_asset(animation_path)
     if not isinstance(animation, unreal.AnimSequence) or animation.get_editor_property("skeleton") != skeleton:
         _fail("截图动画骨架不匹配")
