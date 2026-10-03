@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [string]$ProjectPath,
@@ -12,7 +12,9 @@ param(
     [ValidateSet('Speed', 'Balanced', 'Economy', 'GamingBackground')]
     [string]$PerformanceProfile = 'Speed',
     [ValidateRange(-1, 240)]
-    [int]$MaxFPS = -1
+    [int]$MaxFPS = -1,
+    [ValidatePattern('^[A-Za-z0-9-]*$')]
+    [string]$Culture = ''
 )
 
 $projectPath = [System.IO.Path]::GetFullPath($ProjectPath)
@@ -113,10 +115,15 @@ try
         $existingEditor = $editors[0]
         $commandLine = $existingEditor.CommandLine
         $matchesProject = $commandLine -like "*$projectPath*" -and $existingEditor.ExecutablePath -eq $editorPath
-        $matchesMode = -not $EnableRendering -and $commandLine -match '(?i)-NullRHI(\s|$)'
+        $matchesMode = -not $EnableRendering -and $commandLine -match '(?i)-NullRHI(\s|$)' -and $commandLine -match '(?i)-RenderOffscreen(\s|$)'
         if ($EnableRendering)
         {
             $matchesMode = $commandLine -match '(?i)-RenderOffscreen(\s|$)' -and $commandLine -notmatch '(?i)-NullRHI(\s|$)'
+        }
+
+        if ($Culture -and $commandLine -notmatch ('(?i)-culture=' + [Regex]::Escape($Culture) + '(\s|$)'))
+        {
+            $matchesMode = $false
         }
 
         $matchesPort = $commandLine -match $portArgumentPattern
@@ -160,9 +167,15 @@ try
             '-FullStdOutLogOutput'
         )
         $consoleCommands = "t.MaxFPS $frameLimit,t.IdleWhenNotForeground 0"
+        if ($Culture)
+        {
+            $arguments += '-culture=' + $Culture
+        }
+
         if (-not $EnableRendering)
         {
             $arguments += '-NullRHI'
+            $arguments += '-RenderOffscreen'
         }
 
         if ($EnableRendering)

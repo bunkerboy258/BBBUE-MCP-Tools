@@ -60,3 +60,33 @@ UE 原生 `rename_assets` 内部具有自动签出和保存逻辑，本工具通
 `BBBAssetMaintenanceToolset.resave_assets(asset_paths)` 校验每个精确 `/Game/` 包路径已加载且可编辑后强制重存该资产，可用于剔除已废弃属性留下的序列化依赖。执行前须备份目标并完成 Perforce 独占签出；所有路径先通过校验才开始保存，保存失败会报告已成功重存列表，不宣称事务回滚。
 
 调用前保存移动后资产和引用者、确认无并行 PIE、备份旧包并处理 Perforce 独占签出。删除失败会报告已删除列表，不宣称事务回滚。此工具不替代通用引用修复，存在引用时停止。
+
+`move_assets_preserving_external_actor_references(moves_json, dry_run=True)` 用于普通资产存在明确外部 Actor 引用时的原生批量迁移，单批最多 64 个资产。它复用普通移动的映射、类型、目标冲突、脏包和 Perforce 独占签出检查，只允许磁盘存在的 `/Game/__ExternalActors__/` 引用者通过专用预检；外部 Object、项目外引用、关卡、关卡构建数据和重定向器仍拒绝。源与全部引用者必须先备份并签出。工具不会移动外部 Actor 文件，也不宣称引用已清理；移动后的已加载引用修改须明确保存，再用外部 Actor 引用修复工具和普通引用修复工具分批清零，核验后才删除旧重定向器。部分失败保留逐对象执行结果，不得盲重试整个批次。
+
+`move_partitioned_world(source_package, destination_package, dry_run=True)` 迁移唯一分区关卡主资产及其外部 Actor/Object 包。预检输出明确的 `affected_packages` 和外部文件清单；须先备份全部包并独占签出。执行要求源关卡未加载、目标关卡和外部目录不存在内容、无脏包和 PIE。原生 `BBBAssetRepairEditorLibrary.MovePartitionedWorld` 复用 UE 的 `WorldPartitionRenameDuplicateBuilder`，按 Actor 引用簇加载和保存，保留源关卡重定向，不执行 Submit。返回真实修改文件和源目标外部包数量回读；数量不一致、源外部包残留、脏包或保存失败时禁止盲重试。每个关卡应在干净宿主中处理，结束后冷启动核对 Actor GUID、关卡引用和外部包。构建器生成的临时关卡 `.ini` 由原生接口在同次调用结束时清理；源已有该配置文件时拒绝执行。
+
+外部 Actor 引用修复允许重定向目标为目标包的生成类或默认对象。预检要求目标包具有唯一真实主资产；实际执行在加载任何引用者之前，使用 `follow_redirectors=False` 精确加载每个目标并核对对象路径，拒绝缺失对象或仍为重定向器的目标。生成类与默认对象不会被再次追加 `_C` 后缀。
+
+## 缺失动画骨架恢复
+
+`inspect_external_actor_packages(package_paths)` 只读加载明确的外部 Actor 注册对象，读取实际 Actor GUID、所属对象路径和附着父级。每批最多 64 个包，脏包或 PIE 期间拒绝执行，不修改、重存或移动 Actor；用于核对旧版关卡升级和原生迁移后的实际连接，不能用文件名替代 Actor 身份验收。
+
+`inspect_physics_asset_material_bindings(package_path)` 使用原生接口读取每个骨骼刚体的物理材质、实例覆盖材质和碰撞形状数量，并返回预览网格与脏包状态。该检查不保存物理资产，用于原生依赖恢复、引用迁移前后绑定核对；Python 未暴露的刚体数组也可核验。
+
+`inspect_native_dependency_packages(asset_paths)` 只读遍历明确包的内容依赖闭包，核对原生 `/Script/` 包是否已加载，不加载或保存资产。普通资产迁移预检复用该检查；源资产或引用者的间接依赖缺少原生模块时拒绝执行，避免重存时丢失无法反序列化的属性或子对象。
+
+repair_missing_animation_skeleton(asset_path, skeleton_path) 仅处理没有骨架的动画；原生核验所有动画骨骼轨道均存在于目标骨架，已有骨架或轨道不兼容时拒绝。调用前备份当前动画并独占签出，必须确认目标骨架属于同一资源包。返回兼容性、骨骼轨道数量和保存结果。
+
+inspect_package_objects(package_path) 读取包文件摘要及实际对象，供未注册包和非主资产包核验；只加载，不保存，不删除。返回导出数量、导入数量、对象类型和资产标记。
+
+## 仅元数据的空包清理
+
+delete_metadata_only_package(package_path, dry_run=True) 只接受无注册资产、无引用、单一旧版 MetaData 导出的精确包。执行前必须备份并独占签出；原生入口重复检查文件摘要、对象类型与脏包状态，使用引擎空包清理并核验磁盘文件消失。不会将未知或无法加载的包当作空包删除。
+
+重定向包删除验收同时检查 .uasset 和 .umap 两种物理文件；旧地图产生的 .umap 重定向文件也必须实际消失，不能仅按注册表结果判断成功。
+
+启动器 Start-UE58OfficialMcpEditor.ps1 支持 Culture 参数，默认不设置；资产验收隐藏宿主可显式传入 Culture=en，避免引擎按英文比较文本的自测受中文本地化影响。隐藏 NullRHI 宿主同时使用 RenderOffscreen，使引擎采用空平台应用并跳过不需要的绘图板硬件初始化；不改变项目插件配置。宿主复用必须匹配渲染模式与显式指定的语言。
+
+verify_asset_moves 对旧包读取全部注册对象，非主资产规范化后产生的旧重定向对象也须核对其目标。目标包仍要求唯一主资产且名称、类型、磁盘文件均正确，不以忽略非主记录代替验收。
+
+原生移动蓝图或包含导演蓝图的序列时，旧包可能同时保留主对象、生成类和类默认对象的重定向器。`verify_asset_moves` 逐一核对它们的目标包及对象名称，并要求主目标存在；残留真实对象或指向其它包的重定向仍拒绝验收。

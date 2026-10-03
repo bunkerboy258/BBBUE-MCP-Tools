@@ -21,6 +21,76 @@ class AssetMoveTests(unittest.TestCase):
         self.runtime = {"json": json, "os": __import__("os"), "re": __import__("re")}
         exec(compile(module, str(source), "exec"), self.runtime)
 
+    def test_external_actor_inspection_uses_stable_guid_conversion(self):
+        """/** @return Actor 身份核验使用稳定 GUID 值而非 Python 对象地址 */"""
+        source = ROOT / "Scripts/BBBAssetMaintenanceToolset.py"
+        tree = ast.parse(source.read_text(encoding="utf-8-sig"))
+        owner = next(node for node in tree.body if isinstance(node, ast.ClassDef) and any(isinstance(item, ast.FunctionDef) and item.name == "inspect_external_actor_packages" for item in node.body))
+        method = next(node for node in owner.body if isinstance(node, ast.FunctionDef) and node.name == "inspect_external_actor_packages")
+        method.decorator_list = []
+        actor = types.SimpleNamespace(get_attach_parent_actor=lambda: None, get_path_name=lambda: "/Game/World.World:PersistentLevel.Actor", get_class=lambda: types.SimpleNamespace(get_path_name=lambda: "/Script/Engine.Actor"), get_editor_property=lambda name: types.SimpleNamespace(to_string=lambda: "01234567-89AB-CDEF-0123-456789ABCDEF"))
+        record = types.SimpleNamespace(get_asset=lambda: actor)
+        registry = types.SimpleNamespace(get_assets_by_package_name=lambda path: [record])
+        runtime = {"json": json, "_move_dirty_packages": lambda: [], "_move_registry": lambda: registry, "_external_actor_package_path": lambda path: path, "_move_referencers": lambda registry, path: [], "unreal": types.SimpleNamespace(Actor=types.SimpleNamespace, LevelEditorSubsystem=object, get_editor_subsystem=lambda kind: types.SimpleNamespace(is_in_play_in_editor=lambda: False), log=lambda message: None)}
+        exec(compile(ast.Module(body=[method], type_ignores=[]), str(source), "exec"), runtime)
+        report = json.loads(runtime["inspect_external_actor_packages"](["/Game/__ExternalActors__/World/A/B/Actor"]))
+        self.assertEqual(report["packages"][0]["actors"][0]["actor_guid"], "01234567-89AB-CDEF-0123-456789ABCDEF")
+        self.assertTrue(report["read_only"])
+        self.assertTrue(report["success"])
+
+    def test_native_dependency_scan_detects_missing_transitive_classes_without_loading(self):
+        """/** @return 间接物理资产的原生依赖缺失时能在重存前发现 且循环不重复遍历 */"""
+        dependencies = {
+            "/Game/Mesh": ["/Game/Physics", "/Script/Engine"],
+            "/Game/Physics": ["/Game/Material"],
+            "/Game/Material": ["/Script/LyraGame", "/Game/Mesh"],
+        }
+        visited = []
+        registry = types.SimpleNamespace(get_dependencies=lambda package, options: visited.append(package) or dependencies.get(package, []))
+        self.runtime["unreal"] = types.SimpleNamespace(AssetRegistryDependencyOptions=lambda **options: options, find_object=lambda outer, package: object() if package == "/Script/Engine" else None)
+        report = self.runtime["_move_native_dependency_report"](registry, ["/Game/Mesh"])
+        self.assertEqual(report["missing_script_packages"], ["/Script/LyraGame"])
+        self.assertEqual(report["visited_package_count"], 3)
+        self.assertEqual(len(visited), 3)
+        self.runtime["unreal"].find_object = lambda outer, package: object()
+        self.assertEqual(self.runtime["_move_native_dependency_report"](registry, ["/Game/Mesh"])["missing_script_packages"], [])
+
+    def test_external_reference_move_preserves_other_blockers(self):
+        """/** @return 允许外部 Actor 时仍拒绝外部 Object 关卡与目标冲突 */"""
+        with tempfile.TemporaryDirectory() as directory:
+            self.runtime["unreal"] = types.SimpleNamespace(Paths=types.SimpleNamespace(project_content_dir=lambda: directory))
+            actor = "/Game/__ExternalActors__/World/A1/B2/Actor"
+            disk = Path(directory) / "__ExternalActors__/World/A1/B2/Actor.uasset"
+            disk.parent.mkdir(parents=True)
+            disk.touch()
+            reason = "存在项目外或关卡外部数据引用者 需专用迁移"
+            retained = [
+                {"package": "/Game/__ExternalObjects__/World/A1/B2/Object", "reason": reason},
+                {"package": "/Game/Maps/World", "reason": "重定向器和关卡数据不属于通用资产移动范围"},
+                {"package": "/Game/New/Asset", "reason": "目标包或同名目录已存在"},
+            ]
+            report = {"asset_count": 1, "blockers": [{"package": actor, "reason": reason}] + retained}
+            result = self.runtime["_permit_external_actor_move_references"](report)
+            self.assertEqual(result["external_actor_referencers"], [actor])
+            self.assertEqual(result["blockers"], retained)
+            self.assertFalse(result["can_execute_after_checkout"])
+
+    def test_external_reference_move_rejects_missing_actor_file(self):
+        """/** @return 注册表存在的外部引用不能代替磁盘包存在证明 */"""
+        with tempfile.TemporaryDirectory() as directory:
+            self.runtime["unreal"] = types.SimpleNamespace(Paths=types.SimpleNamespace(project_content_dir=lambda: directory))
+            report = {
+                "asset_count": 1,
+                "blockers": [{"package": "/Game/__ExternalActors__/World/A1/B2/Missing", "reason": "存在项目外或关卡外部数据引用者 需专用迁移"}],
+            }
+            with self.assertRaises(RuntimeError):
+                self.runtime["_permit_external_actor_move_references"](report)
+
+    def test_external_reference_move_rejects_oversized_expansion(self):
+        """/** @return 目录展开后超过单批容量也必须拒绝执行 */"""
+        with self.assertRaises(RuntimeError):
+            self.runtime["_permit_external_actor_move_references"]({"asset_count": 65, "blockers": []})
+
     def test_redirector_fixup_ignores_unrelated_existing_blueprint_errors(self):
         existing = ["/Game/Blueprints/BP_PreExisting.BP_PreExisting"]
         current = existing + ["/Game/Maps/MapA.MapA:PersistentLevel.BP_NewError"]
@@ -121,6 +191,119 @@ class AssetMoveTests(unittest.TestCase):
             self.runtime["fixup_redirector_references_batch"](["/Game/Old"], ["/Game/Unrelated"], True)
         with self.assertRaises(RuntimeError):
             self.runtime["fixup_redirector_references_batch"](["/Game/Old"], ["/Game/Reference"] * 33, True)
+
+    def test_external_actor_fixup_accepts_generated_objects_without_loading_preview(self):
+        """/** @return 生成类与默认对象允许作为精确目标 预检不加载对象或保存包 */"""
+        source = ROOT / "Scripts/BBBAssetMaintenanceToolset.py"
+        tree = ast.parse(source.read_text(encoding="utf-8-sig"))
+        method = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "fixup_external_actor_redirector_references")
+        method.decorator_list = []
+        exec(compile(ast.Module(body=[method], type_ignores=[]), str(source), "exec"), self.runtime)
+        actor = "/Game/__ExternalActors__/World/A/B/Actor"
+        target = types.SimpleNamespace(asset_name="New", asset_class_path="/Script/Engine.Blueprint", is_u_asset=lambda: True)
+        redirectors = [types.SimpleNamespace(asset_name=name, asset_class_path="/Script/CoreUObject.ObjectRedirector", get_tag_value=lambda tag, name=name: "/Game/New." + name) for name in ["New_C", "Default__New_C"]]
+        registry = types.SimpleNamespace(get_assets_by_package_name=lambda path: redirectors if path == "/Game/Old" else [target])
+        self.runtime.update({
+            "_move_registry": lambda: registry,
+            "_move_class_path": lambda value: value,
+            "_move_dirty_packages": lambda: [],
+            "_move_referencers": lambda registry, path: [actor],
+            "_external_actor_package_path": lambda path: path,
+            "unreal": types.SimpleNamespace(LevelEditorSubsystem=object(), get_editor_subsystem=lambda subsystem: types.SimpleNamespace(is_in_play_in_editor=lambda: False), SoftObjectPath=lambda path: path),
+        })
+        result = json.loads(self.runtime[method.name](["/Game/Old"], [actor], True))
+        self.assertTrue(result["success"])
+        self.assertEqual(result["saved"], [])
+        target.get_tag_value = lambda tag: "BlueprintGeneratedClass'/Game/New.Legacy_C'"
+        redirectors[:] = [types.SimpleNamespace(asset_name="Old", asset_class_path="/Script/CoreUObject.ObjectRedirector", get_tag_value=lambda tag: "/Game/New.New")]
+        mapped_paths = []
+        self.runtime["unreal"].SoftObjectPath = lambda path: mapped_paths.append(path) or path
+        result = json.loads(self.runtime[method.name](["/Game/Old"], [actor], True))
+        self.assertTrue(result["success"])
+        self.assertIn("/Game/New.Legacy_C", mapped_paths)
+        self.assertIn("/Game/New.Default__Legacy_C", mapped_paths)
+        self.assertNotIn("/Game/New.New_C", mapped_paths)
+        registry.get_assets_by_package_name = lambda path: redirectors if path == "/Game/Old" else []
+        with self.assertRaises(RuntimeError):
+            self.runtime[method.name](["/Game/Old"], [actor], True)
+
+    def test_external_actor_fixup_rejects_missing_exact_generated_target_before_actor_load(self):
+        """/** @return 目标生成对象缺失时必须在加载或保存外部 Actor 之前拒绝执行 */"""
+        source = ROOT / "Scripts/BBBAssetMaintenanceToolset.py"
+        tree = ast.parse(source.read_text(encoding="utf-8-sig"))
+        method = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "fixup_external_actor_redirector_references")
+        method.decorator_list = []
+        exec(compile(ast.Module(body=[method], type_ignores=[]), str(source), "exec"), self.runtime)
+        actor = "/Game/__ExternalActors__/World/A/B/Actor"
+        redirector = types.SimpleNamespace(asset_name="New_C", asset_class_path="/Script/CoreUObject.ObjectRedirector", get_tag_value=lambda tag: "/Game/New.New_C")
+        target = types.SimpleNamespace(asset_name="New", asset_class_path="/Script/Engine.Blueprint", is_u_asset=lambda: True)
+        registry = types.SimpleNamespace(get_assets_by_package_name=lambda path: [redirector] if path == "/Game/Old" else [target])
+        loaded = []
+        self.runtime.update({
+            "_move_registry": lambda: registry,
+            "_move_class_path": lambda value: value,
+            "_move_dirty_packages": lambda: [],
+            "_move_referencers": lambda registry, path: [actor],
+            "_external_actor_package_path": lambda path: path,
+            "_require_move_checkout": lambda sources, references: None,
+            "unreal": types.SimpleNamespace(LevelEditorSubsystem=object(), get_editor_subsystem=lambda subsystem: types.SimpleNamespace(is_in_play_in_editor=lambda: False), SoftObjectPath=lambda path: path, load_object=lambda outer, path, **options: loaded.append(path)),
+        })
+        with self.assertRaisesRegex(RuntimeError, "无法加载精确重定向目标对象"):
+            self.runtime[method.name](["/Game/Old"], [actor], False)
+        self.assertEqual(loaded, ["/Game/New.New_C"])
+
+    def test_nonprimary_redirector_is_verified_after_name_normalization(self):
+        """/** @return 非主旧重定向器必须核对目标且不能忽略残留真实对象 */"""
+        source_file = ROOT / "Scripts/BBBAssetMaintenanceToolset.py"
+        tree = ast.parse(source_file.read_text(encoding="utf-8-sig"))
+        method = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "verify_asset_moves")
+        method.decorator_list = []
+        old_path = "/Game/Old/BadPackage"
+        new_path = "/Game/New/GoodPackage"
+        old_data = types.SimpleNamespace(
+            asset_name="DifferentObjectName",
+            asset_class_path="/Script/CoreUObject.ObjectRedirector",
+            is_u_asset=lambda: False,
+            get_tag_value=lambda tag: "StaticMesh'" + new_path + ".GoodPackage'",
+        )
+        new_data = types.SimpleNamespace(
+            asset_name="GoodPackage",
+            asset_class_path="/Script/Engine.StaticMesh",
+            is_u_asset=lambda: True,
+        )
+        registry = types.SimpleNamespace(
+            get_assets_by_package_name=lambda path: [old_data] if path == old_path else [new_data],
+            get_assets_by_path=lambda path, **options: [],
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            for package in [old_path, new_path]:
+                file = Path(directory) / (package[len("/Game/"):] + ".uasset")
+                file.parent.mkdir(parents=True)
+                file.touch()
+            self.runtime.update({
+                "unreal": types.SimpleNamespace(Paths=types.SimpleNamespace(project_content_dir=lambda: directory), log=lambda message: None),
+                "_move_registry": lambda: registry,
+                "_move_dirty_packages": lambda: [],
+                "_move_referencers": lambda registry, path: ["/Game/Showroom"],
+                "_move_class_path": lambda value: value,
+            })
+            exec(compile(ast.Module(body=[method], type_ignores=[]), str(source_file), "exec"), self.runtime)
+            moves = json.dumps([{"source": old_path, "destination": new_path, "class_path": "/Script/Engine.StaticMesh"}])
+            self.assertTrue(json.loads(self.runtime[method.name](moves))["success"])
+            generated_redirector = types.SimpleNamespace(
+                asset_name="GoodPackage_C",
+                asset_class_path="/Script/CoreUObject.ObjectRedirector",
+                is_u_asset=lambda: False,
+                get_tag_value=lambda tag: "BlueprintGeneratedClass'" + new_path + ".GoodPackage_C'",
+            )
+            registry.get_assets_by_package_name = lambda path: [old_data, generated_redirector] if path == old_path else [new_data]
+            self.assertTrue(json.loads(self.runtime[method.name](moves))["success"])
+            generated_redirector.get_tag_value = lambda tag: "BlueprintGeneratedClass'/Game/Foreign.GoodPackage_C'"
+            self.assertFalse(json.loads(self.runtime[method.name](moves))["success"])
+            registry.get_assets_by_package_name = lambda path: [old_data] if path == old_path else [new_data]
+            old_data.asset_class_path = "/Script/Engine.StaticMesh"
+            self.assertFalse(json.loads(self.runtime[method.name](moves))["success"])
 
     def test_move_and_verify_use_canonical_classes(self):
         """/** @return 原生对象与注册表类型检查均使用稳定类型辅助函数 */"""
