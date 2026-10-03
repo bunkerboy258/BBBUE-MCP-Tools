@@ -90,3 +90,13 @@ delete_metadata_only_package(package_path, dry_run=True) 只接受无注册资�
 verify_asset_moves 对旧包读取全部注册对象，非主资产规范化后产生的旧重定向对象也须核对其目标。目标包仍要求唯一主资产且名称、类型、磁盘文件均正确，不以忽略非主记录代替验收。
 
 原生移动蓝图或包含导演蓝图的序列时，旧包可能同时保留主对象、生成类和类默认对象的重定向器。`verify_asset_moves` 逐一核对它们的目标包及对象名称，并要求主目标存在；残留真实对象或指向其它包的重定向仍拒绝验收。
+
+`inspect_external_actor_package_metadata(package_paths)` 只读核对最多 64 个精确外部 Actor 包的注册对象、类型及硬软包引用。此工具不加载 Actor，因此可以核验所属关卡缺失的历史外部包；无引用记录本身不代表允许删除，清理前仍须确认所属关卡缺失、检查 Perforce 状态并保留逐文件备份。
+
+`inspect_external_actor_packages` 对 Niagara Actor 同步读取原生 `GetDestroyOnSystemFinish` 开关，供旧结束事件回调的实际行为核验使用；该读取不更改事件绑定、特效参数或资产。
+
+外部 Actor 引用修复和保留外部引用的资产迁移，均在加载前核验所属 `.umap` 与注册表中的实际 World。所属关卡缺失或已变成旧重定向包时立即拒绝操作；加载后还必须确认注册对象全部为实际 Actor，防止把加载失败的历史副本报告为已保存。
+
+`delete_ownerless_external_actor_packages(package_paths, backup_directory, dry_run=True)` 用于已核对的历史外部 Actor 副本。最多 2048 个精确包，所属真实关卡必须缺失且没有组外引用；工具不加载 Actor，核对 Perforce 后逐文件备份并校验 SHA256，再调用 UE 原生 `SourceControl.mark_files_for_delete`。该原生删除流程同时处理未提交添加的文件，不执行独立的批量回退或提交。原件永久保留在 Content 外，完成后须关闭并重启宿主刷新注册表。
+
+`inspect_external_object_package_metadata` 和 `delete_ownerless_external_object_packages` 对历史外部 Object 提供对应的只读核验及备份后清理，采用与 Actor 历史包相同的所属关卡、组外引用、Perforce 与 SHA256 条件。两种类型的包使用各自严格限定的根目录入口，不通过普通资产移动处理。

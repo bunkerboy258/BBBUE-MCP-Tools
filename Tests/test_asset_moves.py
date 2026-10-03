@@ -21,6 +21,95 @@ class AssetMoveTests(unittest.TestCase):
         self.runtime = {"json": json, "os": __import__("os"), "re": __import__("re")}
         exec(compile(module, str(source), "exec"), self.runtime)
 
+    def test_ownerless_actor_delete_preserves_exact_backup_and_rejects_backup_collision(self):
+        """/** @return 历史 Actor 清理只删除无主包 且不覆盖不匹配的恢复原件 */"""
+        source = ROOT / "Scripts/BBBAssetMaintenanceToolset.py"
+        tree = ast.parse(source.read_text(encoding="utf-8-sig"))
+        method = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "delete_ownerless_external_actor_packages")
+        method.decorator_list = []
+        exec(compile(ast.Module(body=[method], type_ignores=[]), str(source), "exec"), self.runtime)
+        with tempfile.TemporaryDirectory() as directory:
+            content = Path(directory) / "Content"
+            file = content / "__ExternalActors__/World/A/BC/Actor.uasset"
+            file.parent.mkdir(parents=True)
+            file.write_bytes(b"exact original actor")
+            backup_root = Path(directory) / "Recovery"
+            backup = backup_root / file.relative_to(content)
+            package = "/Game/__ExternalActors__/World/A/BC/Actor"
+            calls = []
+            state = types.SimpleNamespace(is_valid=True, is_unknown=False, is_checked_out_other=False, is_conflicted=False, is_deleted=False, is_source_controlled=True, is_added=True, is_current=False)
+            def native_delete(filenames, silent):
+                calls.extend(filenames)
+                for filename in filenames:
+                    Path(filename).unlink()
+                return True
+            control = types.SimpleNamespace(is_enabled=lambda: True, is_available=lambda: True, current_provider=lambda: "Perforce", query_file_states=lambda paths, **options: [state], mark_files_for_delete=native_delete)
+            registry = types.SimpleNamespace(get_assets_by_package_name=lambda path: [])
+            self.runtime.update({"_move_registry": lambda: registry, "_move_dirty_packages": lambda: [], "_move_referencers": lambda registry, path: [], "unreal": types.SimpleNamespace(Paths=types.SimpleNamespace(project_content_dir=lambda: str(content)), SourceControl=control, LevelEditorSubsystem=object, get_editor_subsystem=lambda kind: types.SimpleNamespace(is_in_play_in_editor=lambda: False), log=lambda message: None)})
+            preview = json.loads(self.runtime[method.name]([package], str(backup_root), True))
+            self.assertTrue(preview["success"])
+            self.assertFalse(backup.exists())
+            self.assertEqual(calls, [])
+            backup.parent.mkdir(parents=True)
+            backup.write_bytes(b"different protected backup")
+            with self.assertRaisesRegex(RuntimeError, "原件备份不匹配"):
+                self.runtime[method.name]([package], str(backup_root), False)
+            self.assertTrue(file.exists())
+            self.assertEqual(calls, [])
+            backup.unlink()
+            result = json.loads(self.runtime[method.name]([package], str(backup_root), False))
+            self.assertTrue(result["success"])
+            self.assertFalse(file.exists())
+            self.assertEqual(backup.read_bytes(), b"exact original actor")
+            self.assertEqual([Path(value).resolve() for value in calls], [file.resolve()])
+
+    def test_external_object_path_has_separate_strict_root(self):
+        """/** @return 外部 Object 清理入口不能接收 Actor 根或对象后缀 */"""
+        with tempfile.TemporaryDirectory() as directory:
+            self.runtime["unreal"] = types.SimpleNamespace(Paths=types.SimpleNamespace(project_content_dir=lambda: directory))
+            file = Path(directory) / "__ExternalObjects__/World/A/BC/Folder.uasset"
+            file.parent.mkdir(parents=True)
+            file.touch()
+            path = "/Game/__ExternalObjects__/World/A/BC/Folder"
+            self.assertEqual(self.runtime["_external_object_package_path"](path), path)
+            for invalid in [path.replace("__ExternalObjects__", "__ExternalActors__"), path + ".Folder", "/Game/__ExternalObjects__/World/../Folder"]:
+                with self.assertRaises(RuntimeError):
+                    self.runtime["_external_object_package_path"](invalid)
+
+    def test_external_actor_save_guard_requires_actual_owner_world(self):
+        """/** @return 缺失关卡和旧重定向关卡不能通过外部 Actor 保存前置检查 */"""
+        self.runtime["_move_class_path"] = lambda value: value
+        with tempfile.TemporaryDirectory() as directory:
+            self.runtime["unreal"] = types.SimpleNamespace(Paths=types.SimpleNamespace(project_content_dir=lambda: directory))
+            record = types.SimpleNamespace(asset_class_path="/Script/Engine.World")
+            registry = types.SimpleNamespace(get_assets_by_package_name=lambda path: [record])
+            actor = "/Game/__ExternalActors__/_ThirdParty/Environment/Pack/Maps/World/A/BC/Actor"
+            with self.assertRaises(RuntimeError):
+                self.runtime["_require_external_actor_world_owners"](registry, [actor])
+            world = Path(directory) / "_ThirdParty/Environment/Pack/Maps/World.umap"
+            world.parent.mkdir(parents=True)
+            world.touch()
+            self.assertEqual(self.runtime["_require_external_actor_world_owners"](registry, [actor]), ["/Game/_ThirdParty/Environment/Pack/Maps/World"])
+            record.asset_class_path = "/Script/CoreUObject.ObjectRedirector"
+            with self.assertRaises(RuntimeError):
+                self.runtime["_require_external_actor_world_owners"](registry, [actor])
+
+    def test_external_actor_metadata_inspection_never_loads_missing_owner_objects(self):
+        """/** @return 所属地图缺失时仍能读取外部包引用 且不会加载 Actor */"""
+        source = ROOT / "Scripts/BBBAssetMaintenanceToolset.py"
+        tree = ast.parse(source.read_text(encoding="utf-8-sig"))
+        owner = next(node for node in tree.body if isinstance(node, ast.ClassDef) and any(isinstance(item, ast.FunctionDef) and item.name == "inspect_external_actor_package_metadata" for item in node.body))
+        method = next(node for node in owner.body if isinstance(node, ast.FunctionDef) and node.name == "inspect_external_actor_package_metadata")
+        method.decorator_list = []
+        record = types.SimpleNamespace(asset_name="Actor", asset_class_path="/Script/Engine.Actor")
+        registry = types.SimpleNamespace(get_assets_by_package_name=lambda path: [record])
+        runtime = {"json": json, "_move_registry": lambda: registry, "_external_actor_package_path": lambda path: path, "_move_class_path": lambda path: path, "_move_referencers": lambda registry, path: ["/Game/Referencer"], "unreal": types.SimpleNamespace(log=lambda message: None)}
+        exec(compile(ast.Module(body=[method], type_ignores=[]), str(source), "exec"), runtime)
+        report = json.loads(runtime["inspect_external_actor_package_metadata"](["/Game/__ExternalActors__/World/A/B/Actor"]))
+        self.assertTrue(report["read_only"])
+        self.assertEqual(report["packages"][0]["referencers"], ["/Game/Referencer"])
+        self.assertEqual(report["packages"][0]["records"][0]["class_path"], "/Script/Engine.Actor")
+
     def test_external_actor_inspection_uses_stable_guid_conversion(self):
         """/** @return Actor 身份核验使用稳定 GUID 值而非 Python 对象地址 */"""
         source = ROOT / "Scripts/BBBAssetMaintenanceToolset.py"
@@ -28,13 +117,14 @@ class AssetMoveTests(unittest.TestCase):
         owner = next(node for node in tree.body if isinstance(node, ast.ClassDef) and any(isinstance(item, ast.FunctionDef) and item.name == "inspect_external_actor_packages" for item in node.body))
         method = next(node for node in owner.body if isinstance(node, ast.FunctionDef) and node.name == "inspect_external_actor_packages")
         method.decorator_list = []
-        actor = types.SimpleNamespace(get_attach_parent_actor=lambda: None, get_path_name=lambda: "/Game/World.World:PersistentLevel.Actor", get_class=lambda: types.SimpleNamespace(get_path_name=lambda: "/Script/Engine.Actor"), get_editor_property=lambda name: types.SimpleNamespace(to_string=lambda: "01234567-89AB-CDEF-0123-456789ABCDEF"))
+        actor = types.SimpleNamespace(get_destroy_on_system_finish=lambda: False, get_attach_parent_actor=lambda: None, get_path_name=lambda: "/Game/World.World:PersistentLevel.Actor", get_class=lambda: types.SimpleNamespace(get_path_name=lambda: "/Script/Engine.Actor"), get_editor_property=lambda name: types.SimpleNamespace(to_string=lambda: "01234567-89AB-CDEF-0123-456789ABCDEF"))
         record = types.SimpleNamespace(get_asset=lambda: actor)
         registry = types.SimpleNamespace(get_assets_by_package_name=lambda path: [record])
-        runtime = {"json": json, "_move_dirty_packages": lambda: [], "_move_registry": lambda: registry, "_external_actor_package_path": lambda path: path, "_move_referencers": lambda registry, path: [], "unreal": types.SimpleNamespace(Actor=types.SimpleNamespace, LevelEditorSubsystem=object, get_editor_subsystem=lambda kind: types.SimpleNamespace(is_in_play_in_editor=lambda: False), log=lambda message: None)}
+        runtime = {"json": json, "_move_dirty_packages": lambda: [], "_move_registry": lambda: registry, "_external_actor_package_path": lambda path: path, "_move_referencers": lambda registry, path: [], "unreal": types.SimpleNamespace(Actor=types.SimpleNamespace, NiagaraActor=types.SimpleNamespace, LevelEditorSubsystem=object, get_editor_subsystem=lambda kind: types.SimpleNamespace(is_in_play_in_editor=lambda: False), log=lambda message: None)}
         exec(compile(ast.Module(body=[method], type_ignores=[]), str(source), "exec"), runtime)
         report = json.loads(runtime["inspect_external_actor_packages"](["/Game/__ExternalActors__/World/A/B/Actor"]))
         self.assertEqual(report["packages"][0]["actors"][0]["actor_guid"], "01234567-89AB-CDEF-0123-456789ABCDEF")
+        self.assertFalse(report["packages"][0]["actors"][0]["destroy_on_system_finish"])
         self.assertTrue(report["read_only"])
         self.assertTrue(report["success"])
 
@@ -209,6 +299,7 @@ class AssetMoveTests(unittest.TestCase):
             "_move_dirty_packages": lambda: [],
             "_move_referencers": lambda registry, path: [actor],
             "_external_actor_package_path": lambda path: path,
+            "_require_external_actor_world_owners": lambda registry, paths: ["/Game/World"],
             "unreal": types.SimpleNamespace(LevelEditorSubsystem=object(), get_editor_subsystem=lambda subsystem: types.SimpleNamespace(is_in_play_in_editor=lambda: False), SoftObjectPath=lambda path: path),
         })
         result = json.loads(self.runtime[method.name](["/Game/Old"], [actor], True))
@@ -245,6 +336,7 @@ class AssetMoveTests(unittest.TestCase):
             "_move_dirty_packages": lambda: [],
             "_move_referencers": lambda registry, path: [actor],
             "_external_actor_package_path": lambda path: path,
+            "_require_external_actor_world_owners": lambda registry, paths: ["/Game/World"],
             "_require_move_checkout": lambda sources, references: None,
             "unreal": types.SimpleNamespace(LevelEditorSubsystem=object(), get_editor_subsystem=lambda subsystem: types.SimpleNamespace(is_in_play_in_editor=lambda: False), SoftObjectPath=lambda path: path, load_object=lambda outer, path, **options: loaded.append(path)),
         })

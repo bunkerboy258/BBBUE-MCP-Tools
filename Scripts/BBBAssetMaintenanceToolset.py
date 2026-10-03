@@ -29,6 +29,30 @@ def _move_path(value):
     return path
 
 
+def _external_package_path(value, root_name):
+    """
+    /**
+     * 校验关卡外部包的精确路径和磁盘文件
+     * @param value	待核验的包路径
+     * @param root_name	外部 Actor 或外部 Object 的固定根名称
+     * @return 未加载的合法外部包路径
+     */
+    """
+    if root_name not in {"__ExternalActors__", "__ExternalObjects__"}:
+        raise RuntimeError("关卡外部根名称无效")
+    if not isinstance(value, str):
+        raise RuntimeError("关卡外部包路径必须是字符串")
+    path = value.rstrip("/")
+    segments = path.split("/")[2:]
+    if not path.startswith("/Game/" + root_name + "/") or len(segments) < 4:
+        raise RuntimeError("仅允许明确的 Game 关卡外部 包: " + path)
+    if any(not re.fullmatch(r"[\w\-]+", segment) for segment in segments):
+        raise RuntimeError("关卡外部包路径包含无效片段或对象后缀: " + path)
+    if not os.path.isfile(_move_filename(path)):
+        raise RuntimeError("关卡外部包文件不存在: " + path)
+    return path
+
+
 def _external_actor_package_path(value):
     """
     /**
@@ -37,17 +61,99 @@ def _external_actor_package_path(value):
      * @return 合法的 /Game/__ExternalActors__ 包路径
      */
     """
-    if not isinstance(value, str):
-        raise RuntimeError("外部 Actor 包路径必须是字符串")
-    path = value.rstrip("/")
-    segments = path.split("/")[2:]
-    if not path.startswith("/Game/__ExternalActors__/") or len(segments) < 4:
-        raise RuntimeError("仅允许明确的 /Game/__ExternalActors__ 外部 Actor 包: " + path)
-    if any(not re.fullmatch(r"[\w\-]+", segment) for segment in segments):
-        raise RuntimeError("外部 Actor 包路径包含无效片段或对象后缀: " + path)
-    if not os.path.isfile(_move_filename(path)):
-        raise RuntimeError("外部 Actor 包文件不存在: " + path)
-    return path
+    return _external_package_path(value, "__ExternalActors__")
+
+
+def _external_object_package_path(value):
+    """/** @return 校验后的精确关卡外部 Object 包路径 */"""
+    return _external_package_path(value, "__ExternalObjects__")
+
+
+def _require_external_actor_world_owners(registry, packages):
+    """
+    /**
+     * 保存或迁移外部 Actor 前确认所属关卡真实存在 不加载遗留副本
+     * @param registry	项目资产注册表
+     * @param packages	需要修改的精确外部 Actor 包列表
+     * @return 已核验的所属关卡路径
+     */
+    """
+    owners = sorted({"/Game/" + "/".join(path.split("/")[3:-3]) for path in packages})
+    for owner in owners:
+        records = registry.get_assets_by_package_name(owner)
+        if not os.path.isfile(_move_filename(owner, ".umap")) or len(records) != 1 or _move_class_path(records[0].asset_class_path) != "/Script/Engine.World":
+            raise RuntimeError("外部 Actor 所属关卡缺失或不是实际 World 必须先核对历史副本 不加载或保存: " + owner)
+    return owners
+
+
+def _delete_ownerless_external_packages(package_paths, backup_directory, dry_run, path_validator):
+    """
+    /**
+     * 核对归属与引用后备份并原生清理明确历史外部包
+     * @param package_paths	需要核验的精确外部包
+     * @param backup_directory	永久原件备份目录
+     * @param dry_run	是否仅执行前置核验
+     * @param path_validator	与外部包类型对应的路径校验函数
+     * @return 原件哈希和原生删除核验结果
+     */
+    """
+    import hashlib
+    import shutil
+
+    if not package_paths or len(package_paths) > 2048 or len(set(package_paths)) != len(package_paths):
+        raise RuntimeError("必须提供 1 至 2048 个不重复历史外部包")
+    if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+        raise RuntimeError("存在脏包或 PIE 拒绝清理历史外部包")
+    if not unreal.SourceControl.is_enabled() or not unreal.SourceControl.is_available() or unreal.SourceControl.current_provider() != "Perforce":
+        raise RuntimeError("历史外部包清理必须使用可用的 Perforce")
+    content = os.path.realpath(unreal.Paths.project_content_dir())
+    backup_root = os.path.realpath(backup_directory)
+    if not os.path.isabs(backup_directory) or os.path.commonpath([content, backup_root]) == content:
+        raise RuntimeError("永久备份必须使用 Content 外的绝对目录")
+    registry = _move_registry()
+    selected = [path_validator(path) for path in package_paths]
+    selected_set = set(selected)
+    owners = sorted({"/Game/" + "/".join(path.split("/")[3:-3]) for path in selected})
+    for owner in owners:
+        records = registry.get_assets_by_package_name(owner)
+        if os.path.isfile(_move_filename(owner, ".umap")) or any(_move_class_path(record.asset_class_path) == "/Script/Engine.World" for record in records):
+            raise RuntimeError("所属关卡仍存在 拒绝历史包清理: " + owner)
+    for path in selected:
+        outside = set(_move_referencers(registry, path)) - selected_set
+        if outside:
+            raise RuntimeError("历史外部包仍有组外引用 拒绝清理: " + path + " " + str(sorted(outside)))
+    states = unreal.SourceControl.query_file_states(selected, silent=True, use_source_control_state_cache=False)
+    if len(states) != len(selected):
+        raise RuntimeError("历史外部包 Perforce 状态不完整")
+    for path, state in zip(selected, states):
+        if not state.is_valid or state.is_unknown or state.is_checked_out_other or state.is_conflicted or state.is_deleted:
+            raise RuntimeError("历史外部包 Perforce 状态不安全: " + path)
+        if state.is_source_controlled and not state.is_added and not state.is_current:
+            raise RuntimeError("历史外部包不是当前仓库版本: " + path)
+    report = {"dry_run": dry_run, "owners": owners, "package_count": len(selected), "backups": [], "success": False}
+    if dry_run:
+        report["success"] = True
+        return json.dumps(report, ensure_ascii=False)
+    for path in selected:
+        source = _move_filename(path)
+        backup = os.path.join(backup_root, path[6:] + ".uasset")
+        with open(source, "rb") as source_stream:
+            digest = hashlib.sha256(source_stream.read()).hexdigest()
+        os.makedirs(os.path.dirname(backup), exist_ok=True)
+        if not os.path.exists(backup):
+            shutil.copy2(source, backup)
+        with open(backup, "rb") as backup_stream:
+            backup_digest = hashlib.sha256(backup_stream.read()).hexdigest()
+        if backup_digest != digest:
+            raise RuntimeError("历史外部包原件备份不匹配 拒绝删除: " + path)
+        report["backups"].append({"package": path, "source": source, "backup": backup, "sha256": digest})
+    filenames = [_move_filename(path) for path in selected]
+    report["engine_success"] = bool(unreal.SourceControl.mark_files_for_delete(filenames, silent=True))
+    report["remaining_files"] = [path for path, filename in zip(selected, filenames) if os.path.isfile(filename)]
+    report["dirty_packages"] = _move_dirty_packages()
+    report["success"] = report["engine_success"] and not report["remaining_files"] and not report["dirty_packages"]
+    unreal.log("[BBBOwnerlessExternalDelete]{} {} 个包 原件永久保留 删除后须重启宿主刷新注册表".format("PASS" if report["success"] else "FAIL", len(selected)))
+    return json.dumps(report, ensure_ascii=False)
 
 
 def _move_requests(moves_json):
@@ -389,6 +495,9 @@ def _execute_asset_moves(report):
      * @return 完整执行与磁盘核验结果
      */
     """
+    external_referencers = [path for path in report["referencer_packages"] if path.startswith("/Game/__ExternalActors__/")]
+    if external_referencers:
+        _require_external_actor_world_owners(_move_registry(), external_referencers)
     affected = set(report["referencer_packages"])
     affected.update(item["source"] for item in report["assets"])
     _require_move_checkout(affected, [item["destination"] for item in report["assets"]])
@@ -449,6 +558,76 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
 
     @toolset_registry.tool_call
     @staticmethod
+    def delete_ownerless_external_actor_packages(package_paths: list[str], backup_directory: str, dry_run: bool = True) -> str:
+        """
+        /**
+         * 备份后原生清理所属关卡缺失且没有组外引用的外部 Actor 历史文件
+         * @param package_paths	已核对历史归属的精确外部包 单批最多 2048 项
+         * @param backup_directory	项目 Content 外永久保留原件的目录
+         * @param dry_run	默认只核验 不加载对象或删除文件
+         * @return 原件哈希 原生删除结果和剩余文件
+         */
+        """
+        return _delete_ownerless_external_packages(package_paths, backup_directory, dry_run, _external_actor_package_path)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def delete_ownerless_external_object_packages(package_paths: list[str], backup_directory: str, dry_run: bool = True) -> str:
+        """
+        /**
+         * 备份后原生清理所属关卡缺失且没有组外引用的外部 Object 历史文件
+         * @param package_paths	已核对历史归属的精确外部包 单批最多 2048 项
+         * @param backup_directory	项目 Content 外永久保留原件的目录
+         * @param dry_run	默认只核验 不加载对象或删除文件
+         * @return 原件哈希 原生删除结果和剩余文件
+         */
+        """
+        return _delete_ownerless_external_packages(package_paths, backup_directory, dry_run, _external_object_package_path)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def inspect_external_object_package_metadata(package_paths: list[str]) -> str:
+        """
+        /**
+         * 只读核对外部 Object 的注册信息与引用 不加载对象
+         * @param package_paths	需要核验的精确外部 Object 包 单批最多 64 项
+         * @return 注册对象 类型和硬软包引用
+         */
+        """
+        if not package_paths or len(package_paths) > 64 or len(set(package_paths)) != len(package_paths):
+            raise RuntimeError("必须提供 1 至 64 个不重复外部 Object 包")
+        registry = _move_registry()
+        rows = []
+        for requested in package_paths:
+            path = _external_object_package_path(requested)
+            records = [{"object": path + "." + str(record.asset_name), "class_path": _move_class_path(record.asset_class_path)} for record in registry.get_assets_by_package_name(path)]
+            rows.append({"package": path, "records": records, "referencers": _move_referencers(registry, path)})
+        return json.dumps({"read_only": True, "packages": rows}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def inspect_external_actor_package_metadata(package_paths: list[str]) -> str:
+        """
+        /**
+         * 只读核对外部 Actor 包注册信息与引用 不加载缺失所属关卡的对象
+         * @param package_paths	需要核验的精确外部 Actor 包 单批最多 64 项
+         * @return 注册对象 类型和硬软包引用
+         */
+        """
+        if not package_paths or len(package_paths) > 64 or len(set(package_paths)) != len(package_paths):
+            raise RuntimeError("必须提供 1 至 64 个不重复外部 Actor 包")
+        registry = _move_registry()
+        rows = []
+        for requested in package_paths:
+            path = _external_actor_package_path(requested)
+            records = [{"object": path + "." + str(record.asset_name), "class_path": _move_class_path(record.asset_class_path)} for record in registry.get_assets_by_package_name(path)]
+            rows.append({"package": path, "records": records, "referencers": _move_referencers(registry, path)})
+        report = {"read_only": True, "packages": rows}
+        unreal.log("[BBBExternalActorMetadata]核对 {} 个外部包 不加载对象".format(len(rows)))
+        return json.dumps(report, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
     def inspect_external_actor_packages(package_paths: list[str]) -> str:
         """
         /**
@@ -472,12 +651,16 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
                 if not isinstance(actor, unreal.Actor):
                     raise RuntimeError("外部包注册对象不是可加载的 Actor: " + path)
                 parent = actor.get_attach_parent_actor()
-                actors.append({
+                identity = {
                     "object": actor.get_path_name(),
                     "class_path": actor.get_class().get_path_name(),
                     "actor_guid": actor.get_editor_property("actor_guid").to_string(),
                     "attach_parent_actor": parent.get_path_name() if parent is not None else "",
-                })
+                }
+                niagara_class = getattr(unreal, "NiagaraActor", None)
+                if niagara_class is not None and isinstance(actor, niagara_class):
+                    identity["destroy_on_system_finish"] = actor.get_destroy_on_system_finish()
+                actors.append(identity)
             rows.append({"package": path, "actors": actors, "referencers": _move_referencers(registry, path)})
         dirty = _move_dirty_packages()
         report = {"read_only": True, "packages": rows, "dirty_packages": dirty, "success": not dirty}
@@ -974,6 +1157,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
                     targets.add(default_target)
             references.update(_move_referencers(registry, path))
         selected = [_external_actor_package_path(path) for path in referencer_paths]
+        _require_external_actor_world_owners(registry, selected)
         if not set(selected).issubset(references):
             raise RuntimeError("本批包含不是当前重定向器引用者的外部 Actor 包")
         report = {"dry_run": dry_run, "redirectors": list(asset_paths), "referencers": selected, "saved": [], "success": False}
@@ -992,6 +1176,9 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
             package = unreal.load_package(path)
             if package is None or package.get_path_name() != path:
                 raise RuntimeError("无法加载精确外部 Actor 包: " + path)
+            records = registry.get_assets_by_package_name(path)
+            if not records or any(not isinstance(record.get_asset(), unreal.Actor) for record in records):
+                raise RuntimeError("外部包未完整加载实际 Actor 拒绝保存: " + path)
             packages.append(package)
         if _move_dirty_packages():
             raise RuntimeError("加载外部 Actor 包产生脏包 拒绝保存 请先检查")
