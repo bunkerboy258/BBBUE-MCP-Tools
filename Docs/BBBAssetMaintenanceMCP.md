@@ -33,6 +33,24 @@ UE 原生 `rename_assets` 内部具有自动签出和保存逻辑，本工具通
 
 迁移通过不代表旧目录可删除：正确重定向器和仍引用旧路径的包可以继续存在。`source_folders` 的 `empty_on_disk_and_registry` 只描述当前磁盘和注册表是否为空，不自动授权清理。引用修复和旧目录清理按明确范围另外执行，禁止直接在资源管理器搬运 `.uasset` 或删除仍被引用的重定向器。目录内非资产文件不会由本工具迁移，核验报告会显示它们。
 
+蓝图包按 `AssetData.is_u_asset()` 只选择主资产，生成类、默认对象和类重定向记录由 UE 随主资产维护，不作为独立迁移项。预检和核验均采用该规则，避免把同包对象误判为重复包。
+
+类型检查从 `TopLevelAssetPath.package_name` 和 `asset_name` 拼接稳定路径，不使用包含内存地址的结构调试文本；重定向器与关卡数据始终单独阻断，不作为普通资产移动。
+
+`inspect_asset_packages(asset_paths)` 只读检查明确包的全部注册对象、已加载的主对象与蓝图生成类/默认对象、重定向目标标签、引用者、磁盘存在及脏包状态。不加载资产或跟随重定向，可用于排查原生批量迁移后的旧包残留。
+
+原生迁移待添加资产时可能留下没有任何子对象的旧脏包和旧磁盘副本。通用 `reload_assets_from_disk` 仅在包确实为空且逐项列入 `discard_dirty_packages` 时允许从磁盘重载这种空包，不丢弃含对象的加载失败包。该能力不等于允许删除旧文件。
+
+`consolidate_verified_asset_copies(moves_json, dry_run=True)` 只处理明确列出的旧副本和保留目标。每项须提供备份校验后的 `source_sha256` 和稳定 `class_path`；源文件有变化、类型不一致、存在脏包、关卡或重定向器时拒绝。执行要求源、目标和引用者已在 Perforce 可编辑，通过原生 `consolidate_assets` 归并引用并保存；失败报告部分进度，不重试、不回滚。该操作不是内容相同证明，调用者必须先确认目标确为应保留版本并备份。
+
+`fixup_redirector_references(asset_paths, dry_run=True)` 修复明确重定向包的项目内硬/软引用，只保存这些引用者，保留重定向器。原生加载解析硬引用，`rename_referencing_soft_object_paths` 更新软路径，`save_packages` 支持明确的普通地图包。禁止外部 Actor/Object 包及未保存修改，执行前须备份并签出全部引用者，返回剩余旧引用，不宣称自动清理。
+
+`delete_asset_redirectors(asset_paths, dry_run=True)` 只删除明确且完全由重定向对象组成的无引用包。默认仅审计，执行要求已备份、Perforce 可编辑、无脏包；加载使用 `follow_redirectors=False` 并再次核对精确路径/类型及引用。原生批量删除后回读磁盘与注册表，不触碰目标资产，不删除含普通对象的包。
+
+原生删除可能因内存中的临时蓝图类仍引用旧包而留下磁盘文件，即使注册表条目已移除，也不能认为清理成功。工具返回剩余文件、注册包和脏包；须冷启动重新预检，不得直接按旧报告删除磁盘文件。引擎自身的删除流程可能办理待添加包撤销及已签出包转删除，工具不主动执行 Perforce Revert/Submit/Get Latest。删除时加载目标还可能触发 Control Rig 的延迟自动编译，需再次检查脏包，不保存无关领域改动。
+
+`refresh_asset_registry_folders(folder_paths)` 从明确的 `/Game/` 子目录强制同步扫描磁盘状态，仅更新注册表，不加载或改写资产。存在脏包时拒绝；可用于核实原生删除后磁盘文件与注册表是否一致，不能代替引用核验或授权删除。
+
 `BBBAssetMaintenanceToolset.resave_assets(asset_paths)` 校验每个精确 `/Game/` 包路径已加载且可编辑后强制重存该资产，可用于剔除已废弃属性留下的序列化依赖。执行前须备份目标并完成 Perforce 独占签出；所有路径先通过校验才开始保存，保存失败会报告已成功重存列表，不宣称事务回滚。
 
 调用前保存移动后资产和引用者、确认无并行 PIE、备份旧包并处理 Perforce 独占签出。删除失败会报告已删除列表，不宣称事务回滚。此工具不替代通用引用修复，存在引用时停止。

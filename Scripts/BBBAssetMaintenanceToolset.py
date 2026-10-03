@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import re
@@ -108,6 +109,28 @@ def _move_dirty_packages():
     return sorted({package.get_path_name() for package in packages if package.get_path_name().startswith("/Game/")})
 
 
+def _move_primary_assets(asset_data):
+    """
+    /**
+     * 只保留包内主资产 蓝图生成类与默认对象由引擎随主资产维护
+     * @param asset_data	注册表返回的包内或目录对象
+     * @return 可独立迁移的主资产列表
+     */
+    """
+    return [item for item in asset_data if item.is_u_asset()]
+
+
+def _move_class_path(path):
+    """
+    /**
+     * 从类型路径字段生成稳定名称 不使用包含内存地址的结构调试文本
+     * @param path	UE 顶层资产类型路径
+     * @return 完整类型路径
+     */
+    """
+    return str(path.package_name) + "." + str(path.asset_name)
+
+
 def _plan_asset_moves(requests, registry):
     """
     /**
@@ -132,8 +155,8 @@ def _plan_asset_moves(requests, registry):
     for request in requests:
         source = request["source"]
         destination = request["destination"]
-        data = list(registry.get_assets_by_package_name(source))
-        folder_data = list(registry.get_assets_by_path(source, recursive=True))
+        data = _move_primary_assets(registry.get_assets_by_package_name(source))
+        folder_data = _move_primary_assets(registry.get_assets_by_path(source, recursive=True))
         is_directory = bool(folder_data) or unreal.EditorAssetLibrary.does_directory_exist(source)
         if bool(data) == is_directory:
             raise RuntimeError("源路径不存在或资产与目录类型不明确: " + source)
@@ -155,7 +178,7 @@ def _plan_asset_moves(requests, registry):
             if is_directory:
                 target += package[len(source):]
             target = _move_path(target)
-            class_path = str(asset_data.asset_class_path)
+            class_path = _move_class_path(asset_data.asset_class_path)
             object_path = package + "." + str(asset_data.asset_name)
             target_object = target + "." + target.rsplit("/", 1)[-1]
             if package.casefold() in source_keys or target.casefold() in destination_keys:
@@ -167,7 +190,7 @@ def _plan_asset_moves(requests, registry):
 
             if class_path in {"/Script/CoreUObject.ObjectRedirector", "/Script/Engine.World", "/Script/Engine.MapBuildDataRegistry"}:
                 blockers.append({"package": package, "reason": "重定向器和关卡数据不属于通用资产移动范围"})
-            if len(registry.get_assets_by_package_name(package)) != 1:
+            if len(_move_primary_assets(registry.get_assets_by_package_name(package))) != 1:
                 blockers.append({"package": package, "reason": "包内存在多个资产 需专用迁移"})
             if registry.get_assets_by_package_name(target) or unreal.EditorAssetLibrary.does_directory_exist(target):
                 blockers.append({"package": target, "reason": "目标包或同名目录已存在"})
@@ -267,6 +290,239 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
 
     @toolset_registry.tool_call
     @staticmethod
+    def inspect_asset_packages(asset_paths: list[str]) -> str:
+        """
+        /**
+         * 只读检查明确包的注册对象与已加载对象 不跟随重定向加载目标
+         * @param asset_paths	明确包路径列表
+         * @return 注册类型 重定向目标 引用者 磁盘与脏包状态
+         */
+        """
+        if not asset_paths or len(asset_paths) > 5000 or len(set(asset_paths)) != len(asset_paths):
+            raise RuntimeError("必须提供 1 至 5000 个不重复包路径")
+        registry = _move_registry()
+        dirty = set(_move_dirty_packages())
+        results = []
+        loaded_children = {path: [] for path in asset_paths}
+        for obj in unreal.ObjectIterator():
+            outer = obj.get_outermost().get_name()
+            if outer in loaded_children:
+                loaded_children[outer].append(obj.get_path_name())
+        for requested in asset_paths:
+            package = _move_path(requested)
+            name = package.rsplit("/", 1)[-1]
+            loaded = []
+            for object_path in (package + "." + name, package + "." + name + "_C", package + ".Default__" + name + "_C"):
+                asset = unreal.find_object(None, object_path, follow_redirectors=False)
+                if asset is not None:
+                    loaded.append({"path": asset.get_path_name(), "class_path": _move_class_path(asset.get_class().get_class_path_name())})
+            records = []
+            for data in registry.get_assets_by_package_name(package):
+                records.append({
+                    "object": package + "." + str(data.asset_name),
+                    "class_path": _move_class_path(data.asset_class_path),
+                    "primary": data.is_u_asset(),
+                    "destination": str(data.get_tag_value("DestinationObject") or ""),
+                })
+            results.append({
+                "package": package,
+                "records": records,
+                "loaded": loaded,
+                "loaded_child_count": len(loaded_children[package]),
+                "loaded_children": sorted(loaded_children[package])[:64],
+                "referencers": _move_referencers(registry, package),
+                "dirty": package in dirty,
+                "file_exists": any(os.path.isfile(_move_filename(package, extension)) for extension in (".uasset", ".umap")),
+            })
+        return json.dumps({"read_only": True, "packages": results}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def refresh_asset_registry_folders(folder_paths: list[str]) -> str:
+        """
+        /**
+         * 按明确目录从磁盘刷新注册表 不加载 修改或删除资产文件
+         * @param folder_paths	明确的项目内容子目录
+         * @return 刷新目录及各目录主资产数量
+         */
+        """
+        if not folder_paths or len(folder_paths) > 64 or len(set(folder_paths)) != len(folder_paths):
+            raise RuntimeError("必须提供 1 至 64 个不重复子目录")
+        paths = [_move_path(path) for path in folder_paths]
+        if _move_dirty_packages():
+            raise RuntimeError("存在脏包时拒绝用磁盘状态覆盖注册表")
+        registry = _move_registry()
+        registry.scan_paths_synchronous(paths, force_rescan=True)
+        return json.dumps({"folders": [{"path": path, "asset_count": len(_move_primary_assets(registry.get_assets_by_path(path, recursive=True)))} for path in paths]}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def consolidate_verified_asset_copies(moves_json: str, dry_run: bool = True) -> str:
+        """
+        /**
+         * 将已校验的旧副本引用归入明确目标 使用原生合并而非删除磁盘文件
+         * @param moves_json	含 source destination class_path source_sha256 的精确清单
+         * @param dry_run	仅预检开关
+         * @return 合并进度和结果 失败时不自动回滚
+         */
+        """
+        requests = _move_requests(moves_json)
+        if len(requests) > 64:
+            raise RuntimeError("副本合并单批最多 64 项")
+        registry = _move_registry()
+        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+            raise RuntimeError("脏包或 PIE 期间拒绝合并")
+        pairs = []
+        affected = set()
+        seen = set()
+        for item in requests:
+            source = item["source"]
+            destination = item["destination"]
+            if source in seen or destination in seen:
+                raise RuntimeError("合并不允许重复或链式路径")
+            seen.update((source, destination))
+            expected_hash = item.get("source_sha256", "")
+            if not re.fullmatch(r"[0-9a-fA-F]{64}", expected_hash):
+                raise RuntimeError("必须提供经备份核验的源 SHA256: " + source)
+            with open(_move_filename(source), "rb") as stream:
+                actual_hash = hashlib.file_digest(stream, "sha256").hexdigest()
+            if actual_hash.casefold() != expected_hash.casefold():
+                raise RuntimeError("源副本已变化 拒绝合并: " + source)
+            objects = []
+            for path in (source, destination):
+                records = _move_primary_assets(registry.get_assets_by_package_name(path))
+                if len(records) != 1 or _move_class_path(records[0].asset_class_path) != item.get("class_path"):
+                    raise RuntimeError("包类型与清单不符: " + path)
+                if item["class_path"] in {"/Script/CoreUObject.ObjectRedirector", "/Script/Engine.World", "/Script/Engine.MapBuildDataRegistry"}:
+                    raise RuntimeError("不支持合并重定向器或关卡数据")
+                object_path = path + "." + path.rsplit("/", 1)[-1]
+                obj = unreal.load_asset(object_path, follow_redirectors=False)
+                if obj is None or obj.get_path_name() != object_path:
+                    raise RuntimeError("未加载精确对象: " + object_path)
+                objects.append(obj)
+            affected.update((source, destination))
+            affected.update(_move_referencers(registry, source))
+            pairs.append((item, objects[0], objects[1]))
+        if _move_dirty_packages():
+            raise RuntimeError("预检加载产生脏包 拒绝合并")
+        report = {"dry_run": dry_run, "count": len(pairs), "affected": sorted(affected), "completed": []}
+        if dry_run:
+            return json.dumps(report, ensure_ascii=False)
+        _require_move_checkout(affected, [])
+        for item, source, destination in pairs:
+            if not unreal.EditorAssetLibrary.consolidate_assets(destination, [source]):
+                unreal.log_error("[BBBAssetConsolidate]原生合并未通过 必须检查部分结果")
+                report["success"] = False
+                report["failed_source"] = item["source"]
+                return json.dumps(report, ensure_ascii=False)
+            report["completed"].append(item["source"])
+        report["success"] = not _move_dirty_packages()
+        unreal.log("[BBBAssetConsolidate]完成 {} 个旧副本".format(len(report["completed"])))
+        return json.dumps(report, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def fixup_redirector_references(asset_paths: list[str], dry_run: bool = True) -> str:
+        """
+        /**
+         * 只修明确重定向器的项目包引用 保留重定向器本身
+         * @param asset_paths	已备份的重定向器包路径
+         * @param dry_run	仅预检 不加载或保存引用者
+         * @return 引用者清单 保存结果及剩余旧引用
+         */
+        """
+        if not asset_paths or len(asset_paths) > 64 or len(set(asset_paths)) != len(asset_paths):
+            raise RuntimeError("必须提供 1 至 64 个不重复重定向包")
+        registry = _move_registry()
+        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+            raise RuntimeError("脏包或 PIE 期间拒绝修复引用")
+        references = set()
+        redirect_map = {}
+        for requested in asset_paths:
+            path = _move_path(requested)
+            records = registry.get_assets_by_package_name(path)
+            if not records or any(_move_class_path(data.asset_class_path) != "/Script/CoreUObject.ObjectRedirector" for data in records):
+                raise RuntimeError("包不完全由重定向器组成: " + path)
+            for data in records:
+                target = str(data.get_tag_value("DestinationObject") or "")
+                if "'" in target:
+                    target = target.split("'", 1)[1].rstrip("'")
+                if not target.startswith("/Game/") or "." not in target:
+                    raise RuntimeError("重定向目标不明确: " + path)
+                if unreal.load_object(None, target) is None:
+                    raise RuntimeError("重定向目标无法加载: " + target)
+                redirect_map[unreal.SoftObjectPath(path + "." + str(data.asset_name))] = unreal.SoftObjectPath(target)
+            references.update(_move_referencers(registry, path))
+        for path in references:
+            _move_path(path)
+        report = {"dry_run": dry_run, "redirectors": list(asset_paths), "referencers": sorted(references)}
+        if dry_run:
+            return json.dumps(report, ensure_ascii=False)
+        _require_move_checkout(set(asset_paths) | references, [])
+        packages = []
+        for path in sorted(references):
+            package = unreal.load_package(path)
+            if package is None or package.get_path_name() != path:
+                raise RuntimeError("无法加载精确引用者包: " + path)
+            packages.append(package)
+        if _move_dirty_packages():
+            raise RuntimeError("加载引用者产生脏包 拒绝保存 请先检查")
+        if packages:
+            unreal.AssetToolsHelpers.get_asset_tools().rename_referencing_soft_object_paths(packages, redirect_map)
+            if not unreal.EditorLoadingAndSavingUtils.save_packages(packages, False):
+                raise RuntimeError("引用者保存失败 请核对已保存包 不自动重试")
+        report["remaining"] = {path: _move_referencers(registry, path) for path in asset_paths}
+        report["success"] = not any(report["remaining"].values()) and not _move_dirty_packages()
+        unreal.log("[BBBRedirectorReferences]引用修复 {}".format("PASS" if report["success"] else "FAIL"))
+        return json.dumps(report, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def delete_asset_redirectors(asset_paths: list[str], dry_run: bool = True) -> str:
+        """
+        /**
+         * 仅删除明确的无引用重定向包 不跟随重定向 不删除目标
+         * @param asset_paths	已备份的精确重定向包列表
+         * @param dry_run	仅预检 不加载或删除对象
+         * @return 删除结果及剩余磁盘文件
+         */
+        """
+        if not asset_paths or len(asset_paths) > 5000 or len(set(asset_paths)) != len(asset_paths):
+            raise RuntimeError("必须提供 1 至 5000 个不重复包")
+        registry = _move_registry()
+        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+            raise RuntimeError("脏包或 PIE 期间拒绝删除")
+        object_paths = []
+        for requested in asset_paths:
+            path = _move_path(requested)
+            records = registry.get_assets_by_package_name(path)
+            if not records or any(_move_class_path(data.asset_class_path) != "/Script/CoreUObject.ObjectRedirector" for data in records):
+                raise RuntimeError("包不完全由重定向器组成: " + path)
+            if _move_referencers(registry, path):
+                raise RuntimeError("重定向包仍有引用: " + path)
+            object_paths.extend(path + "." + str(data.asset_name) for data in records)
+        report = {"dry_run": dry_run, "package_count": len(asset_paths), "object_count": len(object_paths)}
+        if dry_run:
+            return json.dumps(report, ensure_ascii=False)
+        _require_move_checkout(asset_paths, [])
+        objects = []
+        for path in object_paths:
+            obj = unreal.load_object(None, path, follow_redirectors=False)
+            if obj is None or obj.get_path_name() != path or obj.get_class().get_name() != "ObjectRedirector":
+                raise RuntimeError("不是精确重定向对象: " + path)
+            objects.append(obj)
+        if _move_dirty_packages() or any(_move_referencers(registry, path) for path in asset_paths):
+            raise RuntimeError("加载后出现脏包或新增引用 拒绝删除")
+        report["engine_success"] = bool(unreal.EditorAssetLibrary.delete_loaded_assets(objects))
+        report["remaining_files"] = [path for path in asset_paths if os.path.isfile(_move_filename(path))]
+        report["remaining_packages"] = [path for path in asset_paths if registry.get_assets_by_package_name(path)]
+        report["unsaved_packages"] = _move_dirty_packages()
+        report["success"] = report["engine_success"] and not report["remaining_files"] and not report["remaining_packages"] and not report["unsaved_packages"]
+        unreal.log("[BBBRedirectorDelete]{} {} 个包".format("PASS" if report["success"] else "FAIL", len(asset_paths)))
+        return json.dumps(report, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
     def audit_asset_folder_move(source_folder: str, destination_folder: str) -> str:
         """只读检查目录迁移的目标冲突和目录外引用"""
         source = source_folder.rstrip("/")
@@ -355,7 +611,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
             asset = unreal.EditorAssetLibrary.load_asset(item["source_object"])
             if asset is None or asset.get_path_name() != item["source_object"]:
                 raise RuntimeError("源对象不存在或通过重定向加载了其它资产: " + item["source_object"])
-            if str(asset.get_class().get_class_path_name()) != item["class_path"]:
+            if _move_class_path(asset.get_class().get_class_path_name()) != item["class_path"]:
                 raise RuntimeError("源资产类型与预检不一致: " + item["source"])
             loaded_assets.append(asset)
             renames.append(unreal.AssetRenameData(
@@ -425,15 +681,15 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
             expected_class = item.get("class_path")
             if not isinstance(expected_class, str) or not expected_class.startswith("/") or "." not in expected_class:
                 raise RuntimeError("必须使用预览返回的精确 assets 清单 含 class_path")
-            target_data = list(registry.get_assets_by_package_name(destination))
-            old_data = list(registry.get_assets_by_package_name(source))
+            target_data = _move_primary_assets(registry.get_assets_by_package_name(destination))
+            old_data = _move_primary_assets(registry.get_assets_by_package_name(source))
             destination_object = destination + "." + destination.rsplit("/", 1)[-1]
             target_valid = (
                 len(target_data) == 1
-                and str(target_data[0].asset_class_path) == expected_class
+                and _move_class_path(target_data[0].asset_class_path) == expected_class
                 and str(target_data[0].asset_name) == destination.rsplit("/", 1)[-1]
             )
-            redirectors = [data for data in old_data if str(data.asset_class_path) == "/Script/CoreUObject.ObjectRedirector"]
+            redirectors = [data for data in old_data if _move_class_path(data.asset_class_path) == "/Script/CoreUObject.ObjectRedirector"]
             redirector_targets = []
             for data in redirectors:
                 exported_target = str(data.get_tag_value("DestinationObject") or "")

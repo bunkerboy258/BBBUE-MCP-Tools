@@ -1550,6 +1550,14 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
                 raise RuntimeError("磁盘上不存在已保存的内容资产: " + path)
 
             asset = unreal.EditorAssetLibrary.load_asset(path)
+            if asset is None:
+                empty_package = unreal.find_object(None, path, type=unreal.Package, follow_redirectors=False)
+                if empty_package is None or path not in permitted:
+                    raise RuntimeError("目标未加载或没有显式允许重载空包: " + path)
+                if any(obj != empty_package and obj.get_outermost() == empty_package for obj in unreal.ObjectIterator()):
+                    raise RuntimeError("加载失败的包仍含对象 拒绝按空包重载: " + path)
+                packages.append(empty_package)
+                continue
             if asset is None or isinstance(asset, unreal.World):
                 raise RuntimeError("目标不存在或属于地图: " + path)
 
