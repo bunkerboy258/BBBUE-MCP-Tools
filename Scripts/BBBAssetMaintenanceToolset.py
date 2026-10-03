@@ -1,8 +1,264 @@
 import json
+import os
+import re
 
 import unreal
 import toolset_registry
 from toolset_registry.registration import Registration
+
+
+def _move_path(value):
+    """
+    /**
+     * 校验本项目包路径 防止对象后缀和文件系统路径混入移动请求
+     * @param value	待校验路径
+     * @return 不带结尾斜线的 /Game 子路径
+     */
+    """
+    if not isinstance(value, str):
+        raise RuntimeError("移动路径必须是字符串")
+    path = value.rstrip("/")
+    if not path.startswith("/Game/"):
+        raise RuntimeError("仅允许 /Game 下的明确子路径: " + path)
+    segments = path.split("/")[2:]
+    if any(not re.fullmatch(r"[\w\-]+", segment) for segment in segments):
+        raise RuntimeError("路径包含无效片段或对象后缀: " + path)
+    if {segment.casefold() for segment in segments}.intersection({"__externalactors__", "__externalobjects__"}):
+        raise RuntimeError("关卡外部数据必须使用专用迁移流程: " + path)
+    return path
+
+
+def _move_requests(moves_json):
+    """
+    /**
+     * 读取明确映射 拒绝空请求和过大的批次
+     * @param moves_json	源路径与目标路径组成的 JSON 数组
+     * @return 规范化的移动映射
+     */
+    """
+    try:
+        requests = json.loads(moves_json)
+    except (ValueError, TypeError) as error:
+        raise RuntimeError("moves_json 不是有效 JSON: " + str(error)) from error
+    if not isinstance(requests, list) or not requests or len(requests) > 5000:
+        raise RuntimeError("必须提供 1 至 5000 项明确映射")
+    result = []
+    for entry in requests:
+        if not isinstance(entry, dict):
+            raise RuntimeError("每项映射必须包含 source 和 destination")
+        source = _move_path(entry.get("source"))
+        destination = _move_path(entry.get("destination"))
+        if source.casefold() == destination.casefold():
+            raise RuntimeError("源和目标不能相同 也不支持仅大小写改名: " + source)
+        result.append(dict(entry, source=source, destination=destination))
+    return result
+
+
+def _move_registry():
+    """
+    /** @return 已完成扫描的资产注册表 扫描期间拒绝生成不完整计划 */
+    """
+    registry = unreal.AssetRegistryHelpers.get_asset_registry()
+    if registry.is_loading_assets():
+        raise RuntimeError("资产注册表仍在扫描 请完成扫描后重试")
+    return registry
+
+
+def _move_filename(package, extension=".uasset"):
+    """
+    /**
+     * 计算磁盘落点并校验解析后的路径仍位于项目 Content 内
+     * @param package	明确的 /Game 包路径
+     * @param extension	包文件扩展名
+     * @return 解析后的绝对文件路径
+     */
+    """
+    content = os.path.realpath(unreal.Paths.project_content_dir())
+    filename = os.path.realpath(os.path.join(content, package[len("/Game/"):] + extension))
+    if os.path.commonpath([content, filename]) != content:
+        raise RuntimeError("包文件落点越出项目 Content: " + package)
+    return filename
+
+
+def _move_referencers(registry, package):
+    """
+    /**
+     * 查询注册表中的硬引用和软引用 不加载引用者
+     * @param registry	资产注册表
+     * @param package	被引用的包路径
+     * @return 排序去重后的引用者包路径
+     */
+    """
+    options = unreal.AssetRegistryDependencyOptions(
+        include_soft_package_references=True,
+        include_hard_package_references=True,
+        include_searchable_names=False,
+        include_soft_management_references=False,
+        include_hard_management_references=False,
+    )
+    return sorted({str(name) for name in registry.get_referencers(package, options) or []})
+
+
+def _move_dirty_packages():
+    """
+    /** @return 当前所有项目脏包 防止原生重命名顺带保存其它会话的修改 */
+    """
+    packages = list(unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages())
+    packages.extend(unreal.EditorLoadingAndSavingUtils.get_dirty_map_packages())
+    return sorted({package.get_path_name() for package in packages if package.get_path_name().startswith("/Game/")})
+
+
+def _plan_asset_moves(requests, registry):
+    """
+    /**
+     * 将目录映射展开为精确资产映射 只读检查引用和磁盘冲突
+     * @param requests	目录和资产移动请求
+     * @param registry	已完成扫描的资产注册表
+     * @return 完整映射及阻断原因
+     */
+    """
+    if len(requests) > 1000:
+        raise RuntimeError("单批最多 1000 项目录或资产请求")
+    assets = []
+    blockers = []
+    roots = []
+    source_keys = set()
+    destination_keys = set()
+    referencers = set()
+    known_sources = {item["source"].casefold() for item in requests}
+    if len(known_sources) != len(requests):
+        raise RuntimeError("批次包含重复源路径")
+
+    for request in requests:
+        source = request["source"]
+        destination = request["destination"]
+        data = list(registry.get_assets_by_package_name(source))
+        folder_data = list(registry.get_assets_by_path(source, recursive=True))
+        is_directory = bool(folder_data) or unreal.EditorAssetLibrary.does_directory_exist(source)
+        if bool(data) == is_directory:
+            raise RuntimeError("源路径不存在或资产与目录类型不明确: " + source)
+        if is_directory:
+            for other in requests:
+                other_source = other["source"].casefold()
+                if other_source.startswith(source.casefold() + "/"):
+                    raise RuntimeError("不能同时移动父目录和子项: " + source)
+                if other["destination"].casefold() == source.casefold() or other["destination"].casefold().startswith(source.casefold() + "/"):
+                    raise RuntimeError("目标不能位于本批次正在移动的源目录内: " + source)
+            data = folder_data
+        if not data:
+            raise RuntimeError("空目录无需资产迁移 请使用目录管理工具: " + source)
+        roots.append({"source": source, "destination": destination, "kind": "directory" if is_directory else "asset"})
+
+        for asset_data in sorted(data, key=lambda item: str(item.package_name)):
+            package = _move_path(str(asset_data.package_name))
+            target = destination
+            if is_directory:
+                target += package[len(source):]
+            target = _move_path(target)
+            class_path = str(asset_data.asset_class_path)
+            object_path = package + "." + str(asset_data.asset_name)
+            target_object = target + "." + target.rsplit("/", 1)[-1]
+            if package.casefold() in source_keys or target.casefold() in destination_keys:
+                raise RuntimeError("展开后的源资产或目标资产重复: " + package + " -> " + target)
+            if target.casefold() in known_sources:
+                raise RuntimeError("目标不能同时作为另一项源路径: " + target)
+            source_keys.add(package.casefold())
+            destination_keys.add(target.casefold())
+
+            if class_path in {"/Script/CoreUObject.ObjectRedirector", "/Script/Engine.World", "/Script/Engine.MapBuildDataRegistry"}:
+                blockers.append({"package": package, "reason": "重定向器和关卡数据不属于通用资产移动范围"})
+            if len(registry.get_assets_by_package_name(package)) != 1:
+                blockers.append({"package": package, "reason": "包内存在多个资产 需专用迁移"})
+            if registry.get_assets_by_package_name(target) or unreal.EditorAssetLibrary.does_directory_exist(target):
+                blockers.append({"package": target, "reason": "目标包或同名目录已存在"})
+            parent = target.rsplit("/", 1)[0]
+            while parent != "/Game":
+                if registry.get_assets_by_package_name(parent):
+                    blockers.append({"package": parent, "reason": "目标父路径被资产占用"})
+                parent = parent.rsplit("/", 1)[0]
+
+            source_file = _move_filename(package)
+            target_file = _move_filename(target)
+            if not os.path.isfile(source_file):
+                blockers.append({"package": package, "reason": "源资产尚未保存到磁盘"})
+            for extension in (".uasset", ".umap", ".uexp", ".ubulk", ".uptnl"):
+                if os.path.exists(_move_filename(target, extension)):
+                    blockers.append({"package": target, "reason": "目标磁盘文件已存在: " + extension})
+            references = _move_referencers(registry, package)
+            referencers.update(name for name in references if name != package)
+            assets.append({
+                "source": package,
+                "destination": target,
+                "source_folder": source if is_directory else package.rsplit("/", 1)[0],
+                "source_object": object_path,
+                "destination_object": target_object,
+                "class_path": class_path,
+                "source_file": source_file,
+                "destination_file": target_file,
+                "referencers": references,
+            })
+            if len(assets) > 5000:
+                raise RuntimeError("展开资产数超过 5000 请拆分批次")
+
+    if source_keys.intersection(destination_keys):
+        raise RuntimeError("批次包含循环或链式移动 请拆分批次")
+    for target in destination_keys:
+        parent = target.rsplit("/", 1)[0]
+        while parent != "/game":
+            if parent in destination_keys:
+                raise RuntimeError("目标资产不能同时作为另一个目标的父目录: " + target)
+            parent = parent.rsplit("/", 1)[0]
+    for package in sorted(referencers):
+        try:
+            _move_path(package)
+        except RuntimeError:
+            blockers.append({"package": package, "reason": "存在项目外或关卡外部数据引用者 需专用迁移"})
+    dirty_packages = _move_dirty_packages()
+    if dirty_packages:
+        blockers.append({"packages": dirty_packages, "reason": "项目存在未保存修改 原生移动可能触及脏包"})
+    return {
+        "requested_count": len(requests),
+        "asset_count": len(assets),
+        "moves": roots,
+        "assets": assets,
+        "referencer_packages": sorted(referencers),
+        "blockers": blockers,
+        "can_execute_after_checkout": not blockers,
+        "checkout_checked": False,
+    }
+
+
+def _require_move_checkout(packages, destinations):
+    """
+    /**
+     * 检查现有包独占签出和目标仓库冲突 不主动办理签出
+     * @param packages	源资产和所有注册表引用者
+     * @param destinations	新资产包路径
+     * @return 无返回值 不满足条件直接拒绝
+     */
+    """
+    if not unreal.SourceControl.is_enabled() or not unreal.SourceControl.is_available():
+        raise RuntimeError("执行移动前必须启用并连接 Perforce")
+    if unreal.SourceControl.current_provider() != "Perforce":
+        raise RuntimeError("本项目二进制资产必须由 Perforce 管理")
+    names = sorted(set(packages))
+    states = unreal.SourceControl.query_file_states(names, silent=True, use_source_control_state_cache=False)
+    if len(states) != len(names):
+        raise RuntimeError("无法获得完整 Perforce 状态")
+    for package, state in zip(names, states):
+        if not state.is_valid or state.is_unknown or state.is_checked_out_other or state.is_conflicted or state.is_deleted:
+            raise RuntimeError("Perforce 状态无效或存在冲突: " + package)
+        if not state.can_edit or not (state.is_checked_out or state.is_added):
+            raise RuntimeError("必须先独占签出或待添加源资产与引用者: " + package)
+        if state.is_source_controlled and not state.is_added and not state.is_current:
+            raise RuntimeError("包不是仓库最新版本 请由用户处理: " + package)
+    targets = sorted(set(destinations))
+    target_states = unreal.SourceControl.query_file_states(targets, silent=True, use_source_control_state_cache=False)
+    if len(target_states) != len(targets):
+        raise RuntimeError("无法获得完整目标 Perforce 状态")
+    for package, state in zip(targets, target_states):
+        if not state.is_valid or state.is_unknown or state.is_source_controlled or state.is_added or state.is_checked_out_other or state.is_deleted or not state.can_add:
+            raise RuntimeError("目标存在仓库冲突或不在可添加映射内: " + package)
 
 
 @unreal.uclass()
@@ -76,138 +332,167 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
     @staticmethod
     def move_assets_batch(moves_json: str, dry_run: bool = True) -> str:
         """预检并按给定顺序批量移动资产或目录"""
-        from toolset_registry.helpers import require_editable
-
-        try:
-            moves = json.loads(moves_json)
-        except Exception as error:
-            raise RuntimeError("moves_json 不是有效 JSON: " + str(error))
-        if not isinstance(moves, list) or not moves:
-            raise RuntimeError("moves_json 必须是非空映射数组")
-        if len(moves) > 1000:
-            raise RuntimeError("单批最多允许 1000 项 请拆分批次")
-
-        protected_segments = {"__ExternalActors__", "__ExternalObjects__"}
-        validated = []
-        source_paths = set()
-        destination_paths = set()
-
-        for index, entry in enumerate(moves):
-            if not isinstance(entry, dict):
-                raise RuntimeError("第 {} 项必须是对象".format(index))
-            source_value = entry.get("source")
-            destination_value = entry.get("destination")
-            if not isinstance(source_value, str) or not isinstance(destination_value, str):
-                raise RuntimeError("第 {} 项必须包含字符串 source 和 destination".format(index))
-            source = source_value.rstrip("/")
-            destination = destination_value.rstrip("/")
-            if not source.startswith("/Game/") or not destination.startswith("/Game/"):
-                raise RuntimeError("第 {} 项源和目标必须位于 /Game 下".format(index))
-            if any(segment in {"", ".", ".."} for segment in source.split("/")[1:]):
-                raise RuntimeError("第 {} 项源路径含无效片段".format(index))
-            if any(segment in {"", ".", ".."} for segment in destination.split("/")[1:]):
-                raise RuntimeError("第 {} 项目标路径含无效片段".format(index))
-            if "." in source.rsplit("/", 1)[-1] or "." in destination.rsplit("/", 1)[-1]:
-                raise RuntimeError("第 {} 项必须使用不带对象后缀的资产或目录路径".format(index))
-            if protected_segments.intersection(source.split("/")) or protected_segments.intersection(destination.split("/")):
-                raise RuntimeError("不允许移动关卡外部 Actor 或对象目录: " + source)
-            if source == destination:
-                raise RuntimeError("源路径和目标路径不能相同: " + source)
-            if source in source_paths:
-                raise RuntimeError("源路径重复: " + source)
-            if destination in destination_paths:
-                raise RuntimeError("目标路径重复: " + destination)
-
-            is_directory = unreal.EditorAssetLibrary.does_directory_exist(source)
-            is_asset = unreal.EditorAssetLibrary.does_asset_exist(source)
-            if is_directory == is_asset:
-                raise RuntimeError("源路径不存在或资产与目录类型不明确: " + source)
-            if is_directory and (source.startswith(destination + "/") or destination.startswith(source + "/")):
-                raise RuntimeError("目录不能移动到自身或其子目录: " + source)
-
-            destination_parent = destination.rsplit("/", 1)[0]
-            if not unreal.EditorAssetLibrary.does_directory_exist(destination_parent):
-                raise RuntimeError("目标父目录不存在 请先创建目录: " + destination_parent)
-            if unreal.EditorAssetLibrary.does_asset_exist(destination) or unreal.EditorAssetLibrary.does_directory_exist(destination):
-                raise RuntimeError("目标路径已存在: " + destination)
-
-            if is_directory:
-                listed_assets = unreal.EditorAssetLibrary.list_assets(source, recursive=True, include_folder=False)
-                package_paths = []
-                for listed_path in listed_assets:
-                    leaf = listed_path.rsplit("/", 1)[-1]
-                    package_path = listed_path.rsplit(".", 1)[0] if "." in leaf else listed_path
-                    package_paths.append(package_path)
-            else:
-                package_paths = [source]
-
-            checked_packages = []
-            for package_path in package_paths:
-                asset_name = package_path.rsplit("/", 1)[-1]
-                asset = unreal.EditorAssetLibrary.load_asset(package_path + "." + asset_name)
-                if asset is None:
-                    raise RuntimeError("无法加载待移动资产: " + package_path)
-                require_editable(asset)
-                checked_packages.append(package_path)
-
-            source_paths.add(source)
-            destination_paths.add(destination)
-            validated.append({
-                "source": source,
-                "destination": destination,
-                "is_directory": is_directory,
-                "asset_count": len(checked_packages),
-                "assets": checked_packages
-            })
-
-        for index, item in enumerate(validated):
-            for other in validated[index + 1:]:
-                if item["is_directory"] and other["source"].startswith(item["source"] + "/"):
-                    raise RuntimeError("批次中不能同时移动父目录和其子项: " + item["source"])
-                if other["is_directory"] and item["source"].startswith(other["source"] + "/"):
-                    raise RuntimeError("批次中不能同时移动父目录和其子项: " + other["source"])
-                if item["destination"] == other["source"] or other["destination"] == item["source"]:
-                    raise RuntimeError("批次目标不能同时作为另一项的源路径")
-
-        report = {
-            "dry_run": dry_run,
-            "requested_count": len(validated),
-            "asset_count": sum(item["asset_count"] for item in validated),
-            "moves": [
-                {
-                    "source": item["source"],
-                    "destination": item["destination"],
-                    "kind": "directory" if item["is_directory"] else "asset",
-                    "asset_count": item["asset_count"]
-                }
-                for item in validated
-            ]
-        }
+        registry = _move_registry()
+        report = _plan_asset_moves(_move_requests(moves_json), registry)
+        report["dry_run"] = dry_run
+        report["executed"] = False
         if dry_run:
-            report["executed"] = False
+            unreal.log("[BBBAssetMove]预览 {} 个资产 {} 个阻断项".format(report["asset_count"], len(report["blockers"])))
+            return json.dumps(report, ensure_ascii=False)
+        if unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+            raise RuntimeError("PIE 期间不允许资产移动")
+        if report["blockers"]:
+            unreal.log_error("[BBBAssetMove]预检拒绝 " + json.dumps(report["blockers"], ensure_ascii=False))
             return json.dumps(report, ensure_ascii=False)
 
-        completed = []
-        for item in validated:
-            try:
-                if item["is_directory"]:
-                    succeeded = unreal.EditorAssetLibrary.rename_directory(item["source"], item["destination"])
-                else:
-                    succeeded = unreal.EditorAssetLibrary.rename_asset(item["source"], item["destination"])
-                if not succeeded:
-                    raise RuntimeError("UE 拒绝移动")
-                completed.append({"source": item["source"], "destination": item["destination"]})
-            except Exception as error:
-                report["executed"] = True
-                report["completed"] = completed
-                report["failed"] = {"source": item["source"], "destination": item["destination"], "error": str(error)}
-                report["partial"] = bool(completed)
-                unreal.log_error("批量资产移动在 {} 失败 已完成 {} 项".format(item["source"], len(completed)))
-                return json.dumps(report, ensure_ascii=False)
+        affected = set(report["referencer_packages"])
+        affected.update(item["source"] for item in report["assets"])
+        _require_move_checkout(affected, [item["destination"] for item in report["assets"]])
+        report["checkout_checked"] = True
+        renames = []
+        loaded_assets = []
+        for item in report["assets"]:
+            asset = unreal.EditorAssetLibrary.load_asset(item["source_object"])
+            if asset is None or asset.get_path_name() != item["source_object"]:
+                raise RuntimeError("源对象不存在或通过重定向加载了其它资产: " + item["source_object"])
+            if str(asset.get_class().get_class_path_name()) != item["class_path"]:
+                raise RuntimeError("源资产类型与预检不一致: " + item["source"])
+            loaded_assets.append(asset)
+            renames.append(unreal.AssetRenameData(
+                asset=asset,
+                new_package_path=item["destination"].rsplit("/", 1)[0],
+                new_name=item["destination"].rsplit("/", 1)[-1],
+            ))
+        if _move_dirty_packages():
+            raise RuntimeError("加载后出现脏包 已中止移动 请先检查并保存")
 
+        unreal.log("[BBBAssetMove]开始原生批量移动 {} 个资产".format(len(renames)))
         report["executed"] = True
-        report["completed"] = completed
-        report["partial"] = False
+        try:
+            report["engine_success"] = bool(unreal.AssetToolsHelpers.get_asset_tools().rename_assets(renames))
+        except Exception as error:
+            report["engine_success"] = False
+            report["engine_error"] = str(error)
+        report["object_results"] = [
+            {
+                "source": item["source"],
+                "destination": item["destination"],
+                "actual_object": asset.get_path_name(),
+                "renamed": asset.get_path_name() == item["destination_object"],
+            }
+            for item, asset in zip(report["assets"], loaded_assets)
+        ]
+        try:
+            report["verification"] = json.loads(BBBAssetMaintenanceToolset.verify_asset_moves(json.dumps(report["assets"])))
+        except Exception as error:
+            report["verification"] = {"success": False, "error": str(error)}
+        report["success"] = (
+            report["engine_success"]
+            and report["verification"]["success"]
+            and all(item["renamed"] for item in report["object_results"])
+        )
+        report["partial"] = not report["success"] and any(item["renamed"] for item in report["object_results"])
+        if not report["success"]:
+            unreal.log_error("[BBBAssetMove]移动或核验未完整通过 必须检查逐项结果 禁止直接重试整批")
+        if report["success"]:
+            unreal.log("[BBBAssetMove]PASS {} 个资产 已核验磁盘与注册表".format(len(renames)))
+        return json.dumps(report, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def verify_asset_moves(moves_json: str) -> str:
+        """
+        /**
+         * 只读核验预览清单中的精确资产映射 不通过旧路径加载目标
+         * @param moves_json	move_assets_batch 返回的 assets 数组序列化结果
+         * @return JSON 核验结果 包括旧引用与阻止目录清理的剩余文件
+         */
+        """
+        registry = _move_registry()
+        requests = _move_requests(moves_json)
+        results = []
+        dirty = set(_move_dirty_packages())
+        source_folders = set()
+        seen_sources = set()
+        seen_destinations = set()
+        for item in requests:
+            source = item["source"]
+            destination = item["destination"]
+            if source.casefold() in seen_sources or destination.casefold() in seen_destinations:
+                raise RuntimeError("核验清单包含重复源或目标")
+            seen_sources.add(source.casefold())
+            seen_destinations.add(destination.casefold())
+            expected_class = item.get("class_path")
+            if not isinstance(expected_class, str) or not expected_class.startswith("/") or "." not in expected_class:
+                raise RuntimeError("必须使用预览返回的精确 assets 清单 含 class_path")
+            target_data = list(registry.get_assets_by_package_name(destination))
+            old_data = list(registry.get_assets_by_package_name(source))
+            destination_object = destination + "." + destination.rsplit("/", 1)[-1]
+            target_valid = (
+                len(target_data) == 1
+                and str(target_data[0].asset_class_path) == expected_class
+                and str(target_data[0].asset_name) == destination.rsplit("/", 1)[-1]
+            )
+            redirectors = [data for data in old_data if str(data.asset_class_path) == "/Script/CoreUObject.ObjectRedirector"]
+            redirector_targets = []
+            for data in redirectors:
+                exported_target = str(data.get_tag_value("DestinationObject") or "")
+                object_target = exported_target
+                if "'" in exported_target:
+                    object_target = exported_target.split("'", 1)[1].rstrip("'")
+                redirector_targets.append(object_target)
+            old_references = _move_referencers(registry, source)
+            target_exists = os.path.isfile(_move_filename(destination))
+            old_file_exists = os.path.isfile(_move_filename(source))
+            old_state_valid = not old_data and not old_file_exists and not old_references
+            if len(old_data) == 1 and len(redirectors) == 1:
+                old_state_valid = old_file_exists and redirector_targets == [destination_object]
+            pending = sorted(set(item.get("referencers", [])) | {source, destination})
+            unsaved = sorted(dirty.intersection(pending))
+            success = target_valid and target_exists and old_state_valid and not unsaved
+            results.append({
+                "source": source,
+                "destination": destination,
+                "destination_registered": target_valid,
+                "destination_file_exists": target_exists,
+                "old_file_exists": old_file_exists,
+                "redirector_targets": redirector_targets,
+                "old_referencers": old_references,
+                "unsaved_packages": unsaved,
+                "success": success,
+            })
+            source_folder = item.get("source_folder", source.rsplit("/", 1)[0])
+            if source_folder != "/Game":
+                source_folder = _move_path(source_folder)
+            if not source.casefold().startswith(source_folder.casefold() + "/"):
+                raise RuntimeError("清单的 source_folder 不是源资产父目录: " + source)
+            source_folders.add(source_folder)
+
+        folders = []
+        for folder in sorted(source_folders):
+            if any(folder.casefold().startswith(other.casefold() + "/") for other in source_folders if other != folder):
+                continue
+            directory = os.path.dirname(_move_filename(folder + "/__FolderProbe"))
+            remaining_files = []
+            if os.path.isdir(directory):
+                for root, directories, files in os.walk(directory, followlinks=False):
+                    remaining_files.extend(os.path.join(root, name) for name in files)
+                    remaining_files.extend(os.path.join(root, name) for name in directories if os.path.islink(os.path.join(root, name)))
+            registered = [str(data.package_name) for data in registry.get_assets_by_path(folder, recursive=True)]
+            folders.append({
+                "folder": folder,
+                "remaining_files": sorted(remaining_files),
+                "remaining_packages": sorted(set(registered)),
+                "empty_on_disk_and_registry": not remaining_files and not registered,
+            })
+        report = {
+            "read_only": True,
+            "asset_count": len(results),
+            "success": all(item["success"] for item in results),
+            "results": results,
+            "source_folders": folders,
+        }
+        unreal.log("[BBBAssetMoveVerify]{} {} 个资产".format("PASS" if report["success"] else "FAIL", len(results)))
         return json.dumps(report, ensure_ascii=False)
 
     @toolset_registry.tool_call

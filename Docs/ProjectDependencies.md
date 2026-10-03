@@ -27,9 +27,9 @@
 
 缺失原生依赖时初始化明确警告 保留工具发现信息 使用者必须停止相关原生写入并报告缺失类 不静默跳过 不用任意 Python 执行绕过
 
-## 可选资产维护工具
+## 默认资产维护工具
 
-BBBAssetMaintenanceToolset 源码和六个公共工具原样保留 初始注册集合与迁移前的七个工具集一致 不因迁移擅自启用资产删除工具 需要时描述现有维护文档并通过已注册的 `run_editor_script` 加载仓库内对应文件 其原有注册入口保留 重新发现后再使用 后续统一重载会保留已加载的可选工具
+BBBAssetMaintenanceToolset 已纳入 BBBMcpBootstrap 默认注册集合 包含批量移动预览与执行 移动结果只读核验和精确维护入口 不再需要单独加载脚本 实际名称仍通过 list_toolsets 与 describe_toolset 发现 注册工具不代表授权调用其中的资产删除动作 当前宿主在正常启动或经过授权的统一重载后加载新代码 详细参数和边界见 BBBAssetMaintenanceMCP.md
 
 ## 第三方来源
 

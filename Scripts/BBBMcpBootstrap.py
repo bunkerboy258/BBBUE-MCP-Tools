@@ -14,6 +14,7 @@ _TOOLSET_MODULES = (
     "BBBRigidPartToolset",
     "BBBControlRigAuthoringToolset",
     "BBBMcpRuntimeToolset",
+    "BBBAssetMaintenanceToolset",
 )
 _HELPER_MODULES = (
     "BBBAnimationMotionTools",
@@ -94,7 +95,6 @@ def inspect_dependencies():
         "process_id": os.getpid(),
         "engine_version": unreal.SystemLibrary.get_engine_version(),
         "modules": modules,
-        "optional_toolset": "BBBAssetMaintenanceToolset",
         "warnings": [
             "原生依赖保留在接入项目 本仓库不包含游戏 C++ 或 UE 引擎源码",
             "仅相关原生动作受缺失依赖影响 执行前检查所属工具集诊断 不静默跳过失败",
@@ -139,8 +139,6 @@ def _load_toolsets(force_reload):
                 if force_reload or os.path.realpath(module.__file__) != expected_path:
                     importlib.reload(module)
         module_names = list(_TOOLSET_MODULES)
-        if "BBBAssetMaintenanceToolset" in sys.modules:
-            module_names.append("BBBAssetMaintenanceToolset")
         registered_classes = {}
         for definition in unreal.ObjectIterator(unreal.Class):
             module_name = definition.get_name().split("_0x", 1)[0]
