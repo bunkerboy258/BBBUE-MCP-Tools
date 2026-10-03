@@ -1,6 +1,8 @@
 # 精确资产维护 MCP
 
-`fixup_redirector_references_batch(asset_paths, referencer_paths, dry_run=True)` 仅处理明确引用者, 单批最多 32 项. 预览只读注册表, 不加载目标. 执行前须备份并签出所选引用者; 工具逐包核对实际加载类型, 检查所有已加载项目蓝图的 BS_ERROR 与脏包, 未通过即拒绝保存. 使用原生软引用替换与逐包保存更新引用, 不修改蓝图图表, 不删除重定向器, 不执行签出/Submit/Get Latest/Revert. 返回 saved 是已完成部分, success 仅代表本批保存通过, 仍须冷启动检查 remaining 及资产内容. 遇到失败不直接重试整批; 先核对磁盘, 日志和部分结果.
+`fixup_redirector_references_batch(asset_paths, referencer_paths, dry_run=True)` 仅处理明确引用者, 单批最多 32 项. 预览只读注册表, 不加载目标. 执行前须备份并签出所选引用者; 工具逐包核对实际加载类型, 阻止本次加载新产生的项目蓝图错误、所选引用者自身已有的蓝图错误以及脏包, 不会因无关且既有的蓝图错误阻止本批保存. 使用原生软引用替换与逐包保存更新引用, 不修改蓝图图表, 不删除重定向器, 不执行签出/Submit/Get Latest/Revert. 保存后强制刷新引用者目录, remaining_selected 表示本批包是否仍残留旧路径; success 要求没有本批残留和脏包. 返回 saved 是已完成部分, 遇到失败不直接重试整批; 先核对磁盘, 日志和部分结果.
+
+分批修复器同时接受明确的单主资产 `World` 地图包引用者，地图包也必须先备份并由当前用户独占签出；`__ExternalActors__` 引用者必须改用专用工具，其他多主资产包仍拒绝。
 
 `make_current_editor_level_explicit(expected_package)` 核对 LevelEditorSubsystem 的活动层包名后调用官方 set_current_level_by_name，同步多世界编辑状态下的放置目标；不载入或保存关卡，PIE 中拒绝执行。UE5.8 的 EditorLevelUtils.make_level_current 接受 LevelStreaming，不能直接传入 Level。
 
@@ -46,6 +48,8 @@ UE 原生 `rename_assets` 内部具有自动签出和保存逻辑，本工具通
 `consolidate_verified_asset_copies(moves_json, dry_run=True)` 只处理明确列出的旧副本和保留目标。每项须提供备份校验后的 `source_sha256` 和稳定 `class_path`；源文件有变化、类型不一致、存在脏包、关卡或重定向器时拒绝。执行要求源、目标和引用者已在 Perforce 可编辑，通过原生 `consolidate_assets` 归并引用并保存；失败报告部分进度，不重试、不回滚。该操作不是内容相同证明，调用者必须先确认目标确为应保留版本并备份。
 
 `fixup_redirector_references(asset_paths, dry_run=True)` 修复明确重定向包的项目内硬/软引用，只保存这些引用者，保留重定向器。原生加载解析硬引用，`rename_referencing_soft_object_paths` 更新软路径，`save_packages` 支持明确的普通地图包。禁止外部 Actor/Object 包及未保存修改，执行前须备份并签出全部引用者，返回剩余旧引用，不宣称自动清理。
+
+`fixup_external_actor_redirector_references(asset_paths, referencer_paths, dry_run=True)` 专门修复明确的 `/Game/__ExternalActors__/` 包对普通资产重定向器的引用。每批最多 64 个重定向包和 32 个外部 Actor 包；预检只读注册表和磁盘。执行前须备份引用者、Perforce 已连接且每个引用者已由当前用户独占签出或待添加、无脏包且不在 PIE。工具只加载清单中的外部 Actor 包，只改写它们对清单重定向器的引用并逐包保存，之后强制重扫这些包所在目录以核验旧引用，保留重定向器；不处理 `__ExternalObjects__`、地图包或清单外引用者，不自动签出、提交、回滚或删除。失败时报告已保存包，不得整批盲目重试；完成后冷启动复核旧引用和包内容。
 
 `delete_asset_redirectors(asset_paths, dry_run=True)` 只删除明确且完全由重定向对象组成的无引用包。默认仅审计，执行要求已备份、Perforce 可编辑、无脏包；加载使用 `follow_redirectors=False` 并再次核对精确路径/类型及引用。原生批量删除后回读磁盘与注册表，不触碰目标资产，不删除含普通对象的包。
 

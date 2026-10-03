@@ -29,6 +29,27 @@ def _move_path(value):
     return path
 
 
+def _external_actor_package_path(value):
+    """
+    /**
+     * 校验一个精确的 World Partition 外部 Actor 包路径
+     * @param value	待校验的包路径
+     * @return 合法的 /Game/__ExternalActors__ 包路径
+     */
+    """
+    if not isinstance(value, str):
+        raise RuntimeError("外部 Actor 包路径必须是字符串")
+    path = value.rstrip("/")
+    segments = path.split("/")[2:]
+    if not path.startswith("/Game/__ExternalActors__/") or len(segments) < 4:
+        raise RuntimeError("仅允许明确的 /Game/__ExternalActors__ 外部 Actor 包: " + path)
+    if any(not re.fullmatch(r"[\w\-]+", segment) for segment in segments):
+        raise RuntimeError("外部 Actor 包路径包含无效片段或对象后缀: " + path)
+    if not os.path.isfile(_move_filename(path)):
+        raise RuntimeError("外部 Actor 包文件不存在: " + path)
+    return path
+
+
 def _move_requests(moves_json):
     """
     /**
@@ -107,6 +128,17 @@ def _move_dirty_packages():
     packages = list(unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages())
     packages.extend(unreal.EditorLoadingAndSavingUtils.get_dirty_map_packages())
     return sorted({package.get_path_name() for package in packages if package.get_path_name().startswith("/Game/")})
+
+
+def _move_blocking_blueprint_errors(existing_errors, current_errors, selected_packages):
+    existing = set(existing_errors)
+    selected = set(selected_packages)
+    blocking = set(current_errors) - existing
+    for error in current_errors:
+        package_path = error.split(".", 1)[0]
+        if package_path in selected:
+            blocking.add(error)
+    return sorted(blocking)
 
 
 def _move_primary_assets(asset_data):
@@ -624,6 +656,84 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
 
     @toolset_registry.tool_call
     @staticmethod
+    def fixup_external_actor_redirector_references(asset_paths: list[str], referencer_paths: list[str], dry_run: bool = True) -> str:
+        """
+        /**
+         * 修复明确外部 Actor 包对资产重定向器的引用并保留重定向器
+         * @param asset_paths	已备份的重定向包路径 单批最多 64 项
+         * @param referencer_paths	已备份且已由当前用户独占签出的外部 Actor 包 单批最多 32 项
+         * @param dry_run	仅检查注册表和磁盘 不加载或保存包
+         * @return 本批已保存包和仍引用旧路径的结果
+         */
+        """
+        if not asset_paths or len(asset_paths) > 64 or len(set(asset_paths)) != len(asset_paths):
+            raise RuntimeError("必须提供 1 至 64 个不重复重定向包")
+        if not referencer_paths or len(referencer_paths) > 32 or len(set(referencer_paths)) != len(referencer_paths):
+            raise RuntimeError("必须提供 1 至 32 个不重复外部 Actor 包")
+        registry = _move_registry()
+        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+            raise RuntimeError("脏包或 PIE 期间拒绝修复外部 Actor 引用")
+        references = set()
+        redirect_map = {}
+        for requested in asset_paths:
+            path = _move_path(requested)
+            records = registry.get_assets_by_package_name(path)
+            if not records or any(_move_class_path(data.asset_class_path) != "/Script/CoreUObject.ObjectRedirector" for data in records):
+                raise RuntimeError("包不完全由重定向器组成: " + path)
+            for data in records:
+                target = str(data.get_tag_value("DestinationObject") or "")
+                if "'" in target:
+                    target = target.split("'", 1)[1].rstrip("'")
+                if not target.startswith("/Game/") or "." not in target:
+                    raise RuntimeError("重定向目标不明确: " + path)
+                target_package, target_name = target.split(".", 1)
+                target_package = _move_path(target_package)
+                redirect_map[unreal.SoftObjectPath(path + "." + str(data.asset_name))] = unreal.SoftObjectPath(target)
+                target_records = _move_primary_assets(registry.get_assets_by_package_name(target_package))
+                if len(target_records) != 1 or str(target_records[0].asset_name) != target_name or _move_class_path(target_records[0].asset_class_path) == "/Script/CoreUObject.ObjectRedirector":
+                    raise RuntimeError("重定向目标主资产缺失或不唯一: " + target)
+                if _move_class_path(target_records[0].asset_class_path) == "/Script/Engine.Blueprint":
+                    old_asset_path = path + "." + str(data.asset_name)
+                    redirect_map[unreal.SoftObjectPath(old_asset_path + "_C")] = unreal.SoftObjectPath(target + "_C")
+                    redirect_map[unreal.SoftObjectPath(path + ".Default__" + str(data.asset_name) + "_C")] = unreal.SoftObjectPath(target_package + ".Default__" + target_name + "_C")
+            references.update(_move_referencers(registry, path))
+        selected = [_external_actor_package_path(path) for path in referencer_paths]
+        if not set(selected).issubset(references):
+            raise RuntimeError("本批包含不是当前重定向器引用者的外部 Actor 包")
+        report = {"dry_run": dry_run, "redirectors": list(asset_paths), "referencers": selected, "saved": [], "success": False}
+        if dry_run:
+            report["success"] = True
+            return json.dumps(report, ensure_ascii=False)
+        _require_move_checkout(selected, [])
+        packages = []
+        for path in selected:
+            package = unreal.load_package(path)
+            if package is None or package.get_path_name() != path:
+                raise RuntimeError("无法加载精确外部 Actor 包: " + path)
+            packages.append(package)
+        if _move_dirty_packages():
+            raise RuntimeError("加载外部 Actor 包产生脏包 拒绝保存 请先检查")
+        unreal.AssetToolsHelpers.get_asset_tools().rename_referencing_soft_object_paths(packages, redirect_map)
+        for package in packages:
+            path = package.get_path_name()
+            if not unreal.EditorLoadingAndSavingUtils.save_packages([package], False):
+                report["blocked"] = "保存失败 请核对已保存包 不自动重试: " + path
+                report["dirty_packages"] = _move_dirty_packages()
+                unreal.log_error("[BBBExternalActorRedirectorFixup]保存失败 不自动重试")
+                return json.dumps(report, ensure_ascii=False)
+            report["saved"].append(path)
+        actor_folders = sorted({path.rsplit("/", 1)[0] for path in selected})
+        registry.scan_paths_synchronous(actor_folders, force_rescan=True)
+        for path in asset_paths:
+            remaining = set(_move_referencers(registry, path))
+            report.setdefault("remaining_selected", {})[path] = sorted(remaining.intersection(selected))
+        report["dirty_packages"] = _move_dirty_packages()
+        report["success"] = not report["dirty_packages"] and not any(report["remaining_selected"].values())
+        unreal.log("[BBBExternalActorRedirectorFixup]{} 保存 {} 个外部 Actor 包".format("PASS" if report["success"] else "FAIL", len(report["saved"])))
+        return json.dumps(report, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
     def fixup_redirector_references_batch(asset_paths: list[str], referencer_paths: list[str], dry_run: bool = True) -> str:
         """
         /**
@@ -665,7 +775,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         primary = {}
         for path in selected:
             records = _move_primary_assets(registry.get_assets_by_package_name(path))
-            if len(records) != 1 or _move_class_path(records[0].asset_class_path) in {"/Script/Engine.World", "/Script/CoreUObject.ObjectRedirector"}:
+            if len(records) != 1 or _move_class_path(records[0].asset_class_path) == "/Script/CoreUObject.ObjectRedirector":
                 raise RuntimeError("仅支持单主资产内容包: " + path)
             primary[path] = records[0]
         report = {"dry_run": dry_run, "referencers": selected, "saved": [], "success": False}
@@ -673,6 +783,11 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
             report["success"] = True
             return json.dumps(report, ensure_ascii=False)
         _require_move_checkout(selected, [])
+        existing_errors = []
+        for obj in unreal.ObjectIterator():
+            if isinstance(obj, unreal.Blueprint) and obj.get_path_name().startswith("/Game/"):
+                if obj.get_editor_property("status") == unreal.BlueprintStatus.BS_ERROR:
+                    existing_errors.append(obj.get_path_name())
         packages = []
         for target in targets:
             if unreal.load_object(None, target) is None:
@@ -694,9 +809,11 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
                 if obj.get_editor_property("status") == unreal.BlueprintStatus.BS_ERROR:
                     errors.append(obj.get_path_name())
         dirty = _move_dirty_packages()
-        if errors or dirty:
+        blocking_errors = _move_blocking_blueprint_errors(existing_errors, errors, selected)
+        if blocking_errors or dirty:
             report["blocked"] = "加载产生蓝图错误或脏包 拒绝保存"
             report["blueprint_errors"] = sorted(errors)
+            report["blocking_blueprint_errors"] = blocking_errors
             report["dirty_packages"] = dirty
             unreal.log_error("[BBBRedirectorBatch]拒绝保存 加载检查未通过")
             return json.dumps(report, ensure_ascii=False)
@@ -708,9 +825,15 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
                 unreal.log_error("[BBBRedirectorBatch]保存失败 不自动重试")
                 return json.dumps(report, ensure_ascii=False)
             report["saved"].append(path)
+        referencer_folders = sorted({path.rsplit("/", 1)[0] for path in selected})
+        registry.scan_paths_synchronous(referencer_folders, force_rescan=True)
         report["remaining"] = {path: _move_referencers(registry, path) for path in asset_paths}
+        report["remaining_selected"] = {
+            path: sorted(set(referencers).intersection(selected))
+            for path, referencers in report["remaining"].items()
+        }
         report["dirty_packages"] = _move_dirty_packages()
-        report["success"] = not report["dirty_packages"]
+        report["success"] = not report["dirty_packages"] and not any(report["remaining_selected"].values())
         unreal.log("[BBBRedirectorBatch]本批保存 {} 个引用者".format(len(report["saved"])))
         return json.dumps(report, ensure_ascii=False)
 

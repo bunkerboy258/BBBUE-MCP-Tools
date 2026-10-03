@@ -21,6 +21,28 @@ class AssetMoveTests(unittest.TestCase):
         self.runtime = {"json": json, "os": __import__("os"), "re": __import__("re")}
         exec(compile(module, str(source), "exec"), self.runtime)
 
+    def test_redirector_fixup_ignores_unrelated_existing_blueprint_errors(self):
+        existing = ["/Game/Blueprints/BP_PreExisting.BP_PreExisting"]
+        current = existing + ["/Game/Maps/MapA.MapA:PersistentLevel.BP_NewError"]
+        self.assertEqual(
+            self.runtime["_move_blocking_blueprint_errors"](existing, current, ["/Game/Maps/MapA"]),
+            ["/Game/Maps/MapA.MapA:PersistentLevel.BP_NewError"],
+        )
+
+    def test_redirector_fixup_blocks_existing_error_in_selected_package(self):
+        existing = ["/Game/Maps/MapA.MapA:PersistentLevel.BP_PreExisting"]
+        self.assertEqual(
+            self.runtime["_move_blocking_blueprint_errors"](existing, existing, ["/Game/Maps/MapA"]),
+            existing,
+        )
+
+    def test_redirector_fixup_refreshes_referencers_before_reporting_success(self):
+        source = (ROOT / "Scripts/BBBAssetMaintenanceToolset.py").read_text(encoding="utf-8-sig")
+        method = source.split("def fixup_redirector_references_batch", 1)[1].split("def delete_asset_redirectors", 1)[0]
+        self.assertIn("registry.scan_paths_synchronous(referencer_folders, force_rescan=True)", method)
+        self.assertIn('report["remaining_selected"]', method)
+        self.assertIn('not any(report["remaining_selected"].values())', method)
+
     def test_primary_asset_filter(self):
         """/** @return 蓝图生成对象不参与独立包移动 */"""
         main = types.SimpleNamespace(is_u_asset=lambda: True)
@@ -55,6 +77,25 @@ class AssetMoveTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 self.runtime["_move_filename"]("/Game/../../Outside")
 
+    def test_external_actor_package_path_is_exact_and_present(self):
+        """/** @return 外部 Actor 包路径只允许映射到 Content 下已存在的包 */"""
+        with tempfile.TemporaryDirectory() as directory:
+            self.runtime["unreal"] = types.SimpleNamespace(Paths=types.SimpleNamespace(project_content_dir=lambda: directory))
+            package = Path(directory) / "__ExternalActors__/World/A1/B2/ActorPackage.uasset"
+            package.parent.mkdir(parents=True)
+            package.touch()
+            path = "/Game/__ExternalActors__/World/A1/B2/ActorPackage"
+            self.assertEqual(self.runtime["_external_actor_package_path"](path), path)
+            for invalid in (
+                "/Game/__ExternalObjects__/World/A1/B2/ActorPackage",
+                "/Game/__ExternalActors__/World/../ActorPackage",
+                "/Game/__ExternalActors__/World/A1/B2/ActorPackage.ActorPackage",
+                "/Game/__ExternalActors__/World/A1/B2/MissingPackage",
+            ):
+                with self.subTest(path=invalid):
+                    with self.assertRaises(RuntimeError):
+                        self.runtime["_external_actor_package_path"](invalid)
+
     def test_redirector_batch_preview_does_not_load(self):
         """/** @return 分批预检只检查注册表 不加载或保存对象 */"""
         source = ROOT / "Scripts/BBBAssetMaintenanceToolset.py"
@@ -72,6 +113,10 @@ class AssetMoveTests(unittest.TestCase):
         result = json.loads(self.runtime["fixup_redirector_references_batch"](["/Game/Old"], ["/Game/Reference"], True))
         self.assertTrue(result["success"])
         self.assertEqual(result["saved"], [])
+        world = types.SimpleNamespace(asset_name="Reference", asset_class_path=types.SimpleNamespace(package_name="/Script/Engine", asset_name="World"), is_u_asset=lambda: True)
+        registry.get_assets_by_package_name = lambda path: [redirector] if path == "/Game/Old" else [world]
+        result = json.loads(self.runtime["fixup_redirector_references_batch"](["/Game/Old"], ["/Game/Reference"], True))
+        self.assertTrue(result["success"])
         with self.assertRaises(RuntimeError):
             self.runtime["fixup_redirector_references_batch"](["/Game/Old"], ["/Game/Unrelated"], True)
         with self.assertRaises(RuntimeError):
