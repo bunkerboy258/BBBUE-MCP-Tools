@@ -1,5 +1,7 @@
 # 精确资产维护 MCP
 
+`fixup_redirector_references_batch(asset_paths, referencer_paths, dry_run=True)` 仅处理明确引用者, 单批最多 32 项. 预览只读注册表, 不加载目标. 执行前须备份并签出所选引用者; 工具逐包核对实际加载类型, 检查所有已加载项目蓝图的 BS_ERROR 与脏包, 未通过即拒绝保存. 使用原生软引用替换与逐包保存更新引用, 不修改蓝图图表, 不删除重定向器, 不执行签出/Submit/Get Latest/Revert. 返回 saved 是已完成部分, success 仅代表本批保存通过, 仍须冷启动检查 remaining 及资产内容. 遇到失败不直接重试整批; 先核对磁盘, 日志和部分结果.
+
 `make_current_editor_level_explicit(expected_package)` 核对 LevelEditorSubsystem 的活动层包名后调用官方 set_current_level_by_name，同步多世界编辑状态下的放置目标；不载入或保存关卡，PIE 中拒绝执行。UE5.8 的 EditorLevelUtils.make_level_current 接受 LevelStreaming，不能直接传入 Level。
 
 `BBBAssetMaintenanceToolset` 已纳入 `BBBMcpBootstrap` 默认注册集合。正常启动或统一重载工具后，使用 `list_toolsets` 和 `describe_toolset` 读取实际工具名称与参数。源码更新不会自动替换当前宿主的已加载模块；未经允许不得为更新工具操作宿主。

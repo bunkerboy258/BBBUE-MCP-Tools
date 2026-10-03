@@ -55,6 +55,28 @@ class AssetMoveTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 self.runtime["_move_filename"]("/Game/../../Outside")
 
+    def test_redirector_batch_preview_does_not_load(self):
+        """/** @return 分批预检只检查注册表 不加载或保存对象 */"""
+        source = ROOT / "Scripts/BBBAssetMaintenanceToolset.py"
+        tree = ast.parse(source.read_text(encoding="utf-8-sig"))
+        method = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "fixup_redirector_references_batch")
+        method.decorator_list = []
+        exec(compile(ast.Module(body=[method], type_ignores=[]), str(source), "exec"), self.runtime)
+        redirector = types.SimpleNamespace(asset_name="Old", asset_class_path=types.SimpleNamespace(package_name="/Script/CoreUObject", asset_name="ObjectRedirector"), get_tag_value=lambda name: "/Script/Engine.Skeleton'/Game/New.New'")
+        referencer = types.SimpleNamespace(asset_name="Reference", asset_class_path=types.SimpleNamespace(package_name="/Script/Engine", asset_name="AnimSequence"), is_u_asset=lambda: True)
+        registry = types.SimpleNamespace(get_assets_by_package_name=lambda path: [redirector] if path == "/Game/Old" else [referencer])
+        self.runtime["_move_registry"] = lambda: registry
+        self.runtime["_move_dirty_packages"] = lambda: []
+        self.runtime["_move_referencers"] = lambda registry, path: ["/Game/Reference"]
+        self.runtime["unreal"] = types.SimpleNamespace(LevelEditorSubsystem=object(), get_editor_subsystem=lambda subsystem: types.SimpleNamespace(is_in_play_in_editor=lambda: False), SoftObjectPath=lambda path: path)
+        result = json.loads(self.runtime["fixup_redirector_references_batch"](["/Game/Old"], ["/Game/Reference"], True))
+        self.assertTrue(result["success"])
+        self.assertEqual(result["saved"], [])
+        with self.assertRaises(RuntimeError):
+            self.runtime["fixup_redirector_references_batch"](["/Game/Old"], ["/Game/Unrelated"], True)
+        with self.assertRaises(RuntimeError):
+            self.runtime["fixup_redirector_references_batch"](["/Game/Old"], ["/Game/Reference"] * 33, True)
+
     def test_move_and_verify_use_canonical_classes(self):
         """/** @return 原生对象与注册表类型检查均使用稳定类型辅助函数 */"""
         source = (ROOT / "Scripts/BBBAssetMaintenanceToolset.py").read_text(encoding="utf-8-sig")
