@@ -16,6 +16,7 @@ _TOOLSET_MODULES = (
     "BBBMcpRuntimeToolset",
     "BBBAssetMaintenanceToolset",
     "BBBAnimationPreviewToolset",
+    "BBBAnimationGraphToolset",
 )
 _HELPER_MODULES = (
     "BBBAnimationMotionTools",
@@ -29,7 +30,8 @@ _NATIVE_DEPENDENCIES = {
     "BBBBlueprintGraphToolset": ("BBBBlueprintEditorLibrary",),
     "BBBControlRigAuthoringToolset": ("BBBBlueprintEditorLibrary",),
     "BBBAssetMaintenanceToolset": ("BBBAssetRepairEditorLibrary",),
-    "BBBAnimationPreviewToolset": ("BBBBlueprintEditorLibrary",),
+    "BBBAnimationPreviewToolset": ("BBBBlueprintEditorLibrary", "BBBAnimationGraphEditorLibrary"),
+    "BBBAnimationGraphToolset": ("BBBAnimationGraphEditorLibrary",),
 }
 
 
