@@ -1,4 +1,5 @@
 import json
+import os
 
 import unreal
 import toolset_registry
@@ -129,7 +130,9 @@ def _require_layout_checkout(blueprint):
     if unreal.SourceControl.current_provider() != "Perforce":
         raise RuntimeError("蓝图排版写入要求 Perforce 独占签出")
 
-    state = unreal.SourceControl.query_file_state(path)
+    package = path.split(".", 1)[0]
+    filename = os.path.abspath(os.path.join(unreal.Paths.project_content_dir(), package[len("/Game/"):] + ".uasset"))
+    state = unreal.SourceControl.query_file_state(filename, silent=True, use_source_control_state_cache=False)
     writable = AssetTools.is_checked_out(path) and AssetTools.can_edit_asset(path)
     if state.is_valid and state.is_added and state.can_edit and not state.is_checked_out_other:
         writable = True
