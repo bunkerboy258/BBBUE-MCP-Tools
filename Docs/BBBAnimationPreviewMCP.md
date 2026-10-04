@@ -1,5 +1,13 @@
 # 动画姿势截图
 
+## 真实 Mass 群体性能测量
+
+`start_mass_population_benchmark` 必须在名称包含 Validation 的明确验收关卡 PIE 中运行，拒绝 NullRHI。输入实际 Mass 配置、递增数量、出生网格中心与间距，依次测量每个数量的预算关闭和开启两组。每组至少预热五秒、测量十秒。只清理验收关卡的 Spawner 出生实体和本工具保存的完整代际句柄，不操作主场景资产。相邻组回收后等待一秒；离开 PIE 明确失败并保留已落盘结果。
+
+原生 `BBBMassValidationLibrary` 通过引擎模板与出生位置处理器创建真实实体，并回读有效数量、实际移动速度、表现 Actor、预算网格和最近渲染数量。`ReadPerformanceFrameMetrics` 返回实际帧编号及游戏线程、渲染线程、GPU 和引擎间隔；GPU 零值表示不可用。CSV 每帧落盘，JSON 每组保存快照和均值、p50、p95、最大值，不把创建数量当成可见数量，不把编辑器测试当作打包性能承诺。
+
+测量临时取消 FPS 上限和垂直同步，固定动画预算两毫秒，结束恢复四个控制台变量。`inspect_mass_population_benchmark` 查询当前运行标识；不可在测量期间重新加载该模块或关闭 PIE。测量输出保存在 Saved/Diagnostics/PopulationBenchmarks，调用方必须另行检查画面、移动、配置、数量与测量条件才判定验收通过。
+
 通过 `list_toolsets` 找到 `BBBAnimationPreviewToolset` 并描述参数后调用 `capture_animation_samples`。
 
 工具必须使用唯一开启渲染的官方宿主和已启动的 PIE，不接受 NullRHI。明确传入同骨架网格、至多八条动画、至多三个零至一的采样进度和唯一英文文件前缀。每条动画生成一张图片，采样姿势按输入顺序从左至右排列。
@@ -7,6 +15,10 @@
 预览骨骼演员、补光和相机均为临时 PIE 对象，成功或失败都会销毁。不移动玩家、不修改当前编辑器视口、不保存资产。截图逐项导出至 `Saved/Diagnostics/AnimationSamples`，拒绝覆盖已有证据。返回成功仅表示渲染完成，调用方必须实际查看图片才能声称视觉验收通过。静态采样不能证明过渡平滑，需要额外运行时序验证。
 
 ## 真实动画蓝图过渡
+
+运行时结果只从实际 AnimGraph 的状态、序列、权重和骨骼采样获得，不再调用旧双通道实例的查询方法。事实基类不需要提供播放器接口。
+
+初始状态跨十五个真实帧、以每帧六十分之一秒手动求值预热，总计四分之一秒，确保零点一八秒过渡完成后再切换目标；只预热几毫秒会将未完成的第三个状态混入截图，不能作为两状态过渡证据。
 
 capture_monster_animation_transition 在没有 Mass 实体的临时表现演员上应用显示快照，用 BBBAnimationGraphEditorLibrary.EvaluateAnimationBlueprintFrame 同步更新真实动画图，不改为 SingleNode 播放。支持待机、侦察、追击、攻击、受伤、死亡零至五六种状态，以及相同状态的新动作过渡。每张图至多三次采样，时间是切换后的零至半秒；动作逻辑进度固定，仅检查过渡效果。
 

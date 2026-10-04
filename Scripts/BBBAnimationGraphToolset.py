@@ -1,4 +1,7 @@
 import json
+import math
+import os
+import re
 
 import unreal
 import toolset_registry
@@ -14,6 +17,386 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
      * 创建显式时间双通道动画图并配置明确的骨骼表现组件
      */
     """
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def audit_animation_tracks(asset_paths: list[str], bone_names: list[str], file_prefix: str) -> str:
+        """
+        /**
+         * 审查明确动画的全部根骨关键帧与局部骨骼首末接缝并保存原始摘要
+         * @param asset_paths		实际动画路径
+         * @param bone_names		局部接缝检查骨骼
+         * @param file_prefix		不存在的诊断文件前缀
+         * @return 各动画全帧根位移 旋转 缩放和局部循环接缝
+         */
+        """
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", file_prefix) or not asset_paths or len(asset_paths) > 64:
+            raise RuntimeError("诊断前缀或数量无效")
+
+        directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "Diagnostics", "AnimationAudits"))
+        path = os.path.join(directory, file_prefix + ".json")
+        if os.path.exists(path):
+            raise RuntimeError("诊断文件存在 禁止覆盖")
+
+        def angle(rotation):
+            return math.degrees(2.0 * math.acos(min(1.0, abs(float(rotation.w)))))
+
+        reports = []
+        for asset_path in asset_paths:
+            animation = unreal.load_asset(asset_path)
+            if not isinstance(animation, unreal.AnimSequence):
+                raise RuntimeError("明确动画无效: " + asset_path)
+
+            tracks = {str(name).lower(): name for name in animation.data_model_interface.get_bone_track_names()}
+            if "root" not in tracks:
+                raise RuntimeError("动画缺少根轨道: " + asset_path)
+
+            root = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, tracks["root"])
+            if not root:
+                raise RuntimeError("无法读取完整根轨道: " + asset_path)
+
+            maximum_translation = max(math.sqrt(key.translation.x ** 2 + key.translation.y ** 2 + key.translation.z ** 2) for key in root)
+            maximum_rotation = max(angle(key.rotation) for key in root)
+            maximum_scale = max(max(abs(key.scale3d.x - 1.0), abs(key.scale3d.y - 1.0), abs(key.scale3d.z - 1.0)) for key in root)
+            seams = {}
+            for bone in bone_names:
+                actual = tracks.get(bone.lower())
+                if actual is None:
+                    raise RuntimeError("动画缺少明确接缝骨骼: " + bone)
+                keys = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, actual)
+                first, last = keys[0], keys[-1]
+                delta = first.translation - last.translation
+                first_rotation = first.rotation
+                last_rotation = last.rotation
+                rotation_dot = first_rotation.x * last_rotation.x + first_rotation.y * last_rotation.y + first_rotation.z * last_rotation.z + first_rotation.w * last_rotation.w
+                rotation_delta = math.degrees(2.0 * math.acos(min(1.0, abs(rotation_dot))))
+                seams[bone] = {"translationCm": math.sqrt(delta.x ** 2 + delta.y ** 2 + delta.z ** 2), "rotationDegrees": rotation_delta, "keys": len(keys)}
+
+            reports.append({"asset": asset_path, "keysAudited": len(root), "length": animation.get_play_length(), "rootMaxTranslationCm": maximum_translation, "rootMaxRotationDegrees": maximum_rotation, "rootMaxScaleDeviation": maximum_scale, "inPlacePassed": maximum_translation < 0.001 and maximum_rotation < 0.001 and maximum_scale < 0.001, "localSeams": seams})
+
+        os.makedirs(directory, exist_ok=True)
+        report = {"path": path, "animations": reports, "allInPlacePassed": all(item["inPlacePassed"] for item in reports), "readOnly": True}
+        with open(path, "w", encoding="utf-8") as destination:
+            json.dump(report, destination, ensure_ascii=False, indent=2)
+        return json.dumps(report, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def create_mass_presentation_variant(source_actor_path: str, source_definition_path: str, source_config_path: str, mesh_path: str, destination_root: str, variant_name: str) -> str:
+        """
+        /**
+         * 为正式合并网格创建独立表现蓝图 定义与实体模板
+         * @param source_actor_path		已验证的预算载体蓝图
+         * @param source_definition_path		同类正式静态定义
+         * @param source_config_path		同类正式实体模板
+         * @param mesh_path		已保存的完整合并网格
+         * @param destination_root		不存在变体资产的自有目录
+         * @param variant_name		稳定英文外观名称
+         * @return 三个资产路径及明确互相引用
+         */
+        """
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止创建正式变体配置")
+
+        if not destination_root.startswith("/Game/_Project/") or not variant_name.isascii() or not variant_name.isalnum():
+            raise RuntimeError("变体目录或名称无效")
+
+        mesh = unreal.load_asset(mesh_path)
+        source_actor = unreal.load_asset(source_actor_path)
+        source_definition = unreal.load_asset(source_definition_path)
+        source_config = unreal.load_asset(source_config_path)
+        if not isinstance(mesh, unreal.SkeletalMesh) or not isinstance(source_actor, unreal.Blueprint) or not isinstance(source_config, unreal.MassEntityConfigAsset) or source_definition is None:
+            raise RuntimeError("源配置或完整网格无效")
+
+        names = ["BP_BBBZombie" + variant_name + "Presentation", "DA_BBBZombie" + variant_name + "Definition", "MEC_BBBZombie" + variant_name]
+        paths = [destination_root + "/" + name for name in names]
+        if any(unreal.EditorAssetLibrary.does_asset_exist(path) for path in paths):
+            raise RuntimeError("变体资产已存在 禁止覆盖")
+
+        assets = []
+        for name, source in zip(names, (source_actor, source_definition, source_config)):
+            asset = unreal.AssetToolsHelpers.get_asset_tools().duplicate_asset(name, destination_root, source)
+            if asset is None:
+                raise RuntimeError("变体复制失败 保留未完成资产供诊断")
+            assets.append(asset)
+
+        actor, definition, config = assets
+        actor_mesh = unreal.get_default_object(actor.generated_class()).get_monster_mesh()
+        if actor_mesh.get_skeletal_mesh_asset().get_editor_property("skeleton") != mesh.get_editor_property("skeleton"):
+            raise RuntimeError("变体网格与动画骨架不一致 不保存")
+
+        actor_mesh.set_skeletal_mesh_asset(mesh)
+        unreal.BlueprintEditorLibrary.compile_blueprint(actor)
+        if actor.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+            raise RuntimeError("变体载体编译未通过 不保存")
+
+        if unreal.get_default_object(actor.generated_class()).get_monster_mesh().get_skeletal_mesh_asset() != mesh:
+            raise RuntimeError("编译后的变体网格引用不一致 不保存")
+
+        definition.set_editor_property("entity_config", config)
+        traits = config.get_editor_property("config").get_editor_property("traits")
+        definition_links = 0
+        visualization_links = 0
+        for trait in traits:
+            if isinstance(trait, unreal.BBBMonsterTrait):
+                trait.set_editor_property("definition", definition)
+                definition_links += 1
+            if isinstance(trait, unreal.MassVisualizationTrait):
+                trait.set_editor_property("high_res_template_actor", actor.generated_class())
+                trait.set_editor_property("low_res_template_actor", actor.generated_class())
+                visualization_links += 1
+
+        if definition_links != 1 or visualization_links != 1:
+            raise RuntimeError("变体模板必须有一个小怪配置与一个表现装配 不保存")
+
+        for asset in assets:
+            if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
+                raise RuntimeError("变体资产保存失败")
+
+        return json.dumps({"actor": paths[0], "definition": paths[1], "entityConfig": paths[2], "mesh": mesh_path, "saved": True}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def create_merged_skeletal_asset(asset_path: str, part_paths: list[str]) -> str:
+        """
+        /**
+         * 用模块导入数据创建三层 LOD 的正式合并网格 不保存运行时临时合并结果
+         * @param asset_path		不存在的自有资产路径
+         * @param part_paths		同骨架头部 身体 服装模块
+         * @return 原生构建验证与保存结果
+         */
+        """
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止生成正式合并资产")
+
+        if not asset_path.startswith("/Game/_Project/") or unreal.EditorAssetLibrary.does_asset_exist(asset_path):
+            raise RuntimeError("合并目标必须为不存在的自有资产")
+
+        parts = [unreal.load_asset(path) for path in part_paths]
+        if len(parts) < 2 or any(not isinstance(part, unreal.SkeletalMesh) for part in parts):
+            raise RuntimeError("模块必须是明确有效的骨骼网格")
+
+        mesh = unreal.BBBAnimationGraphEditorLibrary.create_merged_skeletal_asset(asset_path, parts)
+        if mesh is None:
+            raise RuntimeError("导入几何 蒙皮或 LOD 构建失败 不保存")
+
+        if not unreal.EditorAssetLibrary.save_loaded_asset(mesh, False):
+            raise RuntimeError("正式合并网格保存失败")
+
+        return json.dumps({"asset": mesh.get_path_name(), "parts": list(part_paths), "sourceMeshDescription": True, "lodCount": 3, "saved": True}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def configure_fact_action_variants(asset_path: str, variant_paths: list[str], counts: list[int], blend_duration: float = 0.16) -> str:
+        """
+        /**
+         * 为现有事实状态机配置线程安全动作变体及同状态惯性重启
+         * @param asset_path		独占持有的动画蓝图
+         * @param variant_paths		按攻击 受伤 死亡分组的序列路径
+         * @param counts		各分组数量
+         * @param blend_duration		重启过渡秒数
+         * @return 严格编译保存结果
+         */
+        """
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止配置动作变体")
+
+        blueprint = unreal.load_asset(asset_path)
+        sequences = [unreal.load_asset(path) for path in variant_paths]
+        if not isinstance(blueprint, unreal.AnimBlueprint) or any(not isinstance(sequence, unreal.AnimSequence) for sequence in sequences):
+            raise RuntimeError("动画蓝图或序列无效")
+
+        require_editable(blueprint)
+        state = unreal.SourceControl.query_file_state(asset_path, True, False)
+        if state.get_editor_property("is_checked_out_other") or not (AssetTools.is_checked_out(asset_path) or state.get_editor_property("is_added")):
+            raise RuntimeError("必须由当前工作区独占持有动画蓝图")
+
+        if not unreal.BBBAnimationGraphEditorLibrary.configure_fact_action_variants(blueprint, sequences, counts, blend_duration):
+            raise RuntimeError("变体构图失败 不保存")
+
+        unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
+        if blueprint.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+            raise RuntimeError("变体图未无警告编译通过 不保存")
+
+        if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
+            raise RuntimeError("变体动画蓝图保存失败")
+
+        return json.dumps({"asset": asset_path, "variants": list(variant_paths), "counts": list(counts), "saved": True}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def reparent_presentation_blueprint(asset_path: str, parent_class_path: str) -> str:
+        """
+        /**
+         * 将独占持有的表现载体蓝图改为明确的原生父类并核验网格
+         * @param asset_path		表现载体蓝图路径
+         * @param parent_class_path		原生表现载体父类路径
+         * @return 保存结果及实际默认网格类型
+         */
+        """
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止修改载体父类")
+
+        blueprint = unreal.load_asset(asset_path)
+        parent = unreal.load_class(None, parent_class_path)
+        if not isinstance(blueprint, unreal.Blueprint) or parent is None or not hasattr(unreal.get_default_object(parent), "get_monster_mesh"):
+            raise RuntimeError("蓝图或表现载体父类无效")
+
+        require_editable(blueprint)
+        state = unreal.SourceControl.query_file_state(asset_path, True, False)
+        if state.get_editor_property("is_checked_out_other") or not (AssetTools.is_checked_out(asset_path) or state.get_editor_property("is_added")):
+            raise RuntimeError("必须由当前工作区独占持有载体蓝图")
+
+        unreal.BlueprintEditorLibrary.reparent_blueprint(blueprint, parent)
+        unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
+        if blueprint.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+            raise RuntimeError("载体未无警告编译通过 不保存")
+
+        mesh = unreal.get_default_object(blueprint.generated_class()).get_monster_mesh()
+        expected = unreal.get_default_object(parent).get_monster_mesh().get_class()
+        if mesh is None or mesh.get_class() != expected:
+            raise RuntimeError("继承网格实际类型不匹配 不保存")
+
+        if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
+            raise RuntimeError("载体保存失败")
+
+        return json.dumps({"asset": asset_path, "parent": parent_class_path, "mesh_class": mesh.get_class().get_path_name(), "saved": True}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def create_speed_blend_space(asset_path: str, sequence_paths: list[str], speeds: list[float], smoothing_time: float = 0.12) -> str:
+        """
+        /**
+         * 创建具有速度轴平滑的同骨架一维循环混合资产
+         * @param asset_path		不存在的新混合资产路径
+         * @param sequence_paths		按速度排序的序列
+         * @param speeds		对应厘米每秒速度 首项为零
+         * @param smoothing_time		速度轴平滑秒数
+         * @return 保存路径及实际样本配置 新资产仍须登记版本控制
+         */
+        """
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止创建混合资产")
+
+        if not asset_path.startswith("/Game/") or unreal.EditorAssetLibrary.does_asset_exist(asset_path):
+            raise RuntimeError("目标必须为不存在的项目路径")
+
+        sequences = [unreal.load_asset(path) for path in sequence_paths]
+        if len(sequences) < 2 or len(sequences) != len(speeds) or any(not isinstance(sequence, unreal.AnimSequence) for sequence in sequences):
+            raise RuntimeError("动画与速度样本无效")
+
+        library = getattr(unreal, "BBBAnimationGraphEditorLibrary", None)
+        if library is None or not hasattr(library, "configure_speed_blend_space"):
+            raise RuntimeError("请先编译速度混合构图能力")
+
+        factory = unreal.BlendSpaceFactory1D()
+        factory.set_editor_property("target_skeleton", sequences[0].get_editor_property("skeleton"))
+        directory, name = asset_path.rsplit("/", 1)
+        asset = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, directory, unreal.BlendSpace1D, factory)
+        if not library.configure_speed_blend_space(asset, sequences, speeds, smoothing_time):
+            raise RuntimeError("速度混合配置失败 尚未保存")
+
+        if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
+            raise RuntimeError("速度混合保存失败")
+
+        return json.dumps({"asset": asset_path, "sequences": list(sequence_paths), "speeds": list(speeds), "saved": True}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def rebuild_fact_driven_state_machine(asset_path: str, locomotion_path: str, action_paths: list[str], fact_properties: list[str], action_values: list[int], blend_duration: float = 0.18, parent_class_path: str = "") -> str:
+        """
+        /**
+         * 在独占持有且由调用方备份的动画蓝图上重建标准事实状态机
+         * @param asset_path		目标动画蓝图
+         * @param locomotion_path		同骨架移动混合资产
+         * @param action_paths		攻击 受伤 死亡序列
+         * @param fact_properties		行为 速度 进度只读属性
+         * @param action_values		递增动作枚举值
+         * @param blend_duration		状态过渡秒数
+         * @param parent_class_path		可选事实动画父类 迁移时明确指定
+         * @return 编译 保存和实际状态机结构 未成功不得作为验收通过
+         */
+        """
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止重建动画图")
+
+        library = getattr(unreal, "BBBAnimationGraphEditorLibrary", None)
+        if library is None or not hasattr(library, "build_fact_driven_state_machine_graph"):
+            raise RuntimeError("请先编译事实状态机构图能力")
+
+        blueprint = unreal.load_asset(asset_path)
+        locomotion = unreal.load_asset(locomotion_path)
+        actions = [unreal.load_asset(path) for path in action_paths]
+        if not isinstance(blueprint, unreal.AnimBlueprint) or not isinstance(locomotion, unreal.BlendSpace):
+            raise RuntimeError("动画蓝图或移动混合资产无效")
+
+        if len(actions) != 3 or any(not isinstance(action, unreal.AnimSequence) for action in actions):
+            raise RuntimeError("必须指定三个有效动作序列")
+
+        require_editable(blueprint)
+        state = unreal.SourceControl.query_file_state(asset_path, True, False)
+        if state.get_editor_property("is_checked_out_other") or not (AssetTools.is_checked_out(asset_path) or state.get_editor_property("is_added")):
+            raise RuntimeError("目标动画蓝图必须由当前工作区独占持有")
+
+        if parent_class_path:
+            parent = unreal.load_class(None, parent_class_path)
+            if parent is None or not isinstance(unreal.get_default_object(parent), unreal.AnimInstance):
+                raise RuntimeError("父类必须为有效动画实例")
+
+            for name in fact_properties:
+                unreal.get_default_object(parent).get_editor_property(name)
+
+            unreal.BlueprintEditorLibrary.reparent_blueprint(blueprint, parent)
+
+        if not library.build_fact_driven_state_machine_graph(blueprint, locomotion, actions, [unreal.Name(name) for name in fact_properties], action_values, blend_duration):
+            raise RuntimeError("状态机构图失败 尚未保存 请保留诊断现场")
+
+        unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
+        if blueprint.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+            raise RuntimeError("状态机尚未无警告编译通过 不保存")
+
+        if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
+            raise RuntimeError("动画蓝图保存失败")
+
+        unreal.log("[BBBAnimationGraph] FACT_STATE_MACHINE_SAVED " + asset_path)
+        return json.dumps({"asset": asset_path, "actions": list(action_paths), "locomotion": locomotion_path, "saved": True}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def rebuild_sequence_crossfade_blueprint(asset_path: str, preview_animation_path: str, getter_names: list[str]) -> str:
+        """
+        /**
+         * 将本工具生成的事实图还原为标准显式双通道图 不接收任意手工图
+         * @param asset_path		已备份且独占持有的动画蓝图
+         * @param preview_animation_path	同骨架预览序列
+         * @param getter_names		六个原有只读查询
+         * @return 严格编译和保存结果
+         */
+        """
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止重建动画蓝图")
+
+        blueprint = unreal.load_asset(asset_path)
+        animation = unreal.load_asset(preview_animation_path)
+        if not isinstance(blueprint, unreal.AnimBlueprint) or not isinstance(animation, unreal.AnimSequence):
+            raise RuntimeError("动画蓝图或预览序列无效")
+
+        require_editable(blueprint)
+        state = unreal.SourceControl.query_file_state(asset_path, True, False)
+        if state.get_editor_property("is_checked_out_other") or not (AssetTools.is_checked_out(asset_path) or state.get_editor_property("is_added")):
+            raise RuntimeError("目标必须由当前工作区独占持有")
+
+        if not unreal.BBBAnimationGraphEditorLibrary.build_sequence_crossfade_graph(blueprint, animation, [unreal.Name(name) for name in getter_names]):
+            raise RuntimeError("图表结构不允许还原 尚未保存")
+
+        unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
+        if blueprint.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+            raise RuntimeError("还原图未无警告编译通过 不保存")
+
+        if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
+            raise RuntimeError("还原动画蓝图保存失败")
+
+        return json.dumps({"asset": asset_path, "saved": True}, ensure_ascii=False)
 
     @toolset_registry.tool_call
     @staticmethod

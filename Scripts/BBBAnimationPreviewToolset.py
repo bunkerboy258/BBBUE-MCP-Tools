@@ -2,6 +2,8 @@ import json
 import os
 import re
 import uuid
+import time
+import csv
 
 import unreal
 import toolset_registry
@@ -9,6 +11,7 @@ from toolset_registry.registration import Registration
 
 
 _transition_captures = {}
+_population_runs = {}
 
 
 @unreal.uclass()
@@ -18,6 +21,196 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
      * 在临时对象上渲染明确动画的多个采样姿势 不修改源资产
      */
     """
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def start_mass_population_benchmark(config_paths: list[str], counts: list[int], center: list[float], spacing: float, expected_level: str, file_prefix: str, warmup_seconds: float = 5.0, measurement_seconds: float = 10.0, force_actor_representation: bool = False) -> str:
+        """
+        /**
+         * 在明确验收关卡的真实 PIE Mass 实体上依次测量预算关闭与开启
+         * @param config_paths		实际实体配置路径
+         * @param counts		递增数量 每项至多一千
+         * @param center		网格出生中心 三个厘米坐标
+         * @param spacing		实体出生间距 厘米
+         * @param expected_level		明确的验收关卡短名 必须包含 Validation
+         * @param file_prefix		唯一诊断文件前缀
+         * @param warmup_seconds		每组预热秒数 至少五秒
+         * @param measurement_seconds		每组测量秒数 至少十秒
+         * @param force_actor_representation		使用临时全骨骼压力配置 不改正式模板
+         * @return 异步运行标识 测量完成后回读结果 原始数据始终落盘
+         */
+        """
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if world is None or "Validation" not in expected_level or expected_level not in world.get_path_name():
+            raise RuntimeError("必须在明确指定的验收关卡 PIE 中测量")
+
+        if "-nullrhi" in unreal.SystemLibrary.get_command_line().lower():
+            raise RuntimeError("群体性能验收必须使用正常渲染宿主")
+
+        if len(center) != 3 or not counts or len(counts) > 4 or counts != sorted(set(counts)) or any(value < 1 or value > 1000 for value in counts):
+            raise RuntimeError("群体数量或中心无效")
+
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", file_prefix) or warmup_seconds < 5.0 or measurement_seconds < 10.0:
+            raise RuntimeError("文件前缀或测量时长无效")
+
+        if any(item.get("status") == "running" for item in _population_runs.values()):
+            raise RuntimeError("已有群体测量正在运行")
+
+        configs = [unreal.load_asset(path) for path in config_paths]
+        if not configs or any(not isinstance(config, unreal.MassEntityConfigAsset) for config in configs):
+            raise RuntimeError("实体配置无效")
+
+        mass = getattr(unreal, "BBBMassValidationLibrary", None)
+        metrics = getattr(unreal.BBBAnimationGraphEditorLibrary, "read_performance_frame_metrics", None)
+        if mass is None or metrics is None:
+            raise RuntimeError("请先编译群体验收原生能力")
+
+        if force_actor_representation:
+            configs = [mass.create_actor_stress_config(world, config) for config in configs]
+            if any(config is None for config in configs):
+                raise RuntimeError("全骨骼压力配置创建失败")
+
+        directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "Diagnostics", "PopulationBenchmarks"))
+        os.makedirs(directory, exist_ok=True)
+        result_path = os.path.join(directory, file_prefix + ".json")
+        csv_path = os.path.join(directory, file_prefix + ".csv")
+        if os.path.exists(result_path) or os.path.exists(csv_path):
+            raise RuntimeError("诊断文件已存在 请使用新前缀")
+
+        for spawner in unreal.GameplayStatics.get_all_actors_of_class(world, unreal.MassSpawner):
+            spawner.do_despawning()
+
+        saved = {name: unreal.SystemLibrary.get_console_variable_float_value(name) for name in ("t.MaxFPS", "r.VSync", "a.Budget.Enabled", "a.Budget.BudgetMs", "r.DontLimitOnBattery")}
+        unreal.SystemLibrary.execute_console_command(world, "t.MaxFPS 0")
+        unreal.SystemLibrary.execute_console_command(world, "r.VSync 0")
+        unreal.SystemLibrary.execute_console_command(world, "r.DontLimitOnBattery 1")
+        unreal.SystemLibrary.execute_console_command(world, "a.Budget.BudgetMs 2.0")
+        run_id = str(uuid.uuid4())
+        report = {"status": "running", "runId": run_id, "world": world.get_path_name(), "engine": unreal.SystemLibrary.get_engine_version(), "commandLine": unreal.SystemLibrary.get_command_line(), "configPaths": list(config_paths), "forceActorRepresentation": force_actor_representation, "warmupSeconds": warmup_seconds, "measurementSeconds": measurement_seconds, "budgetMs": 2.0, "resultPath": result_path, "csvPath": csv_path, "cases": []}
+        _population_runs[run_id] = report
+        output = open(csv_path, "w", newline="", encoding="utf-8")
+        writer = csv.writer(output)
+        writer.writerow(["count", "budget", "frame", "game_thread_ms", "render_thread_ms", "gpu_ms", "engine_delta_ms", "slate_delta_ms"])
+        state = {"case": -1, "entities": [], "phase": "next", "samples": [], "start": 0.0, "handle": None, "lastFrame": -1}
+        cases = [(count, enabled) for count in counts for enabled in (False, True)]
+
+        def save_report():
+            with open(result_path, "w", encoding="utf-8") as destination:
+                json.dump(report, destination, ensure_ascii=False, indent=2)
+            output.flush()
+
+        def cleanup():
+            try:
+                if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() == world and state["entities"]:
+                    mass.destroy_population(world, state["entities"])
+            finally:
+                state["entities"] = []
+                for name, value in saved.items():
+                    unreal.SystemLibrary.execute_console_command(world, name + " " + str(value))
+                output.close()
+                if state["handle"] is not None:
+                    unreal.unregister_slate_post_tick_callback(state["handle"])
+
+        def summarize(rows, column):
+            values = sorted(row[column] for row in rows)
+            return {"mean": sum(values) / len(values), "p50": values[int((len(values) - 1) * 0.5)], "p95": values[int((len(values) - 1) * 0.95)], "max": values[-1]}
+
+        def tick(delta_seconds):
+            try:
+                if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() != world:
+                    raise RuntimeError("验收 PIE 被外部停止")
+
+                now = time.perf_counter()
+                if state["phase"] == "next":
+                    if state["entities"]:
+                        mass.destroy_population(world, state["entities"])
+                        state["entities"] = []
+                        state["phase"] = "clear"
+                        state["start"] = now
+                        return
+
+                    state["case"] += 1
+                    if state["case"] >= len(cases):
+                        report["status"] = "completed"
+                        save_report()
+                        cleanup()
+                        return
+
+                    count, enabled = cases[state["case"]]
+                    unreal.SystemLibrary.execute_console_command(world, "a.Budget.Enabled " + str(int(enabled)))
+                    state["entities"] = mass.spawn_population(world, configs, count, unreal.Vector(*center), spacing)
+                    if len(state["entities"]) != count:
+                        raise RuntimeError("实际 Mass 创建数量不匹配")
+
+                    state["phase"] = "warmup"
+                    state["start"] = now
+                    report["currentCount"] = count
+                    report["currentBudget"] = enabled
+                    save_report()
+                    return
+
+                if state["phase"] == "clear":
+                    if now - state["start"] >= 1.0:
+                        state["phase"] = "next"
+                    return
+
+                if state["phase"] == "warmup":
+                    if now - state["start"] >= warmup_seconds:
+                        state["before"] = json.loads(mass.inspect_population(world, state["entities"]))
+                        count, enabled = cases[state["case"]]
+                        if force_actor_representation and state["before"].get("presentationActors") != count:
+                            if now - state["start"] > 60.0:
+                                raise RuntimeError("全骨骼预热超时 实际演员数量=" + str(state["before"].get("presentationActors")))
+                            return
+                        state["samples"] = []
+                        state["start"] = now
+                        state["phase"] = "measure"
+                    return
+
+                row = list(metrics()) + [float(delta_seconds) * 1000.0]
+                if int(row[0]) != state["lastFrame"]:
+                    state["samples"].append(row)
+                    count, enabled = cases[state["case"]]
+                    writer.writerow([count, int(enabled)] + row)
+                    state["lastFrame"] = int(row[0])
+
+                if now - state["start"] >= measurement_seconds:
+                    count, enabled = cases[state["case"]]
+                    snapshot = json.loads(mass.inspect_population(world, state["entities"]))
+                    rows = state["samples"]
+                    result = {"count": count, "budgetEnabled": enabled, "sampleFrames": len(rows), "measuredSeconds": now - state["start"], "before": state["before"], "after": snapshot}
+                    for name, column in (("gameThreadMs", 1), ("renderThreadMs", 2), ("gpuMs", 3), ("engineDeltaMs", 4), ("slateDeltaMs", 5)):
+                        result[name] = summarize(rows, column)
+                    result["entityCountCorrect"] = snapshot.get("validEntities") == count
+                    result["budgetMeshCoverageCorrect"] = snapshot.get("budgetMeshes") == snapshot.get("presentationActors")
+                    report["cases"].append(result)
+                    save_report()
+                    state["phase"] = "next"
+            except Exception as error:
+                report["status"] = "failed"
+                report["error"] = str(error)
+                save_report()
+                cleanup()
+                unreal.log_error("[BBBPopulationBenchmark] " + str(error))
+
+        state["handle"] = unreal.register_slate_post_tick_callback(tick)
+        save_report()
+        return json.dumps({"runId": run_id, "status": "running", "resultPath": result_path, "csvPath": csv_path}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def inspect_mass_population_benchmark(run_id: str) -> str:
+        """
+        /**
+         * 读取本宿主群体验收进度 不重启测量
+         * @param run_id		开始工具返回的标识
+         * @return 当前阶段与结果文件路径
+         */
+        """
+        report = _population_runs.get(run_id)
+        if report is None:
+            raise RuntimeError("当前宿主不存在这一测量")
+        return json.dumps({key: value for key, value in report.items() if key != "cases"} | {"completedCases": len(report["cases"])}, ensure_ascii=False)
 
     @toolset_registry.tool_call
     @staticmethod
@@ -203,9 +396,9 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
                     if not library.evaluate_animation_blueprint_frame(mesh, 0.001):
                         raise RuntimeError("初始动画蓝图求值失败")
 
-                    for warmup in range(3):
+                    for warmup in range(15):
                         yield
-                        if not library.evaluate_animation_blueprint_frame(mesh, 0.001):
+                        if not library.evaluate_animation_blueprint_frame(mesh, 1.0 / 60.0):
                             raise RuntimeError("初始姿势跨帧求值失败")
 
                     height = unreal.SystemLibrary.get_component_bounds(mesh)[1].z * 2.0
@@ -241,7 +434,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
                         bones[name] = {"position": [position.x, position.y, position.z], "initialPosition": [original.x, original.y, original.z], "distanceFromInitialCm": distance}
 
                     centers.append(unreal.SystemLibrary.get_component_bounds(mesh)[0].z)
-                    samples.append({"seconds": seconds, "animationClass": instance.get_class().get_path_name(), "activeAnimation": instance.get_active_animation().get_path_name(), "explicitTime": instance.get_active_animation_time(), "channelBActive": instance.is_channel_b_active(), "bones": bones, "runtimeGraph": json.loads(unreal.BBBBlueprintEditorLibrary.probe_animation_instance_runtime(instance))})
+                    samples.append({"seconds": seconds, "animationClass": instance.get_class().get_path_name(), "bones": bones, "runtimeGraph": json.loads(unreal.BBBBlueprintEditorLibrary.probe_animation_instance_runtime(instance))})
 
                 for render_warmup in range(30):
                     yield

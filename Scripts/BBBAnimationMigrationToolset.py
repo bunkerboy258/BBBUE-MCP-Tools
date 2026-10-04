@@ -907,9 +907,10 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
          * @return 轨道帧数与采样位移
          */
         """
-        animation = unreal.EditorAssetLibrary.load_asset(asset_path)
+        animation = unreal.load_asset(asset_path)
         if not isinstance(animation, unreal.AnimSequence) or sample_count < 2:
-            raise RuntimeError("动画序列或采样数量无效")
+            actual_type = animation.get_class().get_path_name() if animation is not None else "None"
+            raise RuntimeError("动画序列或采样数量无效: " + actual_type + "; sample_count=" + str(sample_count))
 
         names = [str(name) for name in animation.data_model_interface.get_bone_track_names()]
         matching = next((name for name in names if name.casefold() == bone_name.casefold()), None)
