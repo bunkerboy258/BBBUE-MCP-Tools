@@ -6,12 +6,13 @@ import random
 import sys
 import types
 import unittest
+from unittest.mock import patch
 
 
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "Scripts"))
-from BBBBlueprintLayout import calculate_layout
+from BBBBlueprintLayout import calculate_layout, layout_quality, _clear_wire_obstacles, _wire_points
 
 
 def _node(key, execution=False, x=0, y=0, width=180, height=80):
@@ -55,6 +56,46 @@ class BlueprintLayoutTests(unittest.TestCase):
         self.assertLess(positions["Y"][0], positions["B"][0])
         self.assertLess(positions["Z"][0], positions["C"][0])
         self.assertLess(plan["after"]["width"], plan["before"]["width"])
+
+    def test_pose_chain_aligns_measured_pin_anchors(self):
+        """/** @return 姿势链按真实引脚高度对齐而非按节点顶部对齐 */"""
+        nodes = {key: _node(key, height=height) for key, height in (("Input", 80), ("IK", 240), ("Output", 180), ("Value", 60))}
+        for key, anchor in (("Input", 30), ("IK", 65), ("Output", 110)):
+            nodes[key]["pose"] = True
+            nodes[key]["primaryOffset"] = anchor
+
+        edges = [_edge("Input", "IK", "pose"), _edge("IK", "Output", "pose"), _edge("Value", "IK")]
+        for edge in edges[:2]:
+            edge["sourceOffset"] = (nodes[edge["source"]]["width"], nodes[edge["source"]]["primaryOffset"])
+            edge["targetOffset"] = (0, nodes[edge["target"]]["primaryOffset"])
+
+        plan = self.check_plan(nodes, edges)
+        self.assertEqual(len({plan["positions"][key][1] + nodes[key]["primaryOffset"] for key in ("Input", "IK", "Output")}), 1)
+        self.assertEqual(plan["after"]["backwardPoseEdges"], 0)
+        self.assertEqual(plan["after"]["wireNodeIntersections"], 0)
+
+    def test_measured_wire_blocker_is_moved_without_changing_main_chain(self):
+        """/** @return 引脚高度而非节点中心决定穿线 辅助阻挡可被移开 */"""
+        nodes = {"A": _node("A", True, width=100, height=200), "B": _node("B", True, width=100, height=200), "Blocker": _node("Blocker", width=80, height=40)}
+        positions = {"A": (0, 0), "B": (500, 0), "Blocker": (250, 10)}
+        edge = _edge("A", "B", "exec")
+        edge.update(sourceOffset=(100, 30), targetOffset=(0, 30))
+        self.assertEqual(layout_quality(nodes, [edge], positions)["wireNodeIntersections"], 1)
+        original = copy.deepcopy((nodes, edge, positions))
+        result = _clear_wire_obstacles(nodes, [edge], positions, {"Blocker": (-1000, 1000, [])})
+        self.assertEqual(layout_quality(nodes, [edge], result)["wireNodeIntersections"], 0)
+        self.assertEqual(result["A"], positions["A"])
+        self.assertEqual(result["B"], positions["B"])
+        self.assertEqual((nodes, edge, positions), original)
+
+    def test_collinear_backward_curve_keeps_overshoot(self):
+        """/** @return 共线回流曲线不能退化为端点间直线而漏掉外伸部分 */"""
+        nodes = {key: _node(key, width=100, height=80) for key in ("A", "B")}
+        edge = _edge("A", "B")
+        edge["spline"] = {"backwardhorizontalTangent": (10, 0)}
+        points = _wire_points(nodes, edge, {"A": (100, 0), "B": (0, 0)})
+        self.assertGreater(max(point[0] for point in points), 200)
+        self.assertLess(min(point[0] for point in points), 0)
 
     def test_branch_order_and_merge(self):
         """/** @return 分支保持引脚顺序 汇合位于分支之后 */"""
@@ -273,13 +314,15 @@ class LayoutCaptureTests(unittest.TestCase):
                     "path": node.name, "x": 10, "y": 20, "width": 500, "height": 400,
                     "comment": node.comment, "estimated": False, "members": [],
                     "executionPins": ["output:then"] if node is first else ["input:execute"],
+                    "pins": [] if node.comment else [{"direction": "output" if node is first else "input", "name": "then" if node is first else "execute", "kind": "exec", "x": 500 if node is first else 0, "y": 40}],
                 }
                 for node in (first, second, comment)
             ],
         }
+        geometry["spline"] = {}
         fake = types.SimpleNamespace(
             K2Node=Node,
-            BBBBlueprintEditorLibrary=types.SimpleNamespace(inspect_blueprint_graph_geometry=lambda graph: json.dumps(geometry)),
+            BBBBlueprintEditorLibrary=types.SimpleNamespace(measure_blueprint_graph_visual_geometry=lambda graph: json.dumps(geometry)),
             BlueprintGraphEditor=types.SimpleNamespace(get_graph_editor=lambda graph: editor),
             EdGraphPinDirection=types.SimpleNamespace(EGPD_OUTPUT="Output"),
         )
@@ -295,11 +338,11 @@ class LayoutCaptureTests(unittest.TestCase):
         self.assertEqual(comments[0]["id"], "Comment")
         self.assertEqual(estimated, [])
 
-        fake.BBBBlueprintEditorLibrary.inspect_blueprint_graph_geometry = lambda graph: '{"error":"几何检查失败"}'
+        fake.BBBBlueprintEditorLibrary.measure_blueprint_graph_visual_geometry = lambda graph: '{"error":"几何检查失败"}'
         with self.assertRaisesRegex(RuntimeError, "几何检查失败"):
             environment["_capture_layout_graph"](graph)
 
-        fake.BBBBlueprintEditorLibrary.inspect_blueprint_graph_geometry = None
+        fake.BBBBlueprintEditorLibrary.measure_blueprint_graph_visual_geometry = None
         with self.assertRaisesRegex(RuntimeError, "请编译"):
             environment["_capture_layout_graph"](graph)
 
@@ -393,6 +436,19 @@ class LayoutToolSafetyTests(unittest.TestCase):
         self.environment["unreal"].EditorLevelLibrary.get_pie_worlds = lambda flag: [object()]
         with self.assertRaisesRegex(RuntimeError, "PIE"):
             self.call("/Game/Test.Test:Graph", dry_run=True)
+
+    def test_unresolved_wire_hit_rejected_before_checkout(self):
+        """/** @return 未解穿节点问题在签出检查和坐标事务之前拒绝 */"""
+        plan = calculate_layout(self.snapshot[1], [], [])
+        plan["positions"]["A"] = (200, 200)
+        plan["after"]["wireNodeIntersections"] = 1
+        with patch("BBBBlueprintLayout.calculate_layout", return_value=plan):
+            with self.assertRaisesRegex(RuntimeError, "连线穿过节点"):
+                self.call("/Game/Test.Test:Graph")
+
+        self.assertNotIn("checkout", self.events)
+        self.assertNotIn("transaction", self.events)
+        self.assertFalse(any(isinstance(event, tuple) for event in self.events))
 
     def test_checkout_failure_precedes_transaction(self):
         """/** @return 未签出时任何节点都不移动 */"""

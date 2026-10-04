@@ -28,9 +28,9 @@ def _capture_layout_graph(graph):
      * @return 节点对象 尺寸快照 连线 注释框和尺寸估算清单
      */
     """
-    inspect = getattr(unreal.BBBBlueprintEditorLibrary, "inspect_blueprint_graph_geometry", None)
+    inspect = getattr(unreal.BBBBlueprintEditorLibrary, "measure_blueprint_graph_visual_geometry", None)
     if not callable(inspect):
-        raise RuntimeError("缺少 InspectBlueprintGraphGeometry 请编译原生编辑器模块后重新启动宿主")
+        raise RuntimeError("缺少 MeasureBlueprintGraphVisualGeometry 请编译原生编辑器模块后重新启动宿主")
 
     geometry = json.loads(inspect(graph))
     if geometry.get("error"):
@@ -44,7 +44,7 @@ def _capture_layout_graph(graph):
     comments = []
     estimated = []
     pins_by_path = {}
-    execution_pins = {}
+    visual_pins = {}
     graph_editor = unreal.BlueprintGraphEditor.get_graph_editor(graph)
     graph_nodes = list(graph_editor.list_all_nodes()) + list(graph_editor.list_comment_nodes())
     all_objects = {node.get_path_name(): node for node in graph_nodes}
@@ -62,6 +62,8 @@ def _capture_layout_graph(graph):
             "width": int(item["width"]),
             "height": int(item["height"]),
             "exec": bool(item["executionPins"]),
+            "pose": any(pin["kind"] == "pose" for pin in item["pins"]),
+            "primaryOffset": min((pin["y"] for pin in item["pins"] if pin["kind"] in ("pose", "exec")), default=0),
         }
         if item["comment"]:
             snapshot["members"] = sorted(item["members"])
@@ -71,9 +73,9 @@ def _capture_layout_graph(graph):
         objects[path] = node
         nodes[path] = snapshot
         pins_by_path[path] = list(node.list_all_pins())
-        execution_pins[path] = set(item["executionPins"])
+        visual_pins[path] = {(pin["direction"], pin["name"]): pin for pin in item["pins"]}
         if item["estimated"]:
-            estimated.append(path)
+            raise RuntimeError("拒绝使用估算节点尺寸 " + path)
 
     edges = []
     for source_path in sorted(nodes):
@@ -81,11 +83,15 @@ def _capture_layout_graph(graph):
             if pin.get_pin_direction() != unreal.EdGraphPinDirection.EGPD_OUTPUT:
                 continue
 
-            kind = "data"
-            if "output:" + str(pin.get_pin_name()) in execution_pins[source_path]:
-                kind = "exec"
+            connected_pins = pin.list_connected_pins()
+            if not connected_pins:
+                continue
 
-            for connected in pin.list_connected_pins():
+            source_visual = visual_pins[source_path].get(("output", str(pin.get_pin_name())))
+            if source_visual is None:
+                raise RuntimeError("连接输出引脚缺少显示锚点")
+
+            for connected in connected_pins:
                 target_path = connected.get_owning_node().get_path_name()
                 if target_path not in nodes:
                     raise RuntimeError("连线指向未纳入排版的节点 " + target_path)
@@ -94,14 +100,21 @@ def _capture_layout_graph(graph):
                     index for index, candidate in enumerate(pins_by_path[target_path])
                     if candidate.is_same_native_pin(connected)
                 )
+                target_visual = visual_pins[target_path].get(("input", str(connected.get_pin_name())))
+                if target_visual is None:
+                    raise RuntimeError("连接输入引脚缺少显示锚点")
+
                 edges.append({
                     "source": source_path,
                     "target": target_path,
-                    "kind": kind,
+                    "kind": source_visual["kind"],
                     "sourceOrder": source_order,
                     "targetOrder": target_order,
                     "sourcePin": str(pin.get_pin_name()),
                     "targetPin": str(connected.get_pin_name()),
+                    "sourceOffset": [source_visual["x"], source_visual["y"]],
+                    "targetOffset": [target_visual["x"], target_visual["y"]],
+                    "spline": geometry["spline"],
                 })
 
     edges.sort(key=lambda edge: (
@@ -276,9 +289,6 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
             if position != (nodes[path]["x"], nodes[path]["y"])
         }
         warnings = list(plan["warnings"])
-        if estimated:
-            warnings.append("部分节点未提供有效尺寸 使用官方引擎估算 请在可视编辑器复核")
-
         if plan["after"]["overlaps"]:
             warnings.append("布局仍有节点重叠 写入被拒绝 请检查固定注释框或节点尺寸")
 
@@ -288,6 +298,7 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
             "edges": len(edges),
             "execEdges": sum(edge["kind"] == "exec" for edge in edges),
             "dataEdges": sum(edge["kind"] == "data" for edge in edges),
+            "poseEdges": sum(edge["kind"] == "pose" for edge in edges),
             "moved": 0,
             "plannedMoves": len(changes),
             "cycleBreaks": plan["cycleBreaks"],
@@ -303,6 +314,8 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
             "positions": {path: list(position) for path, position in plan["positions"].items()},
             "warnings": warnings,
             "saved": False,
+            "wireNodeHits": plan["wireNodeHits"],
+            "measurement": "SlateFullDetail",
         }
         for warning in warnings:
             unreal.log_warning("[BBBBlueprintLayout] " + warning)
@@ -311,6 +324,9 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
             try:
                 if plan["after"]["overlaps"]:
                     raise RuntimeError("拒绝应用存在节点重叠的布局")
+
+                if plan["after"]["wireNodeIntersections"]:
+                    raise RuntimeError("拒绝应用连线穿过节点的布局")
 
                 _require_layout_checkout(blueprint)
                 original = {path: (nodes[path]["x"], nodes[path]["y"]) for path in changes}

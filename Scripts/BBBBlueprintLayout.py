@@ -3,6 +3,11 @@ import heapq
 from statistics import median
 
 
+def _is_main(node):
+    """/** @return 节点是否属于执行主链或姿势主链 */"""
+    return node["exec"] or node.get("pose", False)
+
+
 def _bounds(nodes, positions):
     """/** @return 节点矩形的合并边界 */"""
     if not nodes:
@@ -71,13 +76,13 @@ def _ordered_graph(nodes, edges):
     remaining = set(nodes)
     for key in sorted(nodes):
         if incoming[key] == 0:
-            heapq.heappush(ready, (not nodes[key]["exec"], key))
+            heapq.heappush(ready, (not _is_main(nodes[key]), key))
 
     order = []
     while remaining:
         if not ready:
-            key = min(remaining, key=lambda value: (not nodes[value]["exec"], value))
-            heapq.heappush(ready, (not nodes[key]["exec"], key))
+            key = min(remaining, key=lambda value: (not _is_main(nodes[value]), value))
+            heapq.heappush(ready, (not _is_main(nodes[key]), key))
 
         _, key = heapq.heappop(ready)
         if key not in remaining:
@@ -89,7 +94,7 @@ def _ordered_graph(nodes, edges):
             target = edge["target"]
             incoming[target] -= 1
             if target in remaining and incoming[target] == 0:
-                heapq.heappush(ready, (not nodes[target]["exec"], target))
+                heapq.heappush(ready, (not _is_main(nodes[target]), target))
 
     indices = {key: index for index, key in enumerate(order)}
     forward = [edge for edge in edges if indices[edge["source"]] < indices[edge["target"]]]
@@ -113,14 +118,14 @@ def _layout_component(nodes, edges, horizontal_spacing, vertical_spacing):
 
     # 纯节点向消费者收紧 不让只有一条依赖的变量留在全图最左列
     for key in reversed(order):
-        if nodes[key]["exec"] or not outgoing[key]:
+        if _is_main(nodes[key]) or not outgoing[key]:
             continue
 
         ranks[key] = min(ranks[edge["target"]] - 1 for edge in outgoing[key])
 
     consumers = {key: set() for key in nodes}
     for key in reversed(order):
-        if nodes[key]["exec"]:
+        if _is_main(nodes[key]):
             consumers[key].add(key)
             continue
 
@@ -129,7 +134,7 @@ def _layout_component(nodes, edges, horizontal_spacing, vertical_spacing):
 
     dependency_heights = defaultdict(int)
     for key in order:
-        if nodes[key]["exec"] or not consumers[key]:
+        if _is_main(nodes[key]) or not consumers[key]:
             continue
 
         owner = min(consumers[key], key=lambda value: (ranks[value], value))
@@ -145,7 +150,7 @@ def _layout_component(nodes, edges, horizontal_spacing, vertical_spacing):
     lanes = {}
     next_lane = 0
     for key in order:
-        if not nodes[key]["exec"]:
+        if not _is_main(nodes[key]):
             continue
 
         requests = lane_requests[key]
@@ -153,7 +158,8 @@ def _layout_component(nodes, edges, horizontal_spacing, vertical_spacing):
             requests = [next_lane]
             next_lane += 1
 
-        y = round(float(median(requests)) * lane_stride)
+        anchor = nodes[key].get("primaryOffset", 0)
+        y = round(float(median(requests)) * lane_stride - anchor)
         height = nodes[key]["height"]
         for start, end in sorted(lane_occupied[ranks[key]]):
             if y + height + 32 <= start:
@@ -162,10 +168,10 @@ def _layout_component(nodes, edges, horizontal_spacing, vertical_spacing):
             if y < end + 32:
                 y = end + 32
 
-        lanes[key] = y / lane_stride
+        lanes[key] = (y + anchor) / lane_stride
         lane_occupied[ranks[key]].append((y, y + height))
         targets = sorted(
-            (edge for edge in outgoing[key] if edge["kind"] == "exec"),
+            (edge for edge in outgoing[key] if edge["kind"] in ("exec", "pose")),
             key=lambda edge: (edge["sourceOrder"], edge["target"]),
         )
         for index, edge in enumerate(targets):
@@ -193,12 +199,12 @@ def _layout_component(nodes, edges, horizontal_spacing, vertical_spacing):
             continue
 
         x = column_x[ranks[key]]
-        y = round(lanes[key] * lane_stride)
+        y = round(lanes[key] * lane_stride - nodes[key].get("primaryOffset", 0))
         positions[key] = (x, y)
         occupied[ranks[key]].append((y, y + nodes[key]["height"]))
 
     pure_keys = sorted(
-        (key for key in reversed(order) if not nodes[key]["exec"]),
+        (key for key in reversed(order) if not _is_main(nodes[key])),
         key=lambda key: (
             -ranks[key],
             min((edge["targetOrder"] for edge in outgoing[key]), default=0),
@@ -211,7 +217,7 @@ def _layout_component(nodes, edges, horizontal_spacing, vertical_spacing):
         for edge in outgoing[key]:
             target = edge["target"]
             target_y = positions[target][1]
-            if nodes[target]["exec"]:
+            if _is_main(nodes[target]):
                 target_y += nodes[target]["height"] + 32
 
             target_rows.append(target_y)
@@ -282,6 +288,206 @@ def _place_beside_obstacles(x, y, width, height, obstacles):
     return min(available, key=lambda point: (abs(point[0] - x) + abs(point[1] - y), abs(point[1] - y), point))
 
 
+def _wire_points(nodes, edge, positions):
+    """
+    /**
+     * 使用宿主样式计算 Hermite 曲线 并自适应细分到一单位误差
+     * @param nodes	节点尺寸
+     * @param edge	引脚锚点和连线样式
+     * @param positions	待检查坐标
+     * @return 按曲线方向排列的采样点
+     */
+    """
+    source = edge["source"]
+    target = edge["target"]
+    start_offset = edge.get("sourceOffset", (nodes[source]["width"], nodes[source]["height"] / 2))
+    end_offset = edge.get("targetOffset", (0, nodes[target]["height"] / 2))
+    start = tuple(positions[source][axis] + start_offset[axis] for axis in (0, 1))
+    end = tuple(positions[target][axis] + end_offset[axis] for axis in (0, 1))
+    settings = edge.get("spline", {})
+    prefix = ""
+    if end[0] < start[0]:
+        prefix = "backward"
+
+    dx = min(abs(end[0] - start[0]), settings.get(prefix + "horizontalRange", 1000))
+    dy = min(abs(end[1] - start[1]), settings.get(prefix + "verticalRange", 1000))
+    horizontal = settings.get(prefix + "horizontalTangent", (1, 0))
+    vertical = settings.get(prefix + "verticalTangent", (1, 0))
+    tangent = tuple(dx * horizontal[axis] + dy * vertical[axis] for axis in (0, 1))
+    controls = (start, tuple(start[axis] + tangent[axis] / 3 for axis in (0, 1)), tuple(end[axis] - tangent[axis] / 3 for axis in (0, 1)), end)
+    result = [start]
+    pending = [(controls, 0)]
+    while pending:
+        points, depth = pending.pop()
+        first, second, third, fourth = points
+        chord = (fourth[0] - first[0], fourth[1] - first[1])
+        squared_length = chord[0] ** 2 + chord[1] ** 2
+        deviation = 0.0
+        for point in (second, third):
+            projection = 0.0
+            if squared_length > 0:
+                projection = max(0.0, min(1.0, sum((point[axis] - first[axis]) * chord[axis] for axis in (0, 1)) / squared_length))
+
+            distance = sum((point[axis] - first[axis] - projection * chord[axis]) ** 2 for axis in (0, 1)) ** 0.5
+            deviation = max(deviation, distance)
+        if depth >= 12 or deviation <= 1:
+            result.append(fourth)
+            continue
+
+        a = tuple((first[axis] + second[axis]) / 2 for axis in (0, 1))
+        b = tuple((second[axis] + third[axis]) / 2 for axis in (0, 1))
+        c = tuple((third[axis] + fourth[axis]) / 2 for axis in (0, 1))
+        d = tuple((a[axis] + b[axis]) / 2 for axis in (0, 1))
+        e = tuple((b[axis] + c[axis]) / 2 for axis in (0, 1))
+        middle = tuple((d[axis] + e[axis]) / 2 for axis in (0, 1))
+        pending.append(((middle, e, c, fourth), depth + 1))
+        pending.append(((first, a, d, middle), depth + 1))
+
+    return result
+
+
+def _segment_hits_rect(start, end, rectangle):
+    """
+    /**
+     * 裁剪线段以检查节点矩形
+     * @param start	线段起点
+     * @param end	线段终点
+     * @param rectangle	含安全间隙的矩形
+     * @return 是否相交
+     */
+    """
+    low = 0.0
+    high = 1.0
+    for axis in (0, 1):
+        delta = end[axis] - start[axis]
+        if abs(delta) < 0.000001:
+            if start[axis] < rectangle[axis] or start[axis] > rectangle[axis + 2]:
+                return False
+
+            continue
+
+        first = (rectangle[axis] - start[axis]) / delta
+        second = (rectangle[axis + 2] - start[axis]) / delta
+        low = max(low, min(first, second))
+        high = min(high, max(first, second))
+        if low > high:
+            return False
+
+    return True
+
+
+def _wire_hits(nodes, edges, positions, cache=None, edge_indices=None, node_keys=None):
+    """
+    /**
+     * 检查连线与非端点节点 留出八单位描边安全区
+     * @param nodes	节点尺寸
+     * @param edges	原始连线
+     * @param positions	待检查坐标
+     * @return 连线索引与阻挡节点列表
+     */
+    """
+    hits = []
+    rectangles = {
+        key: (positions[key][0] - 8, positions[key][1] - 8, positions[key][0] + node["width"] + 8, positions[key][1] + node["height"] + 8)
+        for key, node in nodes.items() if node_keys is None or key in node_keys
+    }
+    indices = range(len(edges))
+    if edge_indices is not None:
+        indices = edge_indices
+
+    for index in indices:
+        edge = edges[index]
+        signature = (index, positions[edge["source"]], positions[edge["target"]])
+        cached = None
+        if cache is not None:
+            cached = cache.get(signature)
+
+        if cached is None:
+            points = _wire_points(nodes, edge, positions)
+            bounds = (min(point[0] for point in points), min(point[1] for point in points), max(point[0] for point in points), max(point[1] for point in points))
+            cached = (points, bounds)
+            if cache is not None:
+                cache[signature] = cached
+
+        points, bounds = cached
+        for key, rectangle in rectangles.items():
+            if key in (edge["source"], edge["target"]):
+                continue
+
+            if bounds[2] < rectangle[0] or bounds[0] > rectangle[2] or bounds[3] < rectangle[1] or bounds[1] > rectangle[3]:
+                continue
+
+            if any(_segment_hits_rect(first, second, rectangle) for first, second in zip(points, points[1:])):
+                hits.append((index, key))
+
+    return hits
+
+
+def _clear_wire_obstacles(nodes, edges, positions, allowed):
+    """
+    /**
+     * 有界调整辅助节点 保持主链与固定分组约束
+     * @param nodes	节点尺寸
+     * @param edges	原始连线
+     * @param positions	候选位置
+     * @param allowed	允许移动的节点及上下边界
+     * @return 调整后的坐标
+     */
+    """
+    positions = dict(positions)
+    for attempt in range(min(128, len(nodes) * 4)):
+        cache = {}
+        hits = _wire_hits(nodes, edges, positions, cache)
+        if not hits:
+            break
+
+        best = None
+        score = len(hits)
+        candidates = set()
+        for index, blocker in hits:
+            edge = edges[index]
+            points = _wire_points(nodes, edge, positions)
+            top = min(point[1] for point in points)
+            bottom = max(point[1] for point in points)
+            for key in (blocker, edge["source"], edge["target"]):
+                if key not in allowed or _is_main(nodes[key]):
+                    continue
+
+                height = nodes[key]["height"]
+                for y in (top - height - 32, bottom + 32, positions[key][1] - height - 64, positions[key][1] + height + 64, positions[blocker][1] - height - 64, positions[blocker][1] + nodes[blocker]["height"] + 64):
+                    candidates.add((key, round(y)))
+
+        for key, y in sorted(candidates):
+            minimum, maximum, obstacles = allowed[key]
+            if not minimum <= y <= maximum - nodes[key]["height"]:
+                continue
+
+            trial = dict(positions)
+            trial[key] = (positions[key][0], y)
+            rectangle = (trial[key][0] - 16, y - 16, trial[key][0] + nodes[key]["width"] + 16, y + nodes[key]["height"] + 16)
+            if any(_intersects(rectangle, obstacle) for obstacle in obstacles):
+                continue
+
+            if any(_intersects(rectangle, (trial[other][0], trial[other][1], trial[other][0] + nodes[other]["width"], trial[other][1] + nodes[other]["height"])) for other in nodes if other != key):
+                continue
+
+            incident = {index for index, edge in enumerate(edges) if key in (edge["source"], edge["target"])}
+            other = [index for index in range(len(edges)) if index not in incident]
+            count = sum(index not in incident and blocker != key for index, blocker in hits)
+            count += len(_wire_hits(nodes, edges, trial, cache, incident))
+            count += len(_wire_hits(nodes, edges, trial, cache, other, {key}))
+            if count < score:
+                score = count
+                best = trial
+
+        if best is None:
+            break
+
+        positions = best
+
+    return positions
+
+
 def layout_quality(nodes, edges, positions):
     """
     /**
@@ -306,7 +512,7 @@ def layout_quality(nodes, edges, positions):
             if _intersects(first, second):
                 overlaps += 1
 
-    backward = {"exec": 0, "data": 0}
+    backward = {"exec": 0, "data": 0, "pose": 0}
     for edge in edges:
         source = edge["source"]
         target = edge["target"]
@@ -320,6 +526,8 @@ def layout_quality(nodes, edges, positions):
         "overlaps": overlaps,
         "backwardExecEdges": backward["exec"],
         "backwardDataEdges": backward["data"],
+        "backwardPoseEdges": backward["pose"],
+        "wireNodeIntersections": len(_wire_hits(nodes, edges, positions)),
     }
 
 
@@ -340,6 +548,7 @@ def calculate_layout(nodes, edges, comments, horizontal_spacing=320, vertical_sp
     warnings = []
     claimed = set()
     memberships = {}
+    allowed = {}
     for comment in comments:
         rect = (comment["x"], comment["y"], comment["x"] + comment["width"], comment["y"] + comment["height"])
         memberships[comment["id"]] = {
@@ -382,6 +591,10 @@ def calculate_layout(nodes, edges, comments, horizontal_spacing=320, vertical_sp
 
         for key, (x, y) in local.items():
             positions[key] = (comment["x"] + 32 + x, comment["y"] + 64 + y)
+            allowed[key] = (comment["y"] + 64, comment["y"] + comment["height"] - 32, [
+                (other["x"], other["y"], other["x"] + other["width"], other["y"] + other["height"])
+                for other in comments if other["id"] != comment["id"]
+            ])
 
     free_nodes = {key: node for key, node in nodes.items() if key not in claimed}
     free_edges = [edge for edge in edges if edge["source"] in free_nodes and edge["target"] in free_nodes]
@@ -389,6 +602,8 @@ def calculate_layout(nodes, edges, comments, horizontal_spacing=320, vertical_sp
         (comment["x"], comment["y"], comment["x"] + comment["width"], comment["y"] + comment["height"])
         for comment in comments
     ]
+    for key in free_nodes:
+        allowed[key] = (float("-inf"), float("inf"), list(obstacles))
     anchor_x = min((node["x"] for node in list(nodes.values()) + comments), default=0)
     cursor_y = min((node["y"] for node in list(nodes.values()) + comments), default=0)
     for members in _components(free_nodes, free_edges):
@@ -426,8 +641,18 @@ def calculate_layout(nodes, edges, comments, horizontal_spacing=320, vertical_sp
         if regressed or after["overlaps"] > before["overlaps"]:
             for key in members:
                 positions[key] = original[key]
+                allowed.pop(key, None)
 
             warnings.append("固定注释框约束导致连线方向或重叠恶化 保留整条连通链原位 " + min(members))
+
+    positions = _clear_wire_obstacles(nodes, edges, positions, allowed)
+    if nodes and not comments:
+        bounds = _bounds(nodes, positions)
+        positions = {key: (x - bounds[0] + anchor_x, y - bounds[1] + min(node["y"] for node in nodes.values())) for key, (x, y) in positions.items()}
+
+    hits = _wire_hits(nodes, edges, positions)
+    if hits:
+        warnings.append("仍有连线穿过节点 写入被拒绝 请检查固定分组或共享依赖")
 
     _, forward = _ordered_graph(nodes, edges)
     if len(forward) != len(edges):
@@ -441,6 +666,7 @@ def calculate_layout(nodes, edges, comments, horizontal_spacing=320, vertical_sp
         "components": len(_components(nodes, edges)),
         "commentMembers": len(claimed),
         "warnings": warnings,
+        "wireNodeHits": [{"source": edges[index]["source"], "target": edges[index]["target"], "sourcePin": edges[index].get("sourcePin", ""), "targetPin": edges[index].get("targetPin", ""), "node": key} for index, key in hits],
     }
 
 
