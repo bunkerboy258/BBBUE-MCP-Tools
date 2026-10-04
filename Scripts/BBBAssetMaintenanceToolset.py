@@ -2283,6 +2283,42 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         return json.dumps({"success": True, "files": files}, ensure_ascii=False)
 
 
+    @toolset_registry.tool_call
+    @staticmethod
+    def inspect_foliage_base_cache(world_package: str) -> str:
+        """
+        /**
+         * 只读核验当前世界的植被挂接缓存和实例指纹
+         * @param world_package	当前编辑器世界精确包路径
+         * @return 原生缓存条目 重复数量和实例指纹 不加载或保存
+         */
+        """
+        if unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+            raise RuntimeError("PIE 期间拒绝植被缓存核验")
+        return unreal.BBBAssetRepairEditorLibrary.inspect_foliage_base_cache(_move_path(world_package))
+
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def repair_foliage_base_cache(world_package: str, dry_run: bool = True) -> str:
+        """
+        /**
+         * 原生合并同组件同缓存变换的重复编号 不保存
+         * @param world_package	当前非分区编辑器世界精确包路径
+         * @param dry_run	只预检 不修改
+         * @return 合并数量和结果 保存前必须核验实例保留指纹
+         */
+        """
+        path = _move_path(world_package)
+        if unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+            raise RuntimeError("PIE 期间拒绝植被缓存修复")
+        if not dry_run:
+            if _move_dirty_packages():
+                raise RuntimeError("存在脏包 拒绝植被缓存修复")
+            _require_move_checkout([path], [])
+        return unreal.BBBAssetRepairEditorLibrary.repair_foliage_base_cache(path, dry_run)
+
+
 _registration = Registration([BBBAssetMaintenanceToolset])
 _registration.unregister()
 _registration.register()

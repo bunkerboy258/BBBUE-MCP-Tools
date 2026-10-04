@@ -125,3 +125,10 @@ verify_asset_moves 对旧包读取全部注册对象，非主资产规范化后�
 
 
 `delete_unreferenced_asset_packages(asset_paths, backup_directory, dry_run=True)` 用于已经决定隔离的明确无组外引用资产。要求已有 Content 外永久备份且逐文件 SHA-256 一致、Perforce 可编辑、无脏包或 PIE。执行直接调用资产原生删除，不使用按目录优先分派的通用删除工具，并以物理文件消失为成功条件。部分失败返回完整已完成结果并报警，不继续删除。
+
+
+## 植被挂接缓存只读核验
+
+`inspect_foliage_base_cache(world_package)` 只检查当前编辑器世界，拒绝 PIE；返回每个植被 Actor 的正向及反向缓存数量、重复基础组件、缓存变换及实例指纹。不加载、不改动、不保存，世界路径不匹配时返回失败。用于保存前后以及冷加载后的实例数量、位置和挂接关系核对。
+
+`repair_foliage_base_cache(world_package, dry_run=True)` 只合并相同组件且缓存位置、旋转、缩放完全一致的编号，拒绝分区世界及外部 Actor。修改前拒绝 PIE、脏包并核对独占签出；重建实例基础组件索引及反向缓存，保持实例数据，不保存。调用方先永久备份，再对比修复前后及冷加载后实例数量和指纹；失败必须保留现场。
