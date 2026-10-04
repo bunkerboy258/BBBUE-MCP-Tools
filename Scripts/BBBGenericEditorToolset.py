@@ -2732,6 +2732,123 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             if actor is not None:
                 actor.destroy_actor()
 
+    @toolset_registry.tool_call
+    @staticmethod
+    def export_skeletal_mesh_fbx(mesh_path: str, export_name: str) -> str:
+        """
+        /**
+         * 导出骨骼蒙皮网格和参考姿势供离线动画制作 拒绝覆盖现有交付目录
+         * @param mesh_path		骨骼网格资产路径
+         * @param export_name		Saved Exports 下的新目录名称
+         * @return FBX 与骨骼清单路径及导出统计
+         */
+        """
+        def fail(message):
+            unreal.log_error("[BBB][SkeletalExport] " + message)
+            raise RuntimeError(message)
+
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,95}", export_name):
+            fail("导出目录名称必须使用字母数字下划线或连字符")
+
+        if "-nullrhi" in unreal.SystemLibrary.get_command_line().lower():
+            fail("UE 骨骼 FBX 导出需要渲染宿主 请关闭 NullRHI 后再调用")
+
+        if unreal.EditorLevelLibrary.get_pie_worlds(False):
+            fail("PIE 期间禁止导出参考网格")
+
+        mesh = unreal.load_asset(mesh_path)
+        if not isinstance(mesh, unreal.SkeletalMesh):
+            fail("目标不是骨骼网格 " + mesh_path)
+
+        package_path = mesh.get_path_name().split(".", 1)[0]
+        dirty_paths = {item.get_path_name() for item in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
+        skeleton = mesh.get_editor_property("skeleton")
+        if skeleton is None:
+            fail("目标网格缺少骨骼")
+
+        if package_path in dirty_paths or skeleton.get_path_name().split(".", 1)[0] in dirty_paths:
+            fail("目标网格或骨骼存在未保存改动")
+
+        directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "Exports", export_name))
+        if os.path.exists(directory):
+            fail("交付目录已经存在 " + directory)
+
+        subsystem = unreal.get_editor_subsystem(unreal.SkeletalMeshEditorSubsystem)
+        reference = unreal.AnimPoseExtensions.get_reference_pose(skeleton)
+        bones = []
+        for bone_name in reference.get_bone_names():
+            poses = {}
+            for label, space in (("local", unreal.AnimPoseSpaces.LOCAL), ("component", unreal.AnimPoseSpaces.WORLD)):
+                pose = reference.get_ref_bone_pose(bone_name, space)
+                poses[label] = {
+                    "position": [pose.translation.x, pose.translation.y, pose.translation.z],
+                    "rotation": [pose.rotation.x, pose.rotation.y, pose.rotation.z, pose.rotation.w],
+                    "scale": [pose.scale3d.x, pose.scale3d.y, pose.scale3d.z],
+                }
+            bones.append({"name": str(bone_name), "parent": str(subsystem.get_bone_parent(mesh, bone_name)), **poses})
+
+        options = unreal.FbxExportOption()
+        options.set_editor_properties({
+            "ascii": False,
+            "fbx_export_compatibility": unreal.FbxExportCompatibility.FBX_2013,
+            "force_front_x_axis": True,
+            "level_of_detail": False,
+            "collision": False,
+            "export_morph_targets": True,
+            "bake_material_inputs": unreal.FbxMaterialBakeMode.DISABLED,
+        })
+        os.makedirs(directory)
+        fbx_path = os.path.join(directory, "Reference.fbx")
+        task = unreal.AssetExportTask()
+        task.set_editor_properties({
+            "object": mesh,
+            "filename": fbx_path,
+            "exporter": unreal.SkeletalMeshExporterFBX(),
+            "options": options,
+            "automated": True,
+            "prompt": False,
+            "replace_identical": False,
+            "write_empty_files": False,
+        })
+        if not unreal.Exporter.run_asset_export_task(task):
+            fail("官方 FBX 导出器失败 " + str(list(task.get_editor_property("errors"))))
+
+        if not os.path.isfile(fbx_path) or os.path.getsize(fbx_path) < 1024:
+            fail("导出器未产生有效 FBX")
+
+        with open(fbx_path, "rb") as source:
+            if source.read(23) != b"Kaydara FBX Binary  \x00\x1a\x00":
+                fail("导出结果不是 Blender 可读取的二进制 FBX")
+
+        report = {
+            "schemaVersion": 1,
+            "mesh": mesh.get_path_name(),
+            "skeleton": skeleton.get_path_name(),
+            "engineVersion": unreal.SystemLibrary.get_engine_version(),
+            "coordinateSystem": "UE left-handed X forward Y right Z up",
+            "positionUnit": "centimeter",
+            "rotationFormat": "quaternion XYZW",
+            "componentSpace": "mesh reference pose space",
+            "boneCount": len(bones),
+            "lod0VertexCount": subsystem.get_num_verts(mesh, 0),
+            "bones": bones,
+        }
+        from VerifySkeletalMeshFbx import inspect_fbx
+
+        verification = inspect_fbx(fbx_path, report)
+        exported_names = verification.pop("exportedBoneNames")
+        for bone in bones:
+            bone["fbxName"] = exported_names[bone["name"].casefold()]
+        report["fbxVerification"] = verification
+        json_path = os.path.join(directory, "Skeleton.json")
+        with open(json_path, "x", encoding="utf-8") as output:
+            json.dump(report, output, ensure_ascii=False, indent=4, allow_nan=False)
+
+        result = {"directory": directory, "fbx": fbx_path, "skeletonJson": json_path, "boneCount": len(bones), "vertexCount": report["lod0VertexCount"]}
+        unreal.log("[BBB][SkeletalExport] " + json.dumps(result, ensure_ascii=False))
+        return json.dumps(result, ensure_ascii=False)
+
+
 _registration = Registration([BBBGenericEditorToolset])
 
 if __name__ == "__bbb_editor_script__":
