@@ -1,4 +1,4 @@
-import hashlib
+﻿import hashlib
 import json
 import os
 import re
@@ -902,6 +902,329 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
 
     @toolset_registry.tool_call
     @staticmethod
+    def inspect_content_dependency_integrity(asset_paths: list[str]) -> str:
+        """
+        /**
+         * 只读核验资产注册表中的项目硬软包引用是否存在于物理目录
+         * @param asset_paths	明确包路径列表 最多 5000 项
+         * @return 缺失包与实际引用者 不加载或保存资产
+         */
+        """
+        if not asset_paths or len(asset_paths) > 5000 or len(set(asset_paths)) != len(asset_paths):
+            raise RuntimeError("必须提供 1 至 5000 个不重复包路径")
+
+        packages = []
+        for path in asset_paths:
+            if path.startswith("/Game/__ExternalActors__/"):
+                packages.append(_external_actor_package_path(path))
+                continue
+
+            if path.startswith("/Game/__ExternalObjects__/"):
+                packages.append(_external_object_package_path(path))
+                continue
+
+            packages.append(_move_path(path))
+        registry = _move_registry()
+        hard_options = unreal.AssetRegistryDependencyOptions(
+            include_soft_package_references=False,
+            include_hard_package_references=True,
+            include_searchable_names=False,
+            include_soft_management_references=False,
+            include_hard_management_references=False,
+        )
+        soft_options = unreal.AssetRegistryDependencyOptions(
+            include_soft_package_references=True,
+            include_hard_package_references=False,
+            include_searchable_names=False,
+            include_soft_management_references=False,
+            include_hard_management_references=False,
+        )
+        existence = {}
+        missing_packages = set()
+        referencers = []
+        for package in packages:
+            missing = set()
+            hard = {str(name) for name in registry.get_dependencies(package, hard_options) or []}
+            soft = {str(name) for name in registry.get_dependencies(package, soft_options) or []}
+            for dependency in hard | soft:
+                if not dependency.startswith("/Game/"):
+                    continue
+
+                if dependency not in existence:
+                    existence[dependency] = any(os.path.isfile(_move_filename(dependency, extension)) for extension in (".uasset", ".umap"))
+
+                if not existence[dependency]:
+                    missing.add(dependency)
+
+            if missing:
+                missing_packages.update(missing)
+                referencers.append({"package": package, "missing_dependencies": sorted(missing), "missing_hard_dependencies": sorted(missing.intersection(hard)), "missing_soft_dependencies": sorted(missing.intersection(soft))})
+
+        return json.dumps({"read_only": True, "checked_count": len(packages), "missing_packages": sorted(missing_packages), "referencers": referencers, "success": not missing_packages}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def normalize_material_auxiliary_data(asset_paths: list[str], clear_missing_preview: bool = False, dry_run: bool = True) -> str:
+        """
+        /**
+         * 按原生烘焙规则清理材质旧辅助缓存 保留实际纹理绑定
+         * @param asset_paths	明确材质包 最多 64 项
+         * @param clear_missing_preview	是否清理已缺失的可选预览网格
+         * @param dry_run	只读预检
+         * @return 每个材质的缓存前后和实际绑定证明
+         */
+        """
+        if not asset_paths or len(asset_paths) > 64 or len(set(asset_paths)) != len(asset_paths):
+            raise RuntimeError("需要 1 至 64 个明确不重复材质包")
+
+        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+            raise RuntimeError("脏包或 PIE 期间拒绝材质缓存整理")
+
+        paths = [_move_path(path) for path in asset_paths]
+        registry = _move_registry()
+        for path in paths:
+            records = _move_primary_assets(registry.get_assets_by_package_name(path))
+            if len(records) != 1 or _move_class_path(records[0].asset_class_path) not in ["/Script/Engine.Material", "/Script/Engine.MaterialInstanceConstant"]:
+                raise RuntimeError("只能整理唯一真实材质资产")
+
+        integrity = json.loads(BBBAssetMaintenanceToolset.inspect_content_dependency_integrity(paths))
+        if any(row["missing_hard_dependencies"] for row in integrity["referencers"]):
+            raise RuntimeError("存在缺失硬引用 不允许加载后保存")
+
+        report = {"dry_run": dry_run, "success": dry_run, "materials": []}
+        if dry_run:
+            return json.dumps(report, ensure_ascii=False)
+
+        _require_move_checkout(paths, [])
+        for path in paths:
+            asset = unreal.load_object(None, path + "." + path.rsplit("/", 1)[-1], follow_redirectors=False)
+            row = json.loads(unreal.BBBAssetRepairEditorLibrary.normalize_material_auxiliary_data(asset, clear_missing_preview))
+            row["package"] = path
+            report["materials"].append(row)
+            if not row["success"] or not unreal.EditorLoadingAndSavingUtils.save_packages([asset.get_outermost()], False):
+                return json.dumps(report, ensure_ascii=False)
+
+        registry.scan_paths_synchronous(sorted({path.rsplit("/", 1)[0] for path in paths}), force_rescan=True)
+        report["success"] = not _move_dirty_packages()
+        return json.dumps(report, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def refresh_blueprint_reflection_metadata(asset_path: str) -> str:
+        """
+        /**
+         * 对明确蓝图或关卡执行原生反射节点刷新 不保存
+         * @param asset_path	已备份并签出的明确包
+         * @return 节点连线数量及蓝图对象路径
+         */
+        """
+        path = _move_path(asset_path)
+        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+            raise RuntimeError("脏包或 PIE 期间拒绝刷新")
+
+        _require_move_checkout([path], [])
+        asset = unreal.load_object(None, path + "." + path.rsplit("/", 1)[-1], follow_redirectors=False)
+        return unreal.BBBAssetRepairEditorLibrary.refresh_blueprint_reflection_metadata(asset)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def remap_package_metadata_owner_paths(package_path: str, old_package_path: str, dry_run: bool = True) -> str:
+        """
+        /**
+         * 归并包元数据旧所属路径 保留全部原值 冲突时不改动
+         * @param package_path	已备份的当前真实包
+         * @param old_package_path	明确旧所属包
+         * @param dry_run	只读预检
+         * @return 元数据映射和保存结果
+         */
+        """
+        path = _move_path(package_path)
+        old = _move_path(old_package_path)
+        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+            raise RuntimeError("脏包或 PIE 期间拒绝元数据归并")
+
+        if not dry_run:
+            _require_move_checkout([path], [])
+
+        package = unreal.load_package(path)
+        if package is None or package.get_path_name() != path:
+            raise RuntimeError("目标包加载不完整")
+
+        report = json.loads(unreal.BBBAssetRepairEditorLibrary.remap_package_metadata_owner_paths(path, old, dry_run))
+        if report["success"] and not dry_run:
+            report["success"] = unreal.EditorLoadingAndSavingUtils.save_packages([package], False)
+            _move_registry().scan_paths_synchronous([path.rsplit("/", 1)[0]], force_rescan=True)
+
+        return json.dumps(report, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def inspect_loaded_package_soft_paths(package_path: str) -> str:
+        """
+        /**
+         * 只读检查已经加载包的精确软对象路径
+         * @param package_path	明确已加载包
+         * @return 原生路径清单 不加载或保存
+         */
+        """
+        return unreal.BBBAssetRepairEditorLibrary.inspect_loaded_package_soft_paths(_move_path(package_path))
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def create_missing_path_recovery_redirector(source_package: str, destination_package: str, dry_run: bool = True) -> str:
+        """
+        /**
+         * 为真实缺失旧包建立暂时重定向 用原生加载保留硬引用
+         * @param source_package	缺失的旧包
+         * @param destination_package	已核对的真实目标包
+         * @param dry_run	只读预检
+         * @return 创建结果 验收后须原生清理临时包
+         */
+        """
+        source = _move_path(source_package)
+        destination = _move_path(destination_package)
+        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+            raise RuntimeError("脏包或 PIE 期间拒绝恢复引用")
+
+        if source == destination or any(os.path.isfile(_move_filename(source, extension)) for extension in (".uasset", ".umap")):
+            raise RuntimeError("旧包存在或目标未变化")
+
+        registry = _move_registry()
+        records = _move_primary_assets(registry.get_assets_by_package_name(destination))
+        if len(records) != 1 or _move_class_path(records[0].asset_class_path) == "/Script/CoreUObject.ObjectRedirector":
+            raise RuntimeError("目标必须是唯一真实主资产")
+
+        report = {"source": source, "destination": destination, "dry_run": dry_run, "success": dry_run}
+        if dry_run:
+            return json.dumps(report, ensure_ascii=False)
+
+        asset = unreal.load_object(None, destination + "." + str(records[0].asset_name), follow_redirectors=False)
+        if asset is None or asset.get_outermost().get_path_name() != destination:
+            raise RuntimeError("目标加载失败或发生漂移")
+
+        report["success"] = unreal.BBBAssetRepairEditorLibrary.create_missing_path_recovery_redirector(source, asset)
+        return json.dumps(report, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def remap_missing_soft_object_paths(referencer_paths: list[str], replacements_json: str, dry_run: bool = True) -> str:
+        """
+        /**
+         * 将已缺失包的硬编码软对象路径归入已核对的真实目标 保留子对象路径
+         * @param referencer_paths	已备份的明确引用者包 最多 64 项
+         * @param replacements_json	明确 source 与 destination 软对象路径映射
+         * @param dry_run	仅预检 不加载或保存包
+         * @return 保存包 旧引用残留与拒绝原因
+         */
+        """
+        if not referencer_paths or len(referencer_paths) > 64 or len(set(referencer_paths)) != len(referencer_paths):
+            raise RuntimeError("必须提供 1 至 64 个不重复引用者包")
+
+        replacements = json.loads(replacements_json)
+        if not isinstance(replacements, list) or not replacements or len(replacements) > 2000:
+            raise RuntimeError("必须提供 1 至 2000 个明确软路径映射")
+
+        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+            raise RuntimeError("脏包或 PIE 期间拒绝软路径修复")
+
+        registry = _move_registry()
+        redirect_map = {}
+        seen_sources = set()
+        sources = set()
+        references = set()
+        for item in replacements:
+            source = item.get("source", "")
+            destination = item.get("destination", "")
+            if not source.startswith("/Game/") or not destination.startswith("/Game/") or "." not in source or "." not in destination or ":" in source or ":" in destination:
+                raise RuntimeError("必须使用明确项目顶层对象路径")
+
+            source_package, source_name = source.split(".", 1)
+            target_package, target_name = destination.split(".", 1)
+            _move_path(source_package)
+            _move_path(target_package)
+            if source in seen_sources or source == destination or any(os.path.isfile(_move_filename(source_package, extension)) for extension in (".uasset", ".umap")):
+                raise RuntimeError("源路径重复 已存在或未变化 拒绝修复: " + source)
+
+            records = _move_primary_assets(registry.get_assets_by_package_name(target_package))
+            if len(records) != 1 or _move_class_path(records[0].asset_class_path) == "/Script/CoreUObject.ObjectRedirector":
+                raise RuntimeError("目标不是唯一真实主资产: " + destination)
+
+            name = str(records[0].asset_name)
+            allowed_names = {name}
+            if _move_class_path(records[0].asset_class_path).endswith("Blueprint"):
+                allowed_names.update((name + "_C", "Default__" + name + "_C"))
+
+            if target_name not in allowed_names or not any(os.path.isfile(_move_filename(target_package, extension)) for extension in (".uasset", ".umap")):
+                raise RuntimeError("目标对象名或物理文件不符: " + destination)
+
+            redirect_map[unreal.SoftObjectPath(source)] = unreal.SoftObjectPath(destination)
+            seen_sources.add(source)
+            sources.add(source_package)
+            references.update(_move_referencers(registry, source_package))
+
+        selected = [_move_path(path) for path in referencer_paths]
+        if not set(selected).issubset(references):
+            raise RuntimeError("明确包不是当前缺失路径的引用者")
+
+        primary = {}
+        for path in selected:
+            records = _move_primary_assets(registry.get_assets_by_package_name(path))
+            if len(records) != 1 or _move_class_path(records[0].asset_class_path) == "/Script/CoreUObject.ObjectRedirector":
+                raise RuntimeError("只允许唯一主资产引用者: " + path)
+
+            primary[path] = records[0]
+
+        report = {"dry_run": dry_run, "referencers": selected, "replacements": replacements, "saved": [], "success": False}
+        if dry_run:
+            report["success"] = True
+            return json.dumps(report, ensure_ascii=False)
+
+        hard_options = unreal.AssetRegistryDependencyOptions(include_hard_package_references=True, include_soft_package_references=False, include_searchable_names=False, include_soft_management_references=False, include_hard_management_references=False)
+        missing_hard = {}
+        for path in selected:
+            missing = [str(name) for name in registry.get_dependencies(path, hard_options) or [] if str(name).startswith("/Game/") and not any(os.path.isfile(_move_filename(str(name), extension)) for extension in (".uasset", ".umap"))]
+            if missing:
+                missing_hard[path] = missing
+
+        if missing_hard:
+            raise RuntimeError("引用者存在缺失硬依赖 拒绝加载后保存: " + json.dumps(missing_hard, ensure_ascii=False))
+
+        _require_move_checkout(selected, [])
+        existing_errors = {obj.get_path_name() for obj in unreal.ObjectIterator() if isinstance(obj, unreal.Blueprint) and obj.get_path_name().startswith("/Game/") and obj.get_editor_property("status") == unreal.BlueprintStatus.BS_ERROR}
+        packages = []
+        for path in selected:
+            package = unreal.load_package(path)
+            asset = unreal.load_object(None, path + "." + str(primary[path].asset_name), follow_redirectors=False)
+            if package is None or asset is None or package.get_path_name() != path or asset.get_outermost() != package or _move_class_path(asset.get_class().get_class_path_name()) != _move_class_path(primary[path].asset_class_path):
+                raise RuntimeError("引用者加载不完整或类型改变: " + path)
+
+            packages.append(package)
+
+        current_errors = {obj.get_path_name() for obj in unreal.ObjectIterator() if isinstance(obj, unreal.Blueprint) and obj.get_path_name().startswith("/Game/") and obj.get_editor_property("status") == unreal.BlueprintStatus.BS_ERROR}
+        blocking = _move_blocking_blueprint_errors(existing_errors, current_errors, selected)
+        if blocking or _move_dirty_packages():
+            report["blocked"] = "加载后出现蓝图错误或脏包 不保存"
+            report["blueprint_errors"] = sorted(blocking)
+            report["dirty_packages"] = _move_dirty_packages()
+            return json.dumps(report, ensure_ascii=False)
+
+        unreal.AssetToolsHelpers.get_asset_tools().rename_referencing_soft_object_paths(packages, redirect_map)
+        for package in packages:
+            if not unreal.EditorLoadingAndSavingUtils.save_packages([package], False):
+                report["blocked"] = "保存失败 保留已完成清单 不自动重试"
+                return json.dumps(report, ensure_ascii=False)
+
+            report["saved"].append(package.get_path_name())
+
+        registry.scan_paths_synchronous(sorted({path.rsplit("/", 1)[0] for path in selected}), force_rescan=True)
+        report["remaining_selected"] = {path: sorted(set(_move_referencers(registry, path)).intersection(selected)) for path in sorted(sources)}
+        report["dirty_packages"] = _move_dirty_packages()
+        report["success"] = not report["dirty_packages"] and not any(report["remaining_selected"].values())
+        unreal.log("[BBBMissingSoftPathRepair]{} 保存 {} 个包".format("PASS" if report["success"] else "FAIL", len(report["saved"])))
+        return json.dumps(report, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
     def inspect_native_dependency_packages(asset_paths: list[str]) -> str:
         """
         /**
@@ -1797,6 +2120,167 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         report["removed_count"] = len(redirectors)
         report["dry_run"] = False
         return json.dumps(report, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def modernize_deprecated_blueprint_nodes(asset_path: str) -> str:
+        """
+        /**
+         * 将明确弃用的骨骼网格查询和实例添加节点替换为当前接口
+         * @param asset_path	已经备份的真实蓝图包
+         * @return 替换数量和成功状态 不编译或保存
+         */
+        """
+        path = _move_path(asset_path)
+        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+            raise RuntimeError("脏包或 PIE 期间拒绝接口更新")
+
+        _require_move_checkout([path], [])
+        asset = unreal.load_object(None, path + "." + path.rsplit("/", 1)[-1], follow_redirectors=False)
+        if asset is None or asset.get_class().get_name() not in ["Blueprint", "AnimBlueprint"]:
+            raise RuntimeError("目标不是明确蓝图")
+
+        return unreal.BBBAssetRepairEditorLibrary.modernize_deprecated_blueprint_nodes(asset)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def rebuild_loaded_actor_construction(actor_paths: list[str]) -> str:
+        """
+        /**
+         * 重建明确非分区角色的构造组件 保留样条点和角色身份
+         * @param actor_paths	当前编辑器世界中的精确角色对象路径
+         * @return 样条段前后数量和身份校验结果 不保存
+         */
+        """
+        if not actor_paths or len(actor_paths) > 128 or len(set(actor_paths)) != len(actor_paths):
+            raise RuntimeError("必须提供 1 至 128 个不重复角色路径")
+
+        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+            raise RuntimeError("脏包或 PIE 期间拒绝构造重建")
+
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+        package = world.get_outermost().get_path_name() if world is not None else ""
+        _move_path(package)
+        if any(not path.startswith(package + ".") for path in actor_paths):
+            raise RuntimeError("角色不属于当前编辑器世界")
+
+        _require_move_checkout([package], [])
+        return unreal.BBBAssetRepairEditorLibrary.rebuild_loaded_actor_construction(actor_paths)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def update_pose_assets_from_source(expected_reports_json: str, dry_run: bool = True) -> str:
+        """
+        /**
+         * 使用引擎正式接口更新已有姿势 保留姿势名称和加法基准
+         * @param expected_reports_json	检查工具的完整源报告
+         * @param dry_run	只预检 调用方执行前必须备份
+         * @return 源一致性和姿势名称保留结果 不修改源动画
+         */
+        """
+        expected = json.loads(expected_reports_json)
+        if not isinstance(expected, list) or not expected or len(expected) > 64:
+            raise RuntimeError("必须提供 1 至 64 项源检查报告")
+
+        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+            raise RuntimeError("脏包或 PIE 期间拒绝姿势更新")
+
+        paths = [_move_path(row["asset"].split(".")[0]) for row in expected]
+        current = json.loads(BBBAssetMaintenanceToolset.inspect_pose_asset_source_guids(paths))
+        if current != expected or any(row["structural_mismatch_count"] or row["curve_mismatch_count"] for row in current):
+            raise RuntimeError("源报告变化或姿势结构不一致 拒绝更新")
+
+        if dry_run:
+            return json.dumps(current, ensure_ascii=False)
+
+        _require_move_checkout(paths, [])
+        results = []
+        for row in current:
+            asset = unreal.load_object(None, row["asset"], follow_redirectors=False)
+            source = unreal.load_object(None, row["source"], follow_redirectors=False)
+            if asset.get_editor_property("skeleton") != source.get_editor_property("skeleton"):
+                raise RuntimeError("姿势与源动画骨架不同 拒绝更新")
+
+            names = [str(name) for name in asset.get_pose_names()]
+            base = str(asset.get_base_pose_name())
+            asset.modify()
+            asset.update_pose_from_animation(source)
+            after = json.loads(unreal.BBBAssetRepairEditorLibrary.inspect_pose_source(asset))
+            preserved = names == [str(name) for name in asset.get_pose_names()] and base == str(asset.get_base_pose_name())
+            if not preserved or not after["current_matches"] or after["structural_mismatch_count"] or after["curve_mismatch_count"]:
+                raise RuntimeError("更新后的姿势名称 基准或源校验失败 未保存")
+
+            if not unreal.EditorAssetLibrary.save_loaded_asset(asset, only_if_is_dirty=False):
+                raise RuntimeError("姿势更新保存失败")
+
+            results.append({"before": row, "after": after, "pose_names": names, "base_pose": base, "names_and_base_preserved": preserved})
+        return json.dumps(results, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def delete_unreferenced_asset_packages(asset_paths: list[str], backup_directory: str, dry_run: bool = True) -> str:
+        """
+        /**
+         * 在永久备份哈希和组外引用核验后原生删除明确资产
+         * @param asset_paths	需要隔离的真实资产包 最多 64 项
+         * @param backup_directory	已有永久备份绝对目录 保留 Content 相对层级
+         * @param dry_run	默认只核验
+         * @return 每个原生删除结果和磁盘文件不存在的复核
+         */
+        """
+        if not asset_paths or len(asset_paths) > 64 or len(set(asset_paths)) != len(asset_paths):
+            raise RuntimeError("必须提供 1 至 64 个不重复包")
+
+        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+            raise RuntimeError("脏包或 PIE 期间拒绝资产隔离")
+
+        paths = [_move_path(path) for path in asset_paths]
+        registry = _move_registry()
+        content = os.path.realpath(unreal.Paths.project_content_dir())
+        backup_root = os.path.realpath(backup_directory)
+        if not os.path.isabs(backup_directory) or os.path.commonpath([content, backup_root]) == content:
+            raise RuntimeError("备份必须位于 Content 外的绝对目录")
+
+        files = []
+        for path in paths:
+            outside = set(_move_referencers(registry, path)) - set(paths)
+            if outside:
+                raise RuntimeError("仍有组外引用 拒绝删除: " + path + " " + str(sorted(outside)))
+
+            source = os.path.realpath(_move_filename(path))
+            if os.path.commonpath([content, source]) != content:
+                raise RuntimeError("资产文件必须位于项目 Content 内")
+
+            if not os.path.isfile(source):
+                raise RuntimeError("目标真实资产文件缺失")
+
+            backup = os.path.realpath(os.path.join(backup_root, os.path.relpath(source, content)))
+            if os.path.commonpath([backup_root, backup]) != backup_root:
+                raise RuntimeError("备份文件必须位于指定永久备份目录内")
+            if not os.path.isfile(backup):
+                raise RuntimeError("永久备份文件缺失")
+
+            with open(source, "rb") as handle:
+                digest = hashlib.sha256(handle.read()).hexdigest()
+            with open(backup, "rb") as handle:
+                if hashlib.sha256(handle.read()).hexdigest() != digest:
+                    raise RuntimeError("原件与永久备份哈希不同 拒绝删除")
+            files.append({"package": path, "file": source, "backup": backup, "sha256": digest})
+
+        if dry_run:
+            return json.dumps({"dry_run": True, "files": files}, ensure_ascii=False)
+
+        _require_move_checkout(paths, [])
+        for row in files:
+            object_path = row["package"] + "." + row["package"].rsplit("/", 1)[-1]
+            asset = unreal.load_object(None, object_path, follow_redirectors=False)
+            row["native_deleted"] = unreal.BBBAssetRepairEditorLibrary.delete_asset_packages([asset])
+            row["physical_file_absent"] = not os.path.exists(row["file"])
+            if not row["native_deleted"] or not row["physical_file_absent"]:
+                unreal.log_error("[BBB][AssetIsolation]原生删除或物理核验失败 " + object_path)
+                return json.dumps({"success": False, "files": files}, ensure_ascii=False)
+
+        return json.dumps({"success": True, "files": files}, ensure_ascii=False)
 
 
 _registration = Registration([BBBAssetMaintenanceToolset])

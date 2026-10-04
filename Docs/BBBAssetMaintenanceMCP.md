@@ -100,3 +100,28 @@ verify_asset_moves 对旧包读取全部注册对象，非主资产规范化后�
 `delete_ownerless_external_actor_packages(package_paths, backup_directory, dry_run=True)` 用于已核对的历史外部 Actor 副本。最多 2048 个精确包，所属真实关卡必须缺失且没有组外引用；工具不加载 Actor，核对 Perforce 后逐文件备份并校验 SHA256，再调用 UE 原生 `SourceControl.mark_files_for_delete`。该原生删除流程同时处理未提交添加的文件，不执行独立的批量回退或提交。原件永久保留在 Content 外，完成后须关闭并重启宿主刷新注册表。
 
 `inspect_external_object_package_metadata` 和 `delete_ownerless_external_object_packages` 对历史外部 Object 提供对应的只读核验及备份后清理，采用与 Actor 历史包相同的所属关卡、组外引用、Perforce 与 SHA256 条件。两种类型的包使用各自严格限定的根目录入口，不通过普通资产移动处理。
+
+`inspect_content_dependency_integrity(asset_paths)` 对最多 5000 个明确包只读核验项目硬包和软包依赖。返回物理目录缺失的 `/Game/` 包及对应引用者；同时认可 `.uasset` 与 `.umap`，不加载、不保存、不修改资产。该检查覆盖已经没有重定向包的旧失效路径，须与重定向清零、原生依赖和运行验收共同使用。
+
+`remap_missing_soft_object_paths(referencer_paths, replacements_json, dry_run=True)` 对明确缺失包的软路径执行 UE 原生替换，保留对象的子路径与编辑文档信息。每批最多 64 个已备份引用者，每项映射必须给出顶层 source/destination 对象路径，目标须为唯一真实主资产或其蓝图生成类/默认对象。源文件仍存在、目标缺失、无实际引用、脏包、PIE、加载类型变化或蓝图错误均拒绝；按当前 Perforce 签出状态保存并报告部分结果。不会创建兼容重定向器，也不删除未知引用。
+依赖完整性检查支持只读核验外部 Actor/Object 包，并分别返回缺失的硬包与软包依赖；不使用普通资产移动入口处理外部包。
+
+`inspect_loaded_package_soft_paths` 只读列出已经加载包中的实际软对象路径。`create_missing_path_recovery_redirector` 为明确缺失源包和唯一真实目标建立临时原生重定向，禁止覆盖源包；只在修复硬引用时使用，保存引用者并验收后必须删除临时重定向。软路径修复拒绝加载具有缺失硬依赖的包，防止保存时丢失配置。
+
+`normalize_material_auxiliary_data` 按引擎 `SortTextureStreamingData(true, true)` 的正式烘焙规则整理旧流送缓存，记录实际纹理绑定前后一致性；可明确选择清理物理文件缺失的可选编辑预览网格，不修改材质图和参数，缺失硬引用时拒绝加载后保存。
+
+`refresh_blueprint_reflection_metadata` 对已备份且签出的蓝图或关卡蓝图执行原生 `RefreshAllNodes`，核对节点和连线数量，不编译或保存。`inspect_loaded_package_soft_paths` 同时读取物理包头软引用，区分反射读取与实际保存路径。
+
+`remap_package_metadata_owner_paths` 处理 UE5.8 包内独立 `FMetaData.ObjectMetaDataMap` 的旧所属路径；重建映射表并保留全部元数据值，合并同一目标时拒绝不同值冲突。普通 UObject 软引用序列化不会遍历此包元数据表，因此迁移验收须同时检查元数据所属路径和物理包头软依赖。
+
+
+## 弃用接口和构造缓存维护
+
+- `modernize_deprecated_blueprint_nodes(asset_path)` 只替换三种明确弃用接口：组件 `SkeletalMesh` 属性读取、`GetSkeletalMesh` 查询以及 `AddInstanceWorldSpace`。前两者改用 `GetSkeletalMeshAsset`，后者改用 `AddInstance` 并保留世界坐标语义。原有连线、节点位置和注释保持。调用方先备份，再执行警告作为错误的编译并保存。
+- `rebuild_loaded_actor_construction(actor_paths)` 仅操作当前已加载编辑器世界中的明确非分区角色。重建后核对角色 GUID、变换、样条控制点，并报告剩余零长度样条段。拒绝脏包、PIE、其它世界或外部角色包，不保存关卡。
+
+
+`update_pose_assets_from_source(expected_reports_json, dry_run=True)` 使用引擎 `UPoseAsset::UpdatePoseFromAnimation` 正式更新已有姿势。要求检查报告未变化、姿势结构与曲线兼容、骨架相同，执行前必须备份并独占签出；更新后核对全部姿势名称、加法基准和当前源 GUID，再保存。源动画不修改。该工具用于不能通过严格姿势数据一致性证明的旧缓存，不放宽 GUID 单独修复的误差限制。
+
+
+`delete_unreferenced_asset_packages(asset_paths, backup_directory, dry_run=True)` 用于已经决定隔离的明确无组外引用资产。要求已有 Content 外永久备份且逐文件 SHA-256 一致、Perforce 可编辑、无脏包或 PIE。执行直接调用资产原生删除，不使用按目录优先分派的通用删除工具，并以物理文件消失为成功条件。部分失败返回完整已完成结果并报警，不继续删除。
