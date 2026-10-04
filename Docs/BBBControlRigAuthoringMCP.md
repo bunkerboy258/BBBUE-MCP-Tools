@@ -1,5 +1,11 @@
 # Control Rig 动画编辑 MCP
 
+`create_control_rig` 的 `graph_json` 与 `configure_control_rig_graph` 的 `request_json` 支持 `variables` 数组。每项使用 `name`、`type`、可选 `typeObject`、`default`、`node` 与 `position`，创建公开输入变量及读取节点。结构体例：`{"name":"TargetPosition","type":"FVector","typeObject":"/Script/CoreUObject.Vector","default":"(X=0,Y=0,Z=0)","node":"ReadPosition"}`。变量重名、类型缺失或节点创建失败立即报错；不静默复用未知变量。
+
+动画迁移工具的 `configure_control_rig_anim_graph_node` 仅设置 Rig 和公开输入并重建引脚，保留已有 Alpha 类型、缩放偏差及姿势传递配置。需要 Float 权重时先通过 ObjectTools 设置 Node，再调用该工具生成 Alpha 引脚。不得隐式强制 Bool、反相 Alpha 或重置输入姿势。
+
+`evaluate_rig_pose` 可选 `variables_json` 接受公开变量名到 Unreal 文本值的对象，如 `{"TargetPosition":"(X=1,Y=2,Z=3)","TargetRotation":"(Pitch=0,Yaw=0,Roll=0)"}`。在瞬态实例上、输入原动画姿势之后赋值，任一赋值失败立即报错。不保存或重定向源动画。
+
 工具文件：`Scripts/BBBControlRigAuthoringToolset.py`。通过官方动画迁移工具的 `run_editor_script` 加载，注册 `Game.Scripts.BBBControlRigAuthoringToolset.BBBControlRigAuthoringToolset` 及 Epic 官方动画编辑工具集。
 
 - `inspect_authoring_api` 查询当前引擎反射 API。

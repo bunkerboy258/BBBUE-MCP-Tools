@@ -22,6 +22,29 @@ def _key(name, kind="BONE"):
     return unreal.RigElementKey(name=name, type=getattr(unreal.RigElementType, kind))
 
 
+def _add_graph_variables(asset, graph, request):
+    """/** 为显式图配置建立公开输入变量及读取节点 */"""
+    for variable in request.get("variables", []):
+        name = variable["name"]
+        type_object = None
+        if variable.get("typeObject"):
+            type_object = unreal.load_object(None, variable["typeObject"])
+            if type_object is None:
+                raise RuntimeError("变量反射类型不存在 " + variable["typeObject"])
+
+        member_type = variable.get("typeObject", variable["type"])
+        if variable["type"].startswith("F") and type_object is None:
+            raise RuntimeError("结构体变量必须提供 typeObject " + name)
+
+        created = asset.add_member_variable(name, member_type, True, False, variable.get("default", ""))
+        if str(created) != name:
+            raise RuntimeError("公开变量创建失败或重名 " + name)
+
+        node = graph.add_variable_node(name, variable["type"], type_object, True, variable.get("default", ""), unreal.Vector2D(*variable.get("position", [0.0, 0.0])), variable.get("node", name), False, False)
+        if node is None:
+            raise RuntimeError("公开变量读取节点创建失败 " + name)
+
+
 def _transform(value):
     result = unreal.Transform(
         location=unreal.Vector(*value.get("position", [0.0, 0.0, 0.0])),
@@ -547,6 +570,8 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         for existing_node in list(graph.get_graph().get_nodes()):
             graph.remove_node(existing_node, False, False)
 
+        _add_graph_variables(asset, graph, request)
+
         for node in request["nodes"]:
             result = graph.add_unit_node_from_struct_path(node["struct"], "Execute", unreal.Vector2D(*node.get("position", [0.0, 0.0])), node["name"], False, False)
             if result is None:
@@ -569,7 +594,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
 
     @toolset_registry.tool_call
     @staticmethod
-    def evaluate_rig_pose(asset_path: str, animation_path: str, mesh_path: str, time_seconds: float, controls_json: str, bone_names: list[str]) -> str:
+    def evaluate_rig_pose(asset_path: str, animation_path: str, mesh_path: str, time_seconds: float, controls_json: str, bone_names: list[str], variables_json: str = "{}") -> str:
         """
         /**
          * 在源姿势上执行官方绑定并返回骨骼变换
@@ -591,6 +616,10 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         pose = _pose(animation, mesh, time_seconds)
         _set_pose(rig, pose)
         hierarchy = rig.get_hierarchy()
+        for name, value in json.loads(variables_json).items():
+            if not rig.set_variable_from_string(name, value):
+                raise RuntimeError("控制绑定公开输入赋值失败 " + name)
+
         for name, value in json.loads(controls_json).items():
             key = _key(name, "CONTROL")
             if isinstance(value, dict):
@@ -701,6 +730,8 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
             node = graph.get_graph().find_node_by_name(name)
             if node is not None:
                 graph.remove_node(node, False, False)
+
+        _add_graph_variables(asset, graph, request)
 
         for node in request.get("nodes", []):
             result = graph.add_unit_node_from_struct_path(node["struct"], "Execute", unreal.Vector2D(*node.get("position", [0.0, 0.0])), node["name"], False, False)
