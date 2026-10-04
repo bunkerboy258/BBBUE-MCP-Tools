@@ -19,6 +19,7 @@ _TOOLSET_MODULES = (
     "BBBAnimationGraphToolset",
 )
 _HELPER_MODULES = (
+    "BBBBlueprintLayout",
     "BBBAnimationMotionTools",
     "BBBAnimationTrajectoryTools",
     "BBBArmTwistTools",

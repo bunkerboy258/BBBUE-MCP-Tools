@@ -5028,6 +5028,10 @@
           "vertical_spacing": {
             "type": "integer",
             "default": 180
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": false
           }
         },
         "required": [

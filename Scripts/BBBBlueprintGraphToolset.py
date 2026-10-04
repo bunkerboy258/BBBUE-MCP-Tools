@@ -19,141 +19,123 @@ def _read_aliases(value):
     return aliases
 
 
-def _get_editor_property_safe(instance, property_name, default=None):
-    try:
-        return instance.get_editor_property(property_name)
-    except Exception:
-        return default
+def _capture_layout_graph(graph):
+    """
+    /**
+     * 一次读取原生引脚与尺寸 不用本地化显示文字推断执行类型
+     * @param graph	目标蓝图图表
+     * @return 节点对象 尺寸快照 连线 注释框和尺寸估算清单
+     */
+    """
+    inspect = getattr(unreal.BBBBlueprintEditorLibrary, "inspect_blueprint_graph_geometry", None)
+    if not callable(inspect):
+        raise RuntimeError("缺少 InspectBlueprintGraphGeometry 请编译原生编辑器模块后重新启动宿主")
 
+    geometry = json.loads(inspect(graph))
+    if geometry.get("error"):
+        raise RuntimeError("蓝图几何检查失败 " + str(geometry["error"]))
 
-def _get_node_path(node):
-    try:
-        return node.get_path_name()
-    except Exception:
-        return ""
+    if geometry.get("graph") != graph.get_path_name():
+        raise RuntimeError("原生几何检查返回了不同图表")
 
+    objects = {}
+    nodes = {}
+    comments = []
+    estimated = []
+    pins_by_path = {}
+    execution_pins = {}
+    graph_editor = unreal.BlueprintGraphEditor.get_graph_editor(graph)
+    graph_nodes = list(graph_editor.list_all_nodes()) + list(graph_editor.list_comment_nodes())
+    all_objects = {node.get_path_name(): node for node in graph_nodes}
+    items = geometry["nodes"]
+    if set(all_objects) != {item["path"] for item in items}:
+        raise RuntimeError("原生几何快照与脚本节点列表不一致")
 
-def _node_sort_key(node):
-    node_path = _get_node_path(node)
-    try:
-        position = node.get_node_pos()
-        position_x = position.x
-        position_y = position.y
-    except Exception:
-        position_x = _get_editor_property_safe(node, "node_pos_x", 0)
-        position_y = _get_editor_property_safe(node, "node_pos_y", 0)
-    try:
-        position_x = int(position_x)
-    except (TypeError, ValueError):
-        position_x = 0
-    try:
-        position_y = int(position_y)
-    except (TypeError, ValueError):
-        position_y = 0
-    return position_y, position_x, node_path
-
-
-def _is_layout_node(node):
-    class_name = node.get_class().get_name()
-    return "Comment" not in class_name
-
-
-def _is_output_pin(pin):
-    try:
-        direction = pin.get_pin_direction()
-    except Exception:
-        direction = _get_editor_property_safe(pin, "direction", "")
-    return "output" in str(direction).lower()
-
-
-def _collect_layout_nodes(graph):
-    try:
-        graph_nodes = list(BlueprintTools.find_nodes(graph))
-    except Exception as error:
-        raise RuntimeError("蓝图图表节点读取失败 {}".format(error))
-    layout_nodes = []
-    excluded_count = 0
-    for node in graph_nodes:
-        if not _is_layout_node(node):
-            excluded_count += 1
+    for item in sorted(items, key=lambda value: value["path"]):
+        path = item["path"]
+        node = all_objects[path]
+        snapshot = {
+            "id": path,
+            "x": int(item["x"]),
+            "y": int(item["y"]),
+            "width": int(item["width"]),
+            "height": int(item["height"]),
+            "exec": bool(item["executionPins"]),
+        }
+        if item["comment"]:
+            snapshot["members"] = sorted(item["members"])
+            comments.append(snapshot)
             continue
-        if not _get_node_path(node):
-            continue
-        layout_nodes.append(node)
-    return graph_nodes, layout_nodes, excluded_count
 
+        objects[path] = node
+        nodes[path] = snapshot
+        pins_by_path[path] = list(node.list_all_pins())
+        execution_pins[path] = set(item["executionPins"])
+        if item["estimated"]:
+            estimated.append(path)
 
-def _collect_layout_edges(layout_nodes):
-    nodes_by_path = {_get_node_path(node): node for node in layout_nodes}
-    edges = {node_path: set() for node_path in nodes_by_path}
-    edge_count = 0
-
-    for source_node in layout_nodes:
-        source_path = _get_node_path(source_node)
-        try:
-            pins = list(source_node.list_all_pins() or [])
-        except Exception:
-            try:
-                pins = list(source_node.get_all_pins() or [])
-            except Exception:
-                pins = _get_editor_property_safe(source_node, "pins", []) or []
-        for pin in pins:
-            if not _is_output_pin(pin):
+    edges = []
+    for source_path in sorted(nodes):
+        for source_order, pin in enumerate(pins_by_path[source_path]):
+            if pin.get_pin_direction() != unreal.EdGraphPinDirection.EGPD_OUTPUT:
                 continue
-            try:
-                linked_pins = list(pin.list_connected_pins() or [])
-            except Exception:
-                linked_pins = _get_editor_property_safe(pin, "linked_to", []) or []
-            for linked_pin in linked_pins:
-                try:
-                    target_node = linked_pin.get_owning_node()
-                except Exception:
-                    target_node = _get_editor_property_safe(linked_pin, "owning_node")
-                target_path = _get_node_path(target_node)
-                if target_path not in nodes_by_path or target_path == source_path:
-                    continue
-                if target_path in edges[source_path]:
-                    continue
-                edges[source_path].add(target_path)
-                edge_count += 1
 
-    return nodes_by_path, edges, edge_count
+            kind = "data"
+            if "output:" + str(pin.get_pin_name()) in execution_pins[source_path]:
+                kind = "exec"
+
+            for connected in pin.list_connected_pins():
+                target_path = connected.get_owning_node().get_path_name()
+                if target_path not in nodes:
+                    raise RuntimeError("连线指向未纳入排版的节点 " + target_path)
+
+                target_order = next(
+                    index for index, candidate in enumerate(pins_by_path[target_path])
+                    if candidate.is_same_native_pin(connected)
+                )
+                edges.append({
+                    "source": source_path,
+                    "target": target_path,
+                    "kind": kind,
+                    "sourceOrder": source_order,
+                    "targetOrder": target_order,
+                    "sourcePin": str(pin.get_pin_name()),
+                    "targetPin": str(connected.get_pin_name()),
+                })
+
+    edges.sort(key=lambda edge: (
+        edge["source"],
+        edge["sourceOrder"],
+        edge["target"],
+        edge["targetOrder"],
+    ))
+    return objects, nodes, edges, comments, estimated
 
 
-def _calculate_layout_levels(nodes_by_path, edges):
-    indegree = {node_path: 0 for node_path in nodes_by_path}
-    for targets in edges.values():
-        for target_path in targets:
-            indegree[target_path] += 1
+def _require_layout_checkout(blueprint):
+    """
+    /**
+     * 写入前核对源控 不自动签出或保存目标资产
+     * @param blueprint	目标蓝图
+     * @return 检查通过时无返回值
+     */
+    """
+    from editor_toolset.toolsets.asset import AssetTools
 
-    remaining = set(nodes_by_path)
-    levels = {node_path: 0 for node_path in nodes_by_path}
-    cycle_break_count = 0
+    path = blueprint.get_path_name()
+    if not unreal.SourceControl.is_enabled() or not unreal.SourceControl.is_available():
+        raise RuntimeError("蓝图排版写入前必须连接 Perforce")
 
-    while remaining:
-        roots = [node_path for node_path in remaining if indegree[node_path] == 0]
-        roots.sort(key=lambda node_path: _node_sort_key(nodes_by_path[node_path]))
-        if not roots:
-            roots = [min(remaining, key=lambda node_path: _node_sort_key(nodes_by_path[node_path]))]
-            cycle_break_count += 1
+    if unreal.SourceControl.current_provider() != "Perforce":
+        raise RuntimeError("蓝图排版写入要求 Perforce 独占签出")
 
-        pending = list(roots)
-        while pending:
-            current_path = pending.pop(0)
-            if current_path not in remaining:
-                continue
-            remaining.remove(current_path)
+    state = unreal.SourceControl.query_file_state(path)
+    writable = AssetTools.is_checked_out(path) and AssetTools.can_edit_asset(path)
+    if state.is_valid and state.is_added and state.can_edit and not state.is_checked_out_other:
+        writable = True
 
-            targets = sorted(edges[current_path], key=lambda node_path: _node_sort_key(nodes_by_path[node_path]))
-            for target_path in targets:
-                if target_path not in remaining:
-                    continue
-                levels[target_path] = max(levels[target_path], levels[current_path] + 1)
-                indegree[target_path] -= 1
-                if indegree[target_path] == 0:
-                    pending.append(target_path)
-
-    return levels, cycle_break_count
+    if not state.is_valid or state.is_unknown or state.is_checked_out_other or state.is_conflicted or state.is_deleted or not writable:
+        raise RuntimeError("目标蓝图必须已独占签出或已打开添加且可编辑 " + path)
 
 
 @unreal.uclass()
@@ -256,10 +238,22 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
         graph_path: str,
         horizontal_spacing: int = 320,
         vertical_spacing: int = 180,
+        dry_run: bool = False,
     ) -> str:
         """按蓝图连线拓扑从左到右分层排版节点 不自动保存资产"""
-        if not graph_path.startswith("/Game/"):
+        from BBBBlueprintLayout import calculate_layout
+
+        if not isinstance(graph_path, str) or not graph_path.startswith("/Game/"):
             raise RuntimeError("只能编辑项目蓝图图表")
+
+        if type(horizontal_spacing) is not int or type(vertical_spacing) is not int:
+            raise RuntimeError("节点间距必须为整数")
+
+        if type(dry_run) is not bool:
+            raise RuntimeError("dry_run 必须为布尔值")
+
+        if not 0 < horizontal_spacing <= 10000 or not 0 < vertical_spacing <= 10000:
+            raise RuntimeError("节点间距必须大于零且不超过 10000")
 
         graph = unreal.load_object(None, graph_path)
         if not isinstance(graph, unreal.EdGraph):
@@ -269,142 +263,99 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
         if not isinstance(blueprint, unreal.Blueprint):
             raise RuntimeError("图表必须直接属于蓝图")
 
-        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+        if unreal.EditorLevelLibrary.get_pie_worlds(False):
             raise RuntimeError("PIE 期间禁止修改蓝图图表")
 
-        try:
-            horizontal_spacing = int(horizontal_spacing)
-            vertical_spacing = int(vertical_spacing)
-        except (TypeError, ValueError):
-            raise RuntimeError("节点间距必须为整数")
+        objects, nodes, edges, comments, estimated = _capture_layout_graph(graph)
+        plan = calculate_layout(nodes, edges, comments, horizontal_spacing, vertical_spacing)
+        changes = {
+            path: position for path, position in plan["positions"].items()
+            if position != (nodes[path]["x"], nodes[path]["y"])
+        }
+        warnings = list(plan["warnings"])
+        if estimated:
+            warnings.append("部分节点未提供有效尺寸 使用官方引擎估算 请在可视编辑器复核")
 
-        if horizontal_spacing <= 0 or vertical_spacing <= 0:
-            raise RuntimeError("节点间距必须大于零")
+        if plan["after"]["overlaps"]:
+            warnings.append("布局仍有节点重叠 写入被拒绝 请检查固定注释框或节点尺寸")
 
-        if horizontal_spacing > 10000 or vertical_spacing > 10000:
-            raise RuntimeError("节点间距不能超过 10000")
+        report = {
+            "graph": graph_path,
+            "nodes": len(nodes),
+            "edges": len(edges),
+            "execEdges": sum(edge["kind"] == "exec" for edge in edges),
+            "dataEdges": sum(edge["kind"] == "data" for edge in edges),
+            "moved": 0,
+            "plannedMoves": len(changes),
+            "cycleBreaks": plan["cycleBreaks"],
+            "excludedComments": len(comments),
+            "commentMembers": plan["commentMembers"],
+            "components": plan["components"],
+            "horizontalSpacing": horizontal_spacing,
+            "verticalSpacing": vertical_spacing,
+            "dryRun": dry_run,
+            "estimatedSizes": estimated,
+            "before": plan["before"],
+            "after": plan["after"],
+            "positions": {path: list(position) for path, position in plan["positions"].items()},
+            "warnings": warnings,
+            "saved": False,
+        }
+        for warning in warnings:
+            unreal.log_warning("[BBBBlueprintLayout] " + warning)
 
-        all_nodes, layout_nodes, excluded_count = _collect_layout_nodes(graph)
-        nodes_by_path, edges, edge_count = _collect_layout_edges(layout_nodes)
-        levels, cycle_break_count = _calculate_layout_levels(nodes_by_path, edges)
+        if not dry_run and changes:
+            try:
+                if plan["after"]["overlaps"]:
+                    raise RuntimeError("拒绝应用存在节点重叠的布局")
 
-        if not layout_nodes:
-            unreal.log_warning("蓝图节点排版未找到可排版节点 {}".format(graph_path))
-            return json.dumps(
-                {
-                    "graph": graph_path,
-                    "nodes": 0,
-                    "edges": edge_count,
-                    "moved": 0,
-                    "cycleBreaks": cycle_break_count,
-                    "excludedComments": excluded_count,
-                    "horizontalSpacing": horizontal_spacing,
-                    "verticalSpacing": vertical_spacing,
-                    "saved": False,
-                },
-                ensure_ascii=False,
-            )
+                _require_layout_checkout(blueprint)
+                original = {path: (nodes[path]["x"], nodes[path]["y"]) for path in changes}
+                with unreal.ScopedEditorTransaction("BBB Optimize Blueprint Node Layout"):
+                    blueprint.modify()
+                    graph.modify()
+                    for path in changes:
+                        objects[path].modify()
 
-        moved_count = 0
-        try:
-            from editor_toolset.toolsets.blueprint_layout import GraphFormatter
+                    try:
+                        for path, (x, y) in changes.items():
+                            objects[path].set_node_pos(unreal.IntPoint(x, y))
 
-            original_positions = {
-                node_path: (
-                    nodes_by_path[node_path].get_node_pos().x,
-                    nodes_by_path[node_path].get_node_pos().y,
-                )
-                for node_path in nodes_by_path
-            }
+                        current_objects, current_nodes, current_edges, current_comments, _ = _capture_layout_graph(graph)
+                        if set(current_objects) != set(objects) or current_edges != edges or current_comments != comments:
+                            raise RuntimeError("排版期间图表结构或固定注释发生变化")
 
-            formatter = GraphFormatter(
-                get_out_pins=lambda node: BlueprintTools._list_pins(
-                    node,
-                    unreal.EdGraphPinDirection.EGPD_OUTPUT,
-                ),
-                get_connected_pins=lambda pin: pin.list_connected_pins(),
-                get_pin_owner=lambda pin: pin.get_owning_node(),
-                get_node_pos=lambda node: (
-                    node.get_node_pos().x,
-                    node.get_node_pos().y,
-                ),
-                set_node_pos=lambda node, position_x, position_y: node.set_node_pos(
-                    unreal.IntPoint(position_x, position_y),
-                ),
-                get_node_size=lambda node: (
-                    int(node.get_node_size().x),
-                    int(node.get_node_size().y),
-                ),
-            )
-            formatter.COL_PADDING = horizontal_spacing
-            formatter.ROW_PADDING = vertical_spacing
+                        for path, position in plan["positions"].items():
+                            if (current_nodes[path]["x"], current_nodes[path]["y"]) != position:
+                                raise RuntimeError("节点位置回读不符 " + path)
 
-            with unreal.ScopedEditorTransaction("BBB Optimize Blueprint Node Layout"):
-                blueprint.modify()
-                graph.modify()
-                formatter.arrange(all_nodes, set(layout_nodes))
+                        if hasattr(graph, "notify_graph_changed"):
+                            graph.notify_graph_changed()
+                    except Exception:
+                        for path, (x, y) in original.items():
+                            objects[path].set_node_pos(unreal.IntPoint(x, y))
 
-                for node_path, original_position in original_positions.items():
-                    node = nodes_by_path[node_path]
-                    current_position = node.get_node_pos()
-                    if (
-                        current_position.x == original_position[0]
-                        and current_position.y == original_position[1]
-                    ):
-                        continue
-                    moved_count += 1
+                        if hasattr(graph, "notify_graph_changed"):
+                            graph.notify_graph_changed()
+                        raise
 
-                if hasattr(graph, "notify_graph_changed"):
-                    graph.notify_graph_changed()
-        except Exception as error:
-            unreal.log_error(
-                "蓝图节点排版失败 尚未保存 请检查图表或撤销本次操作 {} {}".format(
-                    graph_path,
-                    error,
-                ),
-            )
-            raise
-
-        if cycle_break_count > 0:
-            unreal.log_warning(
-                "蓝图节点排版检测到 {} 个环路断点 图层仅用于视觉排版 {}".format(
-                    cycle_break_count,
-                    graph_path,
-                ),
-            )
-
-        if excluded_count > 0:
-            unreal.log_warning(
-                "蓝图节点排版跳过 {} 个注释节点 注释框位置保持不变 {}".format(
-                    excluded_count,
-                    graph_path,
-                ),
-            )
+                report["moved"] = len(changes)
+            except Exception as error:
+                unreal.log_error("[BBBBlueprintLayout] 写入失败 未保存 仅回退本次节点坐标 请检查图表或撤销 " + str(error))
+                raise
 
         unreal.log(
-            "[BBBBlueprintLayout] graph={} nodes={} edges={} moved={} cycles={} excluded_comments={}".format(
+            "[BBBBlueprintLayout] graph={} dry_run={} planned={} moved={} exec={} data={} overlaps={}".format(
                 graph_path,
-                len(layout_nodes),
-                edge_count,
-                moved_count,
-                cycle_break_count,
-                excluded_count,
+                dry_run,
+                len(changes),
+                report["moved"],
+                report["execEdges"],
+                report["dataEdges"],
+                plan["after"]["overlaps"],
             ),
         )
-        return json.dumps(
-            {
-                "graph": graph_path,
-                "nodes": len(layout_nodes),
-                "edges": edge_count,
-                "moved": moved_count,
-                "cycleBreaks": cycle_break_count,
-                "excludedComments": excluded_count,
-                "horizontalSpacing": horizontal_spacing,
-                "verticalSpacing": vertical_spacing,
-                "saved": False,
-            },
-            ensure_ascii=False,
-        )
+        return json.dumps(report, ensure_ascii=False)
 
     @toolset_registry.tool_call
     @staticmethod
