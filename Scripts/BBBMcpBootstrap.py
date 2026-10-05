@@ -20,6 +20,7 @@ _TOOLSET_MODULES = (
 )
 _HELPER_MODULES = (
     "BBBBlueprintLayout",
+    "BBBBlueprintAnnotations",
     "BBBAnimationMotionTools",
     "BBBAnimationTrajectoryTools",
     "BBBArmTwistTools",

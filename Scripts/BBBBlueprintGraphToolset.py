@@ -8,6 +8,29 @@ from editor_toolset.toolsets.blueprint import BlueprintTools
 from editor_toolset.toolsets import blueprint_dsl
 
 
+def _annotation_documentation(method):
+    """
+    /**
+     * 将源代码文档标记转换为官方工具元数据正文
+     * @param method	新增接口函数
+     * @return 保留原实现且元数据已规范的函数
+     */
+    """
+    lines = []
+    for line in method.__doc__.splitlines():
+        text = line.strip()
+        if text in ("/**", "*/"):
+            continue
+
+        if text.startswith("*"):
+            text = text[1:].lstrip()
+
+        lines.append(text)
+
+    method.__doc__ = "\n".join(lines).strip()
+    return method
+
+
 def _read_aliases(value):
     aliases = json.loads(value)
     if not isinstance(aliases, dict):
@@ -375,6 +398,87 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
             ),
         )
         return json.dumps(report, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    @_annotation_documentation
+    def inspect_blueprint_graph(graph_path: str) -> str:
+        """
+        /**
+         * 只读返回逻辑引用 原有注释及显示几何 不探测创建节点
+         * @param graph_path	项目蓝图图表完整路径
+         * @return 语义快照与无法解析的信息
+         */
+        """
+        if not isinstance(graph_path, str) or not graph_path.startswith("/Game/"):
+            raise RuntimeError("只允许读取项目蓝图图表")
+
+        graph = unreal.load_object(None, graph_path)
+        if not isinstance(graph, unreal.EdGraph):
+            raise RuntimeError("目标不是蓝图图表")
+
+        result = json.loads(unreal.BBBBlueprintEditorLibrary.inspect_blueprint_graph_snapshot(graph))
+        if result.get("error"):
+            raise RuntimeError("蓝图语义读取失败 " + result["error"])
+
+        return json.dumps(result, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    @_annotation_documentation
+    def annotate_blueprint_graph(graph_path: str, annotations_json: str, dry_run: bool = True) -> str:
+        """
+        /**
+         * 预览或添加区块与空节点注释 并联合排版 不自动保存
+         * @param graph_path	项目蓝图图表完整路径
+         * @param annotations_json	含快照校验值的区块与节点注释方案
+         * @param dry_run	是否只读预览
+         * @return 注释布局质量与实际写入结果
+         */
+        """
+        from BBBBlueprintAnnotations import prepare_annotations, plan_annotations
+
+        if type(dry_run) is not bool:
+            raise RuntimeError("dry_run 必须为布尔值")
+
+        if unreal.EditorLevelLibrary.get_pie_worlds(False):
+            raise RuntimeError("PIE 期间禁止注释及排版蓝图")
+
+        snapshot = json.loads(BBBBlueprintGraphToolset.inspect_blueprint_graph(graph_path))
+        if not snapshot["layoutSupported"]:
+            raise RuntimeError("图表无法完整测量 不允许注释排版 " + " ".join(snapshot["warnings"]))
+
+        prepared = prepare_annotations(snapshot, annotations_json)
+        graph = unreal.load_object(None, graph_path)
+        if not prepared["blocks"] and not prepared["nodeComments"]:
+            return json.dumps({"graph": graph_path, "dryRun": dry_run, "changed": False, "skipped": prepared["skipped"], "saved": False}, ensure_ascii=False)
+
+        measurement = json.loads(unreal.BBBBlueprintEditorLibrary.measure_blueprint_graph_annotation_geometry(graph, json.dumps(prepared, ensure_ascii=False)))
+        if measurement.get("error"):
+            raise RuntimeError("注释显示测量失败 " + measurement["error"])
+
+        plan = plan_annotations(snapshot, prepared, measurement)
+        plan["graph"] = graph_path
+        plan["dryRun"] = dry_run
+        plan["changed"] = False
+        for warning in plan["warnings"]:
+            unreal.log_warning("[BBBBlueprintAnnotations] " + warning)
+
+        if not dry_run:
+            if not plan["canApply"]:
+                raise RuntimeError("注释布局质量不满足写入要求 请检查预览报告")
+
+            _require_layout_checkout(graph.get_outer())
+            result = json.loads(unreal.BBBBlueprintEditorLibrary.apply_blueprint_graph_annotations(graph, json.dumps(plan, ensure_ascii=False)))
+            if result.get("error"):
+                raise RuntimeError("注释写入失败 " + result["error"])
+
+            plan["changed"] = result["changed"]
+            plan["createdBlocks"] = result["createdBlocks"]
+            plan["snapshot"] = result["snapshot"]
+
+        unreal.log("[BBBBlueprintAnnotations] graph={} dry_run={} blocks={} node_comments={} changed={}".format(graph_path, dry_run, len(prepared["blocks"]), len(prepared["nodeComments"]), plan["changed"]))
+        return json.dumps(plan, ensure_ascii=False)
 
     @toolset_registry.tool_call
     @staticmethod

@@ -670,6 +670,135 @@ def calculate_layout(nodes, edges, comments, horizontal_spacing=320, vertical_sp
     }
 
 
+def calculate_annotation_layout(nodes, edges, comments, blocks):
+    """
+    /**
+     * 将新区块视为整体排版并保护已有注释框
+     * @param nodes	含气泡边界的节点
+     * @param edges	真实连线与显示锚点
+     * @param comments	固定注释框
+     * @param blocks	新区块成员与标题测量
+     * @return 联合位置 区块边界与质量报告
+     */
+    """
+    original = {key: (node["x"], node["y"]) for key, node in nodes.items()}
+    fixed = set().union(*(set(comment["members"]) for comment in comments)) if comments else set()
+    owners = {}
+    local_positions = {}
+    groups = {}
+    for block in blocks:
+        members = set(block["members"])
+        if members & fixed:
+            raise RuntimeError("新区块侵入已有固定注释归属")
+
+        subset = {key: nodes[key] for key in sorted(members)}
+        connections = [edge for edge in edges if edge["source"] in members and edge["target"] in members]
+        local = calculate_layout(subset, connections, [], 320, 180)
+        bounds = _bounds(subset, local["positions"])
+        header = max(64, block["headerHeight"] + 24)
+        key = block["id"]
+        for member in members:
+            owners[member] = key
+            position = local["positions"][member]
+            local_positions[member] = (position[0] - bounds[0] + 32, position[1] - bounds[1] + header)
+
+        primary = min((local_positions[member][1] + nodes[member].get("primaryOffset", 0) for member in members if _is_main(nodes[member])), default=header)
+        groups[key] = {
+            "id": key, "x": min(nodes[member]["x"] for member in members), "y": min(nodes[member]["y"] for member in members),
+            "width": max(bounds[2] - bounds[0] + 64, block["headerWidth"] + 48),
+            "height": bounds[3] - bounds[1] + header + 32,
+            "exec": any(nodes[member]["exec"] for member in members),
+            "pose": any(nodes[member].get("pose", False) for member in members), "primaryOffset": primary,
+        }
+
+    for key, node in nodes.items():
+        if key in fixed or key in owners:
+            continue
+
+        owners[key] = key
+        local_positions[key] = (0, 0)
+        groups[key] = dict(node)
+
+    connections = []
+    for edge in edges:
+        if edge["source"] in fixed or edge["target"] in fixed:
+            continue
+
+        source = owners[edge["source"]]
+        target = owners[edge["target"]]
+        if source == target:
+            continue
+
+        item = dict(edge, source=source, target=target)
+        for name, member in (("sourceOffset", edge["source"]), ("targetOffset", edge["target"])):
+            anchor = edge.get(name, [0, 0])
+            item[name] = [local_positions[member][axis] + anchor[axis] for axis in (0, 1)]
+
+        connections.append(item)
+
+    obstacles = [dict(comment, members=[]) for comment in comments]
+    group_plan = calculate_layout(groups, connections, obstacles, 320, 180)
+    positions = dict(original)
+    for member, owner in owners.items():
+        origin = group_plan["positions"][owner]
+        positions[member] = tuple(origin[axis] + local_positions[member][axis] for axis in (0, 1))
+
+    rectangles = {
+        block["id"]: {
+            "x": group_plan["positions"][block["id"]][0], "y": group_plan["positions"][block["id"]][1],
+            "width": groups[block["id"]]["width"], "height": groups[block["id"]]["height"],
+        }
+        for block in blocks
+    }
+    conflicts = []
+    for comment in comments:
+        rectangle = (comment["x"], comment["y"], comment["x"] + comment["width"], comment["y"] + comment["height"])
+        for key in comment["members"]:
+            node = nodes[key]
+            bounds = (positions[key][0], positions[key][1], positions[key][0] + node["width"], positions[key][1] + node["height"])
+            if not (rectangle[0] <= bounds[0] and rectangle[1] <= bounds[1] and rectangle[2] >= bounds[2] and rectangle[3] >= bounds[3]):
+                conflicts.append({"comment": comment["id"], "node": key, "reason": "固定框不能容纳显示边界"})
+
+    for block in blocks:
+        box = rectangles[block["id"]]
+        rectangle = (box["x"], box["y"], box["x"] + box["width"], box["y"] + box["height"])
+        for key, node in nodes.items():
+            bounds = (positions[key][0], positions[key][1], positions[key][0] + node["width"], positions[key][1] + node["height"])
+            if key in block["members"]:
+                if not (rectangle[0] <= bounds[0] and rectangle[1] <= bounds[1] and rectangle[2] >= bounds[2] and rectangle[3] >= bounds[3]):
+                    conflicts.append({"block": block["id"], "node": key, "reason": "成员越界"})
+                continue
+
+            if _intersects(rectangle, bounds):
+                conflicts.append({"block": block["id"], "node": key, "reason": "侵入非成员"})
+
+        for comment in comments:
+            fixed_box = (comment["x"], comment["y"], comment["x"] + comment["width"], comment["y"] + comment["height"])
+            if _intersects(rectangle, fixed_box):
+                conflicts.append({"block": block["id"], "comment": comment["id"], "reason": "侵入固定框"})
+
+    hits = _wire_hits(nodes, edges, positions)
+    warnings = list(group_plan["warnings"])
+    before = layout_quality(nodes, edges, original)
+    after = layout_quality(nodes, edges, positions)
+    for field in ("backwardExecEdges", "backwardPoseEdges"):
+        if after[field] > before[field]:
+            conflicts.append({"reason": "主链回流增加", "metric": field})
+
+    if hits:
+        warnings.append("联合布局仍有连线穿过节点 拒绝写入")
+
+    if conflicts:
+        warnings.append("新区块边界或成员存在冲突 拒绝写入")
+
+    return {
+        "positions": positions, "blocks": rectangles, "blockConflicts": conflicts,
+        "before": before, "after": after,
+        "warnings": warnings,
+        "wireNodeHits": [{"source": edges[index]["source"], "target": edges[index]["target"], "node": key} for index, key in hits],
+    }
+
+
 if __name__ == "__bbb_editor_script__":
     import importlib
     import sys
@@ -682,6 +811,7 @@ if __name__ == "__bbb_editor_script__":
     try:
         importlib.invalidate_caches()
         importlib.reload(importlib.import_module("BBBBlueprintLayout"))
+        importlib.reload(importlib.import_module("BBBBlueprintAnnotations"))
         toolset_registry.reload_module(importlib.import_module("BBBBlueprintGraphToolset"))
         unreal.log("[BBBBlueprintLayout] 已仅重载蓝图排版工具 请重新发现参数并验证")
     except Exception as error:

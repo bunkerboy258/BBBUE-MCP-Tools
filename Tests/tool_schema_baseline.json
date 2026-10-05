@@ -4978,6 +4978,68 @@
     }
   },
   "BBBBlueprintGraphToolset": {
+    "inspect_blueprint_graph": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_path": {
+            "type": "string",
+            "description": "项目蓝图图表完整路径"
+          }
+        },
+        "required": [
+          "graph_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "语义快照与无法解析的信息"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "annotate_blueprint_graph": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_path": {
+            "type": "string",
+            "description": "项目蓝图图表完整路径"
+          },
+          "annotations_json": {
+            "type": "string",
+            "description": "含快照校验值的区块与节点注释方案"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "是否只读预览",
+            "default": true
+          }
+        },
+        "required": [
+          "graph_path",
+          "annotations_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "注释布局质量与实际写入结果"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
     "write_graph": {
       "inputSchema": {
         "type": "object",

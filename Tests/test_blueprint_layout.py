@@ -503,5 +503,37 @@ class LayoutToolSafetyTests(unittest.TestCase):
         self.assertEqual((nodes["B"]["x"], nodes["B"]["y"]), (320, 0))
 
 
+class AnnotationBlockLayoutTests(unittest.TestCase):
+    """/** 新区块整体布局与原有框约束测试 */"""
+
+    def test_connected_blocks_keep_main_flow_and_shared_data(self):
+        """/** @return 区块之间主链前向 共享数据节点保持一份 */"""
+        from BBBBlueprintLayout import calculate_annotation_layout
+
+        nodes = {key: _node(key, key != "Shared") for key in ("A", "B", "Shared")}
+        edges = [_edge("A", "B", "exec"), _edge("Shared", "A"), _edge("Shared", "B")]
+        blocks = [
+            {"id": "First", "members": ["A"], "headerWidth": 100, "headerHeight": 30},
+            {"id": "Second", "members": ["B"], "headerWidth": 100, "headerHeight": 30},
+        ]
+        result = calculate_annotation_layout(nodes, edges, [], blocks)
+        self.assertEqual(set(result["positions"]), set(nodes))
+        self.assertLess(result["positions"]["Shared"][0], result["positions"]["A"][0])
+        self.assertLess(result["positions"]["A"][0], result["positions"]["B"][0])
+        self.assertEqual(result["blockConflicts"], [])
+        self.assertEqual(result["after"]["overlaps"], 0)
+
+    def test_existing_frame_and_members_stay_fixed(self):
+        """/** @return 新区块布局不能移动原有注释成员 */"""
+        from BBBBlueprintLayout import calculate_annotation_layout
+
+        nodes = {"A": _node("A", True, 32, 64), "B": _node("B", True, 1000, 1000)}
+        comments = [{"id": "Fixed", "x": 0, "y": 0, "width": 400, "height": 300, "members": ["A"]}]
+        blocks = [{"id": "New", "members": ["B"], "headerWidth": 100, "headerHeight": 30}]
+        result = calculate_annotation_layout(nodes, [], comments, blocks)
+        self.assertEqual(result["positions"]["A"], (32, 64))
+        self.assertEqual(result["blockConflicts"], [])
+
+
 if __name__ == "__main__":
     unittest.main()
