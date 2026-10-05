@@ -81,6 +81,10 @@ MCP 宿主必须使用 `-AutoDeclinePackageRecovery` 跳过包恢复模态窗口
 | 通用资产属性读取 | `Game.Scripts.BBBGenericEditorToolset.BBBGenericEditorToolset` |
 | 项目级关卡操作 | `Game.Scripts.BBBLevelEditingToolset.BBBLevelEditingToolset` |
 
+`BBBLevelEditingToolset.spawn_pie_mass_display(spawner_path, config_paths, center, radius)` 仅配置当前 PIE 世界的 `MassSpawner` 与其 `BBBMonsterSpawnGenerator`，按不重复的 Mass 实体配置各生成一只；`center` 是三个厘米坐标，`radius` 是零至二千厘米。调用前应通过 `invoke_pie_actor_function` 对该 PIE 生成器执行 `DoDespawning`，并读回表现 Actor 数量为零。调用后使用 `inspect_pie_actor_properties` 核对 PIE 世界的生成器配置和每种表现 Actor 数量，不以请求数量代替实际生成数量。此工具不修改或保存编辑器关卡。更新 `Scripts/BBBLevelEditingToolset.py` 后，可用已注册的 `run_editor_script` 执行该文件以仅注销、重载并注册此工具集，再重新发现准确工具名称及参数；不要重载其它并行会话正在修改的工具集。
+
+`BBBLevelEditingToolset.set_pie_paused(paused)` 只切换唯一 PIE 世界的暂停状态，展示实体到位后可设为 `true` 留给用户检查。
+
 `BBBAnimationMigrationToolset` 的动画数据访问迁移入口为：
 
 ```text
