@@ -2305,6 +2305,129 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def configure_projectile_tracer_finish(system_path: str, channel_path: str, material_path: str) -> str:
+        """
+        /**
+         * @param system_path	已有持续曳光系统
+         * @param channel_path	已有全局槽位通道
+         * @param material_path	曳光头尾材质
+         * @return 末帧定格与五十毫秒淡出的编译保存结果
+         */
+        """
+        from BBBAssetWritePolicy import require_asset_write
+
+        require_asset_write([system_path, channel_path])
+        return unreal.BBBNiagaraEditorLibrary.configure_projectile_tracer_finish(
+            system_path, channel_path, material_path)
+
+    @mcp_tool
+    @staticmethod
+    def configure_projectile_impact_system(channel_path: str, system_path: str, material_path: str) -> str:
+        """
+        /**
+         * @param channel_path	命中通道路径
+         * @param system_path	创建或重建的系统路径
+         * @param material_path	反馈粒子材质
+         * @return 硬表面 金属 血肉三类批量反馈的编译保存结果
+         */
+        """
+        from BBBAssetWritePolicy import require_asset_write
+
+        existing = [channel_path]
+        destinations = [system_path]
+        if unreal.EditorAssetLibrary.does_asset_exist(system_path):
+            existing.append(system_path)
+            destinations = []
+        require_asset_write(existing, destinations)
+        return unreal.BBBNiagaraEditorLibrary.configure_projectile_impact_system(
+            channel_path, system_path, material_path)
+
+    @mcp_tool
+    @staticmethod
+    def create_projectile_sprite_material(material_path: str, kind: str) -> str:
+        """
+        /**
+         * @param material_path	新建材质路径
+         * @param kind	tracer 为明亮头部与收尖尾部 impact 为软边反馈粒子
+         * @return 新材质路径 拒绝覆盖现有资产
+         */
+        """
+        from BBBAssetWritePolicy import require_asset_write
+
+        if kind not in {"tracer", "impact"}:
+            raise RuntimeError("材质类型只允许 tracer 或 impact")
+        require_asset_write([], [material_path])
+        if unreal.EditorAssetLibrary.does_asset_exist(material_path):
+            raise RuntimeError("新材质路径已经存在")
+        directory, name = material_path.rsplit("/", 1)
+        material = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
+            name, directory, unreal.Material, unreal.MaterialFactoryNew())
+        if material is None:
+            raise RuntimeError("材质创建失败")
+        material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)
+        if kind == "tracer":
+            material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_ADDITIVE)
+        material.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_UNLIT)
+        material.set_editor_property("two_sided", True)
+        material.set_editor_property("used_with_niagara_sprites", True)
+        editing = unreal.MaterialEditingLibrary
+        try:
+            uv = editing.create_material_expression(material, unreal.MaterialExpressionTextureCoordinate, -700, -150)
+            tint = editing.create_material_expression(material, unreal.MaterialExpressionParticleColor, -700, 150)
+            custom = editing.create_material_expression(material, unreal.MaterialExpressionCustom, -400, 0)
+        except Exception as error:
+            raise RuntimeError("材质节点创建失败: " + str(error)) from error
+        custom.set_editor_property("description", "曳光头尾" if kind == "tracer" else "软边表面反馈")
+        custom.set_editor_property("output_type", unreal.CustomMaterialOutputType.CMOT_FLOAT4)
+        inputs = []
+        for name in ("UV", "Tint"):
+            value = unreal.CustomInput()
+            value.set_editor_property("input_name", name)
+            inputs.append(value)
+        custom.set_editor_property("inputs", inputs)
+        code = "float2 P = UV * 2.0 - 1.0; float Mask = pow(saturate(1.0 - dot(P,P)), 2.0); return float4(Tint.rgb, Tint.a * Mask);"
+        if kind == "tracer":
+            code = (
+                "float Along = saturate(1.0 - UV.y);\n"
+                "float X = abs(UV.x - 0.5) * 2.0;\n"
+                "float Width = lerp(0.10, 0.65, Along);\n"
+                "float Core = 1.0 - smoothstep(Width * 0.12, Width, X);\n"
+                "float Halo = pow(saturate(1.0 - X), 4.0) * 0.12;\n"
+                "float Head = pow(saturate(1.0 - abs(UV.y - 0.06) / 0.06), 2.0);\n"
+                "float End = smoothstep(0.0, 0.035, UV.y) * smoothstep(0.0, 0.12, Along);\n"
+                "float Mask = (Core * (0.15 + Along * Along) + Halo) * End;\n"
+                "return float4(Tint.rgb * (1.0 + Head * 1.8), Tint.a * Mask);"
+            )
+        custom.set_editor_property("code", code)
+        editing.connect_material_expressions(uv, "", custom, "UV")
+        editing.connect_material_expressions(tint, "RGBA", custom, "Tint")
+        rgb = editing.create_material_expression(material, unreal.MaterialExpressionComponentMask, -150, -80)
+        rgb.set_editor_property("r", True)
+        rgb.set_editor_property("g", True)
+        rgb.set_editor_property("b", True)
+        rgb.set_editor_property("a", False)
+        alpha = editing.create_material_expression(material, unreal.MaterialExpressionComponentMask, -150, 80)
+        alpha.set_editor_property("r", False)
+        alpha.set_editor_property("g", False)
+        alpha.set_editor_property("b", False)
+        alpha.set_editor_property("a", True)
+        connections = [
+            editing.connect_material_expressions(custom, "", rgb, ""),
+            editing.connect_material_expressions(custom, "", alpha, ""),
+            editing.connect_material_property(rgb, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR),
+            editing.connect_material_property(alpha, "", unreal.MaterialProperty.MP_OPACITY),
+        ]
+        if not all(connections):
+            raise RuntimeError("粒子材质连接失败")
+        editing.recompile_material(material)
+        if not unreal.EditorAssetLibrary.save_loaded_asset(material, False):
+            raise RuntimeError("粒子材质保存失败")
+        return material.get_path_name()
+
+
+
+    @mcp_tool
+    @staticmethod
     def create_static_mesh_grid_graph(graph_path: str, mesh_paths: list[str], grid_extent: float = 600.0, cell_size: float = 300.0) -> str:
         """
         /**

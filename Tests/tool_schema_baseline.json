@@ -3067,6 +3067,30 @@
         ]
       }
     },
+    "configure_projectile_tracer_finish": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {"system_path": {"type": "string"}, "channel_path": {"type": "string"}, "material_path": {"type": "string"}},
+        "required": ["system_path", "channel_path", "material_path"]
+      },
+      "outputSchema": {"type": "object", "properties": {"returnValue": {"type": "string"}}, "required": ["returnValue"]}
+    },
+    "configure_projectile_impact_system": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {"channel_path": {"type": "string"}, "system_path": {"type": "string"}, "material_path": {"type": "string"}},
+        "required": ["channel_path", "system_path", "material_path"]
+      },
+      "outputSchema": {"type": "object", "properties": {"returnValue": {"type": "string"}}, "required": ["returnValue"]}
+    },
+    "create_projectile_sprite_material": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {"material_path": {"type": "string"}, "kind": {"type": "string"}},
+        "required": ["material_path", "kind"]
+      },
+      "outputSchema": {"type": "object", "properties": {"returnValue": {"type": "string"}}, "required": ["returnValue"]}
+    },
     "configure_persistent_projectile_tracer": {
       "inputSchema": {
         "type": "object",

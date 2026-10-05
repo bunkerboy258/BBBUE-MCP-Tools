@@ -283,3 +283,13 @@ UE5.8 以 `DefaultKeyMappings` 为实际映射来源 工具调用引擎的 `unma
 工具拒绝 PIE 期间导入 等待源材质编译完成后分别捕获色调映射后的浮点颜色与反向不透明度 输出带透明背景的实际部件图 导入任务必须返回实际对象路径才允许报告成功 不将已有旧纹理当成新导入结果
 
 遇到现有 MCP 无法完成的功能时，先判断是否只是对象路径、属性名或批量参数不足。能用通用输入表达时，扩展本工具；只有通用接口无法安全表达明确领域语义时，才新增领域工具。新增工具集时更新 `Content/Python/init_unreal.py`；扩展已注册工具集时无需改动注册文件。每次扩展都须更新本文档或 `AGENTS.md`，并通过官方 MCP 的 `list_toolsets`、`describe_toolset`、`call_tool` 验证。
+
+### 子弹表面反馈与曳光收尾
+
+`create_projectile_sprite_material(material_path, kind)` 新建 Niagara Sprite 材质 `tracer` 提供亮头 收尖尾与少量光晕 `impact` 提供软边粒子 两者由粒子颜色控制颜色和淡出 拒绝覆盖已有资产
+
+`configure_projectile_tracer_finish(system_path, channel_path, material_path)` 更新已有持续曳光图表 增加 `Ending` 通道字段 结束帧捕获末位置 尺寸与原色 后续不再应用槽位读取值 五十毫秒后回收粒子 防止槽位复用串弹 新生粒子首帧不额外更新
+
+`configure_projectile_impact_system(channel_path, system_path, material_path)` 将命中通道配置为空间岛 创建或重建三个 CPU 发射器分别按 `Surface` 的 0 1 2 筛选硬表面 金属 血肉 表面事实仅含 `Position` `Normal` `Surface` 读取上一帧完整批次 后续粒子独立运动淡出 不持有命中历史
+
+以上写入入口拒绝 PIE 新资产须处于 Perforce 可添加映射 已有资产须提前独占签出 原生图表构建位于项目 `ABBB_EvacEditor/BBBNiagaraEditorLibrary` 写入后须通过 `inspect_niagara_graphs` 核对所有脚本编译状态
