@@ -12,6 +12,104 @@ class BBBLevelEditingToolset(unreal.ToolsetDefinition):
 
     @toolset_registry.tool_call
     @staticmethod
+    def configure_mass_display_spawners(
+        expected_level: str,
+        source_spawner_path: str,
+        config_paths: list[str],
+        center: list[float],
+        spacing: float,
+        radius: float,
+    ) -> str:
+        """在已签出关卡中保存十种配置各一只的 Mass 展示生成器。"""
+        if expected_level != "/Game/_Project/Maps/BBBTest":
+            raise RuntimeError("仅允许配置 BBBTest 展示关卡")
+        if len(config_paths) != 10 or len(set(config_paths)) != 10:
+            raise RuntimeError("必须提供十个互不重复的实体配置")
+        if len(center) != 3 or not all(isinstance(value, (int, float)) for value in center):
+            raise RuntimeError("展示中心必须为三个坐标值")
+        if not 100 <= spacing <= 500 or not 0 <= radius <= 100:
+            raise RuntimeError("展示间距或随机半径超出允许范围")
+        if unreal.EditorLevelLibrary.get_pie_worlds(False):
+            raise RuntimeError("配置持久关卡前必须停止 PIE")
+
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+        if world is None or world.get_path_name().split(".", 1)[0] != expected_level:
+            raise RuntimeError("当前编辑器关卡与预期关卡不符")
+        source = unreal.find_object(None, source_spawner_path)
+        if not isinstance(source, unreal.MassSpawner) or source.get_world() != world:
+            raise RuntimeError("源 MassSpawner 不属于当前编辑器关卡")
+        existing_labels = {actor.get_actor_label() for actor in
+                           unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors()}
+        names = [path.rsplit("/", 1)[-1].removeprefix("MEC_BBBZombie") for path in config_paths]
+        labels = ["BBB_Showcase_Zombie_" + name for name in names]
+        if any(label in existing_labels for label in labels):
+            raise RuntimeError("展示生成器标签已存在，拒绝重复创建")
+
+        assets = [unreal.load_asset(path) for path in config_paths]
+        if any(not isinstance(asset, unreal.MassEntityConfigAsset) for asset in assets):
+            raise RuntimeError("输入包含无效 MassEntityConfigAsset")
+        source_generators = source.get_editor_property("spawn_data_generators")
+        if len(source_generators) != 1:
+            raise RuntimeError("源生成器必须恰好包含一个出生数据生成器")
+        source_generator = source_generators[0].get_editor_property("generator_instance")
+        if not isinstance(source_generator, unreal.BBBMonsterSpawnGenerator):
+            raise RuntimeError("源生成器必须使用 BBBMonsterSpawnGenerator")
+
+        subsystem = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+        original_types = list(source.get_editor_property("entity_types"))
+        original_count = source.get_editor_property("count")
+        original_radius = source_generator.get_editor_property("spawn_radius")
+        original_location = source.get_actor_location()
+        original_label = source.get_actor_label()
+        created = []
+        try:
+            for _ in range(9):
+                duplicated = subsystem.duplicate_actors([source], world, unreal.Vector(0.0, 0.0, 0.0))
+                if len(duplicated) != 1 or not isinstance(duplicated[0], unreal.MassSpawner):
+                    raise RuntimeError("复制 MassSpawner 失败")
+                created.append(duplicated[0])
+
+            spawners = [source] + created
+            generators = []
+            for spawner in spawners:
+                entries = spawner.get_editor_property("spawn_data_generators")
+                if len(entries) != 1:
+                    raise RuntimeError("复制后的出生生成器数量不符")
+                generator = entries[0].get_editor_property("generator_instance")
+                if not isinstance(generator, unreal.BBBMonsterSpawnGenerator):
+                    raise RuntimeError("复制后的出生生成器类型不符")
+                generators.append(generator)
+            if len({generator.get_path_name() for generator in generators}) != 10:
+                raise RuntimeError("出生生成器实例没有独立复制")
+
+            for index, (spawner, generator, asset, label) in enumerate(zip(spawners, generators, assets, labels)):
+                y = center[1] + (index - 4.5) * spacing
+                spawner.set_editor_property("entity_types", [unreal.MassSpawnedEntityType(entity_config=asset, proportion=1.0)])
+                spawner.set_editor_property("count", 1)
+                generator.set_editor_property("spawn_radius", radius)
+                spawner.set_actor_location(unreal.Vector(center[0], y, center[2]), False, True)
+                spawner.set_actor_label(label)
+
+            if not unreal.EditorLevelLibrary.save_current_level():
+                raise RuntimeError("保存 BBBTest 关卡失败")
+        except Exception:
+            source.set_editor_property("entity_types", original_types)
+            source.set_editor_property("count", original_count)
+            source_generator.set_editor_property("spawn_radius", original_radius)
+            source.set_actor_location(original_location, False, True)
+            source.set_actor_label(original_label)
+            for actor in created:
+                subsystem.destroy_actor(actor)
+            raise
+
+        return json.dumps({"level": expected_level, "count": len(spawners),
+                           "spawners": [{"actor": actor.get_path_name(), "label": label,
+                                         "config": path, "location": [center[0], center[1] + (index - 4.5) * spacing, center[2]]}
+                                        for index, (actor, label, path) in enumerate(zip(spawners, labels, config_paths))],
+                           "saved": True}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
     def spawn_pie_mass_display(
         spawner_path: str,
         config_paths: list[str],
