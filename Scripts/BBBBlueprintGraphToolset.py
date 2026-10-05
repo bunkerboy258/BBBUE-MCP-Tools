@@ -401,6 +401,90 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
     @mcp_tool
     @staticmethod
     @_annotation_documentation
+    def add_blueprint_comment_node(graph_path: str, expected_snapshot: str, text: str, x: int, y: int, width: int, height: int, dry_run: bool = True) -> str:
+        """
+        /**
+         * 在明确空白位置添加独立说明框 保留所有原有节点 连线及注释
+         * @param graph_path\t项目蓝图图表完整路径 支持状态机子图
+         * @param expected_snapshot\t当前逻辑快照中的 snapshot
+         * @param text\t完整简体中文正文 支持换行
+         * @param x\t说明框左上角横坐标
+         * @param y\t说明框左上角纵坐标
+         * @param width\t说明框宽度
+         * @param height\t说明框高度
+         * @param dry_run\t是否只读预览
+         * @return 新增说明框身份及逻辑保持结果 不编译或保存
+         */
+        """
+        from BBBBlueprintAnnotations import _text
+
+        _text(text, "说明框正文")
+        if type(dry_run) is not bool or any(type(value) is not int for value in (x, y, width, height)):
+            raise RuntimeError("预览标记必须为布尔值 坐标和尺寸必须为整数")
+        if not 200 <= width <= 4096 or not 100 <= height <= 4096 or max(abs(x), abs(y)) > 1000000:
+            raise RuntimeError("说明框尺寸或坐标超出支持范围")
+
+        before = json.loads(BBBBlueprintGraphToolset.inspect_blueprint_graph_logic(graph_path))
+        if not expected_snapshot or before["snapshot"] != expected_snapshot:
+            raise RuntimeError("图表快照已变化 请重新读取后添加说明框")
+
+        report = {"graph": graph_path, "text": text, "bounds": [x, y, width, height], "dryRun": dry_run, "added": False, "logicUnchanged": True, "saved": False}
+        for node in before["nodes"]:
+            if node["isComment"] and node["nodeComment"] == text:
+                if (node["x"], node["y"], node["width"], node["height"]) != (x, y, width, height):
+                    raise RuntimeError("同正文说明框已存在于其它位置 不重复添加")
+                report["nodeGuid"] = node["guid"]
+                report["skipped"] = True
+                return json.dumps(report, ensure_ascii=False)
+
+            node_width = node.get("width", 200)
+            node_height = node.get("height", 100)
+            if x < node["x"] + node_width and x + width > node["x"] and y < node["y"] + node_height and y + height > node["y"]:
+                raise RuntimeError("说明框必须放在空白位置 禁止覆盖原有节点或说明框 " + node["path"])
+
+        if dry_run:
+            return json.dumps(report, ensure_ascii=False)
+
+        graph = unreal.load_object(None, graph_path)
+        blueprint = graph.get_outer()
+        while blueprint is not None and not isinstance(blueprint, unreal.Blueprint):
+            blueprint = blueprint.get_outer()
+        if blueprint is None:
+            raise RuntimeError("图表必须属于项目蓝图")
+        require_write_access(blueprint)
+        editor = unreal.BlueprintGraphEditor.get_graph_editor(graph)
+        comment = None
+        try:
+            with unreal.ScopedEditorTransaction("BBB Add Blueprint Comment"):
+                blueprint.modify()
+                graph.modify()
+                comment = unreal.BBBBlueprintEditorLibrary.add_blueprint_comment_node(graph, expected_snapshot, text, x, y, width, height)
+                if comment is None:
+                    raise RuntimeError("引擎没有创建说明框")
+                after = json.loads(BBBBlueprintGraphToolset.inspect_blueprint_graph_logic(graph_path))
+                original_nodes = {node["guid"]: node for node in before["nodes"]}
+                remaining_nodes = {node["guid"]: node for node in after["nodes"] if node["guid"] in original_nodes}
+                added = [node for node in after["nodes"] if node["guid"] not in original_nodes]
+                if remaining_nodes != original_nodes or after["logicSignature"] != before["logicSignature"] or len(added) != 1:
+                    raise RuntimeError("新增后原有图表发生变化 不允许保存")
+                target = added[0]
+                if not target["isComment"] or target["nodeComment"] != text or target["members"] or (target["x"], target["y"], target["width"], target["height"]) != (x, y, width, height):
+                    raise RuntimeError("说明框回读与请求不一致 不允许保存")
+                report["nodeGuid"] = target["guid"]
+                report["snapshot"] = after["snapshot"]
+        except Exception as error:
+            if comment is not None:
+                editor.remove_comment_node(comment)
+            unreal.log_error("[BBBBlueprintComment] 添加失败 未保存 {} {}".format(graph_path, error))
+            raise
+
+        report["added"] = True
+        unreal.log("[BBBBlueprintComment] 已添加独立说明框 graph={} guid={} 原有节点与连线保持原样".format(graph_path, report["nodeGuid"]))
+        return json.dumps(report, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    @_annotation_documentation
     def remove_blueprint_comment_node(graph_path: str, node_guid: str, expected_text: str, dry_run: bool = True) -> str:
         """
         /**

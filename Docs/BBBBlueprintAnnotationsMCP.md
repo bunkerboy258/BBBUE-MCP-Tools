@@ -63,6 +63,24 @@
 共享节点保留单份 且最多属于一个新区块
 新区块采用单层分组 已有固定框中的成员不能再由新区块认领
 
+## 独立说明框添加
+
+`add_blueprint_comment_node(graph_path, expected_snapshot, text, x, y, width, height, dry_run=True)` 在明确空白位置添加说明框 不调整任何原有节点或分组
+
+先读取 `inspect_blueprint_graph_logic` 并传入当前 `snapshot` 预览通过后使用同一方案传 `dry_run=false`
+正文包含标题与多行说明 使用简体中文 空格断句及半角符号
+宽度支持 200 至 4096 高度支持 100 至 4096 坐标必须为整数
+
+适用于函数图及状态机过渡子图 不依赖完整自动排版测量
+空白位置预检使用已有说明框尺寸及逻辑节点保守尺寸 因特殊节点可能更大 调用方还应确认正文可读且未遮挡原有内容
+说明框不包含逻辑节点 移动模式为 `NoGroupMovement` 不改变现有说明框正文或分组
+同正文且同位置的说明框跳过 同正文位于其它位置时拒绝重复添加
+
+实际写入使用项目原生 `BBBBlueprintEditorLibrary.AddBlueprintCommentNode` 并要求非 PIE 及 Perforce 独占签出
+该原生入口创建有效 GUID 及不包含逻辑节点的说明框 支持过渡子图 不受引擎 Python 说明框身份初始化限制
+单个事务添加后逐项核对所有原有节点与连线及 `logicSignature` 并核对新框正文 坐标和尺寸
+失败时移除本次新框并报警 不自动编译 保存 签出或 Submit
+
 ## 指定说明框删除
 
 `remove_blueprint_comment_node(graph_path, node_guid, expected_text, dry_run=True)` 默认只读预览
