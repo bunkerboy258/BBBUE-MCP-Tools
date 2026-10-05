@@ -63,6 +63,21 @@
 共享节点保留单份 且最多属于一个新区块
 新区块采用单层分组 已有固定框中的成员不能再由新区块认领
 
+## 指定说明框删除
+
+`remove_blueprint_comment_node(graph_path, node_guid, expected_text, dry_run=True)` 默认只读预览
+
+从 `inspect_blueprint_graph_logic` 的当前快照取得说明框 GUID 和完整 `nodeComment` 正文
+工具只接受 `EdGraphNode_Comment` 类型且原文完全匹配的单个说明框
+实际删除使用 UE5.8 原生 `BlueprintGraphEditor.remove_comment_node` 接口
+普通 `BlueprintTools.delete_node` 接口只支持 K2 逻辑节点 不适用于说明框
+
+确认预览后传 `dry_run=false`
+写入沿用项目 Perforce 独占签出与非 PIE 检查
+删除后回读全部剩余节点并比较 `logicSignature` 发现其它变化时报警且不保存
+工具不自动编译 保存 签出或 Submit
+正文或 GUID 已变化时必须重新读取 不自动寻找相似说明框
+
 ## 联合排版
 
 在瞬态副本测量新增气泡 不修改真实图表

@@ -401,6 +401,85 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
     @mcp_tool
     @staticmethod
     @_annotation_documentation
+    def remove_blueprint_comment_node(graph_path: str, node_guid: str, expected_text: str, dry_run: bool = True) -> str:
+        """
+        /**
+         * 精确删除指定说明框并核验其它节点与连线 不自动编译或保存
+         * @param graph_path	项目蓝图图表完整路径
+         * @param node_guid	只读快照中的说明框 GUID
+         * @param expected_text	必须与现有说明框完全一致的正文
+         * @param dry_run	是否只读预览
+         * @return 删除目标及逻辑保持结果
+         */
+        """
+        if type(dry_run) is not bool:
+            raise RuntimeError("dry_run 必须为布尔值")
+
+        if not isinstance(node_guid, str) or not node_guid:
+            raise RuntimeError("必须提供说明框 GUID")
+
+        if not isinstance(expected_text, str) or not expected_text:
+            raise RuntimeError("必须提供说明框现有正文")
+
+        before = json.loads(BBBBlueprintGraphToolset.inspect_blueprint_graph_logic(graph_path))
+        targets = [node for node in before["nodes"] if node["guid"] == node_guid]
+        if len(targets) != 1:
+            raise RuntimeError("说明框不存在或 GUID 不唯一 请重新读取图表")
+
+        target = targets[0]
+        if target["nodeClass"] != "/Script/UnrealEd.EdGraphNode_Comment":
+            raise RuntimeError("只允许删除说明框 禁止删除逻辑节点")
+
+        if target["nodeComment"] != expected_text:
+            raise RuntimeError("说明框正文已变化 请重新确认删除目标")
+
+        graph = unreal.load_object(None, graph_path)
+        blueprint = graph.get_outer()
+        if not isinstance(blueprint, unreal.Blueprint):
+            raise RuntimeError("图表必须直接属于蓝图")
+
+        report = {
+            "graph": graph_path,
+            "nodeGuid": node_guid,
+            "text": expected_text,
+            "dryRun": dry_run,
+            "removed": False,
+            "logicUnchanged": True,
+            "saved": False,
+        }
+        if dry_run:
+            return json.dumps(report, ensure_ascii=False)
+
+        require_write_access(blueprint)
+        editor = unreal.BlueprintGraphEditor.get_graph_editor(graph)
+        comments = [node for node in editor.list_comment_nodes() if node.get_path_name() == target["path"]]
+        if len(comments) != 1:
+            raise RuntimeError("说明框对象与快照不一致 不执行删除")
+
+        try:
+            with unreal.ScopedEditorTransaction("BBB Remove Blueprint Comment"):
+                blueprint.modify()
+                graph.modify()
+                comments[0].modify()
+                editor.remove_comment_node(comments[0])
+
+                after = json.loads(BBBBlueprintGraphToolset.inspect_blueprint_graph_logic(graph_path))
+                expected_nodes = {node["guid"]: node for node in before["nodes"] if node["guid"] != node_guid}
+                actual_nodes = {node["guid"]: node for node in after["nodes"]}
+                if actual_nodes != expected_nodes or after["logicSignature"] != before["logicSignature"]:
+                    raise RuntimeError("删除后图表回读不符 不允许保存 请撤销本次说明框删除")
+        except Exception as error:
+            unreal.log_error("[BBBBlueprintComment] 删除失败 尚未保存 {} {}".format(graph_path, error))
+            raise
+
+        report["removed"] = True
+        report["snapshot"] = after["snapshot"]
+        unreal.log("[BBBBlueprintComment] 已删除说明框 graph={} guid={} 其它节点与连线保持原样".format(graph_path, node_guid))
+        return json.dumps(report, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    @_annotation_documentation
     def inspect_blueprint_graph(graph_path: str) -> str:
         """
         /**
