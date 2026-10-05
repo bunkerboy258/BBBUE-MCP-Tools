@@ -12,6 +12,7 @@ from toolset_registry.registration import Registration
 
 _transition_captures = {}
 _population_runs = {}
+_inspection_population = {}
 
 
 @unreal.uclass()
@@ -21,6 +22,81 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
      * 在临时对象上渲染明确动画的多个采样姿势 不修改源资产
      */
     """
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def spawn_mass_inspection_population(config_paths: list[str], center: list[float], spacing: float, expected_level: str) -> str:
+        """
+        /**
+         * 在明确关卡的 PIE 中生成每种配置一个真实实体 不修改或保存资产
+         * @param config_paths		互不重复的实体配置 至多十六种
+         * @param center		出生网格中心 三个厘米坐标 包含离地高度
+         * @param spacing		网格间距 厘米 至少二百
+         * @param expected_level		完整关卡包路径 必须与当前 PIE 关卡一致
+         * @return 完整实体句柄的实际数量与快照
+         */
+        """
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if world is None:
+            raise RuntimeError("检查展示必须在 PIE 中运行")
+
+        actual_level = re.sub(r"UEDPIE_\d+_", "", world.get_path_name().split(".")[0])
+        if actual_level != expected_level or "-nullrhi" in unreal.SystemLibrary.get_command_line().lower():
+            raise RuntimeError("当前关卡或渲染宿主与请求不一致")
+
+        if len(center) != 3 or spacing < 200.0 or not config_paths or len(config_paths) > 16 or len(set(config_paths)) != len(config_paths):
+            raise RuntimeError("出生参数无效或实体配置重复")
+
+        if _inspection_population.get("world") == world.get_path_name():
+            raise RuntimeError("本 PIE 已创建检查群体 禁止重复生成")
+
+        if any(item.get("status") == "running" for item in _population_runs.values()):
+            raise RuntimeError("群体性能测量期间禁止创建检查群体")
+
+        mass = getattr(unreal, "BBBMassValidationLibrary", None)
+        configs = [unreal.load_asset(path) for path in config_paths]
+        if mass is None or any(not isinstance(config, unreal.MassEntityConfigAsset) for config in configs):
+            raise RuntimeError("原生实体能力或配置无效")
+
+        configs = [mass.create_actor_stress_config(world, config) for config in configs]
+        if any(config is None for config in configs):
+            raise RuntimeError("临时全骨骼检查配置创建失败")
+
+        entities = []
+        try:
+            for index, config in enumerate(configs):
+                position = unreal.Vector(center[0] + spacing * 0.5, center[1] + (index - (len(configs) - 1) * 0.5) * spacing + spacing * 0.5, center[2])
+                entities.extend(mass.spawn_population(world, [config], 1, position, spacing))
+
+            if len(entities) != len(configs):
+                raise RuntimeError("检查群体实际数量与配置数量不一致")
+        except Exception:
+            mass.destroy_population(world, entities)
+            raise
+
+        _inspection_population.clear()
+        _inspection_population.update({"world": world.get_path_name(), "configs": configs, "entities": entities, "configPaths": list(config_paths)})
+        unreal.log("Mass 检查群体已生成 数量=" + str(len(entities)) + " 关卡=" + actual_level)
+        return mass.inspect_population(world, entities)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def inspect_mass_inspection_population(pause_game: bool = False) -> str:
+        """
+        /**
+         * 回读本工具检查群体 可暂停游戏供用户观察 不操作其它实体
+         * @param pause_game		是否暂停当前检查 PIE 用户可点击继续恢复
+         * @return 实际群体快照 暂停操作失败时明确报错
+         */
+        """
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if world is None or _inspection_population.get("world") != world.get_path_name():
+            raise RuntimeError("检查群体所在 PIE 已结束或尚未生成")
+
+        if pause_game and not unreal.GameplayStatics.set_game_paused(world, True):
+            raise RuntimeError("当前 PIE 暂停失败")
+
+        return unreal.BBBMassValidationLibrary.inspect_population(world, _inspection_population["entities"])
 
     @toolset_registry.tool_call
     @staticmethod
