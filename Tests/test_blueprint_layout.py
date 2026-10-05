@@ -12,7 +12,7 @@ from unittest.mock import patch
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "Scripts"))
-from BBBBlueprintLayout import calculate_layout, layout_quality, _clear_wire_obstacles, _wire_points
+from BBBBlueprintLayout import calculate_layout, layout_quality, _clear_wire_obstacles, _wire_points, _wire_hits, _build_wire_index, _wire_candidates
 
 
 def _node(key, execution=False, x=0, y=0, width=180, height=80):
@@ -43,6 +43,30 @@ class BlueprintLayoutTests(unittest.TestCase):
         repeated = calculate_layout(next_nodes, edges, comments)
         self.assertEqual(plan["positions"], repeated["positions"])
         return plan
+
+    def test_spatial_candidates_preserve_exact_closed_bounds_and_order(self):
+        """/** @return 索引候选等同完整矩形扫描并保留稳定顺序 */"""
+        generator = random.Random(6241)
+        nodes = {str(index): _node(str(index), width=generator.randrange(10, 900), height=generator.randrange(10, 500)) for index in range(120)}
+        positions = {key: (generator.randrange(-4000, 4000), generator.randrange(-4000, 4000)) for key in nodes}
+        spatial = _build_wire_index(nodes, positions)
+        for attempt in range(100):
+            x = generator.randrange(-5000, 5000)
+            y = generator.randrange(-5000, 5000)
+            bounds = (x, y, x + generator.randrange(0, 4000), y + generator.randrange(0, 4000))
+            expected = [key for key, node in nodes.items() if positions[key][0] - 8 <= bounds[2] and positions[key][0] + node["width"] + 8 >= bounds[0] and positions[key][1] - 8 <= bounds[3] and positions[key][1] + node["height"] + 8 >= bounds[1]]
+            self.assertEqual([entry[1] for entry in _wire_candidates(spatial, bounds)], expected)
+
+    def test_filtered_wire_hits_equal_full_results(self):
+        """/** @return 单节点增量和缓存结果等同完整检测 */"""
+        nodes = {key: _node(key, width=100, height=80) for key in "ABCD"}
+        positions = {"A": (0, 0), "B": (600, 0), "C": (250, 0), "D": (350, 300)}
+        edges = [_edge("A", "B"), _edge("D", "A")]
+        cache = {}
+        full = _wire_hits(nodes, edges, positions, cache)
+        self.assertEqual(full, _wire_hits(nodes, edges, positions, cache))
+        for key in nodes:
+            self.assertEqual([hit for hit in full if hit[1] == key], _wire_hits(nodes, edges, positions, cache, node_keys={key}))
 
     def test_execution_chain_is_horizontal(self):
         """/** @return 纯节点不拉歪执行主链 */"""

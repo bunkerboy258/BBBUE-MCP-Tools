@@ -124,6 +124,9 @@ def layout_inputs(snapshot, measurement):
     if set(semantics) != set(measured):
         raise RuntimeError("注释测量遗漏或增加了原有节点")
 
+    pin_anchors = {key: {pin["pinId"]: pin for pin in item["pins"]} for key, item in measured.items() if not semantics[key]["isComment"]}
+    pin_orders = {key: {pin["pinId"]: index for index, pin in enumerate(item["pins"])} for key, item in semantics.items() if not item["isComment"]}
+
     nodes = {}
     offsets = {}
     comments = []
@@ -148,14 +151,14 @@ def layout_inputs(snapshot, measurement):
         if node["isComment"]:
             continue
 
-        anchors = {pin["pinId"]: pin for pin in measured[key]["pins"]}
+        anchors = pin_anchors[key]
         for order, pin in enumerate(node["pins"]):
             if pin["direction"] != "output":
                 continue
 
             for link in pin["links"]:
                 target = link["nodeGuid"]
-                target_pins = {item["pinId"]: item for item in measured[target]["pins"]}
+                target_pins = pin_anchors[target]
                 if pin["pinId"] not in anchors or link["pinId"] not in target_pins:
                     raise RuntimeError("连接引脚没有真实显示锚点")
 
@@ -163,7 +166,7 @@ def layout_inputs(snapshot, measurement):
                 target_anchor = target_pins[link["pinId"]]
                 edges.append({
                     "source": key, "target": target, "kind": pin["kind"],
-                    "sourceOrder": order, "targetOrder": next(index for index, candidate in enumerate(semantics[target]["pins"]) if candidate["pinId"] == link["pinId"]),
+                    "sourceOrder": order, "targetOrder": pin_orders[target][link["pinId"]],
                     "sourcePin": pin["name"], "targetPin": target_anchor["name"],
                     "sourceOffset": [source_anchor["x"] - offsets[key][0], source_anchor["y"] - offsets[key][1]],
                     "targetOffset": [target_anchor["x"] - offsets[target][0], target_anchor["y"] - offsets[target][1]],

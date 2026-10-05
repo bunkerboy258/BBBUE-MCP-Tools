@@ -1,6 +1,7 @@
 from collections import defaultdict
 import heapq
 from statistics import median
+from bisect import bisect_left, bisect_right
 
 
 def _is_main(node):
@@ -376,6 +377,40 @@ def _segment_hits_rect(start, end, rectangle):
     return True
 
 
+def _build_wire_index(nodes, positions):
+    """
+    /**
+     * 建立当前计算的双向横轴碰撞索引
+     * @param nodes	节点尺寸
+     * @param positions	本次坐标
+     * @return 左右边界索引及稳定节点顺序
+     */
+    """
+    entries = [(order, key, (positions[key][0] - 8, positions[key][1] - 8, positions[key][0] + node["width"] + 8, positions[key][1] + node["height"] + 8)) for order, (key, node) in enumerate(nodes.items())]
+    left = sorted(entries, key=lambda item: item[2][0])
+    right = sorted(entries, key=lambda item: item[2][2])
+    return left, [item[2][0] for item in left], right, [item[2][2] for item in right]
+
+
+def _wire_candidates(index, bounds):
+    """
+    /**
+     * 从较短的横轴候选集合筛选相交矩形
+     * @param index	当前节点索引
+     * @param bounds	曲线包围盒
+     * @return 保持原节点顺序的碰撞候选
+     */
+    """
+    left, starts, right, ends = index
+    end = bisect_right(starts, bounds[2])
+    start = bisect_left(ends, bounds[0])
+    candidates = left[:end]
+    if len(right) - start < end:
+        candidates = right[start:]
+
+    return sorted((entry for entry in candidates if entry[2][0] <= bounds[2] and entry[2][2] >= bounds[0] and entry[2][1] <= bounds[3] and entry[2][3] >= bounds[1]), key=lambda entry: entry[0])
+
+
 def _wire_hits(nodes, edges, positions, cache=None, edge_indices=None, node_keys=None):
     """
     /**
@@ -389,8 +424,11 @@ def _wire_hits(nodes, edges, positions, cache=None, edge_indices=None, node_keys
     hits = []
     rectangles = {
         key: (positions[key][0] - 8, positions[key][1] - 8, positions[key][0] + node["width"] + 8, positions[key][1] + node["height"] + 8)
-        for key, node in nodes.items() if node_keys is None or key in node_keys
+        for key, node in nodes.items() if node_keys is not None and key in node_keys
     }
+    spatial = None
+    if node_keys is None:
+        spatial = _build_wire_index(nodes, positions)
     indices = range(len(edges))
     if edge_indices is not None:
         indices = edge_indices
@@ -410,7 +448,11 @@ def _wire_hits(nodes, edges, positions, cache=None, edge_indices=None, node_keys
                 cache[signature] = cached
 
         points, bounds = cached
-        for key, rectangle in rectangles.items():
+        candidates = list(rectangles.items())
+        if spatial is not None:
+            candidates = [(key, rectangle) for order, key, rectangle in _wire_candidates(spatial, bounds)]
+
+        for key, rectangle in candidates:
             if key in (edge["source"], edge["target"]):
                 continue
 
@@ -435,8 +477,14 @@ def _clear_wire_obstacles(nodes, edges, positions, allowed):
      */
     """
     positions = dict(positions)
+    cache = {}
+    incidents = {key: set() for key in nodes}
+    for index, edge in enumerate(edges):
+        incidents[edge["source"]].add(index)
+        incidents[edge["target"]].add(index)
+
+    others = {key: [index for index in range(len(edges)) if index not in incident] for key, incident in incidents.items()}
     for attempt in range(min(128, len(nodes) * 4)):
-        cache = {}
         hits = _wire_hits(nodes, edges, positions, cache)
         if not hits:
             break
@@ -446,7 +494,7 @@ def _clear_wire_obstacles(nodes, edges, positions, allowed):
         candidates = set()
         for index, blocker in hits:
             edge = edges[index]
-            points = _wire_points(nodes, edge, positions)
+            points, bounds = cache[(index, positions[edge["source"]], positions[edge["target"]])]
             top = min(point[1] for point in points)
             bottom = max(point[1] for point in points)
             for key in (blocker, edge["source"], edge["target"]):
@@ -471,8 +519,8 @@ def _clear_wire_obstacles(nodes, edges, positions, allowed):
             if any(_intersects(rectangle, (trial[other][0], trial[other][1], trial[other][0] + nodes[other]["width"], trial[other][1] + nodes[other]["height"])) for other in nodes if other != key):
                 continue
 
-            incident = {index for index, edge in enumerate(edges) if key in (edge["source"], edge["target"])}
-            other = [index for index in range(len(edges)) if index not in incident]
+            incident = incidents[key]
+            other = others[key]
             count = sum(index not in incident and blocker != key for index, blocker in hits)
             count += len(_wire_hits(nodes, edges, trial, cache, incident))
             count += len(_wire_hits(nodes, edges, trial, cache, other, {key}))
@@ -484,6 +532,7 @@ def _clear_wire_obstacles(nodes, edges, positions, allowed):
             break
 
         positions = best
+        cache = {signature: value for signature, value in cache.items() if signature[1] == positions[edges[signature[0]]["source"]] and signature[2] == positions[edges[signature[0]]["target"]]}
 
     return positions
 

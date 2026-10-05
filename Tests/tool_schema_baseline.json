@@ -4775,6 +4775,32 @@
         ]
       }
     },
+    "inspect_blueprint_graph_logic": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_path": {
+            "type": "string",
+            "description": "项目蓝图图表完整路径"
+          }
+        },
+        "required": [
+          "graph_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "不含显示几何的逻辑快照"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
     "optimize_blueprint_node_layout": {
       "inputSchema": {
         "type": "object",

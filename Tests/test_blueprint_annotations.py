@@ -202,7 +202,7 @@ class AnnotationToolSafetyTests(unittest.TestCase):
         method.decorator_list = []
         self.environment = {
             "unreal": fake, "json": json,
-            "BBBBlueprintGraphToolset": types.SimpleNamespace(inspect_blueprint_graph=lambda path: json.dumps(self.snapshot)),
+            "BBBBlueprintGraphToolset": types.SimpleNamespace(inspect_blueprint_graph_logic=lambda path: json.dumps(self.snapshot)),
             "require_write_access": lambda blueprint: self.events.append("checkout"),
         }
         exec(compile(ast.Module(body=[method], type_ignores=[]), "annotation_tool", "exec"), self.environment)
@@ -229,6 +229,23 @@ class AnnotationToolSafetyTests(unittest.TestCase):
         self.assertFalse(result["changed"])
         self.assertNotIn("checkout", self.events)
         self.assertNotIn("apply", self.events)
+        self.assertEqual(self.events.count("measure"), 1)
+
+    def test_logical_read_uses_only_logical_native_interface(self):
+        """/** @return 新读取入口不调用显示测量且传播业务错误 */"""
+        tree = ast.parse((ROOT / "Scripts/BBBBlueprintGraphToolset.py").read_text(encoding="utf-8-sig"))
+        definition = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "BBBBlueprintGraphToolset")
+        method = next(node for node in definition.body if isinstance(node, ast.FunctionDef) and node.name == "inspect_blueprint_graph_logic")
+        method.decorator_list = []
+        self.environment["unreal"].EdGraph = type(self.graph)
+        self.native.inspect_blueprint_graph_logical_snapshot = lambda graph: json.dumps(self.snapshot)
+        exec(compile(ast.Module(body=[method], type_ignores=[]), "logic_read", "exec"), self.environment)
+        call = self.environment["inspect_blueprint_graph_logic"]
+        self.assertEqual(json.loads(call("/Game/Test.Test:Graph")), self.snapshot)
+        self.assertNotIn("measure", self.events)
+        self.native.inspect_blueprint_graph_logical_snapshot = lambda graph: '{"error":"读取失败"}'
+        with self.assertRaisesRegex(RuntimeError, "读取失败"):
+            call("/Game/Test.Test:Graph")
 
     def test_write_requires_checkout_before_native_apply(self):
         """/** @return 写入严格晚于签出检查 */"""

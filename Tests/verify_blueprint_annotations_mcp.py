@@ -65,14 +65,17 @@ def main():
         descriptor = _payload(session.call_tool("describe_toolset", {"toolset_name": resolve("BBBBlueprintGraphToolset")}))
         tools = {item["name"].rsplit(".", 1)[-1]: item for item in descriptor["tools"]}
         baseline = json.loads((ROOT / "Tests/tool_schema_baseline.json").read_text(encoding="utf-8"))["BBBBlueprintGraphToolset"]
-        for name in ("inspect_blueprint_graph", "annotate_blueprint_graph"):
+        for name in ("inspect_blueprint_graph", "inspect_blueprint_graph_logic", "annotate_blueprint_graph"):
             assert tools[name]["inputSchema"] == baseline[name]["inputSchema"], tools[name]
             assert tools[name]["outputSchema"] == baseline[name]["outputSchema"], tools[name]
 
-        print(json.dumps({"schemas": 2, "processId": dependencies["process_id"]}, ensure_ascii=False))
+        print(json.dumps({"schemas": 3, "processId": dependencies["process_id"]}, ensure_ascii=False))
         if args.graph:
             dirty = call("BBBGenericEditorToolset", "inspect_dirty_packages")
             snapshot = call("BBBBlueprintGraphToolset", "inspect_blueprint_graph", {"graph_path": args.graph})
+            logic = call("BBBBlueprintGraphToolset", "inspect_blueprint_graph_logic", {"graph_path": args.graph})
+            assert "geometry" not in logic, "逻辑读取触发显示测量"
+            assert logic["snapshot"] == snapshot["snapshot"] and logic["nodes"] == snapshot["nodes"], "两种读取的逻辑身份不一致"
             assert snapshot["layoutSupported"], snapshot["warnings"]
             candidates = [item for item in snapshot["nodes"] if not item["isComment"] and not item["nodeComment"]]
             assert candidates, "图表没有空注释节点"

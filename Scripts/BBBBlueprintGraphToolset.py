@@ -377,6 +377,30 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
     @mcp_tool
     @staticmethod
     @_annotation_documentation
+    def inspect_blueprint_graph_logic(graph_path: str) -> str:
+        """
+        /**
+         * 只读返回逻辑引用 引脚 连接和注释 不测量 Slate 几何
+         * @param graph_path	项目蓝图图表完整路径
+         * @return 不含显示几何的逻辑快照
+         */
+        """
+        if not isinstance(graph_path, str) or not graph_path.startswith("/Game/"):
+            raise RuntimeError("只允许读取项目蓝图图表")
+
+        graph = unreal.load_object(None, graph_path)
+        if not isinstance(graph, unreal.EdGraph):
+            raise RuntimeError("目标不是蓝图图表")
+
+        result = json.loads(unreal.BBBBlueprintEditorLibrary.inspect_blueprint_graph_logical_snapshot(graph))
+        if result.get("error"):
+            raise RuntimeError("蓝图逻辑读取失败 " + result["error"])
+
+        return json.dumps(result, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    @_annotation_documentation
     def inspect_blueprint_graph(graph_path: str) -> str:
         """
         /**
@@ -419,7 +443,7 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
         if unreal.EditorLevelLibrary.get_pie_worlds(False):
             raise RuntimeError("PIE 期间禁止注释及排版蓝图")
 
-        snapshot = json.loads(BBBBlueprintGraphToolset.inspect_blueprint_graph(graph_path))
+        snapshot = json.loads(BBBBlueprintGraphToolset.inspect_blueprint_graph_logic(graph_path))
         if not snapshot["layoutSupported"]:
             raise RuntimeError("图表无法完整测量 不允许注释排版 " + " ".join(snapshot["warnings"]))
 
