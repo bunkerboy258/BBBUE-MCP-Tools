@@ -73,9 +73,12 @@ class BBBLevelEditingToolset(unreal.ToolsetDefinition):
         if len(worlds) != 1:
             raise RuntimeError("必须恰好有一个 PIE 世界")
         world = worlds[0]
-        if not unreal.GameplayStatics.set_game_paused(world, paused):
+        if unreal.GameplayStatics.is_game_paused(world) != paused:
+            unreal.GameplayStatics.set_game_paused(world, paused)
+        actual = unreal.GameplayStatics.is_game_paused(world)
+        if actual != paused:
             raise RuntimeError("设置 PIE 暂停状态失败")
-        return json.dumps({"world": world.get_path_name(), "paused": unreal.GameplayStatics.is_game_paused(world)})
+        return json.dumps({"world": world.get_path_name(), "paused": actual})
 
     @toolset_registry.tool_call
     @staticmethod
