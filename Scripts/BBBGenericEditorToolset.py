@@ -838,6 +838,86 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def frame_texture_thumbnails(asset_paths: list[str], occupancy: float = 0.86, dry_run: bool = True) -> str:
+        """
+        /**
+         * 统一真实透明缩略图的主体占幅 不生成或替换装备内容
+         * @param asset_paths\t明确的纹理资产列表
+         * @param occupancy\t主体最长边的目标占幅
+         * @param dry_run\t只导出检查 不修改资产
+         * @return 原始边界与逐项保存结果
+         */
+        """
+        import tempfile
+        import subprocess
+        from BBBAssetWritePolicy import require_write_access
+
+        if unreal.EditorLevelLibrary.get_pie_worlds(False):
+            raise RuntimeError("PIE 期间禁止改写缩略图")
+        if not asset_paths or len(asset_paths) > 100 or len(set(asset_paths)) != len(asset_paths):
+            raise RuntimeError("纹理列表必须为一到一百个不重复的明确资产")
+        if not math.isfinite(occupancy) or not 0.65 <= occupancy <= 0.94:
+            raise RuntimeError("主体占幅超出允许范围")
+        assets = []
+        for path in asset_paths:
+            if not path.startswith("/Game/"):
+                raise RuntimeError("纹理资产必须位于 Game 目录")
+            asset = unreal.EditorAssetLibrary.load_asset(path)
+            if not isinstance(asset, unreal.Texture2D):
+                raise RuntimeError("目标不是纹理 " + path)
+            if not dry_run:
+                require_write_access(asset)
+            assets.append(asset)
+
+        root = os.path.realpath(os.path.join(unreal.Paths.project_saved_dir(), "temp", "ThumbnailFraming"))
+        os.makedirs(root, exist_ok=True)
+        results = []
+        with tempfile.TemporaryDirectory(prefix="batch-", dir=root) as directory:
+            prepared = []
+            for index, asset in enumerate(assets):
+                source = os.path.join(directory, str(index) + ".png")
+                task = unreal.AssetExportTask()
+                task.object = asset
+                task.filename = source
+                task.automated = True
+                task.prompt = False
+                task.exporter = unreal.TextureExporterPNG()
+                if not unreal.Exporter.run_asset_export_task(task):
+                    raise RuntimeError("纹理源像素导出失败 " + asset.get_path_name())
+                interpreter = os.path.realpath(os.path.join(unreal.Paths.engine_dir(),
+                    "Binaries", "ThirdParty", "Python3", "Win64", "python.exe"))
+                framing_script = os.path.join(os.path.dirname(__file__), "BBBThumbnailFraming.py")
+                completed = subprocess.run([interpreter, "-B", framing_script, source, str(occupancy)],
+                    capture_output=True, text=True, timeout=30, creationflags=subprocess.CREATE_NO_WINDOW)
+                if completed.returncode:
+                    raise RuntimeError("缩略图取景失败 " + completed.stderr[-1200:])
+                bounds = json.loads(completed.stdout)["bounds"]
+                prepared.append((asset, source, bounds))
+
+            for asset, source, bounds in prepared:
+                saved = False
+                if not dry_run:
+                    task = unreal.AssetImportTask()
+                    task.filename = source
+                    task.destination_path = asset.get_path_name().rsplit("/", 1)[0]
+                    task.destination_name = asset.get_name()
+                    task.automated = True
+                    task.replace_existing = True
+                    task.save = False
+                    unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])
+                    if asset.get_path_name() not in task.imported_object_paths:
+                        raise RuntimeError("缩略图重导入未返回目标资产")
+                    saved = unreal.EditorAssetLibrary.save_loaded_asset(asset, False)
+                    if not saved:
+                        raise RuntimeError("缩略图保存失败 " + asset.get_path_name())
+                results.append({"asset": asset.get_path_name(), "sourceBounds": bounds,
+                    "occupancy": occupancy, "saved": saved})
+        if not os.listdir(root):
+            os.rmdir(root)
+        return json.dumps({"dryRun": dry_run, "results": results}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def capture_editor_screenshot(widget_ref: str, file_name: str) -> str:
         """通过官方 Slate 截图保存指定编辑器窗口或控件 不切换焦点 不发送输入"""
         if not widget_ref:
@@ -846,7 +926,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         if not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*\.png", file_name, re.IGNORECASE):
             raise RuntimeError("文件名必须为不包含目录的 PNG 名称")
 
-        output_directory = os.path.realpath(os.path.join(unreal.Paths.project_saved_dir(), "Screenshots", "MCP"))
+        output_directory = os.path.realpath(os.path.join(unreal.Paths.project_saved_dir(), "temp", "McpScreenshots"))
         output_path = os.path.realpath(os.path.join(output_directory, file_name))
         if os.path.commonpath([output_directory, output_path]) != output_directory:
             raise RuntimeError("截图输出超出指定目录")

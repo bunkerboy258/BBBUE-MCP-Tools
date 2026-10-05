@@ -1,5 +1,17 @@
 # BBB 通用编辑器 MCP
 
+## 透明缩略图主体取景
+
+`frame_texture_thumbnails(asset_paths, occupancy=0.86, dry_run=True)` 只处理明确列出的真实透明纹理
+按透明轮廓统一主体最长边占幅 保留颜色和长宽比 不生成装备内容
+先用 dry_run 检查全部源图 正式执行前必须独占签出目标纹理
+拒绝空图 无透明背景 重复资产 非法占幅及 PIE 中的写入
+逐项导入保存 中途失败不自动重放 已保存结果需要调用方检查
+调用引擎自带 Python 子进程及其 Pillow 不要求内嵌 Python 安装依赖 临时导出统一位于 Saved/temp/ThumbnailFraming 并在调用结束清理批次目录
+
+`capture_editor_screenshot` 的截图位于 Saved/temp/McpScreenshots
+仅截图调用方明确指定的 Slate 控件 不切换焦点 调用方在验收结束后清理自己产生的截图
+
 ## 精确重载已保存资产
 
 `reload_assets_from_disk(asset_paths, discard_dirty_packages, dry_run=True)` 接受一至六十四个精确 `/Game/` 内容资产包路径，不接受目录、地图、PIE 或尚未保存的新资产。默认只预检；正式调用前核对返回的 `discarding`。

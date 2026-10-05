@@ -4209,6 +4209,22 @@
         ]
       }
     },
+    "frame_texture_thumbnails": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {"type": "array", "items": {"type": "string"}},
+          "occupancy": {"type": "number", "default": 0.86},
+          "dry_run": {"type": "boolean", "default": true}
+        },
+        "required": ["asset_paths"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {"returnValue": {"type": "string"}},
+        "required": ["returnValue"]
+      }
+    },
     "capture_editor_screenshot": {
       "inputSchema": {
         "type": "object",
