@@ -1694,6 +1694,83 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
     @toolset_registry.tool_call
     @staticmethod
+    def rewrite_animation_node_binding_paths(
+        blueprint_path: str,
+        replacements_json: str,
+        dry_run: bool,
+    ) -> str:
+        """
+        /**
+         * 将指定动画节点的唯一隐藏绑定改为显式属性访问 不自动保存
+         * @param blueprint_path	已签出的目标动画蓝图
+         * @param replacements_json	包含 nodePath property oldPath newPath 的请求数组
+         * @param dry_run	仅核验全部旧路径而不修改资产
+        * @return 命中节点与编译状态
+         */
+        """
+        if unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+            raise RuntimeError("必须先结束 PIE 才能修改动画节点绑定")
+
+        blueprint = unreal.EditorAssetLibrary.load_asset(blueprint_path)
+        if not isinstance(blueprint, unreal.AnimBlueprint):
+            raise RuntimeError("目标不是动画蓝图: {}".format(blueprint_path))
+
+        requests = json.loads(replacements_json)
+        if not isinstance(requests, list) or not requests:
+            raise RuntimeError("必须提供非空的精确绑定请求数组")
+
+        prepared = []
+        seen = set()
+        for item in requests:
+            node_path = item["nodePath"]
+            key = unreal.Name(item["property"])
+            identity = (node_path, str(key))
+            if identity in seen or not node_path.startswith(blueprint.get_path_name() + ":"):
+                raise RuntimeError("绑定节点重复或不属于目标蓝图: {}".format(identity))
+
+            seen.add(identity)
+            node = unreal.load_object(None, node_path)
+            if node is None:
+                raise RuntimeError("绑定节点不存在: {}".format(node_path))
+
+            graph_snapshot = json.loads(unreal.BBBBlueprintEditorLibrary.inspect_blueprint_graph_snapshot(node.get_outer()))
+            node_snapshot = next(value for value in graph_snapshot["nodes"] if value["path"] == node_path)
+            bindings = node_snapshot.get("propertyBindings", [])
+            if len(bindings) != 1 or bindings[0]["property"] != str(key):
+                raise RuntimeError("节点必须只有请求指定的一项隐藏绑定: {}".format(identity))
+
+            if not bindings[0]["bound"] or bindings[0]["promotion"] or bindings[0]["onlyUpdateWhenActive"]:
+                raise RuntimeError("仅支持不含类型提升与活跃阶段限制的有效绑定: {}".format(identity))
+
+            old_path = bindings[0]["propertyPath"]
+            if old_path != item["oldPath"] or not item["newPath"]:
+                raise RuntimeError("绑定路径与请求不一致: {} {}".format(identity, old_path))
+
+            prepared.append((node, key, item))
+
+        if not dry_run:
+            blueprint.modify()
+            for node, key, item in prepared:
+                node.modify()
+                if not unreal.ToolsetLibrary.set_object_properties(node, json.dumps({"Binding": None})):
+                    raise RuntimeError("旧隐藏绑定清理失败: {}".format(item["nodePath"]))
+
+                if not unreal.BBBBlueprintEditorLibrary.bind_animation_node_input(node, key, item["newPath"]):
+                    raise RuntimeError("显式属性访问创建失败: {}".format(item["nodePath"]))
+
+            unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
+            if blueprint.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+                raise RuntimeError("隐藏绑定路径修改后编译未通过 不保存资产")
+
+        result = {
+            "dryRun": dry_run,
+            "updates": requests,
+            "status": str(blueprint.get_editor_property("status")),
+        }
+        return json.dumps(result, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
     def rewrite_animation_property_access_paths(
         blueprint_paths: list[str],
         path_replacements_json: str,

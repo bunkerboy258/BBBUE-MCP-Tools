@@ -228,6 +228,8 @@ IK 重建通过网格查询真实父骨名，使用 FK 脚组件变换相对于�
 
 ## IK 重定向链配置
 
+`rewrite_animation_node_binding_paths` 将指定动画节点的唯一隐藏绑定替换为显式 Property Access 节点 不自动保存 先使用 `dry_run=true` 核对每项旧路径 再执行修改 请求数组的每项必须包含 `nodePath` `property` `oldPath` `newPath` 节点必须属于指定蓝图 全部旧路径匹配后才允许写入 含多项绑定的节点拒绝修改 编译存在警告或错误时报警并保留现场 不保存
+
 通过 `Game.Scripts.BBBExternalToolset.BBBExternalToolset.retarget` 调用以下动作：
 
 - `set_retarget_chain_bones`：修改已有 IK 链的起止骨骼，保存前回读核对；链不存在或回读不匹配时返回失败。
