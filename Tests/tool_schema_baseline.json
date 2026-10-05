@@ -203,12 +203,16 @@
           },
           "source_frame": {
             "type": "integer"
+          },
+          "identity_transform": {
+            "type": "boolean"
           }
         },
         "required": [
           "animation_path",
           "bone_names",
-          "source_frame"
+          "source_frame",
+          "identity_transform"
         ]
       },
       "outputSchema": {
@@ -7810,6 +7814,14 @@
             "type": "number",
             "description": "目标非循环动作进度 *"
           },
+          "initial_speed": {
+            "type": "number",
+            "description": "初始实际速度 厘米每秒 *"
+          },
+          "target_speed": {
+            "type": "number",
+            "description": "目标实际速度 厘米每秒 *"
+          },
           "sample_seconds": {
             "type": "array",
             "items": {
@@ -7835,6 +7847,8 @@
           "target_state",
           "initial_progress",
           "target_progress",
+          "initial_speed",
+          "target_speed",
           "sample_seconds",
           "bone_names",
           "file_prefix"
@@ -8397,6 +8411,24 @@
             },
             "description": "各分组数量 *"
           },
+          "progress_pivots": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "sample_pivots": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "progress_ends": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
           "blend_duration": {
             "type": "number",
             "description": "重启过渡秒数 *",
@@ -8406,7 +8438,10 @@
         "required": [
           "asset_path",
           "variant_paths",
-          "counts"
+          "counts",
+          "progress_pivots",
+          "sample_pivots",
+          "progress_ends"
         ]
       },
       "outputSchema": {
@@ -8415,6 +8450,58 @@
           "returnValue": {
             "type": "string",
             "description": "严格编译保存结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_fact_locomotion_variants": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "独占持有的事实动画蓝图 *"
+          },
+          "idle_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "同骨架循环待机序列 *"
+          },
+          "scout_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "同骨架循环搜索序列 *"
+          },
+          "stationary_speed": {
+            "type": "number",
+            "description": "静止判定厘米每秒上限 *",
+            "default": 3
+          },
+          "blend_duration": {
+            "type": "number",
+            "description": "静止搜索过渡秒数 *",
+            "default": 0.18
+          }
+        },
+        "required": [
+          "asset_path",
+          "idle_paths",
+          "scout_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "严格编译与保存结果 */"
           }
         },
         "required": [

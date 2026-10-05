@@ -32,7 +32,7 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
         if not re.fullmatch(r"[A-Za-z0-9_-]+", file_prefix) or not asset_paths or len(asset_paths) > 64:
             raise RuntimeError("诊断前缀或数量无效")
 
-        directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "Diagnostics", "AnimationAudits"))
+        directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "temp", "AnimationAudits"))
         path = os.path.join(directory, file_prefix + ".json")
         if os.path.exists(path):
             raise RuntimeError("诊断文件存在 禁止覆盖")
@@ -186,7 +186,7 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def configure_fact_action_variants(asset_path: str, variant_paths: list[str], counts: list[int], blend_duration: float = 0.16) -> str:
+    def configure_fact_action_variants(asset_path: str, variant_paths: list[str], counts: list[int], progress_pivots: list[float], sample_pivots: list[float], progress_ends: list[float], blend_duration: float = 0.16) -> str:
         """
         /**
          * 为现有事实状态机配置线程安全动作变体及同状态惯性重启
@@ -197,6 +197,16 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
          * @return 严格编译保存结果
          */
         """
+        if len(counts) != 3 or any(count < 1 for count in counts) or sum(counts) != len(variant_paths):
+            raise RuntimeError("动作变体必须明确分为攻击 受伤 死亡三个非空组")
+
+        if any(len(values) != len(variant_paths) for values in (progress_pivots, sample_pivots, progress_ends)):
+            raise RuntimeError("时间锚点必须与全部动作变体一一对应")
+
+        for pivot, sample, end in zip(progress_pivots, sample_pivots, progress_ends):
+            if not all(math.isfinite(value) for value in (pivot, sample, end)) or not 0.0 < pivot < end <= 1.0 or not 0.0 < sample < 1.0:
+                raise RuntimeError("动作时间锚点无效")
+
         if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
             raise RuntimeError("PIE 期间禁止配置动作变体")
 
@@ -207,7 +217,7 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
 
         require_write_access(blueprint)
 
-        if not unreal.BBBAnimationGraphEditorLibrary.configure_fact_action_variants(blueprint, sequences, counts, blend_duration):
+        if not unreal.BBBAnimationGraphEditorLibrary.configure_fact_action_variants(blueprint, sequences, counts, progress_pivots, sample_pivots, progress_ends, blend_duration):
             raise RuntimeError("变体构图失败 不保存")
 
         unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
@@ -217,7 +227,43 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
         if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
             raise RuntimeError("变体动画蓝图保存失败")
 
-        return json.dumps({"asset": asset_path, "variants": list(variant_paths), "counts": list(counts), "saved": True}, ensure_ascii=False)
+        return json.dumps({"asset": asset_path, "variants": list(variant_paths), "counts": list(counts), "progressPivots": list(progress_pivots), "samplePivots": list(sample_pivots), "progressEnds": list(progress_ends), "saved": True}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def configure_fact_locomotion_variants(asset_path: str, idle_paths: list[str], scout_paths: list[str], stationary_speed: float = 3.0, blend_duration: float = 0.18) -> str:
+        """
+        /**
+         * 在事实移动状态中配置身份选择待机 搜索与稳定起点错相
+         * @param asset_path		独占持有的事实动画蓝图
+         * @param idle_paths		同骨架循环待机序列
+         * @param scout_paths		同骨架循环搜索序列
+         * @param stationary_speed		静止判定厘米每秒上限
+         * @param blend_duration		静止搜索过渡秒数
+         * @return 严格编译与保存结果
+         */
+        """
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止配置移动变体")
+
+        blueprint = unreal.load_asset(asset_path)
+        idle = [unreal.load_asset(path) for path in idle_paths]
+        scout = [unreal.load_asset(path) for path in scout_paths]
+        if not isinstance(blueprint, unreal.AnimBlueprint) or any(not isinstance(sequence, unreal.AnimSequence) for sequence in idle + scout):
+            raise RuntimeError("动画蓝图或静止序列无效")
+
+        require_write_access(blueprint)
+        if not unreal.BBBAnimationGraphEditorLibrary.configure_fact_locomotion_variants(blueprint, idle, scout, stationary_speed, blend_duration):
+            raise RuntimeError("静止搜索构图失败 不保存")
+
+        unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
+        if blueprint.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+            raise RuntimeError("静止搜索图未无警告编译通过 不保存")
+
+        if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
+            raise RuntimeError("静止搜索动画蓝图保存失败")
+
+        return json.dumps({"asset": asset_path, "idle": list(idle_paths), "scout": list(scout_paths), "phaseBuckets": 29, "saved": True}, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod

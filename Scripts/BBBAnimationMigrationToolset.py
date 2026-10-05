@@ -3442,10 +3442,10 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def hold_animation_bone_tracks(animation_path: str, bone_names: list[str], source_frame: int) -> str:
+    def hold_animation_bone_tracks(animation_path: str, bone_names: list[str], source_frame: int, identity_transform: bool) -> str:
         """将指定骨骼轨道固定为选定帧 保留其它轨道与动画数据"""
         import BBBAnimationTrajectoryTools
-        return BBBAnimationTrajectoryTools.hold_tracks(animation_path, bone_names, source_frame)
+        return BBBAnimationTrajectoryTools.hold_tracks(animation_path, bone_names, source_frame, identity_transform)
 
 
 

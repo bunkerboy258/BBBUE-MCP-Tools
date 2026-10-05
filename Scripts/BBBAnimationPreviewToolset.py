@@ -146,7 +146,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
             if any(config is None for config in configs):
                 raise RuntimeError("全骨骼压力配置创建失败")
 
-        directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "Diagnostics", "PopulationBenchmarks"))
+        directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "temp", "PopulationBenchmarks"))
         os.makedirs(directory, exist_ok=True)
         result_path = os.path.join(directory, file_prefix + ".json")
         csv_path = os.path.join(directory, file_prefix + ".csv")
@@ -321,7 +321,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
         if not isinstance(mesh, unreal.SkeletalMesh):
             raise RuntimeError("骨骼网格不存在")
 
-        directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "Diagnostics", "AnimationSamples"))
+        directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "temp", "AnimationSamples"))
         requests = []
         for path in animation_paths:
             animation = unreal.load_asset(path)
@@ -400,7 +400,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def capture_monster_animation_transition(actor_blueprint_path: str, initial_state: int, target_state: int, initial_progress: float, target_progress: float, sample_seconds: list[float], bone_names: list[str], file_prefix: str) -> str:
+    def capture_monster_animation_transition(actor_blueprint_path: str, initial_state: int, target_state: int, initial_progress: float, target_progress: float, initial_speed: float, target_speed: float, sample_seconds: list[float], bone_names: list[str], file_prefix: str) -> str:
         """
         /**
          * 在无 Mass 实体的临时表现演员上渲染真实动画蓝图切换 不写玩法状态
@@ -409,6 +409,8 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
          * @param target_state			目标表现状态 零至五
          * @param initial_progress		初始非循环动作进度
          * @param target_progress			目标非循环动作进度
+         * @param initial_speed			初始实际速度 厘米每秒
+         * @param target_speed			目标实际速度 厘米每秒
          * @param sample_seconds			切换后秒数 从左至右 至多三项
          * @param bone_names			需要记录的组件空间骨骼 可为空
          * @param file_prefix			唯一截图前缀
@@ -432,12 +434,15 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
         if not sample_seconds or len(sample_seconds) > 3 or any(not 0.0 <= value <= 0.5 for value in sample_seconds) or sample_seconds != sorted(sample_seconds):
             raise RuntimeError("采样时刻须有序且位于零至半秒 每次至多三项")
 
+        if not 0.0 <= initial_speed <= 10000.0 or not 0.0 <= target_speed <= 10000.0:
+            raise RuntimeError("初始与目标实际速度必须明确且有效")
+
         blueprint = unreal.load_asset(actor_blueprint_path)
         if not isinstance(blueprint, unreal.Blueprint):
             raise RuntimeError("表现演员蓝图不存在")
 
         states = [unreal.BBBMonsterBehavior.IDLE, unreal.BBBMonsterBehavior.SCOUT, unreal.BBBMonsterBehavior.CHASE, unreal.BBBMonsterBehavior.ATTACK, unreal.BBBMonsterBehavior.HURT, unreal.BBBMonsterBehavior.DEAD]
-        directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "Diagnostics", "AnimationSamples"))
+        directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "temp", "AnimationSamples"))
         filename = file_prefix + "_" + blueprint.get_name() + ".png"
         image_path = os.path.join(directory, filename)
         if os.path.exists(image_path):
@@ -468,7 +473,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
                         presentation.set_editor_property(name, [])
 
                     mesh.set_component_tick_enabled(False)
-                    presentation.call_method("ApplyPresentationState", (states[initial_state], 100.0, 1.0, 1, initial_progress))
+                    presentation.call_method("ApplyPresentationState", (states[initial_state], initial_speed, 1.0, 1, initial_progress))
                     if not library.evaluate_animation_blueprint_frame(mesh, 0.001):
                         raise RuntimeError("初始动画蓝图求值失败")
 
@@ -485,7 +490,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
                     actor.set_actor_scale3d(unreal.Vector(preview_scale, preview_scale, preview_scale))
                     before = {name: mesh.get_socket_transform(name, unreal.RelativeTransformSpace.RTS_COMPONENT).translation for name in bone_names}
                     yield
-                    presentation.call_method("ApplyPresentationState", (states[target_state], 100.0, 2.0, 2, target_progress))
+                    presentation.call_method("ApplyPresentationState", (states[target_state], target_speed, 2.0, 2, target_progress))
                     if not library.evaluate_animation_blueprint_frame(mesh, 0.0001):
                         raise RuntimeError("目标动画蓝图求值失败")
 

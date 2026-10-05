@@ -1,5 +1,23 @@
 # 显式时间动画过渡图
 
+## 事实移动变体与显式时间锚点
+
+真实状态过渡采样 `capture_monster_animation_transition` 必须传入 `initial_speed` 与 `target_speed`，单位厘米每秒；静止状态使用零，移动状态使用明确速度。不再固定用 100 代替所有状态，以免待机与搜索样本实际进入移动图。调用方须读取正式定义中的受击、攻击与死亡时长，不得以 C++ 默认值替代资产当前值。
+
+当前基础状态机整体重建为 Idle、Scout、Locomotion、Attack、Hurt、Dead 六状态，删除目标蓝图旧函数、事件图、成员变量及旧动画图内容，继承的事实属性不变。静止且侦察进入 Scout，其它静止存活行为进入 Idle，实际移动且非动作行为进入 Locomotion；动作直接按事实切换，死亡没有出口。旧四状态实现不保留。随后必须配置循环变体与动作锚点；循环变体入口现在配置独立 Idle、Scout 图，不再向移动图叠加嵌套兼容混合。`stationary_speed` 更新六状态切换阈值。
+
+动画采样与群体验收输出分别写入 `Saved/temp/AnimationSamples`、`Saved/temp/PopulationBenchmarks`，收尾仅清除本次前缀对应报告，不删除其它会话的结果。
+
+动画根轨道审查文件现写入 `Saved/temp/AnimationAudits`；调用方收尾时必须清除自己创建的报告，不删除其它会话的文件。
+
+`hold_animation_bone_tracks` 现在必须明确提供 `identity_transform`：为 true 时指定轨道固定为单位变换，为 false 时固定为 `source_frame` 的原始变换。用于根轨道归零时应仅指定 root；固定首帧并不等于归零，首帧可能存在位置偏移。入口保留写权限检查，只保存明确序列，不改变其它轨道。
+
+`configure_fact_locomotion_variants` 配置独立 Idle、Scout 表现状态，不新增玩法状态。保留 Locomotion 中唯一速度 BlendSpace；实际速度高于 `stationary_speed` 时进入移动状态，否则 BehaviorFact 为 1 时进入搜索，其余存活非动作行为进入待机。两个循环组以 PresentationIdFact 对数量取余选择静态序列播放器，起点由身份对 29 取余映射至动画时长，循环由标准 UE 播放器推进。身份稳定，不使用随机逐帧切换，不写入 Mass 事实。可在动作变体配置前后调用；重建基础状态机后须重新配置。
+
+`configure_fact_action_variants` 现在必须明确提供与全部变体一一对应的 `progress_pivots`、`sample_pivots`、`progress_ends`。逻辑进度 0、pivot、end 分别映射到归一化动画采样 0、sample pivot、1，之后钳制保持末帧。必须满足 0 < progress pivot < end <= 1 且 0 < sample pivot < 1。攻击的逻辑 pivot 应取游戏命中进度（当前标准值 0.4），sample pivot 应由源动画实测命中姿势确定。死亡可将 end 设置为倒地时长与尸体保留时长之比，提前完成并保持末帧。没有旧参数签名回退；所有调用方须显式提供映射。映射只改变表现采样，不改变伤害、受伤或尸体生命周期。
+
+配置入口拒绝 PIE、要求资产写权限、严格编译并只保存指定目标。源循环须另行审查根轨道、接缝与实际姿势；构图成功不代表视觉通过。原生库更新后必须重新编译并加载最新项目模块。
+
 ## 动作变体与预算载体扩展
 
 `create_mass_presentation_variant` 从已验证载体、定义与实体配置复制三个不存在的新资产，绑定完整同骨架合并网格，重新连接定义与 MEC 以及表现 Trait；严格检查各一个装配、编译保存。必须先确认模块外观组合，不自动提交资产。

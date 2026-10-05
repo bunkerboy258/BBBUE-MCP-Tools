@@ -74,7 +74,7 @@ def replace_montage_references(montage_path, replacements_json):
     return json.dumps({"replaced": count})
 
 
-def hold_tracks(animation_path, bone_names, source_frame):
+def hold_tracks(animation_path, bone_names, source_frame, identity_transform):
     from BBBAssetWritePolicy import require_write_access
 
     animation = unreal.load_asset(animation_path)
@@ -85,7 +85,7 @@ def hold_tracks(animation_path, bone_names, source_frame):
     try:
         for name in bone_names:
             values = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, name)
-            value = values[min(source_frame, len(values) - 1)]
+            value = unreal.Transform() if identity_transform else values[min(source_frame, len(values) - 1)]
             if not controller.set_bone_track_keys(name, [value.translation] * count, [value.rotation] * count, [value.scale3d] * count, False):
                 raise RuntimeError("固定骨骼轨道失败 " + name)
     finally:
