@@ -14,6 +14,10 @@
 
 ## 精确重载已保存资产
 
+`reimport_texture(asset_path, source_file)` 将绝对路径的 PNG 原位导入已有 Texture2D 并只保存该资产。
+目标必须已独占签出 不允许 PIE 或覆盖未保存修改 保留原导入设置 验证导入返回唯一原路径。
+它不办理签出 不生成副本或重定向器 失败后应检查资产状态 不自动重试。
+
 `reload_assets_from_disk(asset_paths, discard_dirty_packages, dry_run=True)` 接受一至六十四个精确 `/Game/` 内容资产包路径，不接受目录、地图、PIE 或尚未保存的新资产。默认只预检；正式调用前核对返回的 `discarding`。
 
 脏包只有逐项出现在 `discard_dirty_packages` 中才允许重载；该数组必须是目标列表子集。调用方必须确认这些未保存修改属于本任务且确实应放弃，不以此丢弃用户或其他会话的改动。工具使用原生 ReloadPackages，无弹窗、不保存、不执行 Perforce Revert，结束后回读目标脏状态；部分失败会报警，不自动重试。重载会替换内存对象，后续重新查询对象引用。

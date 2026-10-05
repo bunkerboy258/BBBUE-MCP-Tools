@@ -4285,6 +4285,21 @@
         ]
       }
     },
+    "reimport_texture": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {"type": "string"},
+          "source_file": {"type": "string"}
+        },
+        "required": ["asset_path", "source_file"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {"returnValue": {"type": "string"}},
+        "required": ["returnValue"]
+      }
+    },
     "reimport_sound_waves": {
       "inputSchema": {
         "type": "object",

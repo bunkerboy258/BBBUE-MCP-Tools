@@ -666,6 +666,48 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def reimport_texture(asset_path: str, source_file: str) -> str:
+        """
+        /**
+         * @param asset_path	已有 Texture2D 的明确包路径
+         * @param source_file	用于替换像素的 PNG 文件绝对路径
+         * @return 原位更新并保存的资产路径与尺寸
+         */
+        """
+        from BBBAssetWritePolicy import require_write_access
+
+        if not os.path.isabs(source_file) or not os.path.isfile(source_file) or not source_file.lower().endswith(".png"):
+            raise RuntimeError("源文件必须是存在的 PNG 绝对路径")
+        texture = unreal.load_asset(asset_path)
+        if not isinstance(texture, unreal.Texture2D):
+            raise RuntimeError("目标必须是已有 Texture2D")
+        package = texture.get_outermost().get_path_name()
+        dirty = unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()
+        if any(item.get_path_name() == package for item in dirty):
+            raise RuntimeError("目标有未保存修改 拒绝覆盖: " + package)
+        require_write_access(texture)
+
+        task = unreal.AssetImportTask()
+        task.filename = os.path.realpath(source_file)
+        task.destination_path = package.rsplit("/", 1)[0]
+        task.destination_name = texture.get_name()
+        task.automated = True
+        task.replace_existing = True
+        task.replace_existing_settings = False
+        task.save = False
+        unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])
+        imported = list(task.get_objects())
+        if len(imported) != 1 or imported[0].get_path_name() != texture.get_path_name():
+            unreal.log_error("[BBBTextureReimport] 导入未返回唯一目标: " + package)
+            raise RuntimeError("纹理原位导入失败 请检查目标状态")
+        if not unreal.EditorAssetLibrary.save_loaded_asset(imported[0], only_if_is_dirty=False):
+            unreal.log_error("[BBBTextureReimport] 保存失败: " + package)
+            raise RuntimeError("纹理保存失败")
+        return json.dumps({"asset": texture.get_path_name(), "width": texture.blueprint_get_size_x(),
+            "height": texture.blueprint_get_size_y()}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def reimport_sound_waves(source_directory: str, destination_path: str, source_suffix: str = "_Shot", recursive: bool = True) -> str:
         """将目录中的 WAV 原位重导入已有 SoundWave 并仅保存目标资产"""
         from BBBAssetWritePolicy import require_write_access
