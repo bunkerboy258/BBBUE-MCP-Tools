@@ -1240,6 +1240,31 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
 
     @toolset_registry.tool_call
     @staticmethod
+    def inspect_native_package_referencers(script_packages: list[str]) -> str:
+        """
+        /**
+         * 只读查找原生模块脚本包的全部资产引用者 不加载资产
+         * @param script_packages	明确的 /Script 模块包路径 最多 64 项
+         * @return 各脚本包的直接资产引用者
+         */
+        """
+        if not script_packages or len(script_packages) > 64 or len(set(script_packages)) != len(script_packages):
+            raise RuntimeError("必须提供 1 至 64 个不重复脚本包")
+        if any(not re.fullmatch(r"/Script/[A-Za-z][A-Za-z0-9_]*", path) for path in script_packages):
+            raise RuntimeError("脚本包路径格式无效")
+        registry = _move_registry()
+        options = unreal.AssetRegistryDependencyOptions(
+            include_soft_package_references=True,
+            include_hard_package_references=True,
+            include_searchable_names=True,
+            include_soft_management_references=True,
+            include_hard_management_references=True,
+        )
+        results = {path: sorted({str(name) for name in registry.get_referencers(path, options) or []}) for path in script_packages}
+        return json.dumps({"read_only": True, "referencers": results}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
     def inspect_asset_packages(asset_paths: list[str]) -> str:
         """
         /**
@@ -2280,6 +2305,64 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
                 unreal.log_error("[BBB][AssetIsolation]原生删除或物理核验失败 " + object_path)
                 return json.dumps({"success": False, "files": files}, ensure_ascii=False)
 
+        return json.dumps({"success": True, "files": files}, ensure_ascii=False)
+
+    @toolset_registry.tool_call
+    @staticmethod
+    def delete_unreferenced_uncontrolled_assets(expected_files_json: str, dry_run: bool = True) -> str:
+        """
+        /**
+         * 原生删除明确排除版本控制的第三方无引用资产 不生成兼容包
+         * @param expected_files_json	含 package 和 sha256 的精确清单
+         * @param dry_run	默认仅预检
+         * @return 原生删除结果与物理文件清除状态
+         */
+        """
+        import stat
+
+        requests = json.loads(expected_files_json)
+        if not isinstance(requests, list) or not requests or len(requests) > 32:
+            raise RuntimeError("必须提供 1 至 32 个精确资产")
+        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+            raise RuntimeError("脏包或 PIE 期间拒绝删除")
+        if len({row["package"] for row in requests}) != len(requests):
+            raise RuntimeError("删除清单包含重复包")
+
+        registry = _move_registry()
+        files = []
+        for row in requests:
+            package = _move_path(row["package"])
+            if not package.startswith("/Game/_ThirdParty/"):
+                raise RuntimeError("仅允许排除版本控制的第三方包")
+            filename = _move_filename(package)
+            if not os.path.isfile(filename) or os.stat(filename).st_file_attributes & stat.FILE_ATTRIBUTE_READONLY:
+                raise RuntimeError("目标缺失或磁盘只读")
+            if _move_referencers(registry, package):
+                raise RuntimeError("仍有引用者 拒绝删除: " + package)
+            if unreal.SourceControl.is_enabled():
+                states = unreal.SourceControl.query_file_states([filename], silent=True, use_source_control_state_cache=False)
+                if len(states) != 1 or states[0].is_source_controlled or states[0].is_added or states[0].is_checked_out_other:
+                    raise RuntimeError("资产受版本控制或存在他人签出 禁止走排除目录删除")
+            with open(filename, "rb") as handle:
+                digest = hashlib.sha256(handle.read()).hexdigest()
+            if digest != row["sha256"]:
+                raise RuntimeError("资产文件发生变化 拒绝删除")
+            files.append({"package": package, "file": filename, "sha256": digest})
+
+        if dry_run:
+            return json.dumps({"dry_run": True, "files": files}, ensure_ascii=False)
+
+        for row in files:
+            object_path = row["package"] + "." + row["package"].rsplit("/", 1)[-1]
+            asset = unreal.load_object(None, object_path, follow_redirectors=False)
+            if asset is None or asset.get_path_name() != object_path:
+                raise RuntimeError("无法加载真实主资产")
+            row["native_deleted"] = unreal.BBBAssetRepairEditorLibrary.delete_asset_packages([asset])
+            row["physical_file_absent"] = not os.path.exists(row["file"])
+            if not row["native_deleted"] or not row["physical_file_absent"]:
+                unreal.log_error("[BBBUncontrolledDelete]原生删除或磁盘核验失败 " + object_path)
+                return json.dumps({"success": False, "files": files}, ensure_ascii=False)
+        unreal.log("[BBBUncontrolledDelete]清除 {} 个第三方无引用包".format(len(files)))
         return json.dumps({"success": True, "files": files}, ensure_ascii=False)
 
 

@@ -1,5 +1,9 @@
 # 精确资产维护 MCP
 
+`inspect_native_package_referencers(script_packages)` 只读查询明确 `/Script/模块名` 的全部直接资产引用者 最多 64 项. 使用完成扫描的资产注册表 同时检查硬引用 软引用及管理引用 不加载或修改资产. 用于移除原生模块前后核验资产依赖.
+
+`delete_unreferenced_uncontrolled_assets(expected_files_json, dry_run=True)` 原生删除已排除版本控制的第三方无引用资产. 清单逐项指定 `package` 和检查阶段的 `sha256` 最多 32 项. 仅接受 `/Game/_ThirdParty/` 下真实可写文件 严格核对无引用 无脏包 无 PIE 及未受版本控制. 受控资产或他人签出拒绝执行. 不创建备份或重定向 不执行 P4 Add Submit 或 Revert. 返回物理文件清除结果 部分失败停止且不自动重试.
+
 `fixup_redirector_references_batch(asset_paths, referencer_paths, dry_run=True)` 仅处理明确引用者, 单批最多 32 项. 预览只读注册表, 不加载目标. 执行前须备份并签出所选引用者; 工具逐包核对实际加载类型, 阻止本次加载新产生的项目蓝图错误、所选引用者自身已有的蓝图错误以及脏包, 不会因无关且既有的蓝图错误阻止本批保存. 使用原生软引用替换与逐包保存更新引用, 不修改蓝图图表, 不删除重定向器, 不执行签出/Submit/Get Latest/Revert. 保存后强制刷新引用者目录, remaining_selected 表示本批包是否仍残留旧路径; success 要求没有本批残留和脏包. 返回 saved 是已完成部分, 遇到失败不直接重试整批; 先核对磁盘, 日志和部分结果.
 
 分批修复器同时接受明确的单主资产 `World` 地图包引用者，地图包也必须先备份并由当前用户独占签出；`__ExternalActors__` 引用者必须改用专用工具，其他多主资产包仍拒绝。
