@@ -6,7 +6,7 @@ import time
 import csv
 
 import unreal
-import toolset_registry
+from BBBMcpCapabilities import mcp_tool
 from toolset_registry.registration import Registration
 
 
@@ -23,7 +23,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
      */
     """
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def spawn_mass_inspection_population(config_paths: list[str], center: list[float], spacing: float, expected_level: str) -> str:
         """
@@ -79,7 +79,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
         unreal.log("Mass 检查群体已生成 数量=" + str(len(entities)) + " 关卡=" + actual_level)
         return mass.inspect_population(world, entities)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_mass_inspection_population(pause_game: bool = False) -> str:
         """
@@ -98,7 +98,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
 
         return unreal.BBBMassValidationLibrary.inspect_population(world, _inspection_population["entities"])
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def start_mass_population_benchmark(config_paths: list[str], counts: list[int], center: list[float], spacing: float, expected_level: str, file_prefix: str, warmup_seconds: float = 5.0, measurement_seconds: float = 10.0, force_actor_representation: bool = False) -> str:
         """
@@ -273,7 +273,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
         save_report()
         return json.dumps({"runId": run_id, "status": "running", "resultPath": result_path, "csvPath": csv_path}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_mass_population_benchmark(run_id: str) -> str:
         """
@@ -288,7 +288,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
             raise RuntimeError("当前宿主不存在这一测量")
         return json.dumps({key: value for key, value in report.items() if key != "cases"} | {"completedCases": len(report["cases"])}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def capture_animation_samples(mesh_path: str, animation_paths: list[str], sample_progress: list[float], file_prefix: str) -> str:
         """
@@ -398,7 +398,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
         return json.dumps({"mesh": mesh.get_path_name(), "captures": reports, "temporaryActorsDestroyed": True}, ensure_ascii=False)
 
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def capture_monster_animation_transition(actor_blueprint_path: str, initial_state: int, target_state: int, initial_progress: float, target_progress: float, sample_seconds: list[float], bone_names: list[str], file_prefix: str) -> str:
         """
@@ -585,7 +585,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
         handle = unreal.register_slate_post_tick_callback(advance_frame)
         return json.dumps(record, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_animation_transition_capture(capture_id: str) -> str:
         """

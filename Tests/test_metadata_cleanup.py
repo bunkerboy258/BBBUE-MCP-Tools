@@ -25,7 +25,7 @@ class MetadataCleanupTests(unittest.TestCase):
             "_move_dirty_packages": lambda: [],
             "_move_registry": lambda: self.registry,
             "_move_referencers": lambda registry, path: [],
-            "_require_move_checkout": lambda sources, targets: self.calls.append("checkout"),
+            "require_asset_write": lambda sources, targets: self.calls.append("checkout"),
             "unreal": types.SimpleNamespace(
                 LevelEditorSubsystem=object,
                 get_editor_subsystem=lambda kind: types.SimpleNamespace(is_in_play_in_editor=lambda: False),
@@ -104,7 +104,7 @@ class MapRedirectorDeletionTests(unittest.TestCase):
                 "_move_dirty_packages": lambda: [],
                 "_move_referencers": lambda registry, path: [],
                 "_move_class_path": lambda value: value,
-                "_require_move_checkout": lambda sources, targets: None,
+                "require_asset_write": lambda sources, targets: None,
                 "_move_filename": lambda path, extension=".uasset": str(Path(directory) / ("OldWorld" + extension)),
                 "unreal": types.SimpleNamespace(
                     LevelEditorSubsystem=object,
@@ -203,7 +203,7 @@ class MissingSoftPathRepairTests(unittest.TestCase):
             "_move_primary_assets": lambda records: records,
             "_move_class_path": lambda path: path,
             "_move_referencers": lambda registry, path: self.refs,
-            "_require_move_checkout": lambda paths, targets: self.calls.append("checkout"),
+            "require_asset_write": lambda paths, targets: self.calls.append("checkout"),
             "_move_blocking_blueprint_errors": lambda before, after, paths: [],
             "unreal": types.SimpleNamespace(
                 LevelEditorSubsystem=object,
@@ -299,7 +299,7 @@ class AssetIsolationGuardTests(unittest.TestCase):
             "_move_registry": lambda: object(),
             "_move_referencers": lambda registry, path: [],
             "_move_filename": lambda path: str(self.source),
-            "_require_move_checkout": lambda paths, destinations: self.calls.append("checkout"),
+            "require_asset_write": lambda paths, destinations: self.calls.append("checkout"),
             "unreal": types.SimpleNamespace(
                 LevelEditorSubsystem=object,
                 get_editor_subsystem=lambda kind: types.SimpleNamespace(is_in_play_in_editor=lambda: False),

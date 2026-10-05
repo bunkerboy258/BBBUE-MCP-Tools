@@ -3,6 +3,8 @@ import os
 
 import unreal
 import toolset_registry
+from BBBMcpCapabilities import mcp_tool
+from BBBAssetWritePolicy import require_write_access
 from toolset_registry.registration import Registration
 from editor_toolset.toolsets.blueprint import BlueprintTools
 from editor_toolset.toolsets import blueprint_dsl
@@ -149,39 +151,12 @@ def _capture_layout_graph(graph):
     return objects, nodes, edges, comments, estimated
 
 
-def _require_layout_checkout(blueprint):
-    """
-    /**
-     * 写入前核对源控 不自动签出或保存目标资产
-     * @param blueprint	目标蓝图
-     * @return 检查通过时无返回值
-     */
-    """
-    from editor_toolset.toolsets.asset import AssetTools
-
-    path = blueprint.get_path_name()
-    if not unreal.SourceControl.is_enabled() or not unreal.SourceControl.is_available():
-        raise RuntimeError("蓝图排版写入前必须连接 Perforce")
-
-    if unreal.SourceControl.current_provider() != "Perforce":
-        raise RuntimeError("蓝图排版写入要求 Perforce 独占签出")
-
-    package = path.split(".", 1)[0]
-    filename = os.path.abspath(os.path.join(unreal.Paths.project_content_dir(), package[len("/Game/"):] + ".uasset"))
-    state = unreal.SourceControl.query_file_state(filename, silent=True, use_source_control_state_cache=False)
-    writable = AssetTools.is_checked_out(path) and AssetTools.can_edit_asset(path)
-    if state.is_valid and state.is_added and state.can_edit and not state.is_checked_out_other:
-        writable = True
-
-    if not state.is_valid or state.is_unknown or state.is_checked_out_other or state.is_conflicted or state.is_deleted or not writable:
-        raise RuntimeError("目标蓝图必须已独占签出或已打开添加且可编辑 " + path)
-
 
 @unreal.uclass()
 class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
     """通过显式语言映射复用官方蓝图图表工具 不改变编辑器语言"""
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def configure_blueprint_function_thread_safety(blueprint_path: str, function_name: str, thread_safe: bool, dry_run: bool = True) -> str:
         """检查或设置蓝图函数线程安全声明 编译失败时不保存"""
@@ -225,7 +200,7 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
         result["saved"] = True
         return json.dumps(result, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def invoke_pie_object_function(object_path: str, function_name: str, arguments_json: str) -> str:
         """调用当前 PIE 对象的反射函数 拒绝编辑器资产与默认对象"""
@@ -246,7 +221,7 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
         result = instance.call_method(function_name, tuple(arguments))
         return json.dumps({"object": object_path, "function": function_name, "result": result}, default=str, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_owned_objects(asset_path: str, class_path: str) -> str:
         """只读列出指定资产内部的指定类型对象 不遍历其它资产"""
@@ -271,7 +246,7 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
             results.append(item)
         return json.dumps(results, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def optimize_blueprint_node_layout(
         graph_path: str,
@@ -351,7 +326,7 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
                 if plan["after"]["wireNodeIntersections"]:
                     raise RuntimeError("拒绝应用连线穿过节点的布局")
 
-                _require_layout_checkout(blueprint)
+                require_write_access(blueprint)
                 original = {path: (nodes[path]["x"], nodes[path]["y"]) for path in changes}
                 with unreal.ScopedEditorTransaction("BBB Optimize Blueprint Node Layout"):
                     blueprint.modify()
@@ -399,7 +374,7 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
         )
         return json.dumps(report, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     @_annotation_documentation
     def inspect_blueprint_graph(graph_path: str) -> str:
@@ -423,7 +398,7 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
 
         return json.dumps(result, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     @_annotation_documentation
     def annotate_blueprint_graph(graph_path: str, annotations_json: str, dry_run: bool = True) -> str:
@@ -468,7 +443,7 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
             if not plan["canApply"]:
                 raise RuntimeError("注释布局质量不满足写入要求 请检查预览报告")
 
-            _require_layout_checkout(graph.get_outer())
+            require_write_access(graph.get_outer())
             result = json.loads(unreal.BBBBlueprintEditorLibrary.apply_blueprint_graph_annotations(graph, json.dumps(plan, ensure_ascii=False)))
             if result.get("error"):
                 raise RuntimeError("注释写入失败 " + result["error"])
@@ -480,7 +455,7 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
         unreal.log("[BBBBlueprintAnnotations] graph={} dry_run={} blocks={} node_comments={} changed={}".format(graph_path, dry_run, len(prepared["blocks"]), len(prepared["nodeComments"]), plan["changed"]))
         return json.dumps(plan, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def write_graph(graph_path: str, code: str, node_aliases_json: str, pin_aliases_json: str) -> str:
         """写入指定项目蓝图图表并编译 不自动保存 失败时保留撤销记录并明确报警"""

@@ -4,10 +4,9 @@ import os
 import re
 
 import unreal
-import toolset_registry
+from BBBMcpCapabilities import mcp_tool
 from toolset_registry.registration import Registration
-from toolset_registry.helpers import require_editable
-from editor_toolset.toolsets.asset import AssetTools
+from BBBAssetWritePolicy import require_write_access
 
 
 @unreal.uclass()
@@ -18,7 +17,7 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
      */
     """
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def audit_animation_tracks(asset_paths: list[str], bone_names: list[str], file_prefix: str) -> str:
         """
@@ -80,7 +79,7 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
             json.dump(report, destination, ensure_ascii=False, indent=2)
         return json.dumps(report, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def create_mass_presentation_variant(source_actor_path: str, source_definition_path: str, source_config_path: str, mesh_path: str, destination_root: str, variant_name: str) -> str:
         """
@@ -155,7 +154,7 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
 
         return json.dumps({"actor": paths[0], "definition": paths[1], "entityConfig": paths[2], "mesh": mesh_path, "saved": True}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def create_merged_skeletal_asset(asset_path: str, part_paths: list[str]) -> str:
         """
@@ -185,7 +184,7 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
 
         return json.dumps({"asset": mesh.get_path_name(), "parts": list(part_paths), "sourceMeshDescription": True, "lodCount": 3, "saved": True}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def configure_fact_action_variants(asset_path: str, variant_paths: list[str], counts: list[int], blend_duration: float = 0.16) -> str:
         """
@@ -206,10 +205,7 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
         if not isinstance(blueprint, unreal.AnimBlueprint) or any(not isinstance(sequence, unreal.AnimSequence) for sequence in sequences):
             raise RuntimeError("动画蓝图或序列无效")
 
-        require_editable(blueprint)
-        state = unreal.SourceControl.query_file_state(asset_path, True, False)
-        if state.get_editor_property("is_checked_out_other") or not (AssetTools.is_checked_out(asset_path) or state.get_editor_property("is_added")):
-            raise RuntimeError("必须由当前工作区独占持有动画蓝图")
+        require_write_access(blueprint)
 
         if not unreal.BBBAnimationGraphEditorLibrary.configure_fact_action_variants(blueprint, sequences, counts, blend_duration):
             raise RuntimeError("变体构图失败 不保存")
@@ -223,7 +219,7 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
 
         return json.dumps({"asset": asset_path, "variants": list(variant_paths), "counts": list(counts), "saved": True}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def reparent_presentation_blueprint(asset_path: str, parent_class_path: str) -> str:
         """
@@ -242,10 +238,7 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
         if not isinstance(blueprint, unreal.Blueprint) or parent is None or not hasattr(unreal.get_default_object(parent), "get_monster_mesh"):
             raise RuntimeError("蓝图或表现载体父类无效")
 
-        require_editable(blueprint)
-        state = unreal.SourceControl.query_file_state(asset_path, True, False)
-        if state.get_editor_property("is_checked_out_other") or not (AssetTools.is_checked_out(asset_path) or state.get_editor_property("is_added")):
-            raise RuntimeError("必须由当前工作区独占持有载体蓝图")
+        require_write_access(blueprint)
 
         unreal.BlueprintEditorLibrary.reparent_blueprint(blueprint, parent)
         unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
@@ -262,7 +255,7 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
 
         return json.dumps({"asset": asset_path, "parent": parent_class_path, "mesh_class": mesh.get_class().get_path_name(), "saved": True}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def create_speed_blend_space(asset_path: str, sequence_paths: list[str], speeds: list[float], smoothing_time: float = 0.12) -> str:
         """
@@ -301,7 +294,7 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
 
         return json.dumps({"asset": asset_path, "sequences": list(sequence_paths), "speeds": list(speeds), "saved": True}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def rebuild_fact_driven_state_machine(asset_path: str, locomotion_path: str, action_paths: list[str], fact_properties: list[str], action_values: list[int], blend_duration: float = 0.18, parent_class_path: str = "") -> str:
         """
@@ -333,10 +326,7 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
         if len(actions) != 3 or any(not isinstance(action, unreal.AnimSequence) for action in actions):
             raise RuntimeError("必须指定三个有效动作序列")
 
-        require_editable(blueprint)
-        state = unreal.SourceControl.query_file_state(asset_path, True, False)
-        if state.get_editor_property("is_checked_out_other") or not (AssetTools.is_checked_out(asset_path) or state.get_editor_property("is_added")):
-            raise RuntimeError("目标动画蓝图必须由当前工作区独占持有")
+        require_write_access(blueprint)
 
         if parent_class_path:
             parent = unreal.load_class(None, parent_class_path)
@@ -361,7 +351,7 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
         unreal.log("[BBBAnimationGraph] FACT_STATE_MACHINE_SAVED " + asset_path)
         return json.dumps({"asset": asset_path, "actions": list(action_paths), "locomotion": locomotion_path, "saved": True}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def rebuild_sequence_crossfade_blueprint(asset_path: str, preview_animation_path: str, getter_names: list[str]) -> str:
         """
@@ -381,10 +371,7 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
         if not isinstance(blueprint, unreal.AnimBlueprint) or not isinstance(animation, unreal.AnimSequence):
             raise RuntimeError("动画蓝图或预览序列无效")
 
-        require_editable(blueprint)
-        state = unreal.SourceControl.query_file_state(asset_path, True, False)
-        if state.get_editor_property("is_checked_out_other") or not (AssetTools.is_checked_out(asset_path) or state.get_editor_property("is_added")):
-            raise RuntimeError("目标必须由当前工作区独占持有")
+        require_write_access(blueprint)
 
         if not unreal.BBBAnimationGraphEditorLibrary.build_sequence_crossfade_graph(blueprint, animation, [unreal.Name(name) for name in getter_names]):
             raise RuntimeError("图表结构不允许还原 尚未保存")
@@ -398,7 +385,7 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
 
         return json.dumps({"asset": asset_path, "saved": True}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def create_sequence_crossfade_blueprint(asset_path: str, parent_class_path: str, mesh_path: str, preview_animation_path: str, getter_names: list[str]) -> str:
         """
@@ -455,7 +442,7 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
         unreal.log("[BBBAnimationGraph] SAVED " + asset_path)
         return json.dumps({"asset": blueprint.get_path_name(), "generatedClass": blueprint.generated_class().get_path_name(), "status": str(status), "saved": True}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def configure_actor_animation_blueprint(actor_blueprint_path: str, mesh_component_property: str, animation_blueprint_path: str) -> str:
         """
@@ -475,13 +462,7 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
         if not isinstance(blueprint, unreal.Blueprint) or not isinstance(animation, unreal.AnimBlueprint):
             raise RuntimeError("演员或动画蓝图无效")
 
-        require_editable(blueprint)
-        state = unreal.SourceControl.query_file_state(actor_blueprint_path, True, False)
-        if state.get_editor_property("is_checked_out_other"):
-            raise RuntimeError("演员蓝图被其它工作区占用")
-
-        if not AssetTools.is_checked_out(actor_blueprint_path) and not state.get_editor_property("is_added"):
-            raise RuntimeError("写入前必须独占签出演员蓝图")
+        require_write_access(blueprint)
 
         component = unreal.get_default_object(blueprint.generated_class()).get_editor_property(mesh_component_property)
         if not isinstance(component, unreal.SkeletalMeshComponent):
@@ -512,7 +493,7 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
         unreal.log("[BBBAnimationGraph] BOUND " + actor_blueprint_path)
         return json.dumps({"asset": blueprint.get_path_name(), "component": component.get_path_name(), "animationClass": component.get_editor_property("anim_class").get_path_name(), "animationMode": str(component.get_editor_property("animation_mode")), "saved": True}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def bind_sequence_crossfade_getters(asset_path: str, getter_names: list[str]) -> str:
         """
@@ -530,10 +511,7 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
         if not isinstance(blueprint, unreal.AnimBlueprint):
             raise RuntimeError("动画蓝图不存在")
 
-        require_editable(blueprint)
-        state = unreal.SourceControl.query_file_state(asset_path, True, False)
-        if state.get_editor_property("is_checked_out_other") or not (AssetTools.is_checked_out(asset_path) or state.get_editor_property("is_added")):
-            raise RuntimeError("动画蓝图必须由本工作区独占持有")
+        require_write_access(blueprint)
 
         if not unreal.BBBAnimationGraphEditorLibrary.bind_sequence_crossfade_getters(blueprint, [unreal.Name(name) for name in getter_names]):
             raise RuntimeError("图表结构或快照查询不符合要求 尚未保存")

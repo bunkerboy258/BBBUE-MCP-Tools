@@ -9,7 +9,7 @@ import time
 
 import unreal
 
-import toolset_registry
+from BBBMcpCapabilities import mcp_tool
 from editor_toolset.toolsets.blueprint import BlueprintTools
 from toolset_registry.registration import Registration
 
@@ -477,7 +477,7 @@ def _build_ik_foot_track_data(animation, mesh):
 class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
     """为 BBB 动画迁移提供官方 MCP 探针和编辑入口"""
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def simplify_animation_data_accesses(
         blueprint_paths: list[str],
@@ -515,7 +515,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
         return json.dumps(results, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def migrate_animation_data_accesses(
         blueprint_paths: list[str],
@@ -563,7 +563,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
         return json.dumps(results, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def repair_raise_weapon_after_firing_transition(blueprint_path: str) -> str:
         """将失效的开火标签转换绑定替换为当前动画事实查询"""
@@ -599,7 +599,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             ensure_ascii=False,
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def apply_try_weapon_animation_fallbacks(
         blueprint_paths: list[str],
@@ -653,7 +653,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
         return json.dumps({"results": results}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def repair_main_anim_instance_accesses(blueprint_path: str) -> str:
         """将主动画实例包装访问统一替换为原生线程安全入口"""
@@ -689,7 +689,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             ensure_ascii=False,
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def configure_character_rifle_actions(
         character_blueprint_path: str,
@@ -742,7 +742,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             ensure_ascii=False,
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def create_equipment_action_montages(
         source_paths: list[str],
@@ -768,7 +768,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
         return json.dumps({"created": created}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def create_rifle_magazine_reload_animation(
         source_path: str,
@@ -788,7 +788,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
          * @return 新动画与配置的校验摘要
          */
         """
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_write_access
 
         if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
             raise RuntimeError("PIE 期间禁止创建步枪换弹资产")
@@ -799,7 +799,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
         if not isinstance(source, unreal.AnimSequence) or definition is None or not isinstance(magazine_mesh, unreal.StaticMesh):
             raise RuntimeError("步枪换弹源动画 配置或弹匣网格无效")
 
-        require_editable(definition)
+        require_write_access(definition)
         if unreal.EditorAssetLibrary.does_asset_exist(animation_path) or unreal.EditorAssetLibrary.does_asset_exist(montage_path):
             raise RuntimeError("新动画或蒙太奇路径已存在")
 
@@ -895,7 +895,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             "magazineMesh": magazine_mesh_path,
         }, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_animation_bone_track_keys(asset_path: str, bone_name: str, sample_count: int = 12) -> str:
         """
@@ -934,7 +934,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             } for index in indices],
         }, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def create_lyra_rifle_character_montages(
         source_root: str,
@@ -985,7 +985,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
         return json.dumps({"created": created}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def probe_python_api(type_names: list[str]) -> str:
         """探测指定 Unreal Python 类型当前实际暴露的接口"""
@@ -1004,7 +1004,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
         return json.dumps(result, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def configure_control_rig_anim_graph_node(
         blueprint_path: str,
@@ -1048,7 +1048,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             ensure_ascii=False,
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def add_animation_layer_boolean_input(
         blueprint_path: str,
@@ -1111,7 +1111,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             ensure_ascii=False,
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def configure_recoil_animation_graphs(
         interface_blueprint_path: str,
@@ -1239,7 +1239,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             ensure_ascii=False,
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def create_control_rig_anim_graph_node(
         blueprint_path: str,
@@ -1289,7 +1289,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             ensure_ascii=False,
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def audit_ik_foot_tracks(root_path: str, mesh_path: str) -> str:
         """审计动画中供 Stride Warping 使用的左右 IK 脚轨道"""
@@ -1324,7 +1324,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
         return json.dumps(result, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def audit_ik_foot_tracks_against_reference(
         current_root_path: str,
@@ -1409,7 +1409,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
         )
         return json.dumps(result, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def rebuild_ik_foot_tracks(animation_paths: list[str], mesh_path: str) -> str:
         """原位重建指定动画供 Stride Warping 使用的左右 IK 脚轨道"""
@@ -1529,7 +1529,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
         return json.dumps(result, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def start_locomotion_runtime_probe() -> str:
         """启动只读 PIE 移动动画、同步播放器和最终脚部姿势探针"""
@@ -1563,7 +1563,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             ensure_ascii=False,
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def run_editor_script(script_path: str) -> str:
         """在编辑器内执行项目 Scripts 目录下的 Python 脚本并返回其标准输出"""
@@ -1593,7 +1593,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             ensure_ascii=False,
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def stop_locomotion_runtime_probe() -> str:
         """停止 PIE 移动动画探针并关闭报告文件"""
@@ -1606,7 +1606,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
         return json.dumps({"stopped": True}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def probe_animation_blueprint(asset_path: str) -> str:
         """读取动画蓝图的图表、节点、骨架和父类"""
@@ -1645,7 +1645,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
         return json.dumps(result, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def probe_animation_property_access_paths(asset_paths: list[str]) -> str:
         """读取动画蓝图中属性存取节点隐藏的完整属性路径"""
@@ -1692,7 +1692,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
         return json.dumps(result, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def rewrite_animation_node_binding_paths(
         blueprint_path: str,
@@ -1769,7 +1769,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
         }
         return json.dumps(result, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def rewrite_animation_property_access_paths(
         blueprint_paths: list[str],
@@ -1843,7 +1843,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
         return json.dumps({"updated": updated}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def rename_animation_blueprint_variables(
         blueprint_path: str,
@@ -1878,7 +1878,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
         return json.dumps({"renamed": renamed}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def probe_animation_assets(asset_paths: list[str]) -> str:
         """读取动画序列的骨架、长度、根运动、曲线、通知和同步标记"""
@@ -1951,7 +1951,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
         return json.dumps(result, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def probe_animation_component_poses(
         asset_paths: list[str],
@@ -2023,7 +2023,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
         report["reportPath"] = _write_diagnostic_report("BBBAnimationComponentPoses.json", report)
         return json.dumps(report, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def probe_animation_bone_trajectories(
         asset_paths: list[str],
@@ -2081,7 +2081,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
         return json.dumps(result, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def audit_animation_dependencies(
         root_path: str,
@@ -2124,7 +2124,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             ensure_ascii=False,
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def audit_animation_migration_metadata(root_path: str) -> str:
         """汇总正式动画仍携带的编辑器修改器、压缩设置、加法基准和通知引用"""
@@ -2194,7 +2194,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
         return json.dumps(result, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def finalize_animation_runtime_assets(
         notify_source_paths: list[str],
@@ -2306,7 +2306,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             ensure_ascii=False,
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def clean_retargeted_animation_dependencies(
         root_path: str,
@@ -2427,7 +2427,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             ensure_ascii=False,
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def replace_lyra_animation_references(
         source_root: str,
@@ -2497,7 +2497,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
         return json.dumps(result, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def retarget_missing_animations(
         source_asset_paths: list[str],
@@ -2561,7 +2561,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
         return json.dumps({"created": created}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def set_animation_blueprint_skeletons(
         blueprint_paths: list[str],
@@ -2590,7 +2590,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
         return json.dumps({"updated": updated}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def set_animation_blueprint_preview_mesh(
         blueprint_path: str,
@@ -2626,7 +2626,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             ensure_ascii=False,
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def set_animation_asset_preview_meshes(
         mesh_path: str,
@@ -2735,7 +2735,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             ensure_ascii=False,
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def set_animation_sequence_preview_meshes(
         animation_paths: list[str],
@@ -2812,7 +2812,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             ensure_ascii=False,
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def set_animation_folder_preview_meshes(
         folder_path: str,
@@ -2916,7 +2916,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             ensure_ascii=False,
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def run_pie_input_sequence(steps_json: str) -> str:
         """按 schemaVersion:2 在 PIE 游戏帧中注入角色 Enhanced Input"""
@@ -2932,20 +2932,20 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             steps_json
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def get_pie_input_sequence_status() -> str:
         """读取PIE输入序列的当前执行状态"""
         return unreal.BBBPIEInputEditorLibrary.get_pie_input_sequence_status(
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def stop_pie_input_sequence() -> str:
         """停止PIE输入序列并释放全部注入输入"""
         return unreal.BBBPIEInputEditorLibrary.stop_pie_input_sequence()
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def export_animation_blueprint_graphs(blueprint_path: str) -> str:
         """严格只读导出动画蓝图图、节点、引脚与绑定"""
@@ -2957,7 +2957,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             blueprint
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def restore_lyra_stop_pose(blueprint_path: str) -> str:
         """恢复 Lyra 原版停步姿势并移除停步专用方向扭曲"""
@@ -2990,7 +2990,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             ensure_ascii=False,
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def capture_pie_character_pose(camera_offset: list[float], file_name: str, width: int = 960, height: int = 960) -> str:
         """在 PIE 世界临时渲染本地角色，输出带游戏帧号的姿势截图路径"""
@@ -3041,7 +3041,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
         finally:
             actor.destroy_actor()
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def probe_pie_character_animation_runtime() -> str:
         """读取PIE本地玩家角色的主层、链接层和腿部骨骼快照"""
@@ -3058,7 +3058,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             pawn
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def build_weapon_animation_graph(
         blueprint_path: str,
@@ -3100,7 +3100,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             ensure_ascii=False,
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def remap_animation_blueprint_blend_profiles(
         blueprint_path: str,
@@ -3139,7 +3139,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             ensure_ascii=False,
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def rebuild_blend_space_skeleton(
         blend_space_path: str,
@@ -3248,7 +3248,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             ensure_ascii=False,
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def copy_animation_skeleton_metadata(source_skeleton_path: str, target_skeleton_path: str, target_to_source_bones: dict[str, str]) -> str:
         """按目标骨名复制混合遮罩、虚拟骨骼、插槽与蒙太奇分组"""
@@ -3260,7 +3260,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             raise RuntimeError("目标骨架保存失败")
         return json.dumps({"source": source_skeleton_path, "target": target_skeleton_path})
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def rebind_animation_blueprint_interface(blueprint_path: str, source_interface_path: str, target_interface_path: str) -> str:
         """替换已实现的动画接口并保留现有覆盖图"""
@@ -3275,7 +3275,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             raise RuntimeError("动画蓝图保存失败")
         return json.dumps({"blueprint": blueprint_path, "count": count, "status": str(blueprint.get_editor_property("status"))})
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def remap_animation_blueprint_class_references(blueprint_path: str, class_paths: dict[str, str]) -> str:
         """统一替换目标动画蓝图中的转换类、函数返回类与引脚类型"""
@@ -3290,7 +3290,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             raise RuntimeError("动画蓝图保存失败")
         return json.dumps({"blueprint": blueprint_path, "count": count})
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def probe_animation_instance_runtime(instance_path: str) -> str:
         """安全读取 PIE 动画实例的实际状态和活跃播放器"""
@@ -3299,7 +3299,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             raise RuntimeError("运行时动画实例不存在")
         return unreal.BBBBlueprintEditorLibrary.probe_animation_instance_runtime(instance)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def remap_animation_sequence_notify_classes(animation_path: str, class_paths: dict[str, str]) -> str:
         """替换目标动画的通知类并保留全部事件设置"""
@@ -3312,7 +3312,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
         return json.dumps({"animation": animation_path, "count": count})
 
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def audit_arm_twist_tracks(animation_paths: list[str], mesh_path: str) -> str:
         """
@@ -3326,7 +3326,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
         import BBBArmTwistTools
         return BBBArmTwistTools.audit(animation_paths, mesh_path)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def rebuild_arm_twist_tracks(animation_paths: list[str], mesh_path: str, dry_run: bool = True) -> str:
         """
@@ -3342,7 +3342,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
         return BBBArmTwistTools.rebuild(animation_paths, mesh_path, dry_run)
 
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def capture_animation_pose(animation_path: str, mesh_path: str, time_seconds: float, focus_bone: str, camera_offset: list[float], file_name: str) -> str:
         """
@@ -3361,14 +3361,14 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
         return BBBArmTwistTools.capture(animation_path, mesh_path, time_seconds, focus_bone, camera_offset, file_name)
 
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_pie_arm_pose() -> str:
         """/** @return 本地角色各网格的手臂姿势和活动动画报告 */"""
         import BBBArmTwistTools
         return BBBArmTwistTools.inspect_pie_arms()
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def capture_pie_bone_pose(focus_bone: str, camera_offset: list[float], file_name: str) -> str:
         """
@@ -3384,7 +3384,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
         return BBBArmTwistTools.capture_pie_bone(focus_bone, camera_offset, file_name)
 
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def limit_hand_swing_tracks(animation_paths: list[str], mesh_path: str, maximum_swing_degrees: float, dry_run: bool = True) -> str:
         """
@@ -3401,7 +3401,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
         return BBBArmTwistTools.limit_hand_swing(animation_paths, mesh_path, maximum_swing_degrees, dry_run)
 
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def start_pie_montage_motion_capture(montage_path: str, sample_times: list[float], file_prefix: str, interrupt_time: float = -1.0, capture_images: bool = True, post_roll_seconds: float = 0.6, exposure_compensation: float = 1.0, fill_light_intensity: float = 5000.0, focus_bone: str = "spine_03") -> str:
         """在本地角色播放指定蒙太奇时记录手臂与装备运动并定时截图"""
@@ -3409,7 +3409,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
         return BBBAnimationMotionTools.start_capture(montage_path, sample_times, file_prefix, interrupt_time,
             capture_images, post_roll_seconds, exposure_compensation, fill_light_intensity, focus_bone)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def get_pie_montage_motion_capture_status() -> str:
         """读取蒙太奇运动采样状态与报告目录"""
@@ -3417,7 +3417,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
         return BBBAnimationMotionTools.capture_status()
 
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def export_animation_motion_context(animation_paths: list[str], mesh_paths: list[str], file_name: str) -> str:
         """导出骨骼层级与原始动画轨道供离线动画编辑计算"""
@@ -3425,7 +3425,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
         return BBBAnimationMotionTools.export_context(animation_paths, mesh_paths, file_name)
 
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def restore_animation_from_source(source_path: str, destination_path: str) -> str:
         """删除目标动画并从源动画原位复制 使目标内容与源完全一致"""
@@ -3433,14 +3433,14 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
         return BBBAnimationTrajectoryTools.restore_from_source(source_path, destination_path)
 
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def replace_montage_animation_references(montage_path: str, replacements_json: str) -> str:
         """按显式映射替换蒙太奇中的等长动画片段 保留通知和播放配置"""
         import BBBAnimationTrajectoryTools
         return BBBAnimationTrajectoryTools.replace_montage_references(montage_path, replacements_json)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def hold_animation_bone_tracks(animation_path: str, bone_names: list[str], source_frame: int) -> str:
         """将指定骨骼轨道固定为选定帧 保留其它轨道与动画数据"""
@@ -3450,7 +3450,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
 
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def configure_weapon_handling_graphs(blueprint_path: str, animation_path: str = "", camera: bool = False) -> str:
         """
@@ -3471,7 +3471,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             return json.dumps(BBBWeaponHandlingTools.configure_camera_recoil(blueprint_path), ensure_ascii=False)
         return json.dumps(BBBWeaponHandlingTools.configure_animation_handling(blueprint_path, animation_path), ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def sample_weapon_handling_runtime(action: str, seconds: float = 8.0, equipment_class_path: str = "") -> str:
         """
@@ -3488,7 +3488,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
         importlib.reload(BBBWeaponHandlingTools)
         return json.dumps(BBBWeaponHandlingTools.sample_runtime(action, seconds, equipment_class_path), ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def submit_character_diagnostic_inputs(requests_json: str) -> str:
         """
@@ -3515,7 +3515,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             results.append({"name": request["name"], "submitted": submitted})
         return json.dumps({"pawn": pawn.get_path_name(), "results": results}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def create_backward_additive_animation(source_path: str, destination_path: str, bone_name: str, local_offset: list[float], duration: float = 0.2) -> str:
         """
@@ -3537,7 +3537,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
         return json.dumps(BBBWeaponHandlingTools.create_backward_additive(source_path, destination_path, bone_name, local_offset, duration), ensure_ascii=False)
 
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def create_animation_slice(source_path: str, destination_path: str, start_frame: int, end_frame: int) -> str:
         """

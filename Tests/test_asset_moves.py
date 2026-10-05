@@ -337,7 +337,7 @@ class AssetMoveTests(unittest.TestCase):
             "_move_referencers": lambda registry, path: [actor],
             "_external_actor_package_path": lambda path: path,
             "_require_external_actor_world_owners": lambda registry, paths: ["/Game/World"],
-            "_require_move_checkout": lambda sources, references: None,
+            "require_asset_write": lambda sources, references: None,
             "unreal": types.SimpleNamespace(LevelEditorSubsystem=object(), get_editor_subsystem=lambda subsystem: types.SimpleNamespace(is_in_play_in_editor=lambda: False), SoftObjectPath=lambda path: path, load_object=lambda outer, path, **options: loaded.append(path)),
         })
         with self.assertRaisesRegex(RuntimeError, "无法加载精确重定向目标对象"):

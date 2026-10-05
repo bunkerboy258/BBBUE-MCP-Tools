@@ -5,9 +5,9 @@ import sys
 import traceback
 
 import unreal
-import toolset_registry
+from BBBMcpCapabilities import mcp_tool
 from toolset_registry.registration import Registration
-from toolset_registry.helpers import require_editable
+from BBBAssetWritePolicy import require_write_access
 
 
 def _asset(path, expected_type):
@@ -94,7 +94,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
      */
     """
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def capture_attachment_pose(animation_path: str, mesh_path: str, time_seconds: float, attachments_json: str, camera_offset: list[float], file_name: str) -> str:
         """
@@ -195,7 +195,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
                 if actor is not None:
                     actor.destroy_actor()
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def convert_component_mesh_grips(mesh_path: str, attachment_bone: str, grips_json: str) -> str:
         """
@@ -214,7 +214,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         result = {name: _read_transform(attachment.inverse().multiply(_transform(value))) for name, value in json.loads(grips_json).items()}
         return json.dumps(result)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def set_sequence_attachment_transform(sequence_path: str, label: str, transform_json: str) -> str:
         """
@@ -227,7 +227,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
          */
         """
         sequence = _asset(sequence_path, unreal.LevelSequence)
-        require_editable(sequence)
+        require_write_access(sequence)
         bindings = [binding for binding in sequence.get_bindings() if binding.get_name() == label]
         if len(bindings) != 1:
             raise RuntimeError("附件绑定必须唯一")
@@ -249,7 +249,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         unreal.EditorAssetLibrary.save_loaded_asset(sequence)
         return json.dumps({"binding": label, "transform": _read_transform(transform)})
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_mesh_bounds(mesh_path: str) -> str:
         """/** @return 网格组件空间包围盒 */"""
@@ -257,7 +257,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         bounds = mesh.get_bounds()
         return json.dumps({"origin": list(bounds.origin.to_tuple()), "extent": list(bounds.box_extent.to_tuple())})
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def build_pose_control_keys(animation_path: str, mesh_path: str, overrides_json: str) -> str:
         """
@@ -346,7 +346,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
 
         return json.dumps(keys)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def normalize_authoring_bindings(sequence_path: str, mesh_path: str, rig_path: str) -> str:
         """
@@ -361,7 +361,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         sequence = _asset(sequence_path, unreal.LevelSequence)
         mesh = _asset(mesh_path, unreal.SkeletalMesh)
         asset = _asset(rig_path, unreal.ControlRigBlueprint)
-        require_editable(sequence)
+        require_write_access(sequence)
         target = _mesh_binding(sequence, mesh)
         removed = 0
         for binding in sequence.get_bindings():
@@ -388,7 +388,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         unreal.EditorAssetLibrary.save_loaded_asset(sequence)
         return json.dumps({"removedTracks": removed})
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def compute_palm_contact(animation_path: str, mesh_path: str, definition_path: str, frame: int, equipment_point: list[float], palm_point: list[float]) -> str:
         """
@@ -414,7 +414,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         target.translation = position - (left.transform_location(unreal.Vector(*palm_point)) - left.translation)
         return json.dumps({"target": _read_transform(target), "contact": list(position.to_tuple())})
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def set_sequence_spawn_range(sequence_path: str, label: str, first_frame: int, last_frame: int) -> str:
         """
@@ -428,7 +428,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
          */
         """
         sequence = _asset(sequence_path, unreal.LevelSequence)
-        require_editable(sequence)
+        require_write_access(sequence)
         bindings = [binding for binding in sequence.get_bindings() if binding.get_name() == label]
         if len(bindings) != 1 or first_frame >= last_frame:
             raise RuntimeError("生成区间或绑定无效")
@@ -447,7 +447,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         unreal.EditorAssetLibrary.save_loaded_asset(sequence)
         return json.dumps({"binding": label, "range": [first_frame, last_frame]})
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def play_pie_montages(montages_json: str) -> str:
         """
@@ -480,7 +480,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
 
         return json.dumps({"animationOnly": True, "played": results})
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_authoring_api(type_names: list[str], method_names: list[str]) -> str:
         """
@@ -506,7 +506,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
 
         return json.dumps(result, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def set_background_budget(maximum_fps: float) -> str:
         """
@@ -523,7 +523,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         unreal.SystemLibrary.execute_console_command(world, "t.MaxFPS " + str(maximum_fps))
         return json.dumps({"maximumFps": maximum_fps})
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def create_control_rig(asset_path: str, mesh_path: str, controls_json: str, graph_json: str) -> str:
         """
@@ -592,7 +592,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         unreal.log("[BBBControlRigAuthoring] 独立绑定已建立 " + asset_path)
         return json.dumps({"asset": asset.get_path_name(), "controls": report}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def evaluate_rig_pose(asset_path: str, animation_path: str, mesh_path: str, time_seconds: float, controls_json: str, bone_names: list[str], variables_json: str = "{}") -> str:
         """
@@ -641,7 +641,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
 
         return json.dumps(result, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def audit_control_rig_round_trip(asset_path: str, animation_path: str, mesh_path: str, sample_times: list[float], control_deltas_json: str, bone_names: list[str]) -> str:
         """
@@ -711,7 +711,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         unreal.log("[BBBControlRigAuthoring] 反向与正向求解审计完成 " + asset_path)
         return json.dumps({"asset": asset_path, "animation": animation_path, "samples": samples}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def configure_control_rig_graph(asset_path: str, request_json: str) -> str:
         """
@@ -723,7 +723,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
          */
         """
         asset = _asset(asset_path, unreal.ControlRigBlueprint)
-        require_editable(asset)
+        require_write_access(asset)
         graph = asset.get_controller()
         request = json.loads(request_json)
         for name in request.get("removeNodes", []):
@@ -750,7 +750,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         unreal.EditorAssetLibrary.save_loaded_asset(asset)
         return json.dumps({"nodes": len(graph.get_graph().get_nodes())})
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def prepare_animation_sequence(sequence_path: str, animation_path: str, mesh_path: str) -> str:
         """
@@ -796,7 +796,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         unreal.log("[BBBControlRigAuthoring] 独立编辑序列已建立 " + sequence_path)
         return json.dumps({"sequence": sequence.get_path_name(), "bindingId": str(binding.get_id()), "endFrame": end_frame}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def sample_animation_poses(animation_path: str, mesh_path: str, times: list[float], bone_names: list[str]) -> str:
         """
@@ -819,7 +819,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
 
         return json.dumps(result, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def configure_sequence_rig(sequence_path: str, rig_path: str, keys_json: str, is_layered: bool, mesh_path: str) -> str:
         """
@@ -833,7 +833,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         """
         sequence = _asset(sequence_path, unreal.LevelSequence)
         asset = _asset(rig_path, unreal.ControlRigBlueprint)
-        require_editable(sequence)
+        require_write_access(sequence)
         binding = _mesh_binding(sequence, _asset(mesh_path, unreal.SkeletalMesh))
         world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
         track = unreal.ControlRigSequencerLibrary.find_or_create_control_rig_track(world, sequence, asset.get_control_rig_class(), binding, is_layered_control_rig=is_layered)
@@ -879,7 +879,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         unreal.log("[BBBControlRigAuthoring] 控制器关键帧已保存 " + sequence_path)
         return json.dumps({"track": track.get_path_name(), "keys": len(keys), "rig": rig.get_path_name()})
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def compute_attachment_contacts(animation_path: str, mesh_path: str, definition_path: str, attachment_bone: str, held_bone: str, contact_frames_json: str, grip_position_json: str) -> str:
         """
@@ -915,7 +915,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
 
         return json.dumps(result, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def create_sequence_attachment(sequence_path: str, label: str, mesh_path: str, socket_name: str, transform_json: str, ranges_json: str, animation_path: str) -> str:
         """
@@ -932,7 +932,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
          */
         """
         sequence = _asset(sequence_path, unreal.LevelSequence)
-        require_editable(sequence)
+        require_write_access(sequence)
         if any(binding.get_name() == label for binding in sequence.get_bindings()):
             raise RuntimeError("拒绝覆盖已有展示绑定 " + label)
 
@@ -995,7 +995,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         unreal.EditorAssetLibrary.save_loaded_asset(sequence)
         return json.dumps({"binding": label, "socket": socket_name, "ranges": ranges})
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def create_attachment_preview_animation(source_path: str, destination_path: str, bone_name: str, first_hidden_frame: int, last_hidden_frame: int) -> str:
         """
@@ -1013,7 +1013,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         values = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(source, bone_name)
         if unreal.EditorAssetLibrary.does_asset_exist(destination_path):
             animation = _asset(destination_path, unreal.AnimSequence)
-            require_editable(animation)
+            require_write_access(animation)
 
         if not unreal.EditorAssetLibrary.does_asset_exist(destination_path):
             animation = unreal.EditorAssetLibrary.duplicate_asset(source_path, destination_path)
@@ -1028,7 +1028,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         unreal.EditorAssetLibrary.save_loaded_asset(animation)
         return json.dumps({"preview": destination_path})
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inject_pie_action(action_path: str, value: float) -> str:
         """
@@ -1055,7 +1055,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         subsystem.inject_input_for_action(action, raw_value, [], [])
         return json.dumps({"action": action_path, "value": value, "controller": controller.get_path_name()})
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def apply_baked_bone_deltas(source_path: str, baked_path: str, mesh_path: str, targets_json: str, bone_names: list[str]) -> str:
         """
@@ -1103,7 +1103,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         for request in json.loads(targets_json):
             animation = _asset(request["target"], unreal.AnimSequence)
             original = _asset(request["source"], unreal.AnimSequence)
-            require_editable(animation)
+            require_write_access(animation)
             if original.data_model_interface.get_number_of_keys() != count:
                 raise RuntimeError("目标底稿帧数不同")
 
@@ -1144,7 +1144,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         unreal.log("[BBBControlRigAuthoring] 已校验全帧非授权骨骼并合入私有动画")
         return json.dumps(results)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def add_pose_controls(asset_path: str, bone_names: list[str]) -> str:
         """
@@ -1156,7 +1156,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
          */
         """
         asset = _asset(asset_path, unreal.ControlRigBlueprint)
-        require_editable(asset)
+        require_write_access(asset)
         hierarchy = asset.hierarchy
         controller = hierarchy.get_controller()
         graph = asset.get_controller()
@@ -1198,7 +1198,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         unreal.EditorAssetLibrary.save_loaded_asset(asset)
         return json.dumps({"controls": len(names)})
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_sequence_pose(sequence_path: str, frame: int, bone_names: list[str]) -> str:
         """
@@ -1243,7 +1243,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
 
         return json.dumps(result)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_sequence_bindings(sequence_path: str) -> str:
         """
@@ -1269,7 +1269,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
 
         return json.dumps(result)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def export_sequence_pose_audit(sequence_path: str, source_path: str, mesh_path: str, sample_times: list[float], report_name: str) -> str:
         """
@@ -1292,7 +1292,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         bake_path = sequence_path.rsplit("/", 1)[0] + "/ANI_BBB_Rifle_01_ReloadHandBake"
         if unreal.EditorAssetLibrary.does_asset_exist(bake_path):
             baked = _asset(bake_path, unreal.AnimSequence)
-            require_editable(baked)
+            require_write_access(baked)
 
         if not unreal.EditorAssetLibrary.does_asset_exist(bake_path):
             factory = unreal.AnimSequenceFactory()
@@ -1309,7 +1309,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         binding = _mesh_binding(sequence, mesh)
         spawn_tracks = [track for track in binding.get_tracks() if isinstance(track, unreal.MovieSceneSpawnTrack)]
         if not spawn_tracks:
-            require_editable(sequence)
+            require_write_access(sequence)
             spawn = binding.add_track(unreal.MovieSceneSpawnTrack).add_section()
             spawn.set_range(sequence.get_playback_start(), sequence.get_playback_end())
             spawn.get_all_channels()[0].set_default(True)

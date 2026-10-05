@@ -1,10 +1,11 @@
 import importlib
+import inspect
 import json
 import traceback
 
 import unreal
 
-import toolset_registry
+from BBBMcpCapabilities import mcp_tool, native_requirements, dependency_status
 from toolset_registry.registration import Registration
 
 
@@ -152,17 +153,37 @@ def _load_module(domain):
     return importlib.import_module(module_name)
 
 
-def _list_domain_actions(domain):
-    module = _load_module(domain)
-    actions = _DOMAIN_ACTIONS.get(domain)
-    if actions is None:
-        raise ValueError("未配置外部工具领域白名单: {}".format(domain))
 
-    return sorted(
-        action
-        for action in actions
-        if callable(getattr(module, "ue_" + action, None))
-    )
+
+def _action_status(domain, action):
+    """
+    /**
+     * @param domain	白名单领域
+     * @param action	白名单动作
+     * @return 参数要求 实际原生依赖与可用状态
+     */
+    """
+    module = _load_module(domain)
+    function = getattr(module, "ue_" + action, None)
+    status = dependency_status(native_requirements(_DOMAIN_MODULES[domain], "ue_" + action), unreal)
+    parameters = []
+    if callable(function):
+        for name, parameter in inspect.signature(function).parameters.items():
+            item = {"name": name, "required": parameter.default is inspect.Parameter.empty}
+            if parameter.default is not inspect.Parameter.empty:
+                item["default"] = parameter.default
+            parameters.append(item)
+    return {**status, "available": callable(function) and status["native_dependencies_ready"], "parameters": parameters}
+
+
+def inspect_actions():
+    """
+    /**
+     * @return 所有白名单动作的可用状态与参数 不执行动作
+     */
+    """
+    return {domain: {action: _action_status(domain, action) for action in sorted(actions)}
+        for domain, actions in sorted(_DOMAIN_ACTIONS.items())}
 
 
 def _decode_params(params_json):
@@ -189,6 +210,10 @@ def _dispatch(domain, action, params_json):
     if action not in actions:
         raise ValueError("{} 领域动作未通过白名单校验: {}".format(domain, action))
 
+    status = _action_status(domain, action)
+    if not status["available"]:
+        raise RuntimeError("外部动作不可用 {}.{}: {}".format(domain, action, status))
+
     module = _load_module(domain)
     function = getattr(module, "ue_" + action, None)
     if not callable(function):
@@ -206,100 +231,93 @@ def _run(domain, action, params_json):
         return _dispatch(domain, action, params_json)
     except Exception as error:
         unreal.log_error("[BBBExternal] {}.{} 执行失败: {}".format(domain, action, error))
-        return json.dumps(
-            {
-                "success": False,
-                "domain": domain,
-                "action": action,
-                "message": str(error),
-                "traceback": traceback.format_exc(),
-            },
-            ensure_ascii=False,
-        )
+        raise
 
 
 @unreal.uclass()
 class BBBExternalToolset(unreal.ToolsetDefinition):
     """移植 GenOrca Unreal MCP 中当前官方工具集缺少的 UE Python 工具"""
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def list_available_actions() -> str:
         """列出已移植的 GenOrca 工具领域和动作"""
+        catalog = inspect_actions()
         return json.dumps(
             {
                 "source": "GenOrca/unreal-mcp",
                 "sourceRevision": "f7986db239516aa4299ddc6f54d713253bd82631",
                 "license": "Apache-2.0",
                 "domains": {
-                    domain: _list_domain_actions(domain)
-                    for domain in sorted(_DOMAIN_MODULES)
+                    domain: [action for action, status in actions.items() if status["available"]]
+                    for domain, actions in catalog.items()
                 },
+                "actions": catalog,
             },
             ensure_ascii=False,
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def animation(action: str, params_json: str = "{}") -> str:
         """执行动画序列、Notify、Sync Marker、曲线和骨骼查询动作"""
         return _run("animation", action, params_json)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def control_rig(action: str, params_json: str = "{}") -> str:
         """执行 Control Rig 创建、骨骼、Null、节点和重编译动作"""
         return _run("control_rig", action, params_json)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def data_table(action: str, params_json: str = "{}") -> str:
         """执行 DataTable 行列查询、导出和 JSON 写入动作"""
         return _run("data_table", action, params_json)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def editor(action: str, params_json: str = "{}") -> str:
         """执行资产编辑器和选中 Actor 的批处理动作"""
         return _run("editor", action, params_json)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def level(action: str, params_json: str = "{}") -> str:
         """执行关卡创建、加载、World Settings 和保存动作"""
         return _run("level", action, params_json)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def retarget(action: str, params_json: str = "{}") -> str:
         """执行 IK Rig、IK Retargeter、链映射和批量重定向动作"""
         return _run("retarget", action, params_json)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def level_sequence(action: str, params_json: str = "{}") -> str:
         """执行 Level Sequence 创建、绑定、轨道和关键帧动作"""
         return _run("level_sequence", action, params_json)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def layer(action: str, params_json: str = "{}") -> str:
         """执行关卡 Layer 查询、创建、删除和 Actor 管理动作"""
         return _run("layer", action, params_json)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def game(action: str, params_json: str = "{}") -> str:
         """执行 GameMode 和 Enhanced Input 配置动作"""
         return _run("game", action, params_json)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def vision(action: str, params_json: str = "{}") -> str:
         """执行视口、指定姿态和 Actor 截图动作"""
         return _run("vision", action, params_json)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def util(action: str, params_json: str = "{}") -> str:
         """执行日志、CVar、视口、PIE 和项目状态动作"""

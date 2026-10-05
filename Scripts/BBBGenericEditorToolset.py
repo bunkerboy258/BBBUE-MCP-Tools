@@ -9,7 +9,7 @@ import struct
 
 import unreal
 
-import toolset_registry
+from BBBMcpCapabilities import mcp_tool
 from toolset_registry.registration import Registration
 
 
@@ -89,7 +89,7 @@ def _apply_editor_property(target, property_name, requested_value):
 class BBBGenericEditorToolset(unreal.ToolsetDefinition):
     """提供不绑定具体领域的官方 UE 编辑器工具"""
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_control_rig_graphs(asset_path: str) -> str:
         """只读导出 Control Rig 模型与本地函数的节点引脚和连线"""
@@ -169,7 +169,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
         return json.dumps({"asset": asset.get_path_name(), "graphs": graphs}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def probe_pie_character_ground_contacts() -> str:
         """
@@ -248,7 +248,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         }
         return json.dumps(result, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_animation_float_curves(asset_paths: list[str], curve_names: list[str]) -> str:
         """只读返回动画浮点曲线的原始时间与值 缺少曲线时明确标记"""
@@ -276,7 +276,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
         return json.dumps(results, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def replace_animation_float_curve(asset_path: str, curve_name: str, keys_json: str, dry_run: bool = True) -> str:
         """
@@ -290,7 +290,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
          */
         """
         from editor_toolset.toolsets.asset import AssetTools
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_write_access
 
         def fail(message: str) -> None:
             unreal.log_error("[BBB][LeftHandIKCurve] " + message)
@@ -382,7 +382,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
                 ensure_ascii=False,
             )
 
-        require_editable(animation)
+        require_write_access(animation)
         state = unreal.SourceControl.query_file_state(asset_path)
         writable = checked_out and can_edit
         if state.is_valid and state.is_added and state.can_edit and not state.is_checked_out_other:
@@ -474,16 +474,16 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             ensure_ascii=False,
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def set_instanced_struct_array(asset_path: str, struct_property: str, array_property: str, instances_json: str) -> str:
         """为资产结构体内的实例化对象数组创建真实子对象并保存"""
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_write_access
 
         asset = unreal.load_asset(asset_path)
         if asset is None:
             raise RuntimeError("资产不存在")
-        require_editable(asset)
+        require_write_access(asset)
         descriptions = json.loads(instances_json)
         if not isinstance(descriptions, list):
             raise RuntimeError("实例配置必须为数组")
@@ -509,7 +509,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             raise RuntimeError("资产保存失败")
         return json.dumps({"asset": asset.get_path_name(), "instances": [item.get_path_name() for item in applied]})
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def create_asset_with_factory(asset_path: str, asset_class_path: str, factory_class_path: str, factory_properties_json: str = "{}") -> str:
         """通过指定原生工厂创建新资产 拒绝覆盖已有资产"""
@@ -530,7 +530,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             raise RuntimeError("资产保存失败")
         return asset.get_path_name()
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def import_files_from_directory(source_directory: str, destination_path: str, extensions_json: str, recursive: bool = True) -> str:
         """将目录中的指定文件批量导入 Game 内容目录 保留目录结构并拒绝覆盖"""
@@ -664,11 +664,11 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             "assets": saved_paths,
         }, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def reimport_sound_waves(source_directory: str, destination_path: str, source_suffix: str = "_Shot", recursive: bool = True) -> str:
         """将目录中的 WAV 原位重导入已有 SoundWave 并仅保存目标资产"""
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_write_access
 
         source_root = os.path.realpath(source_directory)
         if not os.path.isdir(source_root):
@@ -726,7 +726,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
                     raise RuntimeError("目标不是已有 SoundWave: {}".format(asset_path))
                 if asset_path in dirty_packages:
                     raise RuntimeError("目标 SoundWave 有未保存修改: {}".format(asset_path))
-                require_editable(asset)
+                require_write_access(asset)
                 imports.append((source_file, asset_path, asset))
 
         if not imports:
@@ -771,11 +771,11 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         unreal.log("[BBBSoundReimport] Saved {} existing SoundWave assets".format(len(saved_assets)))
         return json.dumps({"savedCount": len(saved_assets), "assets": saved_assets}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def import_animation_fbx(source_file: str, asset_path: str, skeleton_path: str) -> str:
         """从单动作 FBX 精确覆盖已签出的动画 保持骨骼和资产路径不变"""
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_write_access
         from editor_toolset.toolsets.asset import AssetTools
 
         if not os.path.isfile(source_file) or not source_file.lower().endswith(".fbx"):
@@ -792,7 +792,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         if asset.get_editor_property("skeleton") != skeleton:
             raise RuntimeError("目标动画骨骼与指定骨骼不一致")
 
-        require_editable(asset)
+        require_write_access(asset)
         if not AssetTools.is_checked_out(asset_path):
             raise RuntimeError("覆盖前必须独占签出目标动画")
 
@@ -836,7 +836,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         return json.dumps({"asset": animation.get_path_name(), "length": animation.get_play_length(),
             "skeleton": skeleton.get_path_name(), "source": source_file}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def capture_editor_screenshot(widget_ref: str, file_name: str) -> str:
         """通过官方 Slate 截图保存指定编辑器窗口或控件 不切换焦点 不发送输入"""
@@ -878,7 +878,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
         return json.dumps({"path": output_path, "width": width, "height": height, "widgetRef": widget_ref}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def resize_pie_window(width: int, height: int) -> str:
         """仅调整唯一浮动 PIE 窗口尺寸 不修改编辑器主窗口和桌面分辨率"""
@@ -894,7 +894,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
         return json.dumps(result, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def render_asset_thumbnails(requests_json: str) -> str:
         """按显式源网格与目标纹理列表生成真实部件缩略图 每项保存并返回结果"""
@@ -955,7 +955,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
         return json.dumps(results, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_animation_notifies(asset_path: str) -> str:
         """只读返回动画序列或蒙太奇的通知类 时间与所属轨道"""
@@ -983,7 +983,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         return json.dumps({"asset": asset_path, "length": asset.get_play_length(),
             "tracks": [str(track) for track in tracks], "events": results}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_animation_notify_properties(asset_path: str, class_path: str, property_names: list[str]) -> str:
         """只读返回动画中唯一通知实例的指定可编辑属性"""
@@ -1006,11 +1006,11 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         return json.dumps({"asset": asset_path, "class": class_path,
             "properties": properties}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def remove_empty_animation_notify_track(asset_path: str, track_name: str) -> str:
         """仅删除动画序列或蒙太奇中已清空的通知轨道"""
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_write_access
 
         if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
             raise RuntimeError("PIE 期间禁止删除通知轨道")
@@ -1019,7 +1019,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         if not isinstance(asset, unreal.AnimSequenceBase) or not track_name.strip():
             raise RuntimeError("动画资产或通知轨道无效")
 
-        require_editable(asset)
+        require_write_access(asset)
         library = unreal.AnimationLibrary
         if not library.is_valid_anim_notify_track_name(asset, track_name):
             raise RuntimeError("通知轨道不存在: {}".format(track_name))
@@ -1036,11 +1036,11 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
         return BBBGenericEditorToolset.inspect_animation_notifies(asset_path)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def resave_asset(asset_path: str) -> str:
         """按当前类定义重新序列化已经独占签出的资产"""
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_write_access
 
         if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
             raise RuntimeError("PIE 期间禁止重新保存资产")
@@ -1048,13 +1048,13 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         asset = unreal.EditorAssetLibrary.load_asset(asset_path)
         if asset is None:
             raise RuntimeError("资产不存在: {}".format(asset_path))
-        require_editable(asset)
+        require_write_access(asset)
         if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
             raise RuntimeError("重新保存资产失败")
 
         return json.dumps({"asset": asset_path, "class": asset.get_class().get_path_name()}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_animation_montage_segments(asset_path: str) -> str:
         """
@@ -1085,7 +1085,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         return json.dumps({"asset": asset_path, "length": montage.get_play_length(),
             "tracks": tracks}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def add_animation_notify_events(asset_path: str, track_name: str, events_json: str) -> str:
         """
@@ -1097,12 +1097,12 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
          * @return 保存后的完整通知列表
          */
         """
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_write_access
 
         asset = unreal.EditorAssetLibrary.load_asset(asset_path)
         if not isinstance(asset, unreal.AnimSequenceBase) or not track_name.strip():
             raise RuntimeError("动画资产或通知轨道无效")
-        require_editable(asset)
+        require_write_access(asset)
 
         events = json.loads(events_json)
         if not isinstance(events, list) or not events:
@@ -1138,16 +1138,16 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             raise RuntimeError("保存动画通知失败")
         return BBBGenericEditorToolset.inspect_animation_notifies(asset_path)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def replace_animation_notify_track(asset_path: str, track_name: str, events_json: str) -> str:
         """校验后仅替换指定通知轨道 保留其它轨道并保存动画资产"""
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_write_access
 
         asset = unreal.EditorAssetLibrary.load_asset(asset_path)
         if not isinstance(asset, unreal.AnimSequenceBase) or not track_name.strip():
             raise RuntimeError("动画资产或通知轨道无效")
-        require_editable(asset)
+        require_write_access(asset)
 
         events = json.loads(events_json)
         if not isinstance(events, list):
@@ -1224,7 +1224,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             raise RuntimeError("通知资产保存失败")
         return BBBGenericEditorToolset.inspect_animation_notifies(asset_path)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def move_animation_notify_event(asset_path: str, notify_class_path: str, time_seconds: float) -> str:
         """
@@ -1236,7 +1236,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
          * @return 保存后的完整通知列表
          */
         """
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_write_access
 
         if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
             raise RuntimeError("PIE 期间禁止移动动画通知")
@@ -1249,7 +1249,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             raise RuntimeError("目标类不是单次动画通知")
         if not math.isfinite(time_seconds) or time_seconds < 0.0 or time_seconds >= asset.get_play_length():
             raise RuntimeError("通知时间超出动画范围")
-        require_editable(asset)
+        require_write_access(asset)
 
         library = unreal.AnimationLibrary
         matches = []
@@ -1291,7 +1291,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             raise RuntimeError("保存动画通知失败")
         return BBBGenericEditorToolset.inspect_animation_notifies(asset_path)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_pie_player_control(player_index: int = 0) -> str:
         """只读检查 PIE 玩家控制器与组件的注册和更新状态"""
@@ -1360,7 +1360,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             "actors": results,
         }, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def invoke_pie_actor_function(actor_path: str, function_name: str, arguments_json: str = "[]") -> str:
         """调用当前 PIE 世界中指定 Actor 的反射函数 不接受编辑器世界对象"""
@@ -1374,7 +1374,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         result = actor.call_method(function_name, tuple(arguments))
         return json.dumps({"actor": actor_path, "function": function_name, "result": _serialize_value(result)}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def capture_pie_player_view(file_name: str, width: int = 1280, height: int = 720, player_index: int = 0) -> str:
         """使用玩家实际视点与视野渲染截图 不包含界面 不修改资产"""
@@ -1416,7 +1416,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         finally:
             actor.destroy_actor()
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def export_pie_render_target(target_path: str, file_name: str) -> str:
         """导出当前 PIE 本地玩家持有的临时渲染目标"""
@@ -1456,7 +1456,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             "height": target.get_editor_property("size_y"),
         }, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def duplicate_loaded_actors_to_current_level(actor_paths: list[str]) -> str:
         """将已加载关卡的指定对象独立复制到当前关卡"""
@@ -1488,7 +1488,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             ensure_ascii=False,
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def refresh_material_instances(asset_paths: list[str]) -> str:
         """刷新材质实例缓存并强制保存指定资产"""
@@ -1510,7 +1510,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
         return json.dumps({"refreshed": results}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_dirty_packages() -> str:
         """只读列出未保存的内容包和关卡包，供编辑器生命周期操作前检查"""
@@ -1518,7 +1518,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         packages.extend(unreal.EditorLoadingAndSavingUtils.get_dirty_map_packages())
         return json.dumps(sorted({package.get_path_name() for package in packages}), ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def reload_assets_from_disk(asset_paths: list[str], discard_dirty_packages: list[str], dry_run: bool = True) -> str:
         """
@@ -1592,7 +1592,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         return json.dumps(report, ensure_ascii=False)
 
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_asset_properties(
         asset_paths: list[str],
@@ -1643,7 +1643,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             ensure_ascii=False,
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def set_asset_object_property(asset_path: str, property_name: str, object_path: str) -> str:
         """
@@ -1655,7 +1655,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
          * @return 保存后的属性值
          */
         """
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_write_access
 
         if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
             raise RuntimeError("PIE 期间禁止修改资产引用")
@@ -1664,7 +1664,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         target = unreal.EditorAssetLibrary.load_asset(object_path)
         if asset is None or target is None or not property_name:
             raise RuntimeError("目标资产 引用对象或属性名称无效")
-        require_editable(asset)
+        require_write_access(asset)
 
         current = asset.get_editor_property(property_name)
         if current is not None and not isinstance(current, unreal.Object):
@@ -1680,7 +1680,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         return json.dumps({"asset": asset_path, "property": property_name,
             "value": value.get_path_name() if value else None}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def set_asset_transform_property(asset_path: str, property_name: str, transform_json: str) -> str:
         """
@@ -1692,7 +1692,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
          * @return 保存后的变换文本
          */
         """
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_write_access
 
         if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
             raise RuntimeError("PIE 期间禁止修改资产变换")
@@ -1700,7 +1700,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         asset = unreal.EditorAssetLibrary.load_asset(asset_path)
         if asset is None or not property_name:
             raise RuntimeError("目标资产或属性名称无效")
-        require_editable(asset)
+        require_write_access(asset)
 
         current = asset.get_editor_property(property_name)
         if not isinstance(current, unreal.Transform):
@@ -1740,7 +1740,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         return json.dumps({"asset": asset_path, "property": property_name,
             "value": saved.export_text()}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_static_mesh_bounds(asset_path: str) -> str:
         """
@@ -1761,7 +1761,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             "extent": list(bounds.box_extent.to_tuple()),
         }, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_pie_hand_attachments(bone_names: list[str]) -> str:
         """
@@ -1802,7 +1802,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         return json.dumps({"pawn": pawn.get_path_name(), "bones": bones,
             "attachments": attachments}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_pie_actor_skeletal_bones(class_path: str, bone_names: list[str]) -> str:
         """只读返回 PIE 中指定 Actor 的骨骼网格骨骼世界变换"""
@@ -1826,7 +1826,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
         return json.dumps({"class": class_path, "instances": result}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_pie_bone_alignment(class_path: str, actor_bone_name: str, pawn_bone_name: str) -> str:
         """只读计算 PIE 中装备骨骼相对本地角色骨骼的变换"""
@@ -1862,7 +1862,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
         raise RuntimeError("本地角色未持有指定 Actor 骨骼")
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_blueprint_class_defaults(
         asset_paths: list[str],
@@ -1908,11 +1908,11 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             ensure_ascii=False,
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def set_blueprint_class_defaults(asset_path: str, values_json: str) -> str:
         """校验后更新蓝图生成类默认对象属性并编译保存"""
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_write_access
         from editor_toolset.toolsets.asset import AssetTools
 
         if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
@@ -1923,7 +1923,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             raise RuntimeError("默认值配置必须是非空对象")
 
         blueprint, generated_class, default_object = _load_blueprint_default_object(asset_path)
-        require_editable(blueprint)
+        require_write_access(blueprint)
         if not AssetTools.is_checked_out(asset_path):
             raise RuntimeError("修改前必须独占签出目标蓝图")
 
@@ -1949,11 +1949,11 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             [str(name) for name in values],
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def remove_input_action_mappings(mapping_context_path: str, action_paths: list[str]) -> str:
         """从输入映射中移除指定动作的全部按键映射 保留其它映射原样"""
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_write_access
 
         if not action_paths or len(set(action_paths)) != len(action_paths):
             raise RuntimeError("必须提供不重复的输入动作路径")
@@ -1962,7 +1962,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         if not isinstance(context, unreal.InputMappingContext):
             raise RuntimeError("目标不是输入映射资产")
 
-        require_editable(context)
+        require_write_access(context)
         default_data = context.get_editor_property("default_key_mappings")
         default_mappings = list(default_data.get_editor_property("mappings"))
         legacy_mappings = list(context.get_editor_property("mappings"))
@@ -2012,31 +2012,31 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             "remainingCount": len(remaining_default)}, ensure_ascii=False)
 
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def create_channel_sprite_system(channel_path: str, system_path: str) -> str:
         """通过原生 Niagara 图表 API 创建空间通道批量线段光效 拒绝覆盖"""
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_write_access
 
         channel = unreal.EditorAssetLibrary.load_asset(channel_path)
         if channel is None or not system_path.startswith("/Game/"):
             raise RuntimeError("通道必须存在 系统路径必须位于 Game")
 
-        require_editable(channel)
+        require_write_access(channel)
         return unreal.BBBNiagaraEditorLibrary.create_channel_sprite_system(channel_path, system_path)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def set_struct_array_object(object_path: str, array_property: str, index: int,
                                 object_property: str, class_path: str, properties_json: str = "{}") -> str:
         """为结构体数组的指定元素创建实例化子对象 不影响其它字段"""
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_write_access
 
         target = unreal.load_object(None, object_path)
         if target is None:
             raise RuntimeError("对象不存在")
 
-        require_editable(target)
+        require_write_access(target)
         values = list(target.get_editor_property(array_property))
         if index < 0 or index >= len(values):
             raise RuntimeError("数组下标越界")
@@ -2050,7 +2050,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         target.set_editor_property(array_property, values)
         return subobject.get_path_name()
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_pie_actor_properties(class_path: str, property_paths: list[str]) -> str:
         """只读检查所有 PIE 世界指定 Actor 类型的属性 数组仅返回数量与前三项"""
@@ -2078,60 +2078,60 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         return json.dumps(results, ensure_ascii=False)
 
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_pie_niagara_system(system_path: str) -> str:
         """只读检查指定系统的 PIE 光效组件与粒子数量"""
         return unreal.BBBNiagaraEditorLibrary.inspect_pie_system(system_path)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def set_niagara_spawn_update_mode(system_path: str, mode: int) -> str:
         """设置原生首帧更新模式 0 跳过首帧更新 1 执行更新 2 插值更新"""
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_write_access
 
         system = unreal.EditorAssetLibrary.load_asset(system_path)
         if system is None:
             raise RuntimeError("系统资产不存在")
 
-        require_editable(system)
+        require_write_access(system)
         return unreal.BBBNiagaraEditorLibrary.set_spawn_update_mode(system_path, mode)
 
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_niagara_graphs(system_path: str) -> str:
         """只读导出系统内节点引脚与连接"""
         return unreal.BBBNiagaraEditorLibrary.inspect_graphs(system_path)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def set_niagara_pin_default(system_path: str, node_path: str, pin_name: str, value: str) -> str:
         """修改系统内未连接引脚默认值并保存"""
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_write_access
 
         system = unreal.EditorAssetLibrary.load_asset(system_path)
         if system is None or not node_path.startswith(system.get_path_name() + ":"):
             raise RuntimeError("节点必须属于指定系统")
 
-        require_editable(system)
+        require_write_access(system)
         return unreal.BBBNiagaraEditorLibrary.set_pin_default(node_path, pin_name, value)
 
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def bind_niagara_channel_reader(system_path: str, channel_path: str) -> str:
         """将共享通道读取器绑定到发射器参数并保存"""
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_write_access
 
         system = unreal.EditorAssetLibrary.load_asset(system_path)
         if system is None:
             raise RuntimeError("系统不存在")
 
-        require_editable(system)
+        require_write_access(system)
         return unreal.BBBNiagaraEditorLibrary.bind_channel_reader(system_path, channel_path)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def set_niagara_channel_reader_frame_mode(system_path: str, read_current_frame: bool) -> str:
         """
@@ -2142,7 +2142,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
          * @return 编译与保存结果
          */
         """
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_write_access
 
         if unreal.EditorLevelLibrary.get_pie_worlds(False):
             raise RuntimeError("PIE 期间禁止修改光效读取帧")
@@ -2156,32 +2156,32 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         if system_package_path in {package.get_path_name() for package in dirty_packages}:
             raise RuntimeError("系统存在未保存改动 请先保存")
 
-        require_editable(system)
+        require_write_access(system)
         result = unreal.BBBNiagaraEditorLibrary.set_channel_reader_frame_mode(system_path, read_current_frame)
         if result.startswith("失败"):
             raise RuntimeError(result)
 
         return result
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def configure_persistent_projectile_tracer(system_path: str, channel_path: str) -> str:
         """将已有共享子弹系统配置为每颗子弹持续更新同一光段"""
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_write_access
 
         system = unreal.EditorAssetLibrary.load_asset(system_path)
         channel = unreal.EditorAssetLibrary.load_asset(channel_path)
         if system is None or channel is None:
             raise RuntimeError("子弹光效系统或通道不存在")
 
-        require_editable(system)
-        require_editable(channel)
+        require_write_access(system)
+        require_write_access(channel)
         return unreal.BBBNiagaraEditorLibrary.configure_persistent_projectile_tracer(
             system_path, channel_path)
 
 
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def create_static_mesh_grid_graph(graph_path: str, mesh_paths: list[str], grid_extent: float = 600.0, cell_size: float = 300.0) -> str:
         """
@@ -2251,7 +2251,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         return json.dumps({"graph": graph.get_path_name(), "mesh_paths": list(mesh_paths),
             "expected_points": expected_points}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def generate_and_inspect_pcg(actor_path: str, graph_path: str, expected_level: str, generate: bool = False) -> str:
         """
@@ -2264,7 +2264,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
          * @return 生成状态 实例数量与网格路径
          */
         """
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_write_access
 
         if unreal.EditorLevelLibrary.get_pie_worlds(False):
             raise RuntimeError("PIE 期间禁止执行编辑器生成验证")
@@ -2285,7 +2285,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             raise RuntimeError("组件使用的 PCG 图与预期不符")
 
         if generate:
-            require_editable(actor)
+            require_write_access(actor)
             if component.get_editor_property("generated"):
                 raise RuntimeError("组件已经生成 拒绝自动重放")
             component.modify()
@@ -2305,7 +2305,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         return json.dumps({"actor": actor_path, "graph": graph_path, "generated": generated,
             "instance_count": count, "instances": instances}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def invoke_pie_object_function(object_path: str, function_name: str, arguments_json: str = "[]") -> str:
         """
@@ -2336,7 +2336,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
 
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def set_scene_actor_collision(expected_level: str, actor_paths: list[str], enabled: bool) -> str:
         """
@@ -2348,7 +2348,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
          * @return 已处理演员与组件回读值 不自动保存
          */
         """
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_write_access
 
         if unreal.EditorLevelLibrary.get_pie_worlds(False):
             raise RuntimeError("PIE 期间禁止编辑场景碰撞")
@@ -2366,7 +2366,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             if not isinstance(actor, unreal.StaticMeshActor) or actor.get_world() != world:
                 raise RuntimeError("目标不是当前世界静态网格演员")
 
-            require_editable(actor)
+            require_write_access(actor)
             actors.append(actor)
 
         result = []
@@ -2383,7 +2383,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         unreal.log("[BBBSceneCollision]更新数量 {} 状态 {}".format(len(result), enabled))
         return json.dumps(result)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def configure_static_mesh_surface_collision(mesh_path: str, apply_changes: bool = False) -> str:
         """
@@ -2394,7 +2394,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
          * @return 修改前后复杂度与分段碰撞状态 不自动保存
          */
         """
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_write_access
 
         if unreal.EditorLevelLibrary.get_pie_worlds(False):
             raise RuntimeError("PIE 期间禁止重建地表碰撞")
@@ -2414,7 +2414,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         if not apply_changes:
             return json.dumps({"mesh": mesh_path, "complexity": complexity, "sections": before})
 
-        require_editable(mesh)
+        require_write_access(mesh)
         mesh.modify()
         body = mesh.get_editor_property("body_setup")
         if body is None:
@@ -2440,7 +2440,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         return json.dumps({"mesh": mesh_path, "previous_complexity": complexity,
             "complexity": str(subsystem.get_collision_complexity(mesh)), "before": before, "sections": after})
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def create_static_mesh_points_graph(graph_path: str, mesh_path: str, points_json: str, collision: bool = False) -> str:
         """
@@ -2529,7 +2529,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             "mesh": mesh_path, "collision": collision}, ensure_ascii=False)
 
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def remove_scene_mesh_actors(expected_level: str, actor_paths: list[str], dry_run: bool = True) -> str:
         """
@@ -2541,7 +2541,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
          * @return 已删除或预览目标和保留对象
          */
         """
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_write_access
 
         if unreal.EditorLevelLibrary.get_pie_worlds(False):
             raise RuntimeError("PIE 期间禁止删除场景对象")
@@ -2559,7 +2559,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             if not isinstance(actor, (unreal.StaticMeshActor, unreal.TextRenderActor)):
                 kept.append({"path": path, "label": actor.get_actor_label()})
                 continue
-            require_editable(actor)
+            require_write_access(actor)
             targets.append(actor)
         result = [{"path": actor.get_path_name(), "label": actor.get_actor_label()} for actor in targets]
         if not dry_run:
@@ -2571,7 +2571,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         unreal.log("[BBBSceneBatch]删除预览={} 数量={}".format(dry_run, len(result)))
         return json.dumps({"dry_run": dry_run, "targets": result, "kept": kept}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def spawn_static_mesh_batch(expected_level: str, items_json: str) -> str:
         """
@@ -2582,14 +2582,14 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
          * @return 新演员完整对象路径
          */
         """
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_write_access
 
         if unreal.EditorLevelLibrary.get_pie_worlds(False):
             raise RuntimeError("PIE 期间禁止批量创建")
         world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
         if world.get_path_name().split(".", 1)[0] != expected_level:
             raise RuntimeError("活动关卡不匹配")
-        require_editable(world)
+        require_write_access(world)
         items = json.loads(items_json)
         if not isinstance(items, list) or not 1 <= len(items) <= 400:
             raise RuntimeError("批次需要一到四百项")
@@ -2645,7 +2645,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         unreal.log("[BBBSceneBatch]已创建 {} 个静态网格演员".format(len(created)))
         return json.dumps({"created": created}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_pie_static_mesh_instances(mesh_path: str) -> str:
         """
@@ -2669,7 +2669,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
                              "remainingLifeSeconds": actor.get_life_span()})
         return json.dumps({"mesh": mesh_path, "count": len(rows), "instances": rows}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def capture_niagara_preview(system_path: str, age_seconds: float, file_name: str) -> str:
         """
@@ -2732,7 +2732,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             if actor is not None:
                 actor.destroy_actor()
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def export_skeletal_mesh_fbx(mesh_path: str, export_name: str) -> str:
         """

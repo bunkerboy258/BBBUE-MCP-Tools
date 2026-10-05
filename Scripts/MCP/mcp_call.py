@@ -16,15 +16,38 @@
 import json
 import os
 import sys
+from pathlib import Path
 from urllib.parse import urlparse
 
 import requests
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from MCP.mcp_result import decode_tool_result
 
 URL = os.environ.get("BBB_MCP_URL", "http://127.0.0.1:8000/mcp")
 HEADERS = {
     "Content-Type": "application/json",
     "Accept": "application/json, text/event-stream",
 }
+
+
+class McpBatchError(RuntimeError):
+    """/** 批量失败保留已完成结果和失败位置 不回滚或重试 */"""
+
+    def __init__(self, index, call, completed, error):
+        """
+        /**
+         * @param index	失败项的零基索引
+         * @param call	失败请求
+         * @param completed	已完成的协议结果
+         * @param error	原始异常
+         * @return 异常实例
+         */
+        """
+        self.failed_index = index
+        self.failed_call = call
+        self.completed_results = list(completed)
+        super().__init__("批量请求第 {} 项失败 前 {} 项已完成且未回滚: {}".format(index + 1, len(completed), error))
 
 
 def _parse_response(response, request_id, on_tools_changed):
@@ -113,6 +136,8 @@ class McpSession:
             raise RuntimeError("MCP 协议错误: {}".format(json.dumps(result["error"], ensure_ascii=False)))
         if result.get("result", {}).get("isError"):
             raise RuntimeError("MCP 工具失败: {}".format(json.dumps(result["result"], ensure_ascii=False)))
+        if method == "tools/call":
+            decode_tool_result(result)
         return result
 
     def _notify(self, method):
@@ -173,9 +198,11 @@ class McpSession:
         results = []
         for index, call in enumerate(calls):
             try:
-                results.append(self.call_tool(call["name"], call.get("arguments", {})))
+                result = self.call_tool(call["name"], call.get("arguments", {}))
+                decode_tool_result(result)
+                results.append(result)
             except Exception as error:
-                raise RuntimeError("批量请求第 {} 项失败 前 {} 项已完成且未回滚: {}".format(index + 1, index, error)) from error
+                raise McpBatchError(index, call, results, error) from error
         return results
 
     def close(self):

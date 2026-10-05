@@ -19,7 +19,7 @@ class FoliageCacheTests(unittest.TestCase):
         self.runtime = {
             "_move_path": lambda path: path,
             "_move_dirty_packages": lambda: self.dirty,
-            "_require_move_checkout": lambda paths, targets: self.calls.append("checkout"),
+            "require_asset_write": lambda paths, targets: self.calls.append("checkout"),
             "unreal": types.SimpleNamespace(
                 LevelEditorSubsystem=object,
                 get_editor_subsystem=lambda value: types.SimpleNamespace(is_in_play_in_editor=lambda: self.pie),
@@ -57,7 +57,7 @@ class FoliageCacheTests(unittest.TestCase):
         """/** @return 签出失败不会进入原生修改 */"""
         def reject(paths, targets):
             raise RuntimeError("locked")
-        self.runtime["_require_move_checkout"] = reject
+        self.runtime["require_asset_write"] = reject
         with self.assertRaises(RuntimeError):
             self.repair("/Game/World", False)
         self.assertEqual(self.calls, [])

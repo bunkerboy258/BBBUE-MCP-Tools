@@ -2,9 +2,9 @@ import json
 import os
 
 import unreal
-import toolset_registry
+from BBBMcpCapabilities import mcp_tool
 from toolset_registry.registration import Registration
-from toolset_registry.helpers import require_editable
+from BBBAssetWritePolicy import require_write_access
 from editor_toolset.toolsets.blueprint import BlueprintTools
 
 
@@ -47,7 +47,7 @@ def _transform_text(transform):
 class BBBRigidPartToolset(unreal.ToolsetDefinition):
     """/** 提供骨骼部件的参考姿势检查和蓝图刚性附着编辑工具 */"""
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_reference_attachment(mesh_paths: list[str], bone_name: str) -> str:
         """
@@ -65,7 +65,7 @@ class BBBRigidPartToolset(unreal.ToolsetDefinition):
             rows.append({"mesh": path, "bone": bone_name, "reference": _transform_text(reference), "offset": _transform_text(offset)})
         return json.dumps(rows, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def configure_rigid_blueprint_part(leader_node_path: str, slot_node_path: str, slot_pin_name: str, slot_name: str, function_name: str, reference_mesh_path: str, bone_name: str) -> str:
         """
@@ -89,7 +89,7 @@ class BBBRigidPartToolset(unreal.ToolsetDefinition):
             raise RuntimeError("目标图表节点无效")
         graph = leader.get_outer()
         blueprint = graph.get_outer()
-        require_editable(blueprint)
+        require_write_access(blueprint)
         if slot_node.get_outer() != graph:
             raise RuntimeError("部位引脚与姿势节点必须属于同一图表")
         if function_name in [str(item.get_name()) for item in BlueprintTools.list_graphs(blueprint)]:
@@ -193,7 +193,7 @@ class BBBRigidPartToolset(unreal.ToolsetDefinition):
         unreal.log("[BBBRigidPart]刚性附着图表已编译 部位={} 骨骼={}".format(slot_name, bone_name))
         return json.dumps({"blueprint": blueprint.get_path_name(), "function": function_name, "bone": bone_name, "offset": _transform_text(offset), "saved": False}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def validate_rigid_part_selection(actor_blueprint_paths: list[str], assembly_class_path: str, selection_property: str, apply_function: str, slot_name: str, item_names: list[str], body_tag: str, animation_paths: list[str], bone_name: str, report_name: str) -> str:
         """

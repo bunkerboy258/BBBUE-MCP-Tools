@@ -1,5 +1,23 @@
 # 独立仓库接入
 
+## 公共契约与能力校验
+
+项目工具通过 `BBBMcpCapabilities.mcp_tool` 进入官方注册表，保持既有公开工具名称、参数和 UE 返回包装。业务根结果 `success=false` 或非空 `error` 进入官方工具错误通道；嵌套的资产诊断字段不代表调用本身失败。客户端共用 `MCP.mcp_result.decode_tool_result` 解码文本或结构化返回。调用失败不自动重试。
+
+`McpSession.call_many` 复用会话顺序发送请求，失败立即停止；`McpBatchError.failed_index`、`failed_call` 和 `completed_results` 保留失败位置及此前已完成的协议结果。已经保存、编译或执行的动作不会自动回滚。需要减少往返时使用已注册的官方 `ProgrammaticToolset`，先读取执行环境和目标工具结构；脚本编排同样不是原子资产事务。
+
+启动注册集合与项目领域路由来自唯一 `BBBMcpCapabilities.TOOLSET_ROUTES`。指南的 `routes` 只含当前已注册入口，`unavailable_routes` 单独报告未注册的官方入口。不得通过猜测名称或临时注册替代实际发现。
+
+`inspect_mcp_dependencies.modules` 包含逐工具 `tools` 的静态可达原生类、函数及缺失符号。模块汇总为保守诊断，调用时按具体工具检查。参数控制的业务条件、动态反射路径、资产类型和渲染要求仍需工具自身预检。源码元数据只缓存至注册更新，不缓存资产、签出或实际注册状态。
+
+第三方 `list_available_actions.domains` 只列当前可用动作，`actions` 保留完整白名单动作的参数、原生依赖和可用状态。缺失旧 `MCPythonHelper` 时 `editor.get_open_assets` 不可用且调用会明确拒绝；不新增旧接口兼容层。
+
+项目资产写入共用 `BBBAssetWritePolicy.require_asset_write`，检查 PIE、明确包路径、Perforce 连接、最新状态、独占签出或待添加状态和新目标冲突。批量查询去重并关闭源控状态缓存，不自动签出、添加、保存或提交。`require_write_access` 对资产子对象检查所属包，对演员保留官方关卡实例编辑规则。原生写入及删除流程的专用安全检查仍保留；此公共模块不替代其业务约束。
+
+工具更新同时更新 `Tests/tool_schema_baseline.json`。源码门禁要求注册集合和公开工具集合完全相等，宿主门禁逐项比对完整输入与输出结构；禁止只检查旧基线是新接口的子集。`verify_live_mcp.py` 输出的 `schemas_compared` 是实际完成契约比对数量。并行未提交工具需连同自身契约一起提交，不能混入其他任务。
+
+统一重载在 PIE、运动采样、姿势截图或群体测量仍活动时拒绝，避免丢失其他会话的回调。重载完成后重新发现，保持宿主已有性能配置。
+
 本节为迁移后的权威入口 下方历史内容原文保留 其中项目内源码路径和 Game.Scripts 注册名称不再作为调用依据 必须实际发现新工具名称
 
 源码与全部 MCP 专用文档位于 `E:\UE5.8\BBBUE-MCP-Tools` 项目只保留 `Content/Python/init_unreal.py` 加载入口 不复制源码 不使用链接兼容 仓库目录与游戏项目目录是两个不同边界

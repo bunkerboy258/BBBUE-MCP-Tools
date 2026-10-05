@@ -1,5 +1,193 @@
 {
   "BBBAnimationMigrationToolset": {
+    "create_animation_slice": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_path": {
+            "type": "string",
+            "description": "只读源动画路径 *"
+          },
+          "destination_path": {
+            "type": "string",
+            "description": "不存在的新动画路径 *"
+          },
+          "start_frame": {
+            "type": "integer",
+            "description": "起始帧 包含该帧 *"
+          },
+          "end_frame": {
+            "type": "integer",
+            "description": "结束帧 包含该帧 *"
+          }
+        },
+        "required": [
+          "source_path",
+          "destination_path",
+          "start_frame",
+          "end_frame"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "新资产时长与逐帧校验结果 失败时不自动重试 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_backward_additive_animation": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_path": {
+            "type": "string",
+            "description": "基准动画 *"
+          },
+          "destination_path": {
+            "type": "string",
+            "description": "新动画路径 *"
+          },
+          "bone_name": {
+            "type": "string",
+            "description": "受控骨骼 *"
+          },
+          "local_offset": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "峰值局部平移厘米 *"
+          },
+          "duration": {
+            "type": "number",
+            "description": "时长秒 *",
+            "default": 0.2
+          }
+        },
+        "required": [
+          "source_path",
+          "destination_path",
+          "bone_name",
+          "local_offset"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "实际创建结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "submit_character_diagnostic_inputs": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "requests_json": {
+            "type": "string",
+            "description": "数组 每项包含 name 与三维 value *"
+          }
+        },
+        "required": [
+          "requests_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "各次输入提交结果 不修改资产 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "sample_weapon_handling_runtime": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "description": "start status equip *"
+          },
+          "seconds": {
+            "type": "number",
+            "description": "采样游戏秒数 *",
+            "default": 8
+          },
+          "equipment_class_path": {
+            "type": "string",
+            "description": "目标装备类 仅 equip 使用 *"
+          }
+        },
+        "required": [
+          "action",
+          "equipment_class_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "实际采样或注入结果 不保存资产 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_weapon_handling_graphs": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_path": {
+            "type": "string",
+            "description": "目标蓝图 *"
+          },
+          "animation_path": {
+            "type": "string",
+            "description": "角色向后后震加法动画 相机模式不使用 *"
+          },
+          "camera": {
+            "type": "boolean",
+            "description": "是否配置相机贡献图 *",
+            "default": false
+          }
+        },
+        "required": [
+          "blueprint_path",
+          "animation_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "编译状态 不自动保存 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
     "hold_animation_bone_tracks": {
       "inputSchema": {
         "type": "object",
@@ -1361,6 +1549,42 @@
         ]
       }
     },
+    "rewrite_animation_node_binding_paths": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_path": {
+            "type": "string",
+            "description": "已签出的目标动画蓝图 *"
+          },
+          "replacements_json": {
+            "type": "string",
+            "description": "包含 nodePath property oldPath newPath 的请求数组 *"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "仅核验全部旧路径而不修改资产 *"
+          }
+        },
+        "required": [
+          "blueprint_path",
+          "replacements_json",
+          "dry_run"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "命中节点与编译状态 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
     "probe_animation_property_access_paths": {
       "inputSchema": {
         "type": "object",
@@ -2121,7 +2345,728 @@
       }
     }
   },
+  "BBBExternalToolset": {
+    "util": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "params_json": {
+            "type": "string",
+            "default": "{}"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "vision": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "params_json": {
+            "type": "string",
+            "default": "{}"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "game": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "params_json": {
+            "type": "string",
+            "default": "{}"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "layer": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "params_json": {
+            "type": "string",
+            "default": "{}"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "level_sequence": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "params_json": {
+            "type": "string",
+            "default": "{}"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "retarget": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "params_json": {
+            "type": "string",
+            "default": "{}"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "level": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "params_json": {
+            "type": "string",
+            "default": "{}"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "editor": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "params_json": {
+            "type": "string",
+            "default": "{}"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "data_table": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "params_json": {
+            "type": "string",
+            "default": "{}"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "control_rig": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "params_json": {
+            "type": "string",
+            "default": "{}"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "animation": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "params_json": {
+            "type": "string",
+            "default": "{}"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "list_available_actions": {
+      "inputSchema": {
+        "type": "object"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    }
+  },
   "BBBGenericEditorToolset": {
+    "export_skeletal_mesh_fbx": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mesh_path": {
+            "type": "string",
+            "description": "骨骼网格资产路径 *"
+          },
+          "export_name": {
+            "type": "string",
+            "description": "Saved Exports 下的新目录名称 *"
+          }
+        },
+        "required": [
+          "mesh_path",
+          "export_name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "FBX 与骨骼清单路径及导出统计 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "capture_niagara_preview": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "system_path": {
+            "type": "string",
+            "description": "系统资产路径 *"
+          },
+          "age_seconds": {
+            "type": "number",
+            "description": "模拟时间 *"
+          },
+          "file_name": {
+            "type": "string",
+            "description": "输出图像名称 *"
+          }
+        },
+        "required": [
+          "system_path",
+          "age_seconds",
+          "file_name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "图像路径与系统模拟时间 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_pie_static_mesh_instances": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mesh_path": {
+            "type": "string",
+            "description": "静态网格资产路径 *"
+          }
+        },
+        "required": [
+          "mesh_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "对象数量与物理状态 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "spawn_static_mesh_batch": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expected_level": {
+            "type": "string",
+            "description": "预期活动关卡 *"
+          },
+          "items_json": {
+            "type": "string",
+            "description": "含 name mesh location rotation scale 及可选 material folder collision 的列表 *"
+          }
+        },
+        "required": [
+          "expected_level",
+          "items_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "新演员完整对象路径 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "remove_scene_mesh_actors": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expected_level": {
+            "type": "string",
+            "description": "预期活动关卡 *"
+          },
+          "actor_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "明确对象路径列表 *"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "只检查不删除 *",
+            "default": true
+          }
+        },
+        "required": [
+          "expected_level",
+          "actor_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "已删除或预览目标和保留对象 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_static_mesh_points_graph": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_path": {
+            "type": "string",
+            "description": "新建图路径 *"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "已入库静态网格路径 *"
+          },
+          "points_json": {
+            "type": "string",
+            "description": "包含 location rotation scale 三元数组的点列表 单位厘米与角度 *"
+          },
+          "collision": {
+            "type": "boolean",
+            "description": "是否启用实例查询和物理碰撞 *",
+            "default": false
+          }
+        },
+        "required": [
+          "graph_path",
+          "mesh_path",
+          "points_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "图路径与预计实例数量 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_static_mesh_surface_collision": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mesh_path": {
+            "type": "string",
+            "description": "目标静态网格包路径 *"
+          },
+          "apply_changes": {
+            "type": "boolean",
+            "description": "为真时启用所有分段碰撞并重建网格 *",
+            "default": false
+          }
+        },
+        "required": [
+          "mesh_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "修改前后复杂度与分段碰撞状态 不自动保存 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "set_scene_actor_collision": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expected_level": {
+            "type": "string",
+            "description": "预期关卡路径 *"
+          },
+          "actor_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "显式演员路径列表 *"
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "是否启用 BlockAll 碰撞 *"
+          }
+        },
+        "required": [
+          "expected_level",
+          "actor_paths",
+          "enabled"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "已处理演员与组件回读值 不自动保存 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "invoke_pie_object_function": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "object_path": {
+            "type": "string",
+            "description": "PIE 演员或组件路径 *"
+          },
+          "function_name": {
+            "type": "string",
+            "description": "反射函数名称 *"
+          },
+          "arguments_json": {
+            "type": "string",
+            "description": "位置参数数组 结构体参数按反射接口传入 *",
+            "default": "[]"
+          }
+        },
+        "required": [
+          "object_path",
+          "function_name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "目标世界与实际返回值 不保存资产 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "generate_and_inspect_pcg": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "actor_path": {
+            "type": "string",
+            "description": "目标 PCG Actor 的完整对象路径 *"
+          },
+          "graph_path": {
+            "type": "string",
+            "description": "已保存 PCG 图路径 *"
+          },
+          "expected_level": {
+            "type": "string",
+            "description": "必须匹配的活动关卡包路径 *"
+          },
+          "generate": {
+            "type": "boolean",
+            "description": "为真时启动生成 为假时仅回读 *",
+            "default": false
+          }
+        },
+        "required": [
+          "actor_path",
+          "graph_path",
+          "expected_level"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "生成状态 实例数量与网格路径 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_static_mesh_grid_graph": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_path": {
+            "type": "string",
+            "description": "新建图的 Game 包路径 *"
+          },
+          "mesh_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "已经入库的静态网格路径 *"
+          },
+          "grid_extent": {
+            "type": "number",
+            "description": "平面网格半宽 厘米 *",
+            "default": 600
+          },
+          "cell_size": {
+            "type": "number",
+            "description": "网格间距 厘米 *",
+            "default": 300
+          }
+        },
+        "required": [
+          "graph_path",
+          "mesh_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "图路径和预计点数 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
     "configure_persistent_projectile_tracer": {
       "inputSchema": {
         "type": "object",
@@ -2734,6 +3679,48 @@
         "properties": {
           "returnValue": {
             "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "reload_assets_from_disk": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "资产包路径 不接受目录或地图 *"
+          },
+          "discard_dirty_packages": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "明确允许丢弃的脏包路径 默认应传空数组 *"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "只预检而不执行重载 *",
+            "default": true
+          }
+        },
+        "required": [
+          "asset_paths",
+          "discard_dirty_packages"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "预检目标 重载结果与剩余脏包 不执行保存或版本控制操作 */"
           }
         },
         "required": [
@@ -3543,6 +4530,556 @@
       }
     }
   },
+  "BBBLevelEditingToolset": {
+    "break_level_instance_to_current_level": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "level_instance_path": {
+            "type": "string"
+          },
+          "keep_folders": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "level_instance_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "set_pie_paused": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "paused": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "paused"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "spawn_pie_mass_display": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "spawner_path": {
+            "type": "string"
+          },
+          "config_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "center": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "radius": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "spawner_path",
+          "config_paths",
+          "center",
+          "radius"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_mass_display_spawners": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expected_level": {
+            "type": "string"
+          },
+          "source_spawner_path": {
+            "type": "string"
+          },
+          "config_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "center": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "spacing": {
+            "type": "number"
+          },
+          "radius": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "expected_level",
+          "source_spawner_path",
+          "config_paths",
+          "center",
+          "spacing",
+          "radius"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    }
+  },
+  "BBBBlueprintGraphToolset": {
+    "write_graph": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_path": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "node_aliases_json": {
+            "type": "string"
+          },
+          "pin_aliases_json": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "graph_path",
+          "code",
+          "node_aliases_json",
+          "pin_aliases_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "annotate_blueprint_graph": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_path": {
+            "type": "string",
+            "description": "项目蓝图图表完整路径"
+          },
+          "annotations_json": {
+            "type": "string",
+            "description": "含快照校验值的区块与节点注释方案"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "是否只读预览",
+            "default": true
+          }
+        },
+        "required": [
+          "graph_path",
+          "annotations_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "注释布局质量与实际写入结果"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_blueprint_graph": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_path": {
+            "type": "string",
+            "description": "项目蓝图图表完整路径"
+          }
+        },
+        "required": [
+          "graph_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "语义快照与无法解析的信息"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "optimize_blueprint_node_layout": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_path": {
+            "type": "string"
+          },
+          "horizontal_spacing": {
+            "type": "integer",
+            "default": 320
+          },
+          "vertical_spacing": {
+            "type": "integer",
+            "default": 180
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "graph_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_owned_objects": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          },
+          "class_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_path",
+          "class_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "invoke_pie_object_function": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "object_path": {
+            "type": "string"
+          },
+          "function_name": {
+            "type": "string"
+          },
+          "arguments_json": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "object_path",
+          "function_name",
+          "arguments_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_blueprint_function_thread_safety": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_path": {
+            "type": "string"
+          },
+          "function_name": {
+            "type": "string"
+          },
+          "thread_safe": {
+            "type": "boolean"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "blueprint_path",
+          "function_name",
+          "thread_safe"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    }
+  },
+  "BBBRigidPartToolset": {
+    "validate_rigid_part_selection": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "actor_blueprint_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "真实人物和预览人物蓝图路径 *"
+          },
+          "assembly_class_path": {
+            "type": "string",
+            "description": "组装组件类路径 *"
+          },
+          "selection_property": {
+            "type": "string",
+            "description": "默认选装结构属性名称 *"
+          },
+          "apply_function": {
+            "type": "string",
+            "description": "蓝图组装函数名称 *"
+          },
+          "slot_name": {
+            "type": "string",
+            "description": "刚性部件的部位名称 *"
+          },
+          "item_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "按顺序切换的目录条目名称 可重复 *"
+          },
+          "body_tag": {
+            "type": "string",
+            "description": "动画主网格组件标签 *"
+          },
+          "animation_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "用于动作采样的动画序列 *"
+          },
+          "bone_name": {
+            "type": "string",
+            "description": "预期附着骨骼名称 *"
+          },
+          "report_name": {
+            "type": "string",
+            "description": "报告文件名称 不含路径 *"
+          }
+        },
+        "required": [
+          "actor_blueprint_paths",
+          "assembly_class_path",
+          "selection_property",
+          "apply_function",
+          "slot_name",
+          "item_names",
+          "body_tag",
+          "animation_paths",
+          "bone_name",
+          "report_name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "验证结果 报告和截图路径 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_rigid_blueprint_part": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "leader_node_path": {
+            "type": "string",
+            "description": "现有姿势跟随节点完整路径 *"
+          },
+          "slot_node_path": {
+            "type": "string",
+            "description": "提供部位名称的节点完整路径 *"
+          },
+          "slot_pin_name": {
+            "type": "string",
+            "description": "提供部位名称的输出引脚 *"
+          },
+          "slot_name": {
+            "type": "string",
+            "description": "需要刚性附着的部位名称 *"
+          },
+          "function_name": {
+            "type": "string",
+            "description": "新增蓝图函数名称 *"
+          },
+          "reference_mesh_path": {
+            "type": "string",
+            "description": "提供参考骨架的网格路径 *"
+          },
+          "bone_name": {
+            "type": "string",
+            "description": "附着骨骼名称 *"
+          }
+        },
+        "required": [
+          "leader_node_path",
+          "slot_node_path",
+          "slot_pin_name",
+          "slot_name",
+          "function_name",
+          "reference_mesh_path",
+          "bone_name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "编译状态与参考姿势偏移 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_reference_attachment": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mesh_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "待核对的骨骼网格路径 *"
+          },
+          "bone_name": {
+            "type": "string",
+            "description": "附着骨骼名称 *"
+          }
+        },
+        "required": [
+          "mesh_paths",
+          "bone_name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "参考姿势和保持原始位置所需的相对变换 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    }
+  },
   "BBBControlRigAuthoringToolset": {
     "export_sequence_pose_audit": {
       "inputSchema": {
@@ -4175,6 +5712,10 @@
               "type": "string"
             },
             "description": "返回的骨骼 *"
+          },
+          "variables_json": {
+            "type": "string",
+            "default": "{}"
           }
         },
         "required": [
@@ -4651,316 +6192,8 @@
       }
     }
   },
-  "BBBExternalToolset": {
-    "util": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "type": "string"
-          },
-          "params_json": {
-            "type": "string",
-            "default": "{}"
-          }
-        },
-        "required": [
-          "action"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "vision": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "type": "string"
-          },
-          "params_json": {
-            "type": "string",
-            "default": "{}"
-          }
-        },
-        "required": [
-          "action"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "game": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "type": "string"
-          },
-          "params_json": {
-            "type": "string",
-            "default": "{}"
-          }
-        },
-        "required": [
-          "action"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "layer": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "type": "string"
-          },
-          "params_json": {
-            "type": "string",
-            "default": "{}"
-          }
-        },
-        "required": [
-          "action"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "level_sequence": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "type": "string"
-          },
-          "params_json": {
-            "type": "string",
-            "default": "{}"
-          }
-        },
-        "required": [
-          "action"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "retarget": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "type": "string"
-          },
-          "params_json": {
-            "type": "string",
-            "default": "{}"
-          }
-        },
-        "required": [
-          "action"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "level": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "type": "string"
-          },
-          "params_json": {
-            "type": "string",
-            "default": "{}"
-          }
-        },
-        "required": [
-          "action"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "editor": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "type": "string"
-          },
-          "params_json": {
-            "type": "string",
-            "default": "{}"
-          }
-        },
-        "required": [
-          "action"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "data_table": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "type": "string"
-          },
-          "params_json": {
-            "type": "string",
-            "default": "{}"
-          }
-        },
-        "required": [
-          "action"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "control_rig": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "type": "string"
-          },
-          "params_json": {
-            "type": "string",
-            "default": "{}"
-          }
-        },
-        "required": [
-          "action"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "animation": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "type": "string"
-          },
-          "params_json": {
-            "type": "string",
-            "default": "{}"
-          }
-        },
-        "required": [
-          "action"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "list_available_actions": {
+  "BBBMcpRuntimeToolset": {
+    "inspect_mcp_dependencies": {
       "inputSchema": {
         "type": "object"
       },
@@ -4968,35 +6201,8 @@
         "type": "object",
         "properties": {
           "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    }
-  },
-  "BBBBlueprintGraphToolset": {
-    "inspect_blueprint_graph": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "graph_path": {
             "type": "string",
-            "description": "项目蓝图图表完整路径"
-          }
-        },
-        "required": [
-          "graph_path"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string",
-            "description": "语义快照与无法解析的信息"
+            "description": "依赖与实际加载位置 JSON */"
           }
         },
         "required": [
@@ -5004,242 +6210,6 @@
         ]
       }
     },
-    "annotate_blueprint_graph": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "graph_path": {
-            "type": "string",
-            "description": "项目蓝图图表完整路径"
-          },
-          "annotations_json": {
-            "type": "string",
-            "description": "含快照校验值的区块与节点注释方案"
-          },
-          "dry_run": {
-            "type": "boolean",
-            "description": "是否只读预览",
-            "default": true
-          }
-        },
-        "required": [
-          "graph_path",
-          "annotations_json"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string",
-            "description": "注释布局质量与实际写入结果"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "write_graph": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "graph_path": {
-            "type": "string"
-          },
-          "code": {
-            "type": "string"
-          },
-          "node_aliases_json": {
-            "type": "string"
-          },
-          "pin_aliases_json": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "graph_path",
-          "code",
-          "node_aliases_json",
-          "pin_aliases_json"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "optimize_blueprint_node_layout": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "graph_path": {
-            "type": "string"
-          },
-          "horizontal_spacing": {
-            "type": "integer",
-            "default": 320
-          },
-          "vertical_spacing": {
-            "type": "integer",
-            "default": 180
-          },
-          "dry_run": {
-            "type": "boolean",
-            "default": false
-          }
-        },
-        "required": [
-          "graph_path"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "inspect_owned_objects": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "asset_path": {
-            "type": "string"
-          },
-          "class_path": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "asset_path",
-          "class_path"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "invoke_pie_object_function": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "object_path": {
-            "type": "string"
-          },
-          "function_name": {
-            "type": "string"
-          },
-          "arguments_json": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "object_path",
-          "function_name",
-          "arguments_json"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "configure_blueprint_function_thread_safety": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "blueprint_path": {
-            "type": "string"
-          },
-          "function_name": {
-            "type": "string"
-          },
-          "thread_safe": {
-            "type": "boolean"
-          },
-          "dry_run": {
-            "type": "boolean",
-            "default": true
-          }
-        },
-        "required": [
-          "blueprint_path",
-          "function_name",
-          "thread_safe"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    }
-  },
-  "BBBLevelEditingToolset": {
-    "break_level_instance_to_current_level": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "level_instance_path": {
-            "type": "string"
-          },
-          "keep_folders": {
-            "type": "boolean",
-            "default": true
-          }
-        },
-        "required": [
-          "level_instance_path"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    }
-  },
-  "BBBMcpRuntimeToolset": {
     "get_mcp_usage_guide": {
       "inputSchema": {
         "type": "object"
@@ -5296,6 +6266,2201 @@
           "returnValue": {
             "type": "string",
             "description": "性能状态 JSON */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    }
+  },
+  "BBBAssetMaintenanceToolset": {
+    "repair_foliage_base_cache": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "world_package": {
+            "type": "string",
+            "description": "当前非分区编辑器世界精确包路径 *"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "只预检 不修改 *",
+            "default": true
+          }
+        },
+        "required": [
+          "world_package"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "合并数量和结果 保存前必须核验实例保留指纹 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_foliage_base_cache": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "world_package": {
+            "type": "string",
+            "description": "当前编辑器世界精确包路径 *"
+          }
+        },
+        "required": [
+          "world_package"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "原生缓存条目 重复数量和实例指纹 不加载或保存 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "delete_unreferenced_uncontrolled_assets": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expected_files_json": {
+            "type": "string",
+            "description": "含 package 和 sha256 的精确清单 *"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "默认仅预检 *",
+            "default": true
+          }
+        },
+        "required": [
+          "expected_files_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "原生删除结果与物理文件清除状态 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "delete_unreferenced_asset_packages": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "需要隔离的真实资产包 最多 64 项 *"
+          },
+          "backup_directory": {
+            "type": "string",
+            "description": "已有永久备份绝对目录 保留 Content 相对层级 *"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "默认只核验 *",
+            "default": true
+          }
+        },
+        "required": [
+          "asset_paths",
+          "backup_directory"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "每个原生删除结果和磁盘文件不存在的复核 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "update_pose_assets_from_source": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expected_reports_json": {
+            "type": "string",
+            "description": "检查工具的完整源报告 *"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "只预检 调用方执行前必须备份 *",
+            "default": true
+          }
+        },
+        "required": [
+          "expected_reports_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "源一致性和姿势名称保留结果 不修改源动画 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "rebuild_loaded_actor_construction": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "actor_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "当前编辑器世界中的精确角色对象路径 *"
+          }
+        },
+        "required": [
+          "actor_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "样条段前后数量和身份校验结果 不保存 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "modernize_deprecated_blueprint_nodes": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "已经备份的真实蓝图包 *"
+          }
+        },
+        "required": [
+          "asset_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "替换数量和成功状态 不编译或保存 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "clean_unreferenced_redirectors_in_folder": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "folder_path": {
+            "type": "string"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "folder_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "remove_unreferenced_loaded_redirectors": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "asset_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "make_current_editor_level_explicit": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expected_package": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_package"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "resave_assets": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "asset_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "verify_asset_moves": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "moves_json": {
+            "type": "string",
+            "description": "move_assets_batch 返回的 assets 数组序列化结果 *"
+          }
+        },
+        "required": [
+          "moves_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "JSON 核验结果 包括旧引用与阻止目录清理的剩余文件 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "move_assets_preserving_external_actor_references": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "moves_json": {
+            "type": "string",
+            "description": "精确源目标映射 单批最多 64 个普通资产 *"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "仅预检 不加载或移动资产 *",
+            "default": true
+          }
+        },
+        "required": [
+          "moves_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "执行结果及仍需修复的引用清单 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "move_partitioned_world": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_package": {
+            "type": "string",
+            "description": "已备份的源关卡包 *"
+          },
+          "destination_package": {
+            "type": "string",
+            "description": "不存在的目标关卡包 *"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "仅预检 不加载或移动关卡 *",
+            "default": true
+          }
+        },
+        "required": [
+          "source_package",
+          "destination_package"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "原生执行与外部包磁盘核验结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "move_assets_batch": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "moves_json": {
+            "type": "string"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "moves_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "audit_asset_folder_move": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_folder": {
+            "type": "string"
+          },
+          "destination_folder": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_folder",
+          "destination_folder"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "delete_asset_redirectors": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "已备份的精确重定向包列表 *"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "仅预检 不加载或删除对象 *",
+            "default": true
+          }
+        },
+        "required": [
+          "asset_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "删除结果及剩余磁盘文件 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "fixup_redirector_references_batch": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "已备份的重定向包路径 *"
+          },
+          "referencer_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "已备份的引用者包路径 单批最多 32 项 *"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "仅检查注册表 不加载对象或保存 *",
+            "default": true
+          }
+        },
+        "required": [
+          "asset_paths",
+          "referencer_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "本批保存结果 剩余引用及阻止保存的原因 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "fixup_external_actor_redirector_references": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "已备份的重定向包路径 单批最多 64 项 *"
+          },
+          "referencer_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "已备份且已由当前用户独占签出的外部 Actor 包 单批最多 32 项 *"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "仅检查注册表和磁盘 不加载或保存包 *",
+            "default": true
+          }
+        },
+        "required": [
+          "asset_paths",
+          "referencer_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "本批已保存包和仍引用旧路径的结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "fixup_redirector_references": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "已备份的重定向器包路径 *"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "仅预检 不加载或保存引用者 *",
+            "default": true
+          }
+        },
+        "required": [
+          "asset_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "引用者清单 保存结果及剩余旧引用 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "consolidate_verified_asset_copies": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "moves_json": {
+            "type": "string",
+            "description": "含 source destination class_path source_sha256 的精确清单 *"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "仅预检开关 *",
+            "default": true
+          }
+        },
+        "required": [
+          "moves_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "合并进度和结果 失败时不自动回滚 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "refresh_asset_registry_folders": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "folder_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "明确的项目内容子目录 *"
+          }
+        },
+        "required": [
+          "folder_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "刷新目录及各目录主资产数量 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_asset_packages": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "明确包路径列表 *"
+          }
+        },
+        "required": [
+          "asset_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "注册类型 重定向目标 引用者 磁盘与脏包状态 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_native_package_referencers": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "script_packages": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "明确的 /Script 模块包路径 最多 64 项 *"
+          }
+        },
+        "required": [
+          "script_packages"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "各脚本包的直接资产引用者 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_native_dependency_packages": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "需要核验的内容包路径 单批最多 5000 项 *"
+          }
+        },
+        "required": [
+          "asset_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "原生脚本包 缺失依赖和遍历数量 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "remap_missing_soft_object_paths": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "referencer_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "已备份的明确引用者包 最多 64 项 *"
+          },
+          "replacements_json": {
+            "type": "string",
+            "description": "明确 source 与 destination 软对象路径映射 *"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "仅预检 不加载或保存包 *",
+            "default": true
+          }
+        },
+        "required": [
+          "referencer_paths",
+          "replacements_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "保存包 旧引用残留与拒绝原因 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_missing_path_recovery_redirector": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_package": {
+            "type": "string",
+            "description": "缺失的旧包 *"
+          },
+          "destination_package": {
+            "type": "string",
+            "description": "已核对的真实目标包 *"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "只读预检 *",
+            "default": true
+          }
+        },
+        "required": [
+          "source_package",
+          "destination_package"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "创建结果 验收后须原生清理临时包 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_loaded_package_soft_paths": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "package_path": {
+            "type": "string",
+            "description": "明确已加载包 *"
+          }
+        },
+        "required": [
+          "package_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "原生路径清单 不加载或保存 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "remap_package_metadata_owner_paths": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "package_path": {
+            "type": "string",
+            "description": "已备份的当前真实包 *"
+          },
+          "old_package_path": {
+            "type": "string",
+            "description": "明确旧所属包 *"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "只读预检 *",
+            "default": true
+          }
+        },
+        "required": [
+          "package_path",
+          "old_package_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "元数据映射和保存结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "refresh_blueprint_reflection_metadata": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "已备份并签出的明确包 *"
+          }
+        },
+        "required": [
+          "asset_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "节点连线数量及蓝图对象路径 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "normalize_material_auxiliary_data": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "明确材质包 最多 64 项 *"
+          },
+          "clear_missing_preview": {
+            "type": "boolean",
+            "description": "是否清理已缺失的可选预览网格 *",
+            "default": false
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "只读预检 *",
+            "default": true
+          }
+        },
+        "required": [
+          "asset_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "每个材质的缓存前后和实际绑定证明 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_content_dependency_integrity": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "明确包路径列表 最多 5000 项 *"
+          }
+        },
+        "required": [
+          "asset_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "缺失包与实际引用者 不加载或保存资产 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "repair_animation_property_queries": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "operations_json": {
+            "type": "string",
+            "description": "每个蓝图的 guarded_queries weights paths calls 计划 *"
+          },
+          "save": {
+            "type": "boolean",
+            "description": "默认仅修改内存并编译 保存前须备份和独占签出 *",
+            "default": false
+          }
+        },
+        "required": [
+          "operations_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "每项蓝图的编译和保存结果 失败保留内存便于检查 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_animation_access_errors": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "明确动画蓝图包路径 最多 16 项 *"
+          }
+        },
+        "required": [
+          "asset_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "按蓝图分组的节点诊断 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "repair_pose_asset_source_guids": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expected_reports_json": {
+            "type": "string",
+            "description": "检查工具的完整报告 JSON *"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "默认只预检 执行前必须备份并独占签出 *",
+            "default": true
+          },
+          "allow_verified_samples": {
+            "type": "boolean",
+            "description": "显式允许固定精度的逐键校验 默认禁用 *",
+            "default": false
+          }
+        },
+        "required": [
+          "expected_reports_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "保存后重新检查的报告 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_pose_asset_source_guids": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "明确姿势包路径 最多 64 项 *"
+          }
+        },
+        "required": [
+          "asset_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "每项姿势的源 GUID 匹配情况和载荷指纹 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "repair_missing_animation_skeleton": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "无骨架动画的明确包路径 *"
+          },
+          "skeleton_path": {
+            "type": "string",
+            "description": "经归属核验的目标骨架包路径 *"
+          }
+        },
+        "required": [
+          "asset_path",
+          "skeleton_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "轨道兼容性 修复结果和保存结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_package_objects": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "package_path": {
+            "type": "string",
+            "description": "需要加载核验的精确项目包 *"
+          }
+        },
+        "required": [
+          "package_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "文件导出数量和所有包内对象 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "delete_metadata_only_package": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "package_path": {
+            "type": "string",
+            "description": "已备份的精确包路径 *"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "默认只核验导出与引用 *",
+            "default": true
+          }
+        },
+        "required": [
+          "package_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "前置条件与引擎清理后的磁盘结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_physics_asset_material_bindings": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "package_path": {
+            "type": "string",
+            "description": "需要核验的精确物理资产包路径 *"
+          }
+        },
+        "required": [
+          "package_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "逐骨骼材质绑定 碰撞形状数量与脏包状态 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_external_actor_packages": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "package_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "需要核验的精确外部 Actor 包 单批最多 64 项 *"
+          }
+        },
+        "required": [
+          "package_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "注册对象 实际 GUID 父级连接与脏包状态 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_external_actor_package_metadata": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "package_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "需要核验的精确外部 Actor 包 单批最多 64 项 *"
+          }
+        },
+        "required": [
+          "package_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "注册对象 类型和硬软包引用 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_external_object_package_metadata": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "package_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "需要核验的精确外部 Object 包 单批最多 64 项 *"
+          }
+        },
+        "required": [
+          "package_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "注册对象 类型和硬软包引用 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "delete_ownerless_external_object_packages": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "package_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "已核对历史归属的精确外部包 单批最多 2048 项 *"
+          },
+          "backup_directory": {
+            "type": "string",
+            "description": "项目 Content 外永久保留原件的目录 *"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "默认只核验 不加载对象或删除文件 *",
+            "default": true
+          }
+        },
+        "required": [
+          "package_paths",
+          "backup_directory"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "原件哈希 原生删除结果和剩余文件 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "delete_ownerless_external_actor_packages": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "package_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "已核对历史归属的精确外部包 单批最多 2048 项 *"
+          },
+          "backup_directory": {
+            "type": "string",
+            "description": "项目 Content 外永久保留原件的目录 *"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "默认只核验 不加载对象或删除文件 *",
+            "default": true
+          }
+        },
+        "required": [
+          "package_paths",
+          "backup_directory"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "原件哈希 原生删除结果和剩余文件 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    }
+  },
+  "BBBAnimationPreviewToolset": {
+    "inspect_animation_transition_capture": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "capture_id": {
+            "type": "string",
+            "description": "截图启动返回的唯一编号 *"
+          }
+        },
+        "required": [
+          "capture_id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "待完成 完成或失败状态及证据 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "capture_monster_animation_transition": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "actor_blueprint_path": {
+            "type": "string",
+            "description": "明确表现演员蓝图 *"
+          },
+          "initial_state": {
+            "type": "integer",
+            "description": "初始表现状态 零至五 *"
+          },
+          "target_state": {
+            "type": "integer",
+            "description": "目标表现状态 零至五 *"
+          },
+          "initial_progress": {
+            "type": "number",
+            "description": "初始非循环动作进度 *"
+          },
+          "target_progress": {
+            "type": "number",
+            "description": "目标非循环动作进度 *"
+          },
+          "sample_seconds": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "切换后秒数 从左至右 至多三项 *"
+          },
+          "bone_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "需要记录的组件空间骨骼 可为空 *"
+          },
+          "file_prefix": {
+            "type": "string",
+            "description": "唯一截图前缀 *"
+          }
+        },
+        "required": [
+          "actor_blueprint_path",
+          "initial_state",
+          "target_state",
+          "initial_progress",
+          "target_progress",
+          "sample_seconds",
+          "bone_names",
+          "file_prefix"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "实际蓝图类 采样时间 骨骼位置与临时对象清理结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "capture_animation_samples": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mesh_path": {
+            "type": "string",
+            "description": "明确骨骼网格路径 *"
+          },
+          "animation_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "明确动画路径 每次至多八条 *"
+          },
+          "sample_progress": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "归一化时间 从左至右 至多三项 *"
+          },
+          "file_prefix": {
+            "type": "string",
+            "description": "不含目录的唯一截图前缀 *"
+          }
+        },
+        "required": [
+          "mesh_path",
+          "animation_paths",
+          "sample_progress",
+          "file_prefix"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "截图路径 实际采样时间与临时对象清理结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_mass_population_benchmark": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "description": "开始工具返回的标识 *"
+          }
+        },
+        "required": [
+          "run_id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "当前阶段与结果文件路径 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "start_mass_population_benchmark": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "config_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "实际实体配置路径 *"
+          },
+          "counts": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "递增数量 每项至多一千 *"
+          },
+          "center": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "网格出生中心 三个厘米坐标 *"
+          },
+          "spacing": {
+            "type": "number",
+            "description": "实体出生间距 厘米 *"
+          },
+          "expected_level": {
+            "type": "string",
+            "description": "明确的验收关卡短名 必须包含 Validation *"
+          },
+          "file_prefix": {
+            "type": "string",
+            "description": "唯一诊断文件前缀 *"
+          },
+          "warmup_seconds": {
+            "type": "number",
+            "description": "每组预热秒数 至少五秒 *",
+            "default": 5
+          },
+          "measurement_seconds": {
+            "type": "number",
+            "description": "每组测量秒数 至少十秒 *",
+            "default": 10
+          },
+          "force_actor_representation": {
+            "type": "boolean",
+            "description": "使用临时全骨骼压力配置 不改正式模板 *",
+            "default": false
+          }
+        },
+        "required": [
+          "config_paths",
+          "counts",
+          "center",
+          "spacing",
+          "expected_level",
+          "file_prefix"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "异步运行标识 测量完成后回读结果 原始数据始终落盘 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_mass_inspection_population": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pause_game": {
+            "type": "boolean",
+            "description": "是否暂停当前检查 PIE 用户可点击继续恢复 *",
+            "default": false
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "实际群体快照 暂停操作失败时明确报错 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "spawn_mass_inspection_population": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "config_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "互不重复的实体配置 至多十六种 *"
+          },
+          "center": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "出生网格中心 三个厘米坐标 包含离地高度 *"
+          },
+          "spacing": {
+            "type": "number",
+            "description": "网格间距 厘米 至少二百 *"
+          },
+          "expected_level": {
+            "type": "string",
+            "description": "完整关卡包路径 必须与当前 PIE 关卡一致 *"
+          }
+        },
+        "required": [
+          "config_paths",
+          "center",
+          "spacing",
+          "expected_level"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "完整实体句柄的实际数量与快照 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    }
+  },
+  "BBBAnimationGraphToolset": {
+    "bind_sequence_crossfade_getters": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "明确独占签出或待添加的标准动画蓝图 *"
+          },
+          "getter_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "六个快照查询名称 *"
+          }
+        },
+        "required": [
+          "asset_path",
+          "getter_names"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "编译和保存结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_actor_animation_blueprint": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "actor_blueprint_path": {
+            "type": "string",
+            "description": "明确演员蓝图 *"
+          },
+          "mesh_component_property": {
+            "type": "string",
+            "description": "持有骨骼组件的默认对象属性 *"
+          },
+          "animation_blueprint_path": {
+            "type": "string",
+            "description": "已编译的同骨架动画蓝图 *"
+          }
+        },
+        "required": [
+          "actor_blueprint_path",
+          "mesh_component_property",
+          "animation_blueprint_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "保存后回读的动画类与播放模式 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_sequence_crossfade_blueprint": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "不存在的新资产路径 *"
+          },
+          "parent_class_path": {
+            "type": "string",
+            "description": "提供线程安全查询的动画实例类 *"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "同骨架预览网格 *"
+          },
+          "preview_animation_path": {
+            "type": "string",
+            "description": "同骨架预览动画 *"
+          },
+          "getter_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "甲乙序列 甲乙时间 乙启用 混合时间六个查询名 *"
+          }
+        },
+        "required": [
+          "asset_path",
+          "parent_class_path",
+          "mesh_path",
+          "preview_animation_path",
+          "getter_names"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "新蓝图路径 生成类与编译状态 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "rebuild_sequence_crossfade_blueprint": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "已备份且独占持有的动画蓝图 *"
+          },
+          "preview_animation_path": {
+            "type": "string",
+            "description": "同骨架预览序列 *"
+          },
+          "getter_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "六个原有只读查询 *"
+          }
+        },
+        "required": [
+          "asset_path",
+          "preview_animation_path",
+          "getter_names"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "严格编译和保存结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "rebuild_fact_driven_state_machine": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "目标动画蓝图 *"
+          },
+          "locomotion_path": {
+            "type": "string",
+            "description": "同骨架移动混合资产 *"
+          },
+          "action_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "攻击 受伤 死亡序列 *"
+          },
+          "fact_properties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "行为 速度 进度只读属性 *"
+          },
+          "action_values": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "递增动作枚举值 *"
+          },
+          "blend_duration": {
+            "type": "number",
+            "description": "状态过渡秒数 *",
+            "default": 0.18
+          },
+          "parent_class_path": {
+            "type": "string",
+            "description": "可选事实动画父类 迁移时明确指定 *"
+          }
+        },
+        "required": [
+          "asset_path",
+          "locomotion_path",
+          "action_paths",
+          "fact_properties",
+          "action_values",
+          "parent_class_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "编译 保存和实际状态机结构 未成功不得作为验收通过 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_speed_blend_space": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "不存在的新混合资产路径 *"
+          },
+          "sequence_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "按速度排序的序列 *"
+          },
+          "speeds": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "对应厘米每秒速度 首项为零 *"
+          },
+          "smoothing_time": {
+            "type": "number",
+            "description": "速度轴平滑秒数 *",
+            "default": 0.12
+          }
+        },
+        "required": [
+          "asset_path",
+          "sequence_paths",
+          "speeds"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "保存路径及实际样本配置 新资产仍须登记版本控制 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "reparent_presentation_blueprint": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "表现载体蓝图路径 *"
+          },
+          "parent_class_path": {
+            "type": "string",
+            "description": "原生表现载体父类路径 *"
+          }
+        },
+        "required": [
+          "asset_path",
+          "parent_class_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "保存结果及实际默认网格类型 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_fact_action_variants": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "独占持有的动画蓝图 *"
+          },
+          "variant_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "按攻击 受伤 死亡分组的序列路径 *"
+          },
+          "counts": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "各分组数量 *"
+          },
+          "blend_duration": {
+            "type": "number",
+            "description": "重启过渡秒数 *",
+            "default": 0.16
+          }
+        },
+        "required": [
+          "asset_path",
+          "variant_paths",
+          "counts"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "严格编译保存结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_merged_skeletal_asset": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "不存在的自有资产路径 *"
+          },
+          "part_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "同骨架头部 身体 服装模块 *"
+          }
+        },
+        "required": [
+          "asset_path",
+          "part_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "原生构建验证与保存结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_mass_presentation_variant": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_actor_path": {
+            "type": "string",
+            "description": "已验证的预算载体蓝图 *"
+          },
+          "source_definition_path": {
+            "type": "string",
+            "description": "同类正式静态定义 *"
+          },
+          "source_config_path": {
+            "type": "string",
+            "description": "同类正式实体模板 *"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "已保存的完整合并网格 *"
+          },
+          "destination_root": {
+            "type": "string",
+            "description": "不存在变体资产的自有目录 *"
+          },
+          "variant_name": {
+            "type": "string",
+            "description": "稳定英文外观名称 *"
+          }
+        },
+        "required": [
+          "source_actor_path",
+          "source_definition_path",
+          "source_config_path",
+          "mesh_path",
+          "destination_root",
+          "variant_name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "三个资产路径及明确互相引用 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "audit_animation_tracks": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "实际动画路径 *"
+          },
+          "bone_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "局部接缝检查骨骼 *"
+          },
+          "file_prefix": {
+            "type": "string",
+            "description": "不存在的诊断文件前缀 *"
+          }
+        },
+        "required": [
+          "asset_paths",
+          "bone_names",
+          "file_prefix"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "各动画全帧根位移 旋转 缩放和局部循环接缝 */"
           }
         },
         "required": [

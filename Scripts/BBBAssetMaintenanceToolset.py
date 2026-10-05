@@ -1,10 +1,11 @@
-﻿import hashlib
+import hashlib
 import json
 import os
 import re
 
 import unreal
-import toolset_registry
+from BBBMcpCapabilities import mcp_tool
+from BBBAssetWritePolicy import require_asset_write
 from toolset_registry.registration import Registration
 
 
@@ -430,38 +431,6 @@ def _plan_asset_moves(requests, registry):
     }
 
 
-def _require_move_checkout(packages, destinations):
-    """
-    /**
-     * 检查现有包独占签出和目标仓库冲突 不主动办理签出
-     * @param packages	源资产和所有注册表引用者
-     * @param destinations	新资产包路径
-     * @return 无返回值 不满足条件直接拒绝
-     */
-    """
-    if not unreal.SourceControl.is_enabled() or not unreal.SourceControl.is_available():
-        raise RuntimeError("执行移动前必须启用并连接 Perforce")
-    if unreal.SourceControl.current_provider() != "Perforce":
-        raise RuntimeError("本项目二进制资产必须由 Perforce 管理")
-    names = sorted(set(packages))
-    states = unreal.SourceControl.query_file_states(names, silent=True, use_source_control_state_cache=False)
-    if len(states) != len(names):
-        raise RuntimeError("无法获得完整 Perforce 状态")
-    for package, state in zip(names, states):
-        if not state.is_valid or state.is_unknown or state.is_checked_out_other or state.is_conflicted or state.is_deleted:
-            raise RuntimeError("Perforce 状态无效或存在冲突: " + package)
-        if not state.can_edit or not (state.is_checked_out or state.is_added):
-            raise RuntimeError("必须先独占签出或待添加源资产与引用者: " + package)
-        if state.is_source_controlled and not state.is_added and not state.is_current:
-            raise RuntimeError("包不是仓库最新版本 请由用户处理: " + package)
-    targets = sorted(set(destinations))
-    target_states = unreal.SourceControl.query_file_states(targets, silent=True, use_source_control_state_cache=False)
-    if len(target_states) != len(targets):
-        raise RuntimeError("无法获得完整目标 Perforce 状态")
-    for package, state in zip(targets, target_states):
-        if not state.is_valid or state.is_unknown or state.is_source_controlled or state.is_added or state.is_checked_out_other or state.is_deleted or not state.can_add:
-            raise RuntimeError("目标存在仓库冲突或不在可添加映射内: " + package)
-
 
 def _permit_external_actor_move_references(report):
     """
@@ -500,7 +469,7 @@ def _execute_asset_moves(report):
         _require_external_actor_world_owners(_move_registry(), external_referencers)
     affected = set(report["referencer_packages"])
     affected.update(item["source"] for item in report["assets"])
-    _require_move_checkout(affected, [item["destination"] for item in report["assets"]])
+    require_asset_write(affected, [item["destination"] for item in report["assets"]])
     report["checkout_checked"] = True
     renames = []
     loaded_assets = []
@@ -556,7 +525,7 @@ def _execute_asset_moves(report):
 class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
     """提供精确限定资产范围的维护工具"""
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def delete_ownerless_external_actor_packages(package_paths: list[str], backup_directory: str, dry_run: bool = True) -> str:
         """
@@ -570,7 +539,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         """
         return _delete_ownerless_external_packages(package_paths, backup_directory, dry_run, _external_actor_package_path)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def delete_ownerless_external_object_packages(package_paths: list[str], backup_directory: str, dry_run: bool = True) -> str:
         """
@@ -584,7 +553,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         """
         return _delete_ownerless_external_packages(package_paths, backup_directory, dry_run, _external_object_package_path)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_external_object_package_metadata(package_paths: list[str]) -> str:
         """
@@ -604,7 +573,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
             rows.append({"package": path, "records": records, "referencers": _move_referencers(registry, path)})
         return json.dumps({"read_only": True, "packages": rows}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_external_actor_package_metadata(package_paths: list[str]) -> str:
         """
@@ -626,7 +595,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         unreal.log("[BBBExternalActorMetadata]核对 {} 个外部包 不加载对象".format(len(rows)))
         return json.dumps(report, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_external_actor_packages(package_paths: list[str]) -> str:
         """
@@ -667,7 +636,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         unreal.log("[BBBExternalActorInspect]核验 {} 个外部包 {}".format(len(rows), "PASS" if report["success"] else "FAIL"))
         return json.dumps(report, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_physics_asset_material_bindings(package_path: str) -> str:
         """
@@ -679,7 +648,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         """
         return unreal.BBBAssetRepairEditorLibrary.inspect_physics_asset_material_bindings(_move_path(package_path))
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def delete_metadata_only_package(package_path: str, dry_run: bool = True) -> str:
         """
@@ -705,13 +674,13 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         report["package"] = package
         report["dry_run"] = dry_run
         if not dry_run:
-            _require_move_checkout([package], [])
+            require_asset_write([package], [])
             report["success"] = bool(unreal.BBBAssetRepairEditorLibrary.delete_metadata_only_package(package))
             if not report["success"]:
                 unreal.log_error("[BBBMetadataCleanup]引擎未完成空包清理 " + package)
         return json.dumps(report, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_package_objects(package_path: str) -> str:
         """
@@ -723,7 +692,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         """
         return unreal.BBBAssetRepairEditorLibrary.inspect_package_objects(_move_path(package_path))
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def repair_missing_animation_skeleton(asset_path: str, skeleton_path: str) -> str:
         """
@@ -738,7 +707,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         skeleton_path = _move_path(skeleton_path)
         if _move_dirty_packages():
             raise RuntimeError("存在脏包 拒绝修复动画骨架")
-        _require_move_checkout([asset_path], [])
+        require_asset_write([asset_path], [])
         try:
             result = json.loads(unreal.BBBAssetRepairEditorLibrary.repair_missing_animation_skeleton(asset_path, skeleton_path))
         except Exception as error:
@@ -754,7 +723,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         unreal.log("[BBBAnimationSkeletonRepair]修复结果 " + json.dumps(result))
         return json.dumps(result, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_pose_asset_source_guids(asset_paths: list[str]) -> str:
         """
@@ -780,7 +749,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
             results.append(json.loads(report))
         return json.dumps(results, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def repair_pose_asset_source_guids(expected_reports_json: str, dry_run: bool = True, allow_verified_samples: bool = False) -> str:
         """
@@ -805,7 +774,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
             return json.dumps(current, ensure_ascii=False)
         if _move_dirty_packages():
             raise RuntimeError("存在脏包 拒绝开始姿势缓存维护")
-        _require_move_checkout(paths, [])
+        require_asset_write(paths, [])
         results = []
         for path, before in zip(paths, current):
             asset = unreal.EditorAssetLibrary.load_asset(path)
@@ -820,7 +789,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
             results.append(after)
         return json.dumps(results, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_animation_access_errors(asset_paths: list[str]) -> str:
         """
@@ -840,7 +809,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
             results[path] = json.loads(unreal.BBBAssetRepairEditorLibrary.inspect_access_errors(asset))
         return json.dumps(results, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def repair_animation_property_queries(operations_json: str, save: bool = False) -> str:
         """
@@ -860,7 +829,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         paths = [_move_path(item["asset"]) for item in plans]
         if len(set(paths)) != len(paths):
             raise RuntimeError("蓝图计划不得重复")
-        _require_move_checkout(paths, [])
+        require_asset_write(paths, [])
         assets = [unreal.EditorAssetLibrary.load_asset(path) for path in paths]
         if any(not isinstance(asset, unreal.AnimBlueprint) for asset in assets):
             raise RuntimeError("计划包含非动画蓝图")
@@ -900,7 +869,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
                 result["saved"] = True
         return json.dumps(results, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_content_dependency_integrity(asset_paths: list[str]) -> str:
         """
@@ -962,7 +931,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
 
         return json.dumps({"read_only": True, "checked_count": len(packages), "missing_packages": sorted(missing_packages), "referencers": referencers, "success": not missing_packages}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def normalize_material_auxiliary_data(asset_paths: list[str], clear_missing_preview: bool = False, dry_run: bool = True) -> str:
         """
@@ -995,7 +964,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         if dry_run:
             return json.dumps(report, ensure_ascii=False)
 
-        _require_move_checkout(paths, [])
+        require_asset_write(paths, [])
         for path in paths:
             asset = unreal.load_object(None, path + "." + path.rsplit("/", 1)[-1], follow_redirectors=False)
             row = json.loads(unreal.BBBAssetRepairEditorLibrary.normalize_material_auxiliary_data(asset, clear_missing_preview))
@@ -1008,7 +977,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         report["success"] = not _move_dirty_packages()
         return json.dumps(report, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def refresh_blueprint_reflection_metadata(asset_path: str) -> str:
         """
@@ -1022,11 +991,11 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
             raise RuntimeError("脏包或 PIE 期间拒绝刷新")
 
-        _require_move_checkout([path], [])
+        require_asset_write([path], [])
         asset = unreal.load_object(None, path + "." + path.rsplit("/", 1)[-1], follow_redirectors=False)
         return unreal.BBBAssetRepairEditorLibrary.refresh_blueprint_reflection_metadata(asset)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def remap_package_metadata_owner_paths(package_path: str, old_package_path: str, dry_run: bool = True) -> str:
         """
@@ -1044,7 +1013,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
             raise RuntimeError("脏包或 PIE 期间拒绝元数据归并")
 
         if not dry_run:
-            _require_move_checkout([path], [])
+            require_asset_write([path], [])
 
         package = unreal.load_package(path)
         if package is None or package.get_path_name() != path:
@@ -1057,7 +1026,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
 
         return json.dumps(report, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_loaded_package_soft_paths(package_path: str) -> str:
         """
@@ -1069,7 +1038,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         """
         return unreal.BBBAssetRepairEditorLibrary.inspect_loaded_package_soft_paths(_move_path(package_path))
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def create_missing_path_recovery_redirector(source_package: str, destination_package: str, dry_run: bool = True) -> str:
         """
@@ -1105,7 +1074,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         report["success"] = unreal.BBBAssetRepairEditorLibrary.create_missing_path_recovery_redirector(source, asset)
         return json.dumps(report, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def remap_missing_soft_object_paths(referencer_paths: list[str], replacements_json: str, dry_run: bool = True) -> str:
         """
@@ -1189,7 +1158,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         if missing_hard:
             raise RuntimeError("引用者存在缺失硬依赖 拒绝加载后保存: " + json.dumps(missing_hard, ensure_ascii=False))
 
-        _require_move_checkout(selected, [])
+        require_asset_write(selected, [])
         existing_errors = {obj.get_path_name() for obj in unreal.ObjectIterator() if isinstance(obj, unreal.Blueprint) and obj.get_path_name().startswith("/Game/") and obj.get_editor_property("status") == unreal.BlueprintStatus.BS_ERROR}
         packages = []
         for path in selected:
@@ -1223,7 +1192,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         unreal.log("[BBBMissingSoftPathRepair]{} 保存 {} 个包".format("PASS" if report["success"] else "FAIL", len(report["saved"])))
         return json.dumps(report, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_native_dependency_packages(asset_paths: list[str]) -> str:
         """
@@ -1238,7 +1207,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         packages = [_move_path(path) for path in asset_paths]
         return json.dumps(_move_native_dependency_report(_move_registry(), packages), ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_native_package_referencers(script_packages: list[str]) -> str:
         """
@@ -1263,7 +1232,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         results = {path: sorted({str(name) for name in registry.get_referencers(path, options) or []}) for path in script_packages}
         return json.dumps({"read_only": True, "referencers": results}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_asset_packages(asset_paths: list[str]) -> str:
         """
@@ -1311,7 +1280,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
             })
         return json.dumps({"read_only": True, "packages": results}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def refresh_asset_registry_folders(folder_paths: list[str]) -> str:
         """
@@ -1330,7 +1299,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         registry.scan_paths_synchronous(paths, force_rescan=True)
         return json.dumps({"folders": [{"path": path, "asset_count": len(_move_primary_assets(registry.get_assets_by_path(path, recursive=True)))} for path in paths]}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def consolidate_verified_asset_copies(moves_json: str, dry_run: bool = True) -> str:
         """
@@ -1383,7 +1352,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         report = {"dry_run": dry_run, "count": len(pairs), "affected": sorted(affected), "completed": []}
         if dry_run:
             return json.dumps(report, ensure_ascii=False)
-        _require_move_checkout(affected, [])
+        require_asset_write(affected, [])
         for item, source, destination in pairs:
             if not unreal.EditorAssetLibrary.consolidate_assets(destination, [source]):
                 unreal.log_error("[BBBAssetConsolidate]原生合并未通过 必须检查部分结果")
@@ -1395,7 +1364,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         unreal.log("[BBBAssetConsolidate]完成 {} 个旧副本".format(len(report["completed"])))
         return json.dumps(report, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def fixup_redirector_references(asset_paths: list[str], dry_run: bool = True) -> str:
         """
@@ -1433,7 +1402,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         report = {"dry_run": dry_run, "redirectors": list(asset_paths), "referencers": sorted(references)}
         if dry_run:
             return json.dumps(report, ensure_ascii=False)
-        _require_move_checkout(set(asset_paths) | references, [])
+        require_asset_write(set(asset_paths) | references, [])
         packages = []
         for path in sorted(references):
             package = unreal.load_package(path)
@@ -1451,7 +1420,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         unreal.log("[BBBRedirectorReferences]引用修复 {}".format("PASS" if report["success"] else "FAIL"))
         return json.dumps(report, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def fixup_external_actor_redirector_references(asset_paths: list[str], referencer_paths: list[str], dry_run: bool = True) -> str:
         """
@@ -1512,7 +1481,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         if dry_run:
             report["success"] = True
             return json.dumps(report, ensure_ascii=False)
-        _require_move_checkout(selected, [])
+        require_asset_write(selected, [])
         packages = []
         for target_path in targets:
             target_object = unreal.load_object(None, target_path, follow_redirectors=False)
@@ -1549,7 +1518,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         unreal.log("[BBBExternalActorRedirectorFixup]{} 保存 {} 个外部 Actor 包".format("PASS" if report["success"] else "FAIL", len(report["saved"])))
         return json.dumps(report, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def fixup_redirector_references_batch(asset_paths: list[str], referencer_paths: list[str], dry_run: bool = True) -> str:
         """
@@ -1599,7 +1568,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         if dry_run:
             report["success"] = True
             return json.dumps(report, ensure_ascii=False)
-        _require_move_checkout(selected, [])
+        require_asset_write(selected, [])
         existing_errors = []
         for obj in unreal.ObjectIterator():
             if isinstance(obj, unreal.Blueprint) and obj.get_path_name().startswith("/Game/"):
@@ -1654,7 +1623,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         unreal.log("[BBBRedirectorBatch]本批保存 {} 个引用者".format(len(report["saved"])))
         return json.dumps(report, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def delete_asset_redirectors(asset_paths: list[str], dry_run: bool = True) -> str:
         """
@@ -1682,7 +1651,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         report = {"dry_run": dry_run, "package_count": len(asset_paths), "object_count": len(object_paths)}
         if dry_run:
             return json.dumps(report, ensure_ascii=False)
-        _require_move_checkout(asset_paths, [])
+        require_asset_write(asset_paths, [])
         objects = []
         for path in object_paths:
             obj = unreal.load_object(None, path, follow_redirectors=False)
@@ -1702,7 +1671,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         unreal.log("[BBBRedirectorDelete]{} {} 个包".format("PASS" if report["success"] else "FAIL", len(asset_paths)))
         return json.dumps(report, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def audit_asset_folder_move(source_folder: str, destination_folder: str) -> str:
         """只读检查目录迁移的目标冲突和目录外引用"""
@@ -1765,7 +1734,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         }
         return json.dumps(report, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def move_assets_batch(moves_json: str, dry_run: bool = True) -> str:
         """预检并按给定顺序批量移动资产或目录"""
@@ -1784,7 +1753,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
 
         return _execute_asset_moves(report)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def move_partitioned_world(source_package: str, destination_package: str, dry_run: bool = True) -> str:
         """
@@ -1841,7 +1810,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         report = {"dry_run": dry_run, "source": source, "destination": destination, "source_file": source_file, "destination_file": _move_filename(destination, ".umap"), "affected_packages": sorted(packages), "external": external, "executed": False}
         if dry_run:
             return json.dumps(report, ensure_ascii=False)
-        _require_move_checkout(packages, [destination])
+        require_asset_write(packages, [destination])
         report["native"] = json.loads(unreal.BBBAssetRepairEditorLibrary.move_partitioned_world(source, destination))
         report["executed"] = report["native"].get("executed", False)
         registry.scan_paths_synchronous(scan_folders, force_rescan=True)
@@ -1858,7 +1827,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
             unreal.log_error("[BBBWorldMove]磁盘或外部包核验未完整通过 必须检查结果 禁止盲重试")
         return json.dumps(report, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def move_assets_preserving_external_actor_references(moves_json: str, dry_run: bool = True) -> str:
         """
@@ -1881,7 +1850,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         unreal.log("[BBBAssetMoveExternalActors]保留 {} 个外部 Actor 引用者的旧路径重定向".format(len(report["external_actor_referencers"])))
         return _execute_asset_moves(report)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def verify_asset_moves(moves_json: str) -> str:
         """
@@ -1985,11 +1954,11 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         unreal.log("[BBBAssetMoveVerify]{} {} 个资产".format("PASS" if report["success"] else "FAIL", len(results)))
         return json.dumps(report, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def resave_assets(asset_paths: list[str]) -> str:
         """校验精确资产路径与可编辑状态后强制重存指定资产"""
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_asset_write
 
         if not asset_paths or len(set(asset_paths)) != len(asset_paths):
             raise RuntimeError("必须提供非空且不重复的精确资产路径")
@@ -2002,9 +1971,9 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
             asset = unreal.EditorAssetLibrary.load_asset(object_path)
             if asset is None:
                 raise RuntimeError("无法加载精确资产: " + object_path)
-            require_editable(asset)
             assets.append(asset)
 
+        require_asset_write(assets)
         saved = []
         for asset in assets:
             asset_path = asset.get_path_name()
@@ -2014,7 +1983,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
 
         return json.dumps({"resaved": saved}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def make_current_editor_level_explicit(expected_package: str) -> str:
         """校验活动层包名后显式同步编辑器放置目标层"""
@@ -2029,11 +1998,11 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
         return json.dumps({"level": level.get_path_name(), "world": world.get_path_name()}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def remove_unreferenced_loaded_redirectors(asset_paths: list[str]) -> str:
         """仅删除已加载且无包引用的重定向对象 拒绝删除普通资产"""
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_write_access
 
         if not asset_paths or len(set(asset_paths)) != len(asset_paths):
             raise RuntimeError("必须提供非空且不重复的精确资产路径")
@@ -2051,7 +2020,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
                     continue
                 if asset.get_path_name() != candidate_path or asset.get_class().get_name() != "ObjectRedirector":
                     raise RuntimeError("拒绝删除非重定向对象: " + candidate_path)
-                require_editable(asset)
+                require_write_access(asset)
                 candidates.append(asset)
             if not candidates:
                 raise RuntimeError("未找到精确的已加载重定向对象: " + object_path)
@@ -2068,11 +2037,11 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
             removed.append(path)
         return json.dumps({"removed": removed}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def clean_unreferenced_redirectors_in_folder(folder_path: str, dry_run: bool = True) -> str:
         """检查或清理指定目录内无引用且可编辑的重定向器"""
-        from toolset_registry.helpers import require_editable
+        from BBBAssetWritePolicy import require_write_access
 
         folder = folder_path.rstrip("/")
         if not folder.startswith("/Game/") or folder.count("/") < 2:
@@ -2111,7 +2080,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
             if unreal.EditorAssetLibrary.find_package_referencers_for_asset(package_path, True):
                 referenced.append(package_path)
             try:
-                require_editable(asset)
+                require_write_access(asset)
             except Exception:
                 uneditable.append(package_path)
 
@@ -2146,7 +2115,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         report["dry_run"] = False
         return json.dumps(report, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def modernize_deprecated_blueprint_nodes(asset_path: str) -> str:
         """
@@ -2160,14 +2129,14 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
             raise RuntimeError("脏包或 PIE 期间拒绝接口更新")
 
-        _require_move_checkout([path], [])
+        require_asset_write([path], [])
         asset = unreal.load_object(None, path + "." + path.rsplit("/", 1)[-1], follow_redirectors=False)
         if asset is None or asset.get_class().get_name() not in ["Blueprint", "AnimBlueprint"]:
             raise RuntimeError("目标不是明确蓝图")
 
         return unreal.BBBAssetRepairEditorLibrary.modernize_deprecated_blueprint_nodes(asset)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def rebuild_loaded_actor_construction(actor_paths: list[str]) -> str:
         """
@@ -2189,10 +2158,10 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         if any(not path.startswith(package + ".") for path in actor_paths):
             raise RuntimeError("角色不属于当前编辑器世界")
 
-        _require_move_checkout([package], [])
+        require_asset_write([package], [])
         return unreal.BBBAssetRepairEditorLibrary.rebuild_loaded_actor_construction(actor_paths)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def update_pose_assets_from_source(expected_reports_json: str, dry_run: bool = True) -> str:
         """
@@ -2218,7 +2187,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         if dry_run:
             return json.dumps(current, ensure_ascii=False)
 
-        _require_move_checkout(paths, [])
+        require_asset_write(paths, [])
         results = []
         for row in current:
             asset = unreal.load_object(None, row["asset"], follow_redirectors=False)
@@ -2241,7 +2210,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
             results.append({"before": row, "after": after, "pose_names": names, "base_pose": base, "names_and_base_preserved": preserved})
         return json.dumps(results, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def delete_unreferenced_asset_packages(asset_paths: list[str], backup_directory: str, dry_run: bool = True) -> str:
         """
@@ -2295,7 +2264,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         if dry_run:
             return json.dumps({"dry_run": True, "files": files}, ensure_ascii=False)
 
-        _require_move_checkout(paths, [])
+        require_asset_write(paths, [])
         for row in files:
             object_path = row["package"] + "." + row["package"].rsplit("/", 1)[-1]
             asset = unreal.load_object(None, object_path, follow_redirectors=False)
@@ -2307,7 +2276,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
 
         return json.dumps({"success": True, "files": files}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def delete_unreferenced_uncontrolled_assets(expected_files_json: str, dry_run: bool = True) -> str:
         """
@@ -2366,7 +2335,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         return json.dumps({"success": True, "files": files}, ensure_ascii=False)
 
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_foliage_base_cache(world_package: str) -> str:
         """
@@ -2381,7 +2350,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         return unreal.BBBAssetRepairEditorLibrary.inspect_foliage_base_cache(_move_path(world_package))
 
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def repair_foliage_base_cache(world_package: str, dry_run: bool = True) -> str:
         """
@@ -2398,7 +2367,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         if not dry_run:
             if _move_dirty_packages():
                 raise RuntimeError("存在脏包 拒绝植被缓存修复")
-            _require_move_checkout([path], [])
+            require_asset_write([path], [])
         return unreal.BBBAssetRepairEditorLibrary.repair_foliage_base_cache(path, dry_run)
 
 

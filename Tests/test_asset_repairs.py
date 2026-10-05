@@ -23,7 +23,7 @@ class AssetRepairTests(unittest.TestCase):
             "json": json,
             "_move_path": lambda path: path,
             "_move_dirty_packages": lambda: [],
-            "_require_move_checkout": lambda paths, targets: self.calls.append("checkout"),
+            "require_asset_write": lambda paths, targets: self.calls.append("checkout"),
             "BBBAssetMaintenanceToolset": types.SimpleNamespace(inspect_pose_asset_source_guids=lambda paths: json.dumps([self.before])),
             "unreal": types.SimpleNamespace(
                 EditorAssetLibrary=types.SimpleNamespace(

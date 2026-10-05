@@ -18,6 +18,14 @@
 | BBBBlueprintGraphToolset | BBBBlueprintEditorLibrary |
 | BBBControlRigAuthoringToolset | BBBBlueprintEditorLibrary |
 | BBBLevelEditingToolset | BBBBlueprintEditorLibrary |
+| BBBRigidPartToolset | BBBBlueprintEditorLibrary |
+| BBBAssetMaintenanceToolset | BBBAssetRepairEditorLibrary BBBBlueprintEditorLibrary |
+| BBBAnimationPreviewToolset | BBBBlueprintEditorLibrary BBBAnimationGraphEditorLibrary BBBMassValidationLibrary |
+| BBBAnimationGraphToolset | BBBAnimationGraphEditorLibrary BBBBlueprintEditorLibrary |
+
+以上是编辑器原生库的领域概览。实际符号清单由 `BBBMcpCapabilities` 从公开工具和可达辅助函数源码提取，`inspect_mcp_dependencies` 逐工具报告 `required_native_functions`、`missing_native_functions` 与类状态。类存在而所需函数缺失时不可执行，不能把 DLL 已加载视为接口版本匹配。工具中的项目枚举与游戏类型同样检查类存在；动态加载的业务类路径仍由业务预检负责。
+
+第三方白名单动作按自身静态引用单独检查，不因一个动作不可用禁用整个领域。`list_available_actions` 的 `actions` 包含全部动作状态与实际参数，`domains` 仅包含可执行动作；旧 `MCPythonHelper` 不可用的动作明确拒绝，不为历史接口添加兼容原生类。
 
 这些类目前由 BBB 项目的 ABBB_EvacEditor 模块提供 部分实现直接引用 UBBBNexus 游戏类型 本次迁移没有修改原生模块或游戏运行时代码 不宣称将本仓库接入任意项目后全部动作都能直接执行
 

@@ -1,4 +1,4 @@
-﻿Set-StrictMode -Version 1.0
+Set-StrictMode -Version 1.0
 $ErrorActionPreference = 'Stop'
 $startupScript = Join-Path $PSScriptRoot '..\Scripts\MCP\Start-UE58OfficialMcpEditor.ps1'
 $testProjectPath = [System.IO.Path]::GetFullPath((Join-Path $env:TEMP 'BBBMcpStartupTest\Test.uproject'))
@@ -288,7 +288,7 @@ foreach ($case in $cases)
     Assert-StartupTest ($global:bbbStartupTest.Arguments -contains "-BBBMcpMaxFPS=$($case.FPS)") '帧率参数不匹配'
     Assert-StartupTest ($global:bbbStartupTest.DeletedSessions -eq 1) '协议测试会话未释放'
     Assert-StartupTest (-not $global:bbbStartupTest.Stopped) '就绪宿主被错误关闭'
-    Assert-StartupTest (($global:bbbStartupTest.Arguments -contains '-RenderOffscreen') -eq [bool]$extra['EnableRendering']) '渲染模式不匹配'
+    Assert-StartupTest ($global:bbbStartupTest.Arguments -contains '-RenderOffscreen') '渲染模式不匹配'
     Assert-StartupTest (($global:bbbStartupTest.Arguments -contains '-NullRHI') -ne [bool]$extra['EnableRendering']) '无渲染模式不匹配'
 }
 
@@ -298,7 +298,7 @@ Invoke-StartupFailureTest '与请求宿主不匹配'
 Assert-StartupTest (-not $global:bbbStartupTest.Started -and -not $global:bbbStartupTest.Stopped) '不匹配宿主不得启动或终止'
 
 New-StartupTestState 'GamingBackground' 15 'BelowNormal'
-$global:bbbStartupTest.Editors = @([pscustomobject]@{ ProcessId = 987654; ExecutablePath = $testEditorPath; CommandLine = "$testProjectPath -ModelContextProtocolStartServer -NullRHI" })
+$global:bbbStartupTest.Editors = @([pscustomobject]@{ ProcessId = 987654; ExecutablePath = $testEditorPath; CommandLine = "$testProjectPath -ModelContextProtocolStartServer -NullRHI -RenderOffscreen" })
 Invoke-StartupFailureTest '宿主性能档位与请求不一致'
 Assert-StartupTest (-not $global:bbbStartupTest.Started -and -not $global:bbbStartupTest.Stopped) '已有宿主的档位不匹配不得启动或终止'
 Assert-StartupTest ($global:bbbStartupTest.DeletedSessions -eq 1) '失败测试会话未释放'

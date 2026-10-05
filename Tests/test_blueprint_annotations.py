@@ -203,7 +203,7 @@ class AnnotationToolSafetyTests(unittest.TestCase):
         self.environment = {
             "unreal": fake, "json": json,
             "BBBBlueprintGraphToolset": types.SimpleNamespace(inspect_blueprint_graph=lambda path: json.dumps(self.snapshot)),
-            "_require_layout_checkout": lambda blueprint: self.events.append("checkout"),
+            "require_write_access": lambda blueprint: self.events.append("checkout"),
         }
         exec(compile(ast.Module(body=[method], type_ignores=[]), "annotation_tool", "exec"), self.environment)
         self.call = self.environment["annotate_blueprint_graph"]

@@ -4,37 +4,8 @@ import sys
 
 import unreal
 
-
-_TOOLSET_MODULES = (
-    "BBBAnimationMigrationToolset",
-    "BBBExternalToolset",
-    "BBBGenericEditorToolset",
-    "BBBLevelEditingToolset",
-    "BBBBlueprintGraphToolset",
-    "BBBRigidPartToolset",
-    "BBBControlRigAuthoringToolset",
-    "BBBMcpRuntimeToolset",
-    "BBBAssetMaintenanceToolset",
-    "BBBAnimationPreviewToolset",
-    "BBBAnimationGraphToolset",
-)
-_HELPER_MODULES = (
-    "BBBBlueprintLayout",
-    "BBBBlueprintAnnotations",
-    "BBBAnimationMotionTools",
-    "BBBAnimationTrajectoryTools",
-    "BBBArmTwistTools",
-)
-_NATIVE_DEPENDENCIES = {
-    "BBBAnimationMigrationToolset": ("BBBBlueprintEditorLibrary", "BBBPIEInputEditorLibrary"),
-    "BBBGenericEditorToolset": ("BBBBlueprintEditorLibrary", "BBBPIEWindowEditorLibrary", "BBBAssetThumbnailEditorLibrary", "BBBNiagaraEditorLibrary"),
-    "BBBLevelEditingToolset": ("BBBBlueprintEditorLibrary",),
-    "BBBBlueprintGraphToolset": ("BBBBlueprintEditorLibrary",),
-    "BBBControlRigAuthoringToolset": ("BBBBlueprintEditorLibrary",),
-    "BBBAssetMaintenanceToolset": ("BBBAssetRepairEditorLibrary",),
-    "BBBAnimationPreviewToolset": ("BBBBlueprintEditorLibrary", "BBBAnimationGraphEditorLibrary"),
-    "BBBAnimationGraphToolset": ("BBBAnimationGraphEditorLibrary",),
-}
+import BBBMcpCapabilities
+from BBBMcpCapabilities import TOOLSET_ROUTES, HELPER_MODULES
 
 
 def get_repository_root():
@@ -76,10 +47,16 @@ def inspect_dependencies():
     """
     repository_root = get_repository_root()
     modules = {}
-    for module_name in _TOOLSET_MODULES:
+    for module_name in TOOLSET_ROUTES:
         module = sys.modules.get(module_name)
-        required = _NATIVE_DEPENDENCIES.get(module_name, ())
-        missing = [name for name in required if getattr(unreal, name, None) is None]
+        requirements = {}
+        tools = {}
+        for tool in BBBMcpCapabilities.source_index(module_name)["public_tools"]:
+            tool_requirements = BBBMcpCapabilities.native_requirements(module_name, tool)
+            tools[tool] = BBBMcpCapabilities.dependency_status(tool_requirements, unreal)
+            for native_name, methods in tool_requirements.items():
+                requirements.setdefault(native_name, set()).update(methods)
+        status = BBBMcpCapabilities.dependency_status(requirements, unreal)
         loaded = module is not None
         registered = False
         name = None
@@ -92,10 +69,11 @@ def inspect_dependencies():
             "toolset_name": name,
             "source_path": source_path,
             "registered": registered,
-            "required_native_classes": list(required),
-            "missing_native_classes": missing,
-            "native_dependencies_ready": not missing,
+            **status,
+            "tools": tools,
         }
+        if module_name == "BBBExternalToolset" and loaded:
+            modules[module_name]["actions"] = module.inspect_actions()
     return {
         "repository_root": repository_root,
         "project_root": os.path.realpath(unreal.Paths.project_dir()),
@@ -109,6 +87,26 @@ def inspect_dependencies():
     }
 
 
+def _require_reload_idle():
+    """
+    /**
+     * 仅在宿主空闲时更新注册 防止丢失其他会话的活动回调
+     * @return 检查通过时无返回值
+     */
+    """
+    if unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+        raise RuntimeError("PIE 期间禁止重载 MCP 工具")
+    motion = sys.modules.get("BBBAnimationMotionTools")
+    if motion is not None and getattr(motion, "_capture_handle", None) is not None:
+        raise RuntimeError("动画运动采样尚未结束 禁止重载 MCP 工具")
+    preview = sys.modules.get("BBBAnimationPreviewToolset")
+    if preview is not None:
+        for attribute in ("_transition_captures", "_population_runs"):
+            records = getattr(preview, attribute, {})
+            if any(record.get("status") in {"pending", "running"} for record in records.values()):
+                raise RuntimeError("动画截图或群体测量尚未结束 禁止重载 MCP 工具")
+
+
 def _load_toolsets(force_reload):
     """
     /**
@@ -117,6 +115,8 @@ def _load_toolsets(force_reload):
      * @return 注册结果
      */
     """
+    if force_reload:
+        _require_reload_idle()
     scripts_root = os.path.join(get_repository_root(), "Scripts")
     external_root = os.path.join(scripts_root, "MCP", "ThirdParty", "GenOrca")
     if not unreal.ToolsetRegistry.is_available():
@@ -133,7 +133,11 @@ def _load_toolsets(force_reload):
     previous_bytecode = sys.dont_write_bytecode
     sys.dont_write_bytecode = True
     try:
-        auxiliary_names = _HELPER_MODULES + tuple(
+        if force_reload:
+            importlib.reload(BBBMcpCapabilities)
+        BBBMcpCapabilities.source_index.cache_clear()
+        BBBMcpCapabilities.native_requirements.cache_clear()
+        auxiliary_names = ("BBBAssetWritePolicy",) + HELPER_MODULES + tuple(
             name[:-3] for name in os.listdir(external_root) if name.endswith("_actions.py")
         )
         for module_name in auxiliary_names:
@@ -145,7 +149,7 @@ def _load_toolsets(force_reload):
                 expected_path = os.path.realpath(os.path.join(expected_root, module_name + ".py"))
                 if force_reload or os.path.realpath(module.__file__) != expected_path:
                     importlib.reload(module)
-        module_names = list(_TOOLSET_MODULES)
+        module_names = list(TOOLSET_ROUTES)
         registered_classes = {}
         for definition in unreal.ObjectIterator(unreal.Class):
             module_name = definition.get_name().split("_0x", 1)[0]
@@ -181,7 +185,7 @@ def _load_toolsets(force_reload):
         report = inspect_dependencies()
         for module_name, status in report["modules"].items():
             if not status["native_dependencies_ready"]:
-                unreal.log_warning("[BBBMcpBootstrap]原生依赖缺失 {} {}".format(module_name, status["missing_native_classes"]))
+                unreal.log_warning("[BBBMcpBootstrap]原生依赖缺失 {} {}".format(module_name, (status["missing_native_classes"] + status["missing_native_functions"])))
         unreal.log("[BBBMcpBootstrap]注册完成 {}".format(get_repository_root()))
         return report
     except Exception as error:

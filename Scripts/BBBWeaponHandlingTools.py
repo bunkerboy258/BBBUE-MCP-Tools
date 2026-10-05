@@ -4,7 +4,7 @@ import builtins
 
 import unreal
 from editor_toolset.toolsets.blueprint import BlueprintTools
-from toolset_registry.helpers import require_editable
+from BBBAssetWritePolicy import require_write_access
 
 
 def sample_runtime(action, seconds, equipment_class_path):
@@ -246,7 +246,7 @@ def configure_animation_handling(blueprint_path, animation_path):
     """
     blueprint = unreal.load_asset(blueprint_path)
     animation = unreal.load_asset(animation_path)
-    require_editable(blueprint)
+    require_write_access(blueprint)
     variables = {str(n) for n in unreal.BlueprintEditorLibrary.list_member_variable_names(blueprint, False)}
     for name, kind in (("WeaponAimFollowSpeed", "float"), ("WeaponAimOffsetDegrees", "Vector2D"), ("WeaponRecoilTime", "float"), ("WeaponBackwardRecoilAlpha", "float")):
         if name not in variables:
@@ -364,7 +364,7 @@ def configure_camera_recoil(blueprint_path):
      */
     """
     blueprint = unreal.load_asset(blueprint_path)
-    require_editable(blueprint)
+    require_write_access(blueprint)
     g = _function(blueprint, "ReadRecoilSource")
     entry = next(node for node in g.editor.list_all_nodes() if isinstance(node, unreal.K2Node_FunctionEntry))
     character = g.out(entry, "CharacterAnimation")

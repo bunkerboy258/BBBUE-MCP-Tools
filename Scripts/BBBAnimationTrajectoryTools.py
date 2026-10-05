@@ -17,8 +17,8 @@ def restore_from_source(source_path, destination_path):
             raise RuntimeError("目标必须是动画序列")
         if source.get_editor_property("skeleton") != destination.get_editor_property("skeleton"):
             raise RuntimeError("源与目标骨架不一致")
-        from toolset_registry.helpers import require_editable
-        require_editable(destination)
+        from BBBAssetWritePolicy import require_write_access
+        require_write_access(destination)
         if not unreal.EditorAssetLibrary.delete_asset(destination_path):
             raise RuntimeError("删除旧目标动画失败 " + destination_path)
     restored = unreal.EditorAssetLibrary.duplicate_asset(source_path, destination_path)
@@ -38,10 +38,10 @@ def restore_from_source(source_path, destination_path):
 
 
 def replace_montage_references(montage_path, replacements_json):
-    from toolset_registry.helpers import require_editable
+    from BBBAssetWritePolicy import require_write_access
 
     montage = unreal.load_asset(montage_path)
-    require_editable(montage)
+    require_write_access(montage)
     replacements = {}
     for key, value in json.loads(replacements_json).items():
         asset = unreal.load_asset(value)
@@ -75,10 +75,10 @@ def replace_montage_references(montage_path, replacements_json):
 
 
 def hold_tracks(animation_path, bone_names, source_frame):
-    from toolset_registry.helpers import require_editable
+    from BBBAssetWritePolicy import require_write_access
 
     animation = unreal.load_asset(animation_path)
-    require_editable(animation)
+    require_write_access(animation)
     count = animation.data_model_interface.get_number_of_keys()
     controller = animation.controller
     controller.open_bracket("固定指定骨骼轨道", False)

@@ -409,7 +409,7 @@ class LayoutToolSafetyTests(unittest.TestCase):
                 self.snapshot[0], copy.deepcopy(self.snapshot[1]),
                 copy.deepcopy(self.snapshot[2]), copy.deepcopy(self.snapshot[3]), self.snapshot[4],
             ),
-            "_require_layout_checkout": lambda blueprint: self.events.append("checkout"),
+            "require_write_access": lambda blueprint: self.events.append("checkout"),
         }
         exec(compile(ast.Module(body=[method], type_ignores=[]), "layout_method", "exec"), self.environment)
         self.call = self.environment["optimize_blueprint_node_layout"]
@@ -461,7 +461,7 @@ class LayoutToolSafetyTests(unittest.TestCase):
             """/** @return 明确模拟未签出错误 */"""
             raise RuntimeError("未签出")
 
-        self.environment["_require_layout_checkout"] = reject
+        self.environment["require_write_access"] = reject
         with self.assertRaisesRegex(RuntimeError, "未签出"):
             self.call("/Game/Test.Test:Graph")
 

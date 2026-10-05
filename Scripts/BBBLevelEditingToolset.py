@@ -2,7 +2,7 @@ import json
 
 import unreal
 
-import toolset_registry
+from BBBMcpCapabilities import mcp_tool
 from toolset_registry.registration import Registration
 
 
@@ -10,7 +10,7 @@ from toolset_registry.registration import Registration
 class BBBLevelEditingToolset(unreal.ToolsetDefinition):
     """提供当前关卡的项目级编辑工具"""
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def configure_mass_display_spawners(
         expected_level: str,
@@ -108,7 +108,7 @@ class BBBLevelEditingToolset(unreal.ToolsetDefinition):
                                         for index, (actor, label, path) in enumerate(zip(spawners, labels, config_paths))],
                            "saved": True}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def spawn_pie_mass_display(
         spawner_path: str,
@@ -163,7 +163,7 @@ class BBBLevelEditingToolset(unreal.ToolsetDefinition):
                            "spawner": spawner_path, "requested": len(entity_types),
                            "configs": list(config_paths), "center": list(center), "radius": radius}, ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def set_pie_paused(paused: bool) -> str:
         """暂停或继续唯一的 PIE 世界，便于检查临时 Mass 展示。"""
@@ -178,7 +178,7 @@ class BBBLevelEditingToolset(unreal.ToolsetDefinition):
             raise RuntimeError("设置 PIE 暂停状态失败")
         return json.dumps({"world": world.get_path_name(), "paused": actual})
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def break_level_instance_to_current_level(
         level_instance_path: str,

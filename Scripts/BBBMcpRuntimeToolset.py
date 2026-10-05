@@ -5,7 +5,7 @@ import re
 
 import unreal
 
-import toolset_registry
+from BBBMcpCapabilities import mcp_tool, usage_routes
 from toolset_registry.registration import Registration
 
 
@@ -188,7 +188,7 @@ class BBBMcpRuntimeToolset(unreal.ToolsetDefinition):
      */
     """
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_mcp_performance() -> str:
         """
@@ -199,7 +199,7 @@ class BBBMcpRuntimeToolset(unreal.ToolsetDefinition):
         """
         return json.dumps(_snapshot(), ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def configure_mcp_performance(profile: str = "Speed", max_fps: int = -1) -> str:
         """
@@ -212,7 +212,7 @@ class BBBMcpRuntimeToolset(unreal.ToolsetDefinition):
         """
         return json.dumps(_configure(profile, max_fps), ensure_ascii=False)
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def get_mcp_usage_guide() -> str:
         """
@@ -235,19 +235,8 @@ class BBBMcpRuntimeToolset(unreal.ToolsetDefinition):
                 "gaming_arguments": {"profile": "GamingBackground", "max_fps": -1},
                 "speed_arguments": {"profile": "Speed", "max_fps": -1},
                 "discovery": ["list_toolsets", "describe_toolset", "call_tool"],
-                "routes": {
-                    "对象属性": "editor_toolset.toolsets.object.ObjectTools",
-                    "资产查询": "editor_toolset.toolsets.asset.AssetTools",
-                    "蓝图基础编辑": "editor_toolset.toolsets.blueprint.BlueprintTools",
-                    "蓝图排版与项目图表": toolset_name("BBBBlueprintGraphToolset"),
-                    "动画项目流程": toolset_name("BBBAnimationMigrationToolset"),
-                    "ControlRig 基础编辑": "animation_toolset.toolsets.controlrig.ControlRigTools",
-                    "ControlRig 项目流程": toolset_name("BBBControlRigAuthoringToolset"),
-                    "Sequencer 基础编辑": "animation_toolset.toolsets.sequencer.SequencerTools",
-                    "项目关卡操作": toolset_name("BBBLevelEditingToolset"),
-                    "通用项目资产校验": toolset_name("BBBGenericEditorToolset"),
-                    "批量工具编排": "editor_toolset.toolsets.programmatic.ProgrammaticToolset",
-                },
+                **usage_routes(toolset_name, unreal.ToolsetRegistry),
+                "result_contract": {"failure_fields": ["success=false", "error 非空"], "batch_atomic": False, "automatic_retry": False},
                 "rules": [
                     "先核对项目与宿主 只描述目标领域的工具集 不盲读全部描述",
                     "仓库目录不再代表项目目录 先核对 project_root 再检查 inspect_mcp_dependencies 缺失原生依赖的动作不得继续写入",
@@ -266,7 +255,7 @@ class BBBMcpRuntimeToolset(unreal.ToolsetDefinition):
             separators=(",", ":"),
         )
 
-    @toolset_registry.tool_call
+    @mcp_tool
     @staticmethod
     def inspect_mcp_dependencies() -> str:
         """
