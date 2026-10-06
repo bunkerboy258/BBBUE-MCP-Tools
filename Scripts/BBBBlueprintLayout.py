@@ -122,6 +122,9 @@ def _layout_component(nodes, edges, horizontal_spacing, vertical_spacing):
         if _is_main(nodes[key]) or not outgoing[key]:
             continue
 
+        if any(_is_main(nodes[edge["source"]]) and edge["kind"] == "data" for edge in incoming[key]):
+            continue
+
         ranks[key] = min(ranks[edge["target"]] - 1 for edge in outgoing[key])
 
     consumers = {key: set() for key in nodes}
@@ -719,6 +722,115 @@ def calculate_layout(nodes, edges, comments, horizontal_spacing=320, vertical_sp
     }
 
 
+def _clear_annotation_wire_obstacles(nodes, edges, positions, regions):
+    """
+    /**
+     * 在新注释框内部避让跨框连线 保持主链左右次序与固定注释原位
+     * @param nodes\t节点显示尺寸
+     * @param edges\t完整图表连线
+     * @param positions\t候选位置
+     * @param regions\t辅助节点允许占用的内部矩形
+     * @return 通过严格减少穿线次数得到的位置
+     */
+    """
+    positions = dict(positions)
+    cache = {}
+    incidents = {key: set() for key in nodes}
+    for index, edge in enumerate(edges):
+        incidents[edge["source"]].add(index)
+        incidents[edge["target"]].add(index)
+
+    others = {key: [index for index in range(len(edges)) if index not in incident] for key, incident in incidents.items()}
+    visited = {tuple(sorted(positions.items()))}
+    for attempt in range(min(128, len(nodes) * 4)):
+        hits = _wire_hits(nodes, edges, positions, cache)
+        if not hits:
+            break
+
+        best = None
+        score = len(hits)
+        equal = None
+        equal_distance = float("inf")
+        candidates = set()
+        for index, blocker in hits:
+            edge = edges[index]
+            for key in (blocker, edge["source"], edge["target"]):
+                if key not in regions:
+                    continue
+
+                x, y = positions[key]
+                width = nodes[key]["width"]
+                height = nodes[key]["height"]
+                region = regions[key]
+                for new_y in (region[1], region[3] - height, y - 128, y + 128, y - 320, y + 320):
+                    candidates.add((key, round(x), round(new_y)))
+
+                if not _is_main(nodes[key]):
+                    for new_x in (region[0], region[2] - width, x - 128, x + 128):
+                        for new_y in (y, region[1], region[3] - height):
+                            candidates.add((key, round(new_x), round(new_y)))
+
+                for fraction in (0.25, 0.5, 0.75):
+                    new_y = region[1] + (region[3] - region[1] - height) * fraction
+                    candidates.add((key, round(x), round(new_y)))
+                    if not _is_main(nodes[key]):
+                        for horizontal_fraction in (0.25, 0.5, 0.75):
+                            new_x = region[0] + (region[2] - region[0] - width) * horizontal_fraction
+                            candidates.add((key, round(new_x), round(new_y)))
+
+                for other in (blocker, edge["source"], edge["target"]):
+                    left, top = positions[other]
+                    horizontal = (x,)
+                    if not _is_main(nodes[key]):
+                        horizontal = (x, left - width - 64, left + nodes[other]["width"] + 64)
+
+                    for new_x in horizontal:
+                        for new_y in (y, top - height - 64, top + nodes[other]["height"] + 64):
+                            candidates.add((key, round(new_x), round(new_y)))
+
+        for key, x, y in sorted(candidates):
+            left, top, right, bottom = regions[key]
+            width = nodes[key]["width"]
+            height = nodes[key]["height"]
+            if x < left or y < top or x + width > right or y + height > bottom:
+                continue
+
+            rectangle = (x - 16, y - 16, x + width + 16, y + height + 16)
+            if any(_intersects(rectangle, (point[0], point[1], point[0] + nodes[other]["width"], point[1] + nodes[other]["height"])) for other, point in positions.items() if other != key):
+                continue
+
+            trial = dict(positions)
+            trial[key] = (x, y)
+            signature = tuple(sorted(trial.items()))
+            if signature in visited:
+                continue
+
+            incident = incidents[key]
+            count = sum(index not in incident and blocker != key for index, blocker in hits)
+            count += len(_wire_hits(nodes, edges, trial, cache, incident))
+            count += len(_wire_hits(nodes, edges, trial, cache, others[key], {key}))
+            if count < score:
+                best = trial
+                score = count
+            if count == len(hits):
+                distance = abs(x - positions[key][0]) + abs(y - positions[key][1])
+                if 0 < distance < equal_distance:
+                    equal = trial
+                    equal_distance = distance
+
+        if best is None:
+            best = equal
+
+        if best is None:
+            break
+
+        positions = best
+        visited.add(tuple(sorted(positions.items())))
+        cache = {signature: value for signature, value in cache.items() if signature[1] == positions[edges[signature[0]]["source"]] and signature[2] == positions[edges[signature[0]]["target"]]}
+
+    return positions
+
+
 def calculate_annotation_layout(nodes, edges, comments, blocks):
     """
     /**
@@ -755,7 +867,7 @@ def calculate_annotation_layout(nodes, edges, comments, blocks):
         groups[key] = {
             "id": key, "x": min(nodes[member]["x"] for member in members), "y": min(nodes[member]["y"] for member in members),
             "width": max(bounds[2] - bounds[0] + 64, block["headerWidth"] + 48),
-            "height": bounds[3] - bounds[1] + header + 32,
+            "height": bounds[3] - bounds[1] + header + 640,
             "exec": any(nodes[member]["exec"] for member in members),
             "pose": any(nodes[member].get("pose", False) for member in members), "primaryOffset": primary,
         }
@@ -799,6 +911,28 @@ def calculate_annotation_layout(nodes, edges, comments, blocks):
         }
         for block in blocks
     }
+    allowed = {}
+    fixed_boxes = [(item["x"], item["y"], item["x"] + item["width"], item["y"] + item["height"]) for item in comments]
+    for block in blocks:
+        box = rectangles[block["id"]]
+        minimum = box["y"] + max(64, block["headerHeight"] + 24)
+        maximum = box["y"] + box["height"] - 16
+        for member in block["members"]:
+            allowed[member] = (minimum, maximum, fixed_boxes)
+
+    positions = _clear_wire_obstacles(nodes, edges, positions, allowed)
+    regions = {}
+    for block in blocks:
+        box = rectangles[block["id"]]
+        for member in block["members"]:
+            regions[member] = (box["x"] + 16, allowed[member][0], box["x"] + box["width"] - 16, allowed[member][1])
+
+    positions = _clear_annotation_wire_obstacles(nodes, edges, positions, regions)
+    for block in blocks:
+        box = rectangles[block["id"]]
+        bottom = max(positions[member][1] + nodes[member]["height"] for member in block["members"])
+        box["height"] = bottom - box["y"] + 32
+
     conflicts = []
     for comment in comments:
         rectangle = (comment["x"], comment["y"], comment["x"] + comment["width"], comment["y"] + comment["height"])

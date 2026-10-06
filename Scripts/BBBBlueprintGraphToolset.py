@@ -401,6 +401,64 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
     @mcp_tool
     @staticmethod
     @_annotation_documentation
+    def edit_blueprint_graph_comments(graph_path: str, request_json: str, dry_run: bool = True) -> str:
+        """
+        /**
+         * 精确删除说明框或替换节点正文 不移动节点 不编译或保存
+         * @param graph_path	项目图表完整路径 支持嵌套状态与过渡图
+         * @param request_json	含 expectedSnapshot removeComments nodeComments 的请求
+         * @param dry_run	只读检查开关
+         * @return 精确目标及事务回读结果
+         */
+        """
+        from BBBBlueprintAnnotations import _text
+
+        if type(dry_run) is not bool:
+            raise RuntimeError("dry_run 必须为布尔值")
+        before = json.loads(BBBBlueprintGraphToolset.inspect_blueprint_graph_logic(graph_path))
+        request = json.loads(request_json)
+        if not isinstance(request, dict) or set(request) != {"expectedSnapshot", "removeComments", "nodeComments"}:
+            raise RuntimeError("请求必须只包含 expectedSnapshot removeComments nodeComments")
+        if request["expectedSnapshot"] != before["snapshot"]:
+            raise RuntimeError("图表快照已变化 请重新读取")
+
+        nodes = {node["guid"]: node for node in before["nodes"]}
+        seen = set()
+        for field in ("removeComments", "nodeComments"):
+            items = request[field]
+            if not isinstance(items, list) or len(items) > 512:
+                raise RuntimeError("每类注释编辑必须为不超过 512 项的数组")
+            for item in items:
+                fields = {"nodeGuid", "expectedText"}
+                if field == "nodeComments":
+                    fields.add("text")
+                if not isinstance(item, dict) or set(item) != fields:
+                    raise RuntimeError("注释编辑字段不符")
+                key = item["nodeGuid"]
+                if not isinstance(key, str) or key not in nodes or key in seen:
+                    raise RuntimeError("注释目标不存在或重复")
+                seen.add(key)
+                node = nodes[key]
+                if node["nodeComment"] != item["expectedText"] or node["isComment"] != (field == "removeComments"):
+                    raise RuntimeError("注释原文或类型不符")
+                if field == "nodeComments":
+                    _text(item["text"], "节点正文", False)
+
+        report = {"graph": graph_path, "dryRun": dry_run, "removeCount": len(request["removeComments"]), "replaceCount": len(request["nodeComments"]), "saved": False}
+        if dry_run or not seen:
+            return json.dumps(report, ensure_ascii=False)
+
+        graph = unreal.load_object(None, graph_path)
+        require_write_access(graph)
+        result = json.loads(unreal.BBBBlueprintEditorLibrary.edit_blueprint_graph_comments(graph, json.dumps(request, ensure_ascii=False)))
+        if result.get("error"):
+            raise RuntimeError(result["error"])
+        report.update(result)
+        return json.dumps(report, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    @_annotation_documentation
     def add_blueprint_comment_node(graph_path: str, expected_snapshot: str, text: str, x: int, y: int, width: int, height: int, dry_run: bool = True) -> str:
         """
         /**

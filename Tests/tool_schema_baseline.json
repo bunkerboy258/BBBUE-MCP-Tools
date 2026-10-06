@@ -3074,26 +3074,94 @@
     "configure_projectile_tracer_finish": {
       "inputSchema": {
         "type": "object",
-        "properties": {"system_path": {"type": "string"}, "channel_path": {"type": "string"}, "material_path": {"type": "string"}},
-        "required": ["system_path", "channel_path", "material_path"]
+        "properties": {
+          "system_path": {
+            "type": "string"
+          },
+          "channel_path": {
+            "type": "string"
+          },
+          "material_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "system_path",
+          "channel_path",
+          "material_path"
+        ]
       },
-      "outputSchema": {"type": "object", "properties": {"returnValue": {"type": "string"}}, "required": ["returnValue"]}
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     },
     "configure_projectile_impact_system": {
       "inputSchema": {
         "type": "object",
-        "properties": {"channel_path": {"type": "string"}, "system_path": {"type": "string"}, "material_path": {"type": "string"}},
-        "required": ["channel_path", "system_path", "material_path"]
+        "properties": {
+          "channel_path": {
+            "type": "string"
+          },
+          "system_path": {
+            "type": "string"
+          },
+          "material_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel_path",
+          "system_path",
+          "material_path"
+        ]
       },
-      "outputSchema": {"type": "object", "properties": {"returnValue": {"type": "string"}}, "required": ["returnValue"]}
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     },
     "create_projectile_sprite_material": {
       "inputSchema": {
         "type": "object",
-        "properties": {"material_path": {"type": "string"}, "kind": {"type": "string"}},
-        "required": ["material_path", "kind"]
+        "properties": {
+          "material_path": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "material_path",
+          "kind"
+        ]
       },
-      "outputSchema": {"type": "object", "properties": {"returnValue": {"type": "string"}}, "required": ["returnValue"]}
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     },
     "configure_persistent_projectile_tracer": {
       "inputSchema": {
@@ -4241,16 +4309,35 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "asset_paths": {"type": "array", "items": {"type": "string"}},
-          "occupancy": {"type": "number", "default": 0.86},
-          "dry_run": {"type": "boolean", "default": true}
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "occupancy": {
+            "type": "number",
+            "default": 0.86
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true
+          }
         },
-        "required": ["asset_paths"]
+        "required": [
+          "asset_paths"
+        ]
       },
       "outputSchema": {
         "type": "object",
-        "properties": {"returnValue": {"type": "string"}},
-        "required": ["returnValue"]
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
       }
     },
     "capture_editor_screenshot": {
@@ -4317,15 +4404,28 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "asset_path": {"type": "string"},
-          "source_file": {"type": "string"}
+          "asset_path": {
+            "type": "string"
+          },
+          "source_file": {
+            "type": "string"
+          }
         },
-        "required": ["asset_path", "source_file"]
+        "required": [
+          "asset_path",
+          "source_file"
+        ]
       },
       "outputSchema": {
         "type": "object",
-        "properties": {"returnValue": {"type": "string"}},
-        "required": ["returnValue"]
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
       }
     },
     "reimport_sound_waves": {
@@ -4985,6 +5085,144 @@
         "properties": {
           "returnValue": {
             "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "remove_blueprint_comment_node": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_path": {
+            "type": "string",
+            "description": "项目蓝图图表完整路径"
+          },
+          "node_guid": {
+            "type": "string",
+            "description": "只读快照中的说明框 GUID"
+          },
+          "expected_text": {
+            "type": "string",
+            "description": "必须与现有说明框完全一致的正文"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "是否只读预览",
+            "default": true
+          }
+        },
+        "required": [
+          "graph_path",
+          "node_guid",
+          "expected_text"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "删除目标及逻辑保持结果"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "add_blueprint_comment_node": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_path": {
+            "type": "string",
+            "description": "项目蓝图图表完整路径 支持状态机子图"
+          },
+          "expected_snapshot": {
+            "type": "string",
+            "description": "当前逻辑快照中的 snapshot"
+          },
+          "text": {
+            "type": "string",
+            "description": "完整简体中文正文 支持换行"
+          },
+          "x": {
+            "type": "integer",
+            "description": "说明框左上角横坐标"
+          },
+          "y": {
+            "type": "integer",
+            "description": "说明框左上角纵坐标"
+          },
+          "width": {
+            "type": "integer",
+            "description": "说明框宽度"
+          },
+          "height": {
+            "type": "integer",
+            "description": "说明框高度"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "是否只读预览",
+            "default": true
+          }
+        },
+        "required": [
+          "graph_path",
+          "expected_snapshot",
+          "text",
+          "x",
+          "y",
+          "width",
+          "height"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "新增说明框身份及逻辑保持结果 不编译或保存"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "edit_blueprint_graph_comments": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_path": {
+            "type": "string",
+            "description": "项目图表完整路径 支持嵌套状态与过渡图"
+          },
+          "request_json": {
+            "type": "string",
+            "description": "含 expectedSnapshot removeComments nodeComments 的请求"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "只读检查开关",
+            "default": true
+          }
+        },
+        "required": [
+          "graph_path",
+          "request_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "精确目标及事务回读结果"
           }
         },
         "required": [

@@ -64,8 +64,8 @@ def prepare_annotations(snapshot, annotations_json):
 
         title = _text(block["title"], "区块标题")
         description = _text(block["description"], "区块说明", False)
-        if "\n" in title or len(title) > 120:
-            raise RuntimeError("区块标题必须为不超过 120 字的单行文字")
+        if len(title) > 2048:
+            raise RuntimeError("区块可见正文必须为不超过 2048 字的文字")
 
         members = block["members"]
         if not isinstance(members, list) or not members or any(not isinstance(key, str) or key not in nodes for key in members):

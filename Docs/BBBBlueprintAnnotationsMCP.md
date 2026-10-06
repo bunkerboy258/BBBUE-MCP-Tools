@@ -1,5 +1,34 @@
 # 蓝图逻辑读取与注释排版
 
+## 现行教学注释重写接口
+
+`edit_blueprint_graph_comments(graph_path, request_json, dry_run=True)` 支持蓝图直属图以及嵌套状态和过渡图
+
+请求只包含 `expectedSnapshot` `removeComments` `nodeComments`
+`removeComments` 每项为 `nodeGuid` 与完整 `expectedText` 只允许说明框
+`nodeComments` 每项为 `nodeGuid` `expectedText` `text` 只允许逻辑节点 允许以空正文清除旧气泡
+原文或快照变化立即拒绝 每类至多 512 项 未列出的注释及全部节点坐标保持原样
+
+实际写入调用原生 `EditBlueprintGraphComments` 要求非 PIE 和 Perforce 独占签出
+单个事务逐项核对剩余节点和逻辑签名 失败恢复本次注释 成功后仍需明确编译保存
+本接口仅在用户要求删除或重写旧注释时使用 不用于普通新增注释
+
+`annotate_blueprint_graph` 的区块 `title` 现支持至多 2048 字的多行简体中文
+把教学说明放入 `title` 可以直接在图中阅读 `description` 仍用于额外悬停说明
+原生 Slate 测量会计算完整多行标题的高度 区块成员从正文下方开始排列
+其它新增保护及布局质量检查保持生效
+
+## 多行教学分组的连线避让
+
+注释联合布局在分组内部复查全图连线 包括跨组共享参数线
+数据直接来自执行节点的纯节点保持靠近来源 避免把同一对象的取值节点分散到远处
+新分组内采用有界位置搜索 执行与姿势主链只做纵向避让 保持左右次序
+辅助节点可以在本分组正文下方移动 原有固定注释及成员不参与此搜索
+避让后收紧区块下边界 并重新检查成员范围 主链方向 节点重叠与精确曲线穿线
+全部检查通过才允许写入 穿线计数没有放宽 不创建中转节点或改变原连线
+复杂图可使用一个主分组配合关键节点气泡解释步骤 共享节点仍只保留一份
+
+
 ## 接口发现
 
 通过官方 `list_toolsets` 寻找 `BBBBlueprintGraphToolset` 的实际注册名称
@@ -55,7 +84,7 @@
 节点注释优先解释阈值 单位 特殊条件与默认值
 缺少证据的意图保留为待确认事项 不写入臆测
 正文采用简体中文 使用空格断句和半角符号 不使用逗号
-单个标题限 120 字 正文限 2048 字 单次限 64 个区块和 512 个节点注释
+区块可见正文与节点正文各限 2048 字 允许换行 单次限 64 个区块和 512 个节点注释
 
 只向空节点注释添加正文
 不覆盖任何已有节点正文或注释框正文
@@ -130,6 +159,7 @@
 - `InspectBlueprintGraphSnapshot`
 - `MeasureBlueprintGraphAnnotationGeometry`
 - `ApplyBlueprintGraphAnnotations`
+- `EditBlueprintGraphComments`
 
 更新原生源码后先编译 UE5.8 编辑器模块再启动唯一隐藏 `-NullRHI` 宿主
 启动入口自动注册 Python 工具
