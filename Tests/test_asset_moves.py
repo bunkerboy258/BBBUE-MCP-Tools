@@ -4,6 +4,9 @@ from pathlib import Path
 import tempfile
 import types
 import unittest
+from contextlib import contextmanager
+from time import perf_counter
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,10 +19,159 @@ class AssetMoveTests(unittest.TestCase):
         """/** @return 隔离加载纯辅助函数 不注册编辑器工具 */"""
         source = ROOT / "Scripts/BBBAssetMaintenanceToolset.py"
         tree = ast.parse(source.read_text(encoding="utf-8-sig"))
-        nodes = [node for node in tree.body if isinstance(node, ast.FunctionDef)]
+        nodes = [node for node in tree.body if isinstance(node, ast.FunctionDef) or isinstance(node, ast.ClassDef) and node.name == "_AssetMoveQueryContext"]
         module = ast.Module(body=nodes, type_ignores=[])
-        self.runtime = {"json": json, "os": __import__("os"), "re": __import__("re")}
+        self.runtime = {"json": json, "os": __import__("os"), "re": __import__("re"), "contextmanager": contextmanager, "perf_counter": perf_counter}
         exec(compile(module, str(source), "exec"), self.runtime)
+
+    def _plan_fixture(self, count=100):
+        """/** @param count 模拟资产数量 @return 不加载资产的预检环境 */"""
+        records = [types.SimpleNamespace(package_name="/Game/Old/A" + str(index), asset_name="A" + str(index), asset_class_path=types.SimpleNamespace(package_name="/Script/Engine", asset_name="StaticMesh"), is_u_asset=lambda: True) for index in range(count)]
+        packages = {record.package_name: [record] for record in records}
+        calls = []
+        registry = types.SimpleNamespace(
+            get_assets_by_package_name=lambda path: calls.append(path) or packages.get(path, []),
+            get_assets_by_path=lambda path, **options: records if path == "/Game/Old" else [],
+            get_referencers=lambda path, options: ["/Game/Shared"],
+            get_dependencies=lambda path, options: ["/Script/Engine"],
+        )
+        self.runtime.update({
+            "_move_filename": lambda path, extension=".uasset": path + extension,
+            "_move_dirty_packages": lambda: [],
+            "unreal": types.SimpleNamespace(log=lambda message: None, AssetRegistryDependencyOptions=lambda **options: options, find_object=lambda outer, path: object(), EditorAssetLibrary=types.SimpleNamespace(does_directory_exist=lambda path: False)),
+        })
+        return registry, packages, calls
+
+    def test_plan_query_reuse_preserves_uncached_result_and_reduces_calls(self):
+        """/** @return 相同输入的完整预检结果一致且共享父路径只查一次 */"""
+        registry, packages, calls = self._plan_fixture()
+        requests = [{"source": "/Game/Old", "destination": "/Game/New/Pack"}]
+        context_type = self.runtime["_AssetMoveQueryContext"]
+        baseline = context_type(registry)
+        baseline._query = lambda kind, path, fetch: fetch()
+        with patch("os.path.isfile", return_value=True), patch("os.path.exists", return_value=False):
+            expected = self.runtime["_build_asset_move_plan"](requests, baseline)
+            baseline_calls = len(calls)
+            calls.clear()
+            result = self.runtime["_plan_asset_moves"](requests, registry)
+        actual = {key: value for key, value in result.items() if key not in {"timings_ms", "query_counts"}}
+        self.assertEqual(actual, expected)
+        self.assertEqual(baseline_calls, 401)
+        self.assertEqual(len(calls), 203)
+        self.assertEqual(result["query_counts"]["package_assets_cache_hits"], 198)
+        self.assertEqual(calls.count("/Game/New/Pack"), 1)
+        self.assertEqual(result["query_counts"]["dependencies"], 101)
+        self.assertGreaterEqual(result["timings_ms"]["preflight"], 0)
+
+    def test_plan_rechecks_registry_between_requests_and_preserves_conflicts(self):
+        """/** @return 第二次请求重新读取目标状态 不复用旧预检结论 */"""
+        registry, packages, calls = self._plan_fixture(1)
+        requests = [{"source": "/Game/Old", "destination": "/Game/New"}]
+        with patch("os.path.isfile", return_value=True), patch("os.path.exists", return_value=False):
+            first = self.runtime["_plan_asset_moves"](requests, registry)
+            packages["/Game/New/A0"] = packages["/Game/Old/A0"]
+            second = self.runtime["_plan_asset_moves"](requests, registry)
+        self.assertTrue(first["can_execute_after_checkout"])
+        self.assertFalse(second["can_execute_after_checkout"])
+        self.assertTrue(any(item["package"] == "/Game/New/A0" for item in second["blockers"]))
+        self.assertEqual(calls.count("/Game/New/A0"), 2)
+
+    def test_plan_preserves_dirty_and_missing_native_blockers(self):
+        """/** @return 查询去重不绕过脏包和缺失原生类型检查 */"""
+        registry, packages, calls = self._plan_fixture(1)
+        self.runtime["_move_dirty_packages"] = lambda: ["/Game/Dirty"]
+        self.runtime["unreal"].find_object = lambda outer, path: None
+        with patch("os.path.isfile", return_value=True), patch("os.path.exists", return_value=False):
+            result = self.runtime["_plan_asset_moves"]([{"source": "/Game/Old", "destination": "/Game/New"}], registry)
+        self.assertFalse(result["can_execute_after_checkout"])
+        self.assertEqual(len(result["blockers"]), 2)
+
+    def test_move_phase_records_elapsed_time_on_exception(self):
+        """/** @return 阶段失败仍记录耗时且保留原始异常 */"""
+        logs = []
+        self.runtime["unreal"] = types.SimpleNamespace(log=logs.append)
+        clock = iter([10.0, 10.125])
+        self.runtime["perf_counter"] = lambda: next(clock)
+        report = {}
+        with self.assertRaisesRegex(RuntimeError, "blocked"):
+            with self.runtime["_move_phase"](report, "write_preflight"):
+                raise RuntimeError("blocked")
+        self.assertEqual(report["timings_ms"], {"write_preflight": 125.0})
+        self.assertEqual(len(logs), 2)
+
+    def _execution_fixture(self):
+        """/** @return 带写前检查和原生部分失败的隔离执行环境 */"""
+        paths = ["/Game/Old/A", "/Game/Old/B"]
+        targets = ["/Game/New/A", "/Game/New/B"]
+        objects = [types.SimpleNamespace(path=path + "." + path.rsplit("/", 1)[-1]) for path in paths]
+        for asset in objects:
+            asset.get_path_name = lambda asset=asset: asset.path
+            asset.get_class = lambda: types.SimpleNamespace(get_class_path_name=lambda: types.SimpleNamespace(package_name="/Script/Engine", asset_name="StaticMesh"))
+        writes = []
+        renames = []
+        verifications = []
+        def rename(items):
+            renames.append(items)
+            objects[0].path = "/Game/New/A.A"
+            raise RuntimeError("native partial failure")
+        report = {"referencer_packages": ["/Game/Shared"], "assets": [{"source": source, "destination": target, "source_object": asset.path, "destination_object": target + "." + target.rsplit("/", 1)[-1], "class_path": "/Script/Engine.StaticMesh"} for source, target, asset in zip(paths, targets, objects)]}
+        self.runtime.update({
+            "require_asset_write": lambda sources, destinations: writes.append((set(sources), destinations)),
+            "_move_dirty_packages": lambda: [],
+            "BBBAssetMaintenanceToolset": types.SimpleNamespace(verify_asset_moves=lambda moves: verifications.append(json.loads(moves)) or json.dumps({"success": False})),
+            "unreal": types.SimpleNamespace(log=lambda message: None, log_error=lambda message: None, EditorAssetLibrary=types.SimpleNamespace(load_asset=lambda path: next(asset for asset in objects if asset.path == path)), AssetRenameData=lambda **values: values, AssetToolsHelpers=types.SimpleNamespace(get_asset_tools=lambda: types.SimpleNamespace(rename_assets=rename))),
+        })
+        return report, writes, renames, verifications
+
+    def test_execution_preserves_partial_results_and_phase_timings(self):
+        """/** @return 原生部分失败只调用一次且仍回读已完成对象 */"""
+        report, writes, renames, verifications = self._execution_fixture()
+        result = json.loads(self.runtime["_execute_asset_moves"](report))
+        self.assertFalse(result["success"])
+        self.assertTrue(result["partial"])
+        self.assertEqual([item["renamed"] for item in result["object_results"]], [True, False])
+        self.assertEqual(len(renames), 1)
+        self.assertEqual(len(verifications), 1)
+        self.assertEqual(writes[0][0], {"/Game/Old/A", "/Game/Old/B", "/Game/Shared"})
+        self.assertEqual(set(result["timings_ms"]), {"write_preflight", "source_load", "native_rename", "verification"})
+
+    def test_execution_write_denial_does_not_load_or_rename(self):
+        """/** @return 写前拒绝不会加载源对象或触发原生移动 */"""
+        report, writes, renames, verifications = self._execution_fixture()
+        def deny(sources, destinations):
+            raise RuntimeError("write denied")
+        self.runtime["require_asset_write"] = deny
+        self.runtime["unreal"].EditorAssetLibrary.load_asset = lambda path: self.fail("不得加载")
+        with self.assertRaisesRegex(RuntimeError, "write denied"):
+            self.runtime["_execute_asset_moves"](report)
+        self.assertEqual(renames, [])
+        self.assertEqual(verifications, [])
+        self.assertEqual(set(report["timings_ms"]), {"write_preflight"})
+
+    def test_execution_dirty_after_load_does_not_rename(self):
+        """/** @return 加载产生脏包时保留原生移动前的拒绝检查 */"""
+        report, writes, renames, verifications = self._execution_fixture()
+        self.runtime["_move_dirty_packages"] = lambda: ["/Game/Dirty"]
+        with self.assertRaisesRegex(RuntimeError, "加载后出现脏包"):
+            self.runtime["_execute_asset_moves"](report)
+        self.assertEqual(renames, [])
+        self.assertEqual(verifications, [])
+        self.assertEqual(set(report["timings_ms"]), {"write_preflight", "source_load"})
+
+    def test_execution_success_requires_fresh_verification(self):
+        """/** @return 原生成功仍必须写后核验通过 不复用预检结果 */"""
+        report, writes, renames, verifications = self._execution_fixture()
+        def rename_all(items):
+            renames.append(items)
+            for item in items:
+                item["asset"].path = item["new_package_path"] + "/" + item["new_name"] + "." + item["new_name"]
+            return True
+        self.runtime["unreal"].AssetToolsHelpers.get_asset_tools = lambda: types.SimpleNamespace(rename_assets=rename_all)
+        self.runtime["BBBAssetMaintenanceToolset"].verify_asset_moves = lambda moves: verifications.append(json.loads(moves)) or json.dumps({"success": True})
+        result = json.loads(self.runtime["_execute_asset_moves"](report))
+        self.assertTrue(result["success"])
+        self.assertFalse(result["partial"])
+        self.assertEqual(len(verifications), 1)
 
     def test_ownerless_actor_delete_preserves_exact_backup_and_rejects_backup_collision(self):
         """/** @return 历史 Actor 清理只删除无主包 且不覆盖不匹配的恢复原件 */"""

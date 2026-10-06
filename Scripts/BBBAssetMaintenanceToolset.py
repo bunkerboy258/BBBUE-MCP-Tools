@@ -2,6 +2,8 @@ import hashlib
 import json
 import os
 import re
+from contextlib import contextmanager
+from time import perf_counter
 
 import unreal
 from BBBMcpCapabilities import mcp_tool
@@ -307,7 +309,100 @@ def _move_class_path(path):
     return str(path.package_name) + "." + str(path.asset_name)
 
 
+class _AssetMoveQueryContext:
+    """/** 仅在单次移动预检内复用只读查询 不跨执行阶段保存状态 */"""
+
+    def __init__(self, registry):
+        """
+        /**
+         * 建立本次预检的查询上下文
+         * @param registry	已扫描的资产注册表
+         * @return 请求内上下文
+         */
+        """
+        self.registry = registry
+        self.cache = {}
+        self.counts = {}
+
+    def _query(self, kind, path, fetch):
+        """
+        /**
+         * 按精确路径复用查询并记录实际调用和命中次数
+         * @param kind	查询类别
+         * @param path	精确路径
+         * @param fetch	首次查询函数
+         * @return 本次请求内的查询结果
+         */
+        """
+        key = (kind, path)
+        if key in self.cache:
+            self.counts[kind + "_cache_hits"] = self.counts.get(kind + "_cache_hits", 0) + 1
+            return self.cache[key]
+        self.counts[kind] = self.counts.get(kind, 0) + 1
+        result = fetch()
+        self.cache[key] = result
+        return result
+
+    def get_assets_by_package_name(self, path):
+        """/** @param path 精确包路径 @return 请求内包记录快照 */"""
+        return self._query("package_assets", path, lambda: tuple(self.registry.get_assets_by_package_name(path) or []))
+
+    def folder_assets(self, path):
+        """/** @param path 精确目录 @return 请求内递归目录记录快照 */"""
+        return self._query("folder_assets", path, lambda: tuple(self.registry.get_assets_by_path(path, recursive=True) or []))
+
+    def directory_exists(self, path):
+        """/** @param path 精确目录 @return 请求内目录存在状态 */"""
+        return self._query("directory_exists", path, lambda: unreal.EditorAssetLibrary.does_directory_exist(path))
+
+    def referencers(self, path):
+        """/** @param path 被引用包 @return 请求内引用者快照 */"""
+        return self._query("referencers", path, lambda: tuple(_move_referencers(self.registry, path)))
+
+    def get_dependencies(self, path, options):
+        """/** @param path 包路径 @param options 原生依赖选项 @return 未缓存的依赖查询结果 */"""
+        self.counts["dependencies"] = self.counts.get("dependencies", 0) + 1
+        return self.registry.get_dependencies(path, options)
+
+
+@contextmanager
+def _move_phase(report, name):
+    """
+    /**
+     * 记录阶段墙钟耗时 即使阶段抛错也输出已耗时间
+     * @param report	移动报告
+     * @param name	稳定的阶段名称
+     * @return 阶段计时作用域
+     */
+    """
+    unreal.log("[BBBAssetMoveTiming]开始 " + name)
+    started = perf_counter()
+    try:
+        yield
+    finally:
+        elapsed = round((perf_counter() - started) * 1000, 3)
+        report.setdefault("timings_ms", {})[name] = elapsed
+        unreal.log("[BBBAssetMoveTiming]完成 {} {:.3f} ms".format(name, elapsed))
+
+
 def _plan_asset_moves(requests, registry):
+    """
+    /**
+     * 隔离单次预检查询并返回阶段统计
+     * @param requests	明确移动请求
+     * @param registry	已扫描的资产注册表
+     * @return 带查询次数与预检耗时的完整计划
+     */
+    """
+    context = _AssetMoveQueryContext(registry)
+    metrics = {"timings_ms": {}, "query_counts": context.counts}
+    with _move_phase(metrics, "preflight"):
+        report = _build_asset_move_plan(requests, context)
+    report.update(metrics)
+    return report
+
+
+def _build_asset_move_plan(requests, registry):
     """
     /**
      * 将目录映射展开为精确资产映射 只读检查引用和磁盘冲突
@@ -332,8 +427,8 @@ def _plan_asset_moves(requests, registry):
         source = request["source"]
         destination = request["destination"]
         data = _move_primary_assets(registry.get_assets_by_package_name(source))
-        folder_data = _move_primary_assets(registry.get_assets_by_path(source, recursive=True))
-        is_directory = bool(folder_data) or unreal.EditorAssetLibrary.does_directory_exist(source)
+        folder_data = _move_primary_assets(registry.folder_assets(source))
+        is_directory = bool(folder_data) or registry.directory_exists(source)
         if bool(data) == is_directory:
             raise RuntimeError("源路径不存在或资产与目录类型不明确: " + source)
         if is_directory:
@@ -368,7 +463,7 @@ def _plan_asset_moves(requests, registry):
                 blockers.append({"package": package, "reason": "重定向器和关卡数据不属于通用资产移动范围"})
             if len(_move_primary_assets(registry.get_assets_by_package_name(package))) != 1:
                 blockers.append({"package": package, "reason": "包内存在多个资产 需专用迁移"})
-            if registry.get_assets_by_package_name(target) or unreal.EditorAssetLibrary.does_directory_exist(target):
+            if registry.get_assets_by_package_name(target) or registry.directory_exists(target):
                 blockers.append({"package": target, "reason": "目标包或同名目录已存在"})
             parent = target.rsplit("/", 1)[0]
             while parent != "/Game":
@@ -383,7 +478,7 @@ def _plan_asset_moves(requests, registry):
             for extension in (".uasset", ".umap", ".uexp", ".ubulk", ".uptnl"):
                 if os.path.exists(_move_filename(target, extension)):
                     blockers.append({"package": target, "reason": "目标磁盘文件已存在: " + extension})
-            references = _move_referencers(registry, package)
+            references = list(registry.referencers(package))
             referencers.update(name for name in references if name != package)
             assets.append({
                 "source": package,
@@ -464,34 +559,37 @@ def _execute_asset_moves(report):
      * @return 完整执行与磁盘核验结果
      */
     """
-    external_referencers = [path for path in report["referencer_packages"] if path.startswith("/Game/__ExternalActors__/")]
-    if external_referencers:
-        _require_external_actor_world_owners(_move_registry(), external_referencers)
-    affected = set(report["referencer_packages"])
-    affected.update(item["source"] for item in report["assets"])
-    require_asset_write(affected, [item["destination"] for item in report["assets"]])
-    report["checkout_checked"] = True
+    with _move_phase(report, "write_preflight"):
+        external_referencers = [path for path in report["referencer_packages"] if path.startswith("/Game/__ExternalActors__/")]
+        if external_referencers:
+            _require_external_actor_world_owners(_move_registry(), external_referencers)
+        affected = set(report["referencer_packages"])
+        affected.update(item["source"] for item in report["assets"])
+        require_asset_write(affected, [item["destination"] for item in report["assets"]])
+        report["checkout_checked"] = True
     renames = []
     loaded_assets = []
-    for item in report["assets"]:
-        asset = unreal.EditorAssetLibrary.load_asset(item["source_object"])
-        if asset is None or asset.get_path_name() != item["source_object"]:
-            raise RuntimeError("源对象不存在或通过重定向加载了其它资产: " + item["source_object"])
-        if _move_class_path(asset.get_class().get_class_path_name()) != item["class_path"]:
-            raise RuntimeError("源资产类型与预检不一致: " + item["source"])
-        loaded_assets.append(asset)
-        renames.append(unreal.AssetRenameData(
-            asset=asset,
-            new_package_path=item["destination"].rsplit("/", 1)[0],
-            new_name=item["destination"].rsplit("/", 1)[-1],
-        ))
-    if _move_dirty_packages():
-        raise RuntimeError("加载后出现脏包 已中止移动 请先检查并保存")
+    with _move_phase(report, "source_load"):
+        for item in report["assets"]:
+            asset = unreal.EditorAssetLibrary.load_asset(item["source_object"])
+            if asset is None or asset.get_path_name() != item["source_object"]:
+                raise RuntimeError("源对象不存在或通过重定向加载了其它资产: " + item["source_object"])
+            if _move_class_path(asset.get_class().get_class_path_name()) != item["class_path"]:
+                raise RuntimeError("源资产类型与预检不一致: " + item["source"])
+            loaded_assets.append(asset)
+            renames.append(unreal.AssetRenameData(
+                asset=asset,
+                new_package_path=item["destination"].rsplit("/", 1)[0],
+                new_name=item["destination"].rsplit("/", 1)[-1],
+            ))
+        if _move_dirty_packages():
+            raise RuntimeError("加载后出现脏包 已中止移动 请先检查并保存")
 
     unreal.log("[BBBAssetMove]开始原生批量移动 {} 个资产".format(len(renames)))
     report["executed"] = True
     try:
-        report["engine_success"] = bool(unreal.AssetToolsHelpers.get_asset_tools().rename_assets(renames))
+        with _move_phase(report, "native_rename"):
+            report["engine_success"] = bool(unreal.AssetToolsHelpers.get_asset_tools().rename_assets(renames))
     except Exception as error:
         report["engine_success"] = False
         report["engine_error"] = str(error)
@@ -505,7 +603,8 @@ def _execute_asset_moves(report):
         for item, asset in zip(report["assets"], loaded_assets)
     ]
     try:
-        report["verification"] = json.loads(BBBAssetMaintenanceToolset.verify_asset_moves(json.dumps(report["assets"])))
+        with _move_phase(report, "verification"):
+            report["verification"] = json.loads(BBBAssetMaintenanceToolset.verify_asset_moves(json.dumps(report["assets"])))
     except Exception as error:
         report["verification"] = {"success": False, "error": str(error)}
     report["success"] = (
