@@ -479,6 +479,135 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def capture_backward_recoil_alpha_samples(source_path: str, animation_path: str, mesh_path: str, file_prefix: str) -> str:
+        """
+        /**
+         * @param source_path	加法基准动画
+         * @param animation_path	最大受力动画
+         * @param mesh_path	真实骨架网格
+         * @param file_prefix	唯一截图前缀
+         * @return 三档权重及动作阶段截图 不写项目资产
+         */
+        """
+        import importlib
+        import BBBRecoilAnimationTools
+        importlib.reload(BBBRecoilAnimationTools)
+        return json.dumps(BBBRecoilAnimationTools.capture_recoil_alpha_samples(source_path, animation_path, mesh_path, file_prefix), ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def bind_backward_recoil_additive_inputs(blueprint_path: str, animation_path: str) -> str:
+        """
+        /**
+         * 重新绑定原有全身加法层中的后坐力时间与权重 编译保存
+         * @param blueprint_path	已独占签出的基础动画层
+         * @param animation_path	最大受力加法序列
+         * @return 编译保存结果 不重建状态机
+         */
+        """
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止重绑后坐力输入")
+        import importlib
+        import BBBRecoilAnimationTools
+        importlib.reload(BBBRecoilAnimationTools)
+        blueprint = unreal.load_asset(blueprint_path)
+        animation = unreal.load_asset(animation_path)
+        if not isinstance(blueprint, unreal.AnimBlueprint) or not isinstance(animation, unreal.AnimSequence):
+            raise RuntimeError("基础层或后坐力序列无效")
+        from BBBAssetWritePolicy import require_asset_write
+        from editor_toolset.toolsets.blueprint import BlueprintTools
+        require_asset_write([blueprint])
+        BBBRecoilAnimationTools.bind_recoil_additive_inputs(blueprint, animation)
+        BlueprintTools.compile_blueprint(blueprint, warnings_as_errors=True)
+        if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
+            raise RuntimeError("后坐力输入保存失败")
+        return json.dumps({"saved": True, "status": str(blueprint.get_editor_property("status"))}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def sample_backward_recoil_runtime(action: str, seconds: float, file_prefix: str) -> str:
+        """
+        /**
+         * @param action	start 或 status
+         * @param seconds	游戏采样秒数
+         * @param file_prefix	本任务临时报告前缀
+         * @return 自然更新的动画播放器 权重和手臂姿势采样
+         */
+        """
+        import importlib
+        import BBBRecoilAnimationTools
+        if action == "start":
+            importlib.reload(BBBRecoilAnimationTools)
+        return json.dumps(BBBRecoilAnimationTools.sample_recoil_runtime(action, seconds, file_prefix), ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def merge_recoil_into_full_body_additives(interface_path: str, base_path: str, main_path: str, dependent_paths: list[str], animation_path: str) -> str:
+        """
+        /**
+         * @param interface_path	动画层接口
+         * @param base_path	基础动画层
+         * @param main_path	主动画蓝图
+         * @param dependent_paths	同步编译的派生层
+         * @param animation_path	最大轴向后坐力动画
+         * @return 合并 校验与保存结果 失败保留未保存现场
+         */
+        """
+        import importlib
+        import BBBRecoilAnimationTools
+        importlib.reload(BBBRecoilAnimationTools)
+        return json.dumps(BBBRecoilAnimationTools.merge_recoil_additives(interface_path, base_path, main_path, dependent_paths, animation_path), ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def inspect_backward_recoil_context(source_path: str, definition_path: str) -> str:
+        """
+        /**
+         * @param source_path	持枪基准动画
+         * @param definition_path	实际装备定义
+         * @return 真实枪口轴和骨骼基准 仅只读
+         */
+        """
+        import importlib
+        import BBBRecoilAnimationTools
+        importlib.reload(BBBRecoilAnimationTools)
+        return json.dumps(BBBRecoilAnimationTools.inspect_recoil_context(source_path, definition_path), ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def rebuild_backward_recoil_animation(source_path: str, animation_path: str, definition_path: str, maximum_distance_cm: float = 8.0) -> str:
+        """
+        /**
+         * @param source_path	持枪基准动画
+         * @param animation_path	已独占签出的后坐力序列
+         * @param definition_path	真实枪口轴和射击间隔来源
+         * @param maximum_distance_cm	满权重最大后退厘米数
+         * @return 全帧验证与保存结果 失败不保存
+         */
+        """
+        import importlib
+        import BBBRecoilAnimationTools
+        importlib.reload(BBBRecoilAnimationTools)
+        return json.dumps(BBBRecoilAnimationTools.rebuild_backward_recoil(source_path, animation_path, definition_path, maximum_distance_cm), ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def validate_backward_recoil_animation(source_path: str, animation_path: str, definition_path: str) -> str:
+        """
+        /**
+         * @param source_path	持枪基准动画
+         * @param animation_path	后坐力序列
+         * @param definition_path	真实枪口轴来源
+         * @return 全帧轴向与握持误差 仅只读
+         */
+        """
+        import importlib
+        import BBBRecoilAnimationTools
+        importlib.reload(BBBRecoilAnimationTools)
+        return json.dumps(BBBRecoilAnimationTools.validate_backward_recoil(source_path, animation_path, definition_path), ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def simplify_animation_data_accesses(
         blueprint_paths: list[str],
         node_class_path: str,
@@ -1111,133 +1240,6 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             ensure_ascii=False,
         )
 
-    @mcp_tool
-    @staticmethod
-    def configure_recoil_animation_graphs(
-        interface_blueprint_path: str,
-        base_blueprint_path: str,
-        main_blueprint_path: str,
-        magnitude_property_name: str,
-    ) -> str:
-        """配置后坐力动画层 递增触发重播并编译保存三个动画蓝图"""
-        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
-            raise RuntimeError("PIE 期间禁止修改后坐力动画图")
-
-        layer_name = "FullBodyRecoil"
-        pose_name = "RecoilParameters"
-        state_machine_name = "Recoil_SM"
-        animation_variable_name = "RecoilAdditiveAnimation"
-        previous_magnitude_variable_name = "WasRecoilMagnitudeLastUpdate"
-        trigger_variable_name = "bRecoilMagnitudeIncreasedThisUpdate"
-        asset_paths = [interface_blueprint_path, base_blueprint_path, main_blueprint_path]
-        blueprints = []
-
-        for asset_path in asset_paths:
-            blueprint = unreal.EditorAssetLibrary.load_asset(asset_path)
-            if not isinstance(blueprint, unreal.AnimBlueprint):
-                raise RuntimeError("动画蓝图不存在: {}".format(asset_path))
-
-            blueprints.append(blueprint)
-
-        interface_blueprint, base_blueprint, main_blueprint = blueprints
-        with unreal.ScopedEditorTransaction("配置角色后坐力动画层"):
-            interface_blueprint.modify()
-            interface_changed = unreal.BBBBlueprintEditorLibrary.ensure_animation_layer_interface_function(
-                interface_blueprint,
-                unreal.Name(layer_name),
-                unreal.Name(pose_name),
-                unreal.Name(),
-            )
-            if interface_changed < 0:
-                raise RuntimeError("后坐力动画层接口创建失败: {}".format(interface_blueprint_path))
-
-            unreal.BlueprintEditorLibrary.compile_blueprint(interface_blueprint)
-            interface_status = interface_blueprint.get_editor_property("status")
-            if interface_status != unreal.BlueprintStatus.BS_UP_TO_DATE:
-                raise RuntimeError("后坐力动画层接口编译未通过: {} {}".format(interface_blueprint_path, interface_status))
-
-            unreal.BlueprintEditorLibrary.compile_blueprint(base_blueprint)
-            base_status_before = base_blueprint.get_editor_property("status")
-            if base_status_before != unreal.BlueprintStatus.BS_UP_TO_DATE:
-                raise RuntimeError("基础动画层接口刷新编译未通过: {} {}".format(base_blueprint_path, base_status_before))
-
-            base_blueprint.modify()
-            base_changed = unreal.BBBBlueprintEditorLibrary.configure_recoil_additive_layer(
-                base_blueprint,
-                interface_blueprint,
-                unreal.Name(layer_name),
-                unreal.Name(state_machine_name),
-                unreal.Name(animation_variable_name),
-                unreal.Name(trigger_variable_name),
-            )
-            if base_changed < 0:
-                raise RuntimeError("基础动画层后坐力状态机配置失败: {}".format(base_blueprint_path))
-
-            unreal.BlueprintEditorLibrary.compile_blueprint(base_blueprint)
-            base_status = base_blueprint.get_editor_property("status")
-            if base_status != unreal.BlueprintStatus.BS_UP_TO_DATE:
-                raise RuntimeError("基础动画层后坐力状态机编译未通过: {} {}".format(base_blueprint_path, base_status))
-
-            unreal.BlueprintEditorLibrary.compile_blueprint(main_blueprint)
-            main_status_before = main_blueprint.get_editor_property("status")
-            if main_status_before != unreal.BlueprintStatus.BS_UP_TO_DATE:
-                raise RuntimeError("主动画层接口刷新编译未通过: {} {}".format(main_blueprint_path, main_status_before))
-
-            main_blueprint.modify()
-            main_changed = unreal.BBBBlueprintEditorLibrary.configure_recoil_main_animation_graph(
-                main_blueprint,
-                interface_blueprint,
-                unreal.Name(layer_name),
-                unreal.Name(previous_magnitude_variable_name),
-                unreal.Name(trigger_variable_name),
-                unreal.Name(magnitude_property_name),
-            )
-            if main_changed < 0:
-                raise RuntimeError("主动画图后坐力触发与叠加配置失败: {}".format(main_blueprint_path))
-
-            unreal.BlueprintEditorLibrary.compile_blueprint(main_blueprint)
-            main_status = main_blueprint.get_editor_property("status")
-            if main_status != unreal.BlueprintStatus.BS_UP_TO_DATE:
-                raise RuntimeError("主动画图后坐力触发编译未通过: {} {}".format(main_blueprint_path, main_status))
-
-        changed_blueprints = []
-        if interface_changed > 0:
-            changed_blueprints.append(interface_blueprint)
-
-        if base_changed > 0:
-            changed_blueprints.append(base_blueprint)
-
-        if main_changed > 0:
-            changed_blueprints.append(main_blueprint)
-
-        for blueprint in changed_blueprints:
-            if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
-                raise RuntimeError("后坐力动画蓝图保存失败: {}".format(blueprint.get_path_name()))
-
-        return json.dumps(
-            {
-                "interface": interface_blueprint_path,
-                "base": base_blueprint_path,
-                "main": main_blueprint_path,
-                "layer": layer_name,
-                "stateMachine": state_machine_name,
-                "animationVariable": animation_variable_name,
-                "triggerVariable": trigger_variable_name,
-                "magnitudeProperty": magnitude_property_name,
-                "changed": {
-                    "interface": interface_changed,
-                    "base": base_changed,
-                    "main": main_changed,
-                },
-                "compiled": {
-                    "interface": str(interface_status),
-                    "base": str(base_status),
-                    "main": str(main_status),
-                },
-                "saved": [blueprint.get_path_name() for blueprint in changed_blueprints],
-            },
-            ensure_ascii=False,
-        )
 
     @mcp_tool
     @staticmethod

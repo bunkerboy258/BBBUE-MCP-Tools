@@ -236,3 +236,15 @@ IK 重建通过网格查询真实父骨名，使用 FK 脚组件变换相对于�
 - `set_retargeter_source_ik_rig`：替换重定向器的源 IK Rig。`chain_mappings` 使用目标链名称到源链名称的映射；未显式指定的有效旧映射会保留，指定映射会逐项回读核对。
 
 调用时必须解析 `returnValue` 内层 JSON，并确认 `success=true`。写入配置前应先读取两侧 IK Rig 的链边界，确认所需链名与骨骼存在；写入后再读取 IK Rig 和重定向器配置进行复核。
+
+## 最大受力后坐力与原有全身加法层
+
+`inspect_backward_recoil_context` 从装备挂接变换、真实枪口插槽和持枪基准推导受力轴。`rebuild_backward_recoil_animation` 原位重做已签出的序列，Alpha 为 1 时默认后退 8 厘米，肩部承担四分之一位移，双臂保持长度并恢复双手朝向。动作不制作枪口上抬、左右偏转或下半身运动。峰值约在 0.021 秒，按装备射击间隔的九成恢复到零，序列尾段保持零差值。
+
+`merge_recoil_into_full_body_additives` 一次性将旧独立层并入原有 `FullBodyAdditives`，保留落地恢复状态机，将原来的 0.65 落地恢复权重移入层内，主图接收权重改为 1。后坐力通过 `WeaponRecoilTime` 的显式时间播放器和 `WeaponBackwardRecoilAlpha` 合成。结构不符合预期或重复合并会拒绝执行。旧的 `configure_recoil_animation_graphs` 公共入口已删除，禁止重新创建独立后坐力层。
+
+`bind_backward_recoil_additive_inputs` 维护已合并层的时间和权重绑定，不重建落地状态机。`configure_weapon_handling_graphs` 同样维护原有层，不再创建 `FullBodyRecoil`。
+
+`validate_backward_recoil_animation` 审计全部关键帧、双手受力轴、朝向、握持距离、首尾恢复及下半身，并计算 Alpha 为 0、0.5、1 的实际局部旋转混合。中间权重存在微小非线性误差，容差为偏轴 0.3 厘米、朝向 0.15 度和握持距离 0.35 厘米。
+
+`sample_backward_recoil_runtime` 以 `start` 和 `status` 在 PIE 中只读采样自然更新完成的游戏帧，不主动推进被测动画。报告位于 `Saved/temp/<file_prefix>/runtime.json`。`capture_backward_recoil_alpha_samples` 在内存中的 `/Engine/Transient` 普通序列复现完整持枪姿势，避免把加法差值直接叠到参考 A 姿势上；渲染宿主及 PIE 必须存在。截图位于 `Saved/temp/<file_prefix>/`，临时演员会销毁，验证序列不保存到磁盘，宿主退出时释放。任务收尾删除自己的临时报告和截图。

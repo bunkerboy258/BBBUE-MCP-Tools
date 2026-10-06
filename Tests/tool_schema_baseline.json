@@ -1842,42 +1842,6 @@
         ]
       }
     },
-    "configure_recoil_animation_graphs": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "interface_blueprint_path": {
-            "type": "string"
-          },
-          "base_blueprint_path": {
-            "type": "string"
-          },
-          "main_blueprint_path": {
-            "type": "string"
-          },
-          "magnitude_property_name": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "interface_blueprint_path",
-          "base_blueprint_path",
-          "main_blueprint_path",
-          "magnitude_property_name"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
     "add_animation_layer_boolean_input": {
       "inputSchema": {
         "type": "object",
@@ -2341,6 +2305,271 @@
         "properties": {
           "returnValue": {
             "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "bind_backward_recoil_additive_inputs": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_path": {
+            "type": "string",
+            "description": "已独占签出的基础动画层 *"
+          },
+          "animation_path": {
+            "type": "string",
+            "description": "最大受力加法序列 *"
+          }
+        },
+        "required": [
+          "blueprint_path",
+          "animation_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "编译保存结果 不重建状态机 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "capture_backward_recoil_alpha_samples": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_path": {
+            "type": "string",
+            "description": "加法基准动画 *"
+          },
+          "animation_path": {
+            "type": "string",
+            "description": "最大受力动画 *"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "真实骨架网格 *"
+          },
+          "file_prefix": {
+            "type": "string",
+            "description": "唯一截图前缀 *"
+          }
+        },
+        "required": [
+          "source_path",
+          "animation_path",
+          "mesh_path",
+          "file_prefix"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "三档权重及动作阶段截图 不写项目资产 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "sample_backward_recoil_runtime": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "description": "start 或 status *"
+          },
+          "seconds": {
+            "type": "number",
+            "description": "游戏采样秒数 *"
+          },
+          "file_prefix": {
+            "type": "string",
+            "description": "本任务临时报告前缀 *"
+          }
+        },
+        "required": [
+          "action",
+          "seconds",
+          "file_prefix"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "自然更新的动画播放器 权重和手臂姿势采样 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "merge_recoil_into_full_body_additives": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "interface_path": {
+            "type": "string",
+            "description": "动画层接口 *"
+          },
+          "base_path": {
+            "type": "string",
+            "description": "基础动画层 *"
+          },
+          "main_path": {
+            "type": "string",
+            "description": "主动画蓝图 *"
+          },
+          "dependent_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "同步编译的派生层 *"
+          },
+          "animation_path": {
+            "type": "string",
+            "description": "最大轴向后坐力动画 *"
+          }
+        },
+        "required": [
+          "interface_path",
+          "base_path",
+          "main_path",
+          "dependent_paths",
+          "animation_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "合并 校验与保存结果 失败保留未保存现场 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_backward_recoil_context": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_path": {
+            "type": "string",
+            "description": "持枪基准动画 *"
+          },
+          "definition_path": {
+            "type": "string",
+            "description": "实际装备定义 *"
+          }
+        },
+        "required": [
+          "source_path",
+          "definition_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "真实枪口轴和骨骼基准 仅只读 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "rebuild_backward_recoil_animation": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_path": {
+            "type": "string",
+            "description": "持枪基准动画 *"
+          },
+          "animation_path": {
+            "type": "string",
+            "description": "已独占签出的后坐力序列 *"
+          },
+          "definition_path": {
+            "type": "string",
+            "description": "真实枪口轴和射击间隔来源 *"
+          },
+          "maximum_distance_cm": {
+            "type": "number",
+            "description": "满权重最大后退厘米数 *",
+            "default": 8
+          }
+        },
+        "required": [
+          "source_path",
+          "animation_path",
+          "definition_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "全帧验证与保存结果 失败不保存 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "validate_backward_recoil_animation": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_path": {
+            "type": "string",
+            "description": "持枪基准动画 *"
+          },
+          "animation_path": {
+            "type": "string",
+            "description": "后坐力序列 *"
+          },
+          "definition_path": {
+            "type": "string",
+            "description": "真实枪口轴来源 *"
+          }
+        },
+        "required": [
+          "source_path",
+          "animation_path",
+          "definition_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "全帧轴向与握持误差 仅只读 */"
           }
         },
         "required": [

@@ -338,8 +338,8 @@ def configure_animation_handling(blueprint_path, animation_path):
         raise RuntimeError("枪口跟随速度连接失败")
     if not library.bind_animation_node_input(aim_nodes[0], "AimOffsetDegrees", ["WeaponAimOffsetDegrees"]):
         raise RuntimeError("枪口角度与摇摆连接失败")
-    if not library.configure_timed_additive_layer(blueprint, "FullBodyRecoil", animation, ["WeaponRecoilTime"], ["WeaponBackwardRecoilAlpha"]):
-        raise RuntimeError("逐枪后震动画层重建失败")
+    from BBBRecoilAnimationTools import bind_recoil_additive_inputs
+    bind_recoil_additive_inputs(blueprint, animation)
     if "RecoilAdditiveAnimation" in variables:
         BlueprintTools.remove_variable(blueprint, "RecoilAdditiveAnimation")
     for graph in unreal.BlueprintEditorLibrary.list_graphs(blueprint):
