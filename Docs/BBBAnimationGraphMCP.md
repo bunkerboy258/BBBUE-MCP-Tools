@@ -34,6 +34,12 @@
 
 ## 事实驱动状态机构图
 
+当前七行为契约为 Idle=0 Alert=1 Patrol=2 Chase=3 Attack=4 Hurt=5 Dead=6.重新构图只接受动作值 [4 5 6] 不保留旧 Scout 或旧枚举布局兼容.标准图生成 Idle Alert Patrol Locomotion Attack Hurt Dead 七状态.巡逻和追击使用最终实际水平速度驱动混合资产 停住时显示待机.警觉使用独立循环观察序列 死亡仍没有出口.
+
+configure_fact_locomotion_variants 当前参数为 asset_path idle_paths alert_paths stationary_speed blend_duration.仅重建 Idle 与 Alert 的姿势子图 不维护玩法计时.旧 scout_paths 参数已移除.原注释按 Comment Law 保持不改 实际公开契约以工具发现 schema 与此节为准.
+
+capture_monster_animation_transition 的状态编号使用上述七行为.群体 inspect_mass_inspection_population 回读新增 locomotion 数组 包含完整代际身份 行为 档位 动作编号 起止时间 最终速度及导航有效性.该快照只读 不改目标或强行指定移动速度.
+
 迁移可明确传入 `parent_class_path`，使用 UE 原生 ReparentBlueprint 切换至事实动画实例后重建图；不设置时保持原父类。新父类须继承 AnimInstance 且包含指定只读事实属性。
 
 `create_speed_blend_space` 只创建不存在的一维混合资产。输入同骨架序列、严格递增的厘米每秒速度与速度轴平滑秒数，首个速度必须为零。原生能力使用 UE AddSample、ValidateSampleData 和 ResampleData 构建运行时数据，不直接伪造样本数组。调用前必须验收循环与 In-place；保存后须将新资产登记为 binary+l 并核验真实样本和引用。

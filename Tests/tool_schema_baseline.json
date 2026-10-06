@@ -8710,12 +8710,11 @@
             },
             "description": "同骨架循环待机序列 *"
           },
-          "scout_paths": {
+          "alert_paths": {
             "type": "array",
             "items": {
               "type": "string"
-            },
-            "description": "同骨架循环搜索序列 *"
+            }
           },
           "stationary_speed": {
             "type": "number",
@@ -8731,7 +8730,7 @@
         "required": [
           "asset_path",
           "idle_paths",
-          "scout_paths"
+          "alert_paths"
         ]
       },
       "outputSchema": {

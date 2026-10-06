@@ -68,6 +68,14 @@ class FactAnimationGraphTests(unittest.TestCase):
         self.engine.BBBAnimationGraphEditorLibrary.configure_fact_locomotion_variants.assert_not_called()
         self.engine.BBBAnimationGraphEditorLibrary.configure_fact_action_variants.assert_not_called()
 
+    def test_alert_contract_removes_old_keyword(self):
+        """/** @return 新警觉入口不接受旧搜索参数 */"""
+        result = json.loads(self.locomotion(asset_path="/Game/Test/ABP", idle_paths=["/Game/I"], alert_paths=["/Game/A"]))
+        self.assertEqual(result["alert"], ["/Game/A"])
+        self.assertNotIn("scout", result)
+        with self.assertRaises(TypeError):
+            self.locomotion(asset_path="/Game/Test/ABP", idle_paths=["/Game/I"], scout_paths=["/Game/S"])
+
     def test_native_or_compile_failure_does_not_save(self):
         """/** @return 构图或编译失败保留内存诊断 不保存 */"""
         self.engine.BBBAnimationGraphEditorLibrary.configure_fact_locomotion_variants.return_value = False
@@ -82,6 +90,43 @@ class FactAnimationGraphTests(unittest.TestCase):
 
 class FactAnimationSamplingTests(unittest.TestCase):
     """/** 显式速度采样与单位根轨道回归 */"""
+
+    def test_inspection_world_identity_survives_same_path_restart(self):
+        """/** @return 同路径的新 PIE 可以重新创建 旧句柄不能跨世界查询 */"""
+        tree = ast.parse((ROOT / "Scripts/BBBAnimationPreviewToolset.py").read_text(encoding="utf-8-sig"))
+        methods = [node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name in {"spawn_mass_inspection_population", "inspect_mass_inspection_population"}]
+        for method in methods:
+            method.decorator_list = []
+        engine = Mock()
+        engine.SystemLibrary.get_command_line.return_value = "-RenderOffscreen"
+        engine.MassEntityConfigAsset = Mock
+        engine.BBBMassValidationLibrary.spawn_population.return_value = ["entity"]
+        engine.BBBMassValidationLibrary.inspect_population.return_value = "{}"
+        first = Mock()
+        second = Mock()
+        first.get_path_name.return_value = "/Game/Test.Test"
+        second.get_path_name.return_value = "/Game/Test.Test"
+        engine.get_editor_subsystem.return_value.get_game_world.return_value = first
+        namespace = {"unreal": engine, "re": __import__("re"), "json": json, "_inspection_population": {}, "_population_runs": {}}
+        exec(compile(ast.Module(body=methods, type_ignores=[]), "world_identity_test", "exec"), namespace)
+        spawn = namespace["spawn_mass_inspection_population"]
+        inspect = namespace["inspect_mass_inspection_population"]
+        arguments = (["/Game/Config"], [0, 0, 90], 200.0, "/Game/Test")
+        spawn(*arguments)
+        with self.assertRaises(RuntimeError):
+            spawn(*arguments)
+        engine.get_editor_subsystem.return_value.get_game_world.return_value = second
+        with self.assertRaises(RuntimeError):
+            inspect()
+        spawn(*arguments)
+        self.assertEqual(engine.BBBMassValidationLibrary.spawn_population.call_count, 2)
+
+    def test_seven_behavior_sampling_contract(self):
+        """/** @return 抽样入口只使用当前七行为 */"""
+        tree = ast.parse((ROOT / "Scripts/BBBAnimationPreviewToolset.py").read_text(encoding="utf-8-sig"))
+        method = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "capture_monster_animation_transition")
+        states = next(node.value for node in ast.walk(method) if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "states" for target in node.targets))
+        self.assertEqual([value.attr for value in states.elts], ["IDLE", "ALERT", "PATROL", "CHASE", "ATTACK", "HURT", "DEAD"])
 
     def test_preview_requires_explicit_speeds_and_rejects_invalid_values(self):
         """/** @return 静止不被固定移动速度替代 无效值拒绝 */"""

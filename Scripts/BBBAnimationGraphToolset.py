@@ -231,7 +231,7 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def configure_fact_locomotion_variants(asset_path: str, idle_paths: list[str], scout_paths: list[str], stationary_speed: float = 3.0, blend_duration: float = 0.18) -> str:
+    def configure_fact_locomotion_variants(asset_path: str, idle_paths: list[str], alert_paths: list[str], stationary_speed: float = 3.0, blend_duration: float = 0.18) -> str:
         """
         /**
          * 在事实移动状态中配置身份选择待机 搜索与稳定起点错相
@@ -248,12 +248,12 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
 
         blueprint = unreal.load_asset(asset_path)
         idle = [unreal.load_asset(path) for path in idle_paths]
-        scout = [unreal.load_asset(path) for path in scout_paths]
-        if not isinstance(blueprint, unreal.AnimBlueprint) or any(not isinstance(sequence, unreal.AnimSequence) for sequence in idle + scout):
+        alert = [unreal.load_asset(path) for path in alert_paths]
+        if not isinstance(blueprint, unreal.AnimBlueprint) or any(not isinstance(sequence, unreal.AnimSequence) for sequence in idle + alert):
             raise RuntimeError("动画蓝图或静止序列无效")
 
         require_write_access(blueprint)
-        if not unreal.BBBAnimationGraphEditorLibrary.configure_fact_locomotion_variants(blueprint, idle, scout, stationary_speed, blend_duration):
+        if not unreal.BBBAnimationGraphEditorLibrary.configure_fact_locomotion_variants(blueprint, idle, alert, stationary_speed, blend_duration):
             raise RuntimeError("静止搜索构图失败 不保存")
 
         unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
@@ -263,7 +263,7 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
         if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
             raise RuntimeError("静止搜索动画蓝图保存失败")
 
-        return json.dumps({"asset": asset_path, "idle": list(idle_paths), "scout": list(scout_paths), "phaseBuckets": 29, "saved": True}, ensure_ascii=False)
+        return json.dumps({"asset": asset_path, "idle": list(idle_paths), "alert": list(alert_paths), "phaseBuckets": 29, "saved": True}, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod
