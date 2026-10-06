@@ -9102,5 +9102,243 @@
         ]
       }
     }
+  },
+  "BBBHitReactionToolset": {
+    "inspect_skeletal_hit_reaction_capture": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "capture_id": {
+            "type": "string",
+            "description": "开始采样返回的编号 *"
+          }
+        },
+        "required": [
+          "capture_id"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "采样状态与峰值摘要 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "run_monster_hit_reaction_regressions": {
+      "inputSchema": {
+        "type": "object"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "排队的测试筛选条件 不代表测试通过 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "start_skeletal_hit_reaction_capture": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "actor_blueprint_path": {
+            "type": "string",
+            "description": "明确的表现演员蓝图 *"
+          },
+          "region": {
+            "type": "integer",
+            "description": "零至五的命中部位 *"
+          },
+          "direction": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "世界受力方向 三个分量 *"
+          },
+          "file_prefix": {
+            "type": "string",
+            "description": "Saved/temp 下的安全输出目录名 *"
+          },
+          "shots": {
+            "type": "integer",
+            "description": "连续命中次数 零至十二 零用于基线 *",
+            "default": 1
+          },
+          "interval_seconds": {
+            "type": "number",
+            "description": "命中间隔秒数 *",
+            "default": 0.1
+          },
+          "speed": {
+            "type": "number",
+            "description": "临时演员前进速度 厘米每秒 *",
+            "default": 0
+          },
+          "capture_images": {
+            "type": "boolean",
+            "description": "是否输出真实渲染帧 *",
+            "default": false
+          },
+          "interrupt": {
+            "type": "string",
+            "description": "无中断 死亡或隐藏 none dead hidden *",
+            "default": "none"
+          },
+          "actor_count": {
+            "type": "integer",
+            "description": "临时全骨骼表现数量 一至六十四 *",
+            "default": 1
+          }
+        },
+        "required": [
+          "actor_blueprint_path",
+          "region",
+          "direction",
+          "file_prefix"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "跨帧诊断编号 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_skeletal_physics_state": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "component_path": {
+            "type": "string",
+            "description": "当前骨骼组件对象路径 *"
+          }
+        },
+        "required": [
+          "component_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "受击状态与刚体混合权重 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "remove_fact_hit_bone_layer": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "已独占签出的目标动画蓝图 *"
+          }
+        },
+        "required": [
+          "asset_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "删除数量与编译保存结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_hit_reaction_profile": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "自有配置包路径 *"
+          },
+          "region": {
+            "type": "integer",
+            "description": "零躯干 一头部 二手臂 三腿部 *"
+          }
+        },
+        "required": [
+          "asset_path",
+          "region"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "保存的配置路径 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_hit_reaction_physics_asset": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "明确的自有物理资产 *"
+          },
+          "orientation_strength": {
+            "type": "number",
+            "description": "角度恢复强度 *",
+            "default": 200
+          },
+          "angular_velocity_strength": {
+            "type": "number",
+            "description": "角速度恢复强度 *",
+            "default": 12
+          }
+        },
+        "required": [
+          "asset_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "刚体与约束配置报告 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    }
   }
 }

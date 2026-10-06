@@ -100,6 +100,9 @@ def _require_reload_idle():
     if motion is not None and getattr(motion, "_capture_handle", None) is not None:
         raise RuntimeError("动画运动采样尚未结束 禁止重载 MCP 工具")
     preview = sys.modules.get("BBBAnimationPreviewToolset")
+    hit_reaction = sys.modules.get("BBBHitReactionToolset")
+    if hit_reaction is not None and any(record.get("status") == "pending" for record in getattr(hit_reaction, "_captures", {}).values()):
+        raise RuntimeError("物理受击采样尚未结束 禁止重载 MCP 工具")
     if preview is not None:
         for attribute in ("_transition_captures", "_population_runs"):
             records = getattr(preview, attribute, {})

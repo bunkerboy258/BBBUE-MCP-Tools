@@ -18,6 +18,7 @@ TOOLSET_ROUTES = {
     "BBBAssetMaintenanceToolset": "资产维护与修复",
     "BBBAnimationPreviewToolset": "动画与群体预览",
     "BBBAnimationGraphToolset": "动画构图与校验",
+    "BBBHitReactionToolset": "骨骼物理受击配置与校验",
 }
 HELPER_MODULES = (
     "BBBBlueprintLayout", "BBBBlueprintAnnotations", "BBBAnimationMotionTools",
