@@ -9339,6 +9339,53 @@
           "returnValue"
         ]
       }
+    },
+    "spawn_inspection_projectile": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "projectile_definition_path": {
+            "type": "string",
+            "description": "明确的正式子弹配置 *"
+          },
+          "start": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "子弹出生位置 三个厘米坐标 *"
+          },
+          "end": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "确定飞行方向的目标位置 三个厘米坐标 *"
+          },
+          "damage": {
+            "type": "number",
+            "description": "本次验证伤害 零表示仅验证表现 *",
+            "default": 0
+          }
+        },
+        "required": [
+          "projectile_definition_path",
+          "start",
+          "end"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "子弹出生输入提交结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   }
 }

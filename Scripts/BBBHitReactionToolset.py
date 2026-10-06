@@ -19,6 +19,30 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def spawn_inspection_projectile(projectile_definition_path: str, start: list[float], end: list[float], damage: float = 0.0) -> str:
+        """
+        /**
+         * 使用正式子弹配置验证移动 碰撞 命中输入和受击表现 不直接提交命中
+         * @param projectile_definition_path\t明确的正式子弹配置
+         * @param start\t子弹出生位置 三个厘米坐标
+         * @param end\t确定飞行方向的目标位置 三个厘米坐标
+         * @param damage\t本次验证伤害 零表示仅验证表现
+         * @return 子弹出生输入提交结果
+         */
+        """
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if world is None or len(start) != 3 or len(end) != 3 or not all(math.isfinite(value) for value in list(start) + list(end)) or not math.isfinite(damage) or not 0.0 <= damage <= 10000.0:
+            raise RuntimeError("需要当前 PIE 世界和有效子弹坐标")
+        definition = unreal.load_asset(projectile_definition_path)
+        if not isinstance(definition, unreal.BBBProjectileDefinition):
+            raise RuntimeError("目标不是正式子弹配置")
+        submitted = unreal.BBBMassValidationLibrary.spawn_inspection_projectile(world, definition, unreal.Vector(*start), unreal.Vector(*end), damage)
+        if not submitted:
+            raise RuntimeError("正式子弹出生输入提交失败")
+        return json.dumps({"submitted": True, "definition": definition.get_path_name(), "start": list(start), "end": list(end), "damage": damage}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def configure_hit_reaction_physics_asset(asset_path: str, orientation_strength: float = 200.0, angular_velocity_strength: float = 12.0) -> str:
         """
         /**
