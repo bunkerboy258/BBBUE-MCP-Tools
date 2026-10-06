@@ -1,5 +1,7 @@
 import json
 import os
+import hashlib
+import struct
 import unreal
 import toolset_registry
 from BBBMcpCapabilities import mcp_tool
@@ -44,9 +46,184 @@ def _create(graph, exact_tail, x, y):
     return BlueprintTools.create_node(graph, types[0], unreal.IntPoint(x, y))
 
 
+def _animation_signature(animation):
+    """/** @param animation 动画序列 @return 骨骼轨道及必须保留的数据指纹 */"""
+    digest = hashlib.sha256()
+    model = animation.data_model_interface
+    for name in model.get_bone_track_names():
+        digest.update(str(name).encode("utf-8"))
+        transforms = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, name)
+        for transform in transforms:
+            position = transform.translation
+            rotation = transform.rotation
+            scale = transform.scale3d
+            digest.update(struct.pack("<10d", position.x, position.y, position.z,
+                                      rotation.x, rotation.y, rotation.z, rotation.w, scale.x, scale.y, scale.z))
+    excluded = {"DisableLHandIK", "DisableAimIK"}
+    curves = {}
+    library = unreal.AnimationLibrary
+    for name in library.get_animation_curve_names(animation, unreal.RawCurveTrackTypes.RCT_FLOAT):
+        if str(name) not in excluded:
+            times, values = library.get_float_keys(animation, name)
+            curves[str(name)] = [list(times), list(values)]
+    return {"boneHash": digest.hexdigest(), "keys": model.get_number_of_keys(),
+            "length": animation.get_play_length(), "skeleton": animation.get_skeleton().get_path_name(),
+            "rootMotion": animation.get_editor_property("enable_root_motion"),
+            "rootLock": animation.get_editor_property("force_root_lock"),
+            "rootLockMode": str(animation.get_editor_property("root_motion_root_lock")),
+            "additive": str(animation.get_editor_property("additive_anim_type")),
+            "notifies": [str(event) for event in library.get_animation_notify_events(animation)],
+            "syncMarkers": [str(marker) for marker in library.get_animation_sync_markers(animation)],
+            "otherFloatCurves": curves}
+
+
+def _ik_sample(animation, layer_class, montage):
+    """/** @param animation 主动画实例 @param layer_class 链接层类 @param montage 当前动作 @return 运行时曲线和按现有图公式计算的输入权重 */"""
+    result = {"montagePosition": animation.montage_get_position(montage) if montage else None,
+              "mainCurves": {name: animation.get_curve_value(name) for name in ("DisableLHandIK", "DisableAimIK")}}
+    layer = animation.get_linked_anim_layer_instance_by_class(layer_class)
+    if layer is None:
+        result["linkedLayer"] = None
+        return result
+    curves = {name: layer.get_curve_value(name) for name in ("DisableLHandIK", "DisableAimIK")}
+    valid = layer.has_left_hand_ik_target()
+    source_alpha = animation.get_editor_property("AimIKAlpha")
+    locomotion_alpha = layer.get_editor_property("LocomotionAimIKAlpha")
+    result.update({"linkedLayer": layer.get_path_name(), "layerCurves": curves, "validLeftTarget": valid,
+                   "sourceAimAlpha": source_alpha, "locomotionAimAlpha": locomotion_alpha,
+                   "calculatedLeftInputAlpha": 1 - curves["DisableLHandIK"] if valid else 0,
+                   "calculatedAimInputAlpha": source_alpha * locomotion_alpha * (1 - curves["DisableAimIK"])})
+    return result
+
+
 @unreal.uclass()
 class BBBTraversalToolset(unreal.ToolsetDefinition):
     """/** 检查和配置根运动翻越资产以及临时 PIE 验收场景 */"""
+
+    @mcp_tool
+    @staticmethod
+    def configure_traversal_ik_transition(sequence_paths: list[str], base_path: str,
+                                         expected_graph_signature: str, disable_seconds: float = 0.15,
+                                         restore_seconds: float = 0.25, dry_run: bool = True,
+                                         allow_dirty_sequences: bool = False) -> str:
+        """
+        /**
+         * 为指定自有翻越序列配置平滑禁用曲线 并将整层旁路缩小为腿部旁路
+         * @param sequence_paths            自有翻越动画序列
+         * @param base_path                 基础链接动画蓝图
+         * @param expected_graph_signature  调用前只读核对的骨骼控制图逻辑指纹
+         * @param disable_seconds           开头退出握持和瞄准的秒数
+         * @param restore_seconds           结尾恢复握持和瞄准的秒数
+         * @param dry_run                   仅检查参数 签出和图结构
+         * @param allow_dirty_sequences     明确允许保留并继续编辑目标动画的未保存改动
+         * @return 曲线关键帧 编译保存结果和保留数据指纹
+         */
+        """
+        if not sequence_paths or len(sequence_paths) > 16 or len(set(sequence_paths)) != len(sequence_paths):
+            raise RuntimeError("需要一至十六条不重复动画")
+        if not 0 < disable_seconds <= 1 or not 0 < restore_seconds <= 1:
+            raise RuntimeError("平滑时间必须在零到一秒之间")
+        paths = list(sequence_paths) + [base_path]
+        if any(not path.startswith("/Game/_Project/") for path in paths):
+            raise RuntimeError("仅允许修改自有资产")
+        animations = [unreal.load_asset(path) for path in sequence_paths]
+        if any(not isinstance(animation, unreal.AnimSequence) for animation in animations):
+            raise RuntimeError("目标必须是动画序列")
+        base = _blueprint(base_path)
+        require_asset_write(animations + [base])
+        dirty = {package.get_path_name() for package in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
+        if dirty.intersection(sequence_paths) and not allow_dirty_sequences:
+            raise RuntimeError("目标动画存在未保存改动 请先协调该资产的编辑会话")
+        before = [_animation_signature(animation) for animation in animations]
+        report = {"dryRun": dry_run, "baseWasDirty": base_path in dirty, "sequences": []}
+        for animation, signature in zip(animations, before):
+            length = animation.get_play_length()
+            if length <= disable_seconds + restore_seconds:
+                raise RuntimeError("动画过短 无法容纳两段平滑过渡")
+            keys = []
+            for index in range(7):
+                fraction = index / 6
+                keys.append({"time": disable_seconds * fraction,
+                             "value": fraction * fraction * (3 - 2 * fraction)})
+            for index in range(7):
+                fraction = index / 6
+                keys.append({"time": length - restore_seconds + restore_seconds * fraction,
+                             "value": 1 - fraction * fraction * (3 - 2 * fraction)})
+            report["sequences"].append({"path": animation.get_path_name(), "length": length,
+                                        "keys": keys, "preserved": signature})
+        with toolset_registry.tool_raising_exceptions():
+            graph = BlueprintTools.get_graph(base, "FullBody_SkeletalControls")
+            snapshot = json.loads(unreal.BBBBlueprintEditorLibrary.inspect_blueprint_graph_logical_snapshot(graph))
+            if snapshot["logicSignature"] != expected_graph_signature:
+                raise RuntimeError("骨骼控制图已经改变 必须重新只读核对")
+            nodes = list(BlueprintTools.find_nodes(graph))
+            def unique(node_class):
+                found = [node for node in nodes if isinstance(node, node_class)]
+                if len(found) != 1:
+                    raise RuntimeError("图结构不唯一 " + str(node_class))
+                return found[0]
+            blend = unique(unreal.AnimGraphNode_BlendListByBool)
+            fabrik = unique(unreal.AnimGraphNode_Fabrik)
+            leg = unique(unreal.AnimGraphNode_LegIK)
+            pose_input = unique(unreal.AnimGraphNode_LinkedInputPose)
+            true_pin = _pin(blend, "BlendPose_0")
+            existing = list(true_pin.list_connected_pins())
+            if len(existing) != 1:
+                raise RuntimeError("翻越分支姿势来源不唯一")
+            source = existing[0].get_owning_node()
+            already = isinstance(source, unreal.AnimGraphNode_ComponentToLocalSpace)
+            if already:
+                connected = list(_pin(source, "ComponentPose").list_connected_pins())
+                if len(connected) != 1 or connected[0].get_owning_node() != fabrik:
+                    raise RuntimeError("既有翻越分支并非左手 IK 后的腿部旁路")
+            if not already and source != pose_input:
+                raise RuntimeError("既有翻越分支不是原始输入 不自动覆盖未知结构")
+            incoming = list(_pin(leg, "ComponentPose").list_connected_pins())
+            if len(incoming) != 1 or incoming[0].get_owning_node() != fabrik:
+                raise RuntimeError("腿部 IK 没有直接连接左手 IK")
+            types = [name for name in BlueprintTools.find_node_types(graph, "从组件空间到本地")
+                     if name.rsplit("|", 1)[-1] == "从组件空间到本地"]
+            if not already and len(types) != 1:
+                raise RuntimeError("组件空间转换节点类型不唯一 " + str(types))
+            report["legBypassAlreadyConfigured"] = already
+            if dry_run:
+                return json.dumps(report, ensure_ascii=False)
+            with unreal.ScopedEditorTransaction("翻越握持和瞄准曲线平滑过渡"):
+                library = unreal.AnimationLibrary
+                curve_type = unreal.RawCurveTrackTypes.RCT_FLOAT
+                for animation, info, original in zip(animations, report["sequences"], before):
+                    animation.modify()
+                    for curve_name in ("DisableLHandIK", "DisableAimIK"):
+                        name = unreal.Name(curve_name)
+                        if name in library.get_animation_curve_names(animation, curve_type):
+                            library.remove_curve(animation, name, False)
+                        library.add_curve(animation, name, curve_type, False)
+                        for key in info["keys"]:
+                            library.add_float_curve_key(animation, name, key["time"], key["value"])
+                        times, values = library.get_float_keys(animation, name)
+                        if len(times) != len(info["keys"]) or any(abs(t - key["time"]) > 0.0001 or abs(v - key["value"]) > 0.0001
+                                                                  for t, v, key in zip(times, values, info["keys"])):
+                            raise RuntimeError("曲线写入结果与请求不一致 " + curve_name)
+                    after = _animation_signature(animation)
+                    changed = [name for name in original if original[name] != after[name]]
+                    if changed:
+                        raise RuntimeError("添加曲线改变了必须保留的数据 尚未保存 " + json.dumps(changed, ensure_ascii=False))
+                if not already:
+                    base.modify()
+                    converter = BlueprintTools.create_node(graph, types[0], unreal.IntPoint(-244, -160))
+                    _connect(_pin(fabrik, "Pose"), _pin(converter, "ComponentPose"))
+                    true_pin.break_single_pin_link(existing[0])
+                    _connect(_pin(converter, "Pose"), true_pin)
+                unreal.BlueprintEditorLibrary.compile_blueprint(base)
+                if base.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+                    raise RuntimeError("动画层编译失败 尚未保存")
+                for asset in animations + [base]:
+                    if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
+                        raise RuntimeError("保存失败 " + asset.get_path_name())
+            report["saved"] = True
+            report["boneAndMetadataUnchanged"] = True
+            report["graphSignature"] = json.loads(unreal.BBBBlueprintEditorLibrary.inspect_blueprint_graph_logical_snapshot(graph))["logicSignature"]
+        return json.dumps(report, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod
@@ -120,7 +297,7 @@ class BBBTraversalToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def sample_pie_traversal(seconds: float = 5.0) -> str:
+    def sample_pie_traversal(seconds: float = 5.0, include_ik_curves: bool = False) -> str:
         """
         /**
          * 异步按游戏时间采集动作 根骨 胶囊 移动模式和动画播放 不修改玩法状态
@@ -137,6 +314,11 @@ class BBBTraversalToolset(unreal.ToolsetDefinition):
         _samples.clear()
         start = unreal.GameplayStatics.get_time_seconds(world)
         _sample_until = start + seconds
+        layer_classes = []
+        if include_ik_curves:
+            for name in ("Rifle", "Unarmed"):
+                path = "/Game/_Project/Characters/BBBC_UA/AnimationSystem/Layers/ABP_BBB_LocomotionLayer_" + name
+                layer_classes.append(_blueprint(path).generated_class())
 
         def tick(delta):
             global _sample_handle
@@ -157,7 +339,16 @@ class BBBTraversalToolset(unreal.ToolsetDefinition):
             root = mesh.get_socket_location("root")
             current = animation.get_current_active_montage()
             equipment = player.get_active_equipment()
-            _samples.append({"time": now - start, "absoluteTime": now, "location": [center.x, center.y, center.z], "feetZ": center.z - player.capsule_component.get_scaled_capsule_half_height(), "rootZ": root.z, "yaw": player.get_actor_rotation().yaw, "mode": str(player.character_movement.get_editor_property("movement_mode")), "montage": current.get_path_name() if current else None, "traversing": animation.is_traversing(), "equipment": equipment.get_path_name() if equipment else None})
+            sample = {"time": now - start, "absoluteTime": now, "location": [center.x, center.y, center.z], "feetZ": center.z - player.capsule_component.get_scaled_capsule_half_height(), "rootZ": root.z, "yaw": player.get_actor_rotation().yaw, "mode": str(player.character_movement.get_editor_property("movement_mode")), "montage": current.get_path_name() if current else None, "traversing": animation.is_traversing(), "equipment": equipment.get_path_name() if equipment else None}
+            if include_ik_curves:
+                try:
+                    for layer_class in layer_classes:
+                        if animation.get_linked_anim_layer_instance_by_class(layer_class) is not None:
+                            sample["ik"] = _ik_sample(animation, layer_class, current)
+                            break
+                except Exception as error:
+                    sample["ikError"] = str(error)
+            _samples.append(sample)
             if now >= _sample_until:
                 unreal.unregister_slate_post_tick_callback(_sample_handle)
                 _sample_handle = None
