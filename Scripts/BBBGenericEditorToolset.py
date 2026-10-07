@@ -1510,6 +1510,81 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def inspect_pie_characters() -> str:
+        """
+        /**
+         * 只读检查各 PIE 世界的角色生命 使用许可 运动与骨骼物理
+         * @return 按世界排列的角色当前结果 不生成玩法输入
+         */
+        """
+        worlds = []
+        for world in unreal.EditorLevelLibrary.get_pie_worlds(False):
+            actors = []
+            for actor in unreal.GameplayStatics.get_all_actors_of_class(world, unreal.BBBCharacter):
+                mesh = actor.mesh
+                animation = mesh.get_anim_instance()
+                montage = animation.get_current_active_montage() if animation else None
+                actors.append({"path": actor.get_path_name(), "local": actor.is_locally_controlled(),
+                               "role": str(actor.get_local_role()), "phase": str(actor.get_life_phase()),
+                               "health": actor.get_health(), "equipmentUsable": actor.is_equipment_usable(),
+                               "location": _serialize_value(actor.get_actor_location()),
+                               "velocity": _serialize_value(actor.get_velocity()),
+                               "capsuleRadius": actor.capsule_component.get_unscaled_capsule_radius(),
+                               "capsuleHalfHeight": actor.capsule_component.get_unscaled_capsule_half_height(),
+                               "mode": str(actor.character_movement.get_editor_property("movement_mode")),
+                               "physics": mesh.is_simulating_physics(),
+                               "physicsTorso": mesh.is_simulating_physics("spine_02"),
+                               "sourcePhase": str(animation.get_editor_property("SourceLifePhase")) if animation else None,
+                               "animationClass": animation.get_class().get_path_name() if animation else None,
+                               "meshOffset": _serialize_value(mesh.get_editor_property("relative_location")),
+                               "bones": {name: _serialize_value(mesh.get_socket_transform(name, unreal.RelativeTransformSpace.RTS_COMPONENT).translation)
+                                         for name in ["pelvis", "spine_01", "hand_l", "hand_r", "head"]},
+                               "montage": montage.get_path_name() if montage else None})
+            worlds.append({"world": world.get_path_name(), "time": unreal.GameplayStatics.get_time_seconds(world), "characters": actors})
+        return json.dumps({"worlds": worlds}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def apply_pie_damage(target_path: str, source_path: str, damage: float) -> str:
+        """
+        /**
+         * 通过引擎伤害适配器提交来自本机玩家的真实伤害 不写角色状态
+         * @param target_path	同一 PIE 世界的目标演员
+         * @param source_path	同一世界本机控制的玩家 Pawn
+         * @param damage		有限正伤害
+         * @return 引擎适配器返回值 最终扣血须跨帧另行检查
+         */
+        """
+        target = unreal.find_object(None, target_path)
+        source = unreal.find_object(None, source_path)
+        if not isinstance(target, unreal.Actor) or not isinstance(source, unreal.Pawn) or not source.is_locally_controlled():
+            raise RuntimeError("伤害目标或本机来源无效")
+
+        world = target.get_world()
+        if world not in unreal.EditorLevelLibrary.get_pie_worlds(False) or source.get_world() != world or not math.isfinite(damage) or damage <= 0.0:
+            raise RuntimeError("伤害必须来自同一 PIE 世界且数值有限为正")
+
+        result = unreal.GameplayStatics.apply_damage(target, damage, source.get_controller(), source, unreal.DamageType)
+        return json.dumps({"target": target_path, "source": source_path, "submittedDamage": result})
+
+    @mcp_tool
+    @staticmethod
+    def run_automation_tests(test_filter: str) -> str:
+        """
+        /**
+         * 在编辑器中启动明确前缀的已注册自动化测试
+         * @param test_filter	字母 数字 下划线和点组成的测试前缀
+         * @return 启动请求 日志中的最终测试结果须另行核验
+         */
+        """
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.]*", test_filter) or unreal.EditorLevelLibrary.get_pie_worlds(False):
+            raise RuntimeError("必须停止 PIE 并提供明确测试前缀")
+
+        unreal.SystemLibrary.execute_console_command(None, "Automation RunTests " + test_filter)
+        return json.dumps({"filter": test_filter, "requested": True})
+
+    @mcp_tool
+    @staticmethod
     def invoke_pie_actor_function(actor_path: str, function_name: str, arguments_json: str = "[]") -> str:
         """调用当前 PIE 世界中指定 Actor 的反射函数 不接受编辑器世界对象"""
         world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()

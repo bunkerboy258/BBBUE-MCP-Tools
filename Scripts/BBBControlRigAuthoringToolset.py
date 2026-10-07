@@ -7,7 +7,7 @@ import traceback
 import unreal
 from BBBMcpCapabilities import mcp_tool
 from toolset_registry.registration import Registration
-from BBBAssetWritePolicy import require_write_access
+from BBBAssetWritePolicy import require_write_access, require_asset_write
 
 
 def _asset(path, expected_type):
@@ -798,6 +798,132 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def create_control_rig_sequence(sequence_path: str, mesh_path: str, duration_seconds: float, frame_rate: int) -> str:
+        """
+        /**
+         * 建立仅供控制绑定驱动的独立序列 不保存当前关卡
+         * @param sequence_path	新序列路径
+         * @param mesh_path	目标网格
+         * @param duration_seconds	有限正时长
+         * @param frame_rate	每秒采样帧数
+         * @return 序列与帧范围
+         */
+        """
+        if not math.isfinite(duration_seconds) or duration_seconds <= 0.0 or frame_rate < 1 or frame_rate > 120:
+            raise RuntimeError("序列时长或采样率无效")
+
+        if unreal.EditorAssetLibrary.does_asset_exist(sequence_path):
+            raise RuntimeError("拒绝覆盖已有序列 " + sequence_path)
+
+        reservation = unreal.SourceControl.query_file_state(sequence_path, silent=True, use_source_control_state_cache=False)
+        if reservation.is_added:
+            require_asset_write([sequence_path])
+        if not reservation.is_added:
+            require_asset_write([], destinations=[sequence_path])
+        mesh = _asset(mesh_path, unreal.SkeletalMesh)
+        folder, name = sequence_path.rsplit("/", 1)
+        sequence = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
+            name, folder, unreal.LevelSequence, unreal.LevelSequenceFactoryNew())
+        sequence.set_display_rate(unreal.FrameRate(numerator=frame_rate, denominator=1))
+        end_frame = round(duration_seconds * frame_rate) + 1
+        sequence.set_playback_start(0)
+        sequence.set_playback_end(end_frame)
+        actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+        actor = actors.spawn_actor_from_class(unreal.SkeletalMeshActor, unreal.Vector())
+        try:
+            actor.skeletal_mesh_component.set_skeletal_mesh_asset(mesh)
+            actor.skeletal_mesh_component.set_editor_property("disable_post_process_blueprint", True)
+            binding = sequence.add_spawnable_from_instance(actor)
+        finally:
+            actors.destroy_actor(actor)
+
+        tracks = binding.find_tracks_by_type(unreal.MovieSceneSpawnTrack)
+        track = tracks[0] if tracks else binding.add_track(unreal.MovieSceneSpawnTrack)
+        sections = track.get_sections()
+        spawn = sections[0] if sections else track.add_section()
+        spawn.set_range(0, end_frame)
+        channel = spawn.get_all_channels()[0]
+        channel.set_default(True)
+        channel.add_key(unreal.FrameNumber(value=0), True)
+        channel.add_key(unreal.FrameNumber(value=end_frame), False)
+        if not unreal.EditorAssetLibrary.save_loaded_asset(sequence):
+            raise RuntimeError("保存独立序列失败")
+
+        return json.dumps({"sequence": sequence.get_path_name(), "endFrame": end_frame})
+
+    @mcp_tool
+    @staticmethod
+    def bake_control_rig_animation(sequence_path: str, animation_path: str, mesh_path: str) -> str:
+        """
+        /**
+         * 将指定控制绑定序列通过官方烘焙器导出到明确的动画路径
+         * @param sequence_path	编辑序列
+         * @param animation_path	目标动画 必须先取得写入权限
+         * @param mesh_path	序列中唯一的目标网格
+         * @return 导出资产与采样长度
+         */
+        """
+        sequence = _asset(sequence_path, unreal.LevelSequence)
+        mesh = _asset(mesh_path, unreal.SkeletalMesh)
+        binding = _mesh_binding(sequence, mesh)
+        if not binding.find_tracks_by_type(unreal.MovieSceneControlRigParameterTrack):
+            raise RuntimeError("序列缺少控制绑定轨道")
+
+        if unreal.EditorAssetLibrary.does_asset_exist(animation_path):
+            animation = _asset(animation_path, unreal.AnimSequence)
+            require_write_access(animation)
+
+        if not unreal.EditorAssetLibrary.does_asset_exist(animation_path):
+            require_asset_write([], destinations=[animation_path])
+            factory = unreal.AnimSequenceFactory()
+            factory.target_skeleton = mesh.get_editor_property("skeleton")
+            factory.preview_skeletal_mesh = mesh
+            folder, name = animation_path.rsplit("/", 1)
+            animation = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
+                name, folder, unreal.AnimSequence, factory)
+
+        options = unreal.AnimSeqExportOption()
+        options.export_transforms = True
+        options.export_morph_targets = False
+        options.export_attribute_curves = True
+        options.export_material_curves = False
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+        if not unreal.SequencerTools.export_anim_sequence(world, sequence, animation, options, binding, False):
+            raise RuntimeError("官方控制绑定动画烘焙失败")
+
+        if animation.sequence_length <= 0.0:
+            raise RuntimeError("烘焙结果为空")
+
+        animation.set_editor_property("enable_root_motion", False)
+        if not unreal.EditorAssetLibrary.save_loaded_asset(animation, False):
+            raise RuntimeError("保存烘焙动画失败")
+
+        return json.dumps({"animation": animation.get_path_name(), "length": animation.sequence_length})
+
+    @mcp_tool
+    @staticmethod
+    def inspect_control_rig_reference(asset_path: str, bone_names: list[str]) -> str:
+        """
+        /**
+         * 读取绑定实际导入的参考骨骼局部与组件姿势
+         * @param asset_path	控制绑定
+         * @param bone_names	明确骨骼列表
+         * @return 原始参考变换
+         */
+        """
+        hierarchy = _asset(asset_path, unreal.ControlRigBlueprint).hierarchy
+        result = {}
+        for name in bone_names:
+            key = _key(name)
+            if not hierarchy.contains(key):
+                raise RuntimeError("参考骨骼不存在 " + name)
+            result[name] = {"local": _read_transform(hierarchy.get_local_transform(key, True)),
+                            "component": _read_transform(hierarchy.get_global_transform(key, True))}
+
+        return json.dumps(result)
+
+    @mcp_tool
+    @staticmethod
     def sample_animation_poses(animation_path: str, mesh_path: str, times: list[float], bone_names: list[str]) -> str:
         """
         /**
@@ -862,7 +988,10 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
                     actual = unreal.ControlRigSequencerLibrary.get_local_control_rig_euler_transform(sequence, rig, key["control"], frame)
                     difference = actual.rotation.quaternion() * transform.rotation.inversed()
                     if (actual.location - transform.translation).length() > 0.01 or abs(difference.w) < 0.99999:
-                        raise RuntimeError("原姿势控制器写键不一致 " + key["control"] + " 帧 " + str(key["frame"]))
+                        raise RuntimeError("原姿势控制器写键不一致 " + key["control"] + " 帧 " + str(key["frame"])
+                                           + " 目标 " + json.dumps(value) + " 实际 "
+                                           + json.dumps({"position": list(actual.location.to_tuple()),
+                                                         "rotation": list(actual.rotation.quaternion().to_tuple())}))
 
                     continue
 

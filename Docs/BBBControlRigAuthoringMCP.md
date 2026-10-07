@@ -1,5 +1,13 @@
 # Control Rig 动画编辑 MCP
 
+## 独立动作制作
+
+- `inspect_control_rig_reference` 读取实际导入骨架的局部与组件参考变换，用于选取求解轴向及初始化控制器；只读，不创建临时资产。
+
+- `create_control_rig_sequence` 使用明确的时长和帧率创建只有目标网格的生成型序列，不添加源动画、不保存当前关卡，拒绝覆盖已有序列。
+- `configure_sequence_rig` 向该序列加入控制绑定与显式关键帧。无父级和偏移的 `source_` 控制器采用局部接口并逐键验证。
+- `bake_control_rig_animation` 使用官方 Sequencer 导出器，将指定序列唯一的网格绑定烘焙到明确的动画路径；已有目标必须取得写入权限。只保存目标动画，不创建诊断备份或改写来源。
+
 `create_control_rig` 的 `graph_json` 与 `configure_control_rig_graph` 的 `request_json` 支持 `variables` 数组。每项使用 `name`、`type`、可选 `typeObject`、`default`、`node` 与 `position`，创建公开输入变量及读取节点。结构体例：`{"name":"TargetPosition","type":"FVector","typeObject":"/Script/CoreUObject.Vector","default":"(X=0,Y=0,Z=0)","node":"ReadPosition"}`。变量重名、类型缺失或节点创建失败立即报错；不静默复用未知变量。
 
 动画迁移工具的 `configure_control_rig_anim_graph_node` 仅设置 Rig 和公开输入并重建引脚，保留已有 Alpha 类型、缩放偏差及姿势传递配置。需要 Float 权重时先通过 ObjectTools 设置 Node，再调用该工具生成 Alpha 引脚。不得隐式强制 Bool、反相 Alpha 或重置输入姿势。
@@ -34,3 +42,8 @@
 持匣时拇指与四指对握 插入后在 1.2 秒结束手持显示并交接到枪上 手掌随后下移并在第 44 帧再次抬起推压 不能将这段下移抬起删成连续握持
 
 验收记录见 `Docs/Rifle01ReloadValidation.md` 本轮真实输入 正侧面截图 中断清理报告位于 `Saved/Diagnostics/AnimationMotion/ReloadControlRig_GameplayVerification` `ReloadControlRig_GripVerified` 和 `ReloadControlRig_InterruptVerified`
+# 独立控制轨道首次建立
+
+首次创建控制绑定轨道时，先以 `keys_json="[]"` 调用 `configure_sequence_rig`，让编辑器完成轨道初始化，再在下一次调用写入真实关键帧。只打开序列不能代替轨道初始化。
+
+`create_control_rig_sequence` 接受不存在的资产包，也接受当前工作区已经打开添加但尚未创建的包；两种情况都重新验证 Perforce 状态，拒绝其它工作区持有或无效的状态。重复生成轨道会影响官方烘焙器建立临时演员，创建器使用唯一生成轨道和明确的开始、结束关键帧。

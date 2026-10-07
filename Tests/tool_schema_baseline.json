@@ -5459,6 +5459,85 @@
           "returnValue"
         ]
       }
+    },
+    "inspect_pie_characters": {
+      "inputSchema": {
+        "type": "object"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "按世界排列的角色当前结果 不生成玩法输入 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "apply_pie_damage": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "target_path": {
+            "type": "string",
+            "description": "同一 PIE 世界的目标演员 *"
+          },
+          "source_path": {
+            "type": "string",
+            "description": "同一世界本机控制的玩家 Pawn *"
+          },
+          "damage": {
+            "type": "number",
+            "description": "有限正伤害 *"
+          }
+        },
+        "required": [
+          "target_path",
+          "source_path",
+          "damage"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "引擎适配器返回值 最终扣血须跨帧另行检查 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "run_automation_tests": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "test_filter": {
+            "type": "string",
+            "description": "字母 数字 下划线和点组成的测试前缀 *"
+          }
+        },
+        "required": [
+          "test_filter"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "启动请求 日志中的最终测试结果须另行核验 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBLevelEditingToolset": {
@@ -7285,6 +7364,117 @@
           "returnValue"
         ]
       }
+    },
+    "inspect_control_rig_reference": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "控制绑定 *"
+          },
+          "bone_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "明确骨骼列表 *"
+          }
+        },
+        "required": [
+          "asset_path",
+          "bone_names"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "原始参考变换 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_control_rig_sequence": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sequence_path": {
+            "type": "string",
+            "description": "新序列路径 *"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "目标网格 *"
+          },
+          "duration_seconds": {
+            "type": "number",
+            "description": "有限正时长 *"
+          },
+          "frame_rate": {
+            "type": "integer",
+            "description": "每秒采样帧数 *"
+          }
+        },
+        "required": [
+          "sequence_path",
+          "mesh_path",
+          "duration_seconds",
+          "frame_rate"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "序列与帧范围 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "bake_control_rig_animation": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sequence_path": {
+            "type": "string",
+            "description": "编辑序列 *"
+          },
+          "animation_path": {
+            "type": "string",
+            "description": "目标动画 必须先取得写入权限 *"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "序列中唯一的目标网格 *"
+          }
+        },
+        "required": [
+          "sequence_path",
+          "animation_path",
+          "mesh_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "导出资产与采样长度 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBMcpRuntimeToolset": {
@@ -8949,6 +9139,21 @@
           "file_prefix": {
             "type": "string",
             "description": "不含目录的唯一截图前缀 *"
+          },
+          "view_yaw_degrees": {
+            "type": "number",
+            "description": "绕角色竖轴的有限观察角度 零为正面 九十为侧面 *",
+            "default": 0
+          },
+          "camera_distance_cm": {
+            "type": "number",
+            "description": "相机与演员中心的正距离 用于单样本近景 *",
+            "default": 650
+          },
+          "camera_height_cm": {
+            "type": "number",
+            "description": "相机距离角色根骨的有限高度 *",
+            "default": 95
           }
         },
         "required": [
@@ -9741,6 +9946,81 @@
           "returnValue": {
             "type": "string",
             "description": "各动画全帧根位移 旋转 缩放和局部循环接缝 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_directional_blend_space": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "不存在的项目资产包 *"
+          },
+          "sequence_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "待机 前 后 左 右五个同骨架循环 *"
+          },
+          "maximum_speed": {
+            "type": "number",
+            "description": "两个速度轴的正上限 单位厘米每秒 *"
+          }
+        },
+        "required": [
+          "asset_path",
+          "sequence_paths",
+          "maximum_speed"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "新资产和已保存的样本数量 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_character_downed_graph": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "已独占签出的角色动画蓝图 *"
+          },
+          "locomotion_path": {
+            "type": "string",
+            "description": "同骨架二维倒地循环 *"
+          },
+          "full_body_slot_guid": {
+            "type": "string",
+            "description": "现有全身槽位的节点标识 *"
+          }
+        },
+        "required": [
+          "asset_path",
+          "locomotion_path",
+          "full_body_slot_guid"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "编译和保存结果 失败时不保存 */"
           }
         },
         "required": [

@@ -39,3 +39,9 @@ capture_monster_animation_transition 在没有 Mass 实体的临时表现演员�
 过渡采样使用 Slate 帧回调，每次同步求值之间至少跨越一个真实引擎帧，避免属性访问缓存仍处于同帧导致参考姿势假象。capture_monster_animation_transition 返回 pending 和 captureId，随后用 inspect_animation_transition_capture 查询 completed 或 failed；不得在待完成期间重载工具模块或停止 PIE。工具仍手动推进明确采样时间，不把机器卡顿作为动作进度；初始姿势跨帧预热并等待材质就绪，回调发生异常时关闭生成器并销毁临时演员。
 
 临时演员统一按初始包围盒高度缩放至一百八十厘米供相机观察，不修改资产或游戏尺寸。每个样本包含 ProbeAnimationInstanceRuntime 的实际序列与权重，必须和动画实例快照及骨骼位置交叉核对；若实际序列为 None，则截图验收失败，即使快照查询返回正确序列也不能通过。
+# 动画观察角度
+
+`capture_animation_samples` 的 `view_yaw_degrees` 默认为零（正面），九十和负九十为两个侧面，一百八十为背面。工具旋转临时预览演员，保持相机、样本排列和正式资产不变；角度必须有限。检查手腕或接触姿势时同时使用正面和侧面，不以单一视角代替接触验收。
+# 动画近景相机
+
+`camera_distance_cm` 与 `camera_height_cm` 分别控制临时相机到演员中心的距离和相对根骨高度，默认为六百五十和九十五厘米。检查手腕时使用一个采样姿势并缩短距离，避免多样本被裁切。两者必须有限，距离须为正；这些参数只影响检查画面。

@@ -41,3 +41,10 @@
 `BBBAssetMaintenanceToolset.configure_monster_blood_presentation` 参数为 settings_path channel_path ground_material_paths definition_paths。已有数据通道与血迹材质只读。配置与每个小怪 Definition 修改前必须独占签出。工具仅保存配置及定义并回读 BloodPresentation 绑定。不重建已打磨的 Niagara 不修改表现蓝图 不提供旧参数或旧工具名称的兼容入口。
 
 拒绝脏包 PIE 重复或空定义列表及错误资产类型。创建新配置时需要明确待添加权限。返回 success bindings 和 particleSystemRebuilt=false。粒子效果必须另外进行真实命中验证。
+# 角色倒地姿势接入
+
+`create_directional_blend_space` 为五个同骨架循环创建二维混合资产，输入顺序为待机、前、后、左、右。轴表示角色局部前向和右向实际速度，单位为厘米每秒。创建前检查 Perforce 写入资格，保存后仍需核对新资产的 `binary+l` 添加状态。
+
+`configure_character_downed_graph` 只接受继承 `BBBAnimInstance` 的已独占签出动画蓝图、同骨架二维混合与现有全身槽位节点标识。构图读取 `SourceLifePhase`、`SourceVelocity`、`SourceActorRotation`，不生成生命或移动事实。倒地循环接在全身槽位之前；槽位输出只求值一次，经缓存同时供正常骨骼控制路径和倒地直接输出路径使用，避免站立瞄准、根朝向和脚部控制改变跪姿。死亡仍由角色物理表现接管。
+
+工具拒绝重复接入；连接或编译失败不保存。完成后必须检查真实角色的入场蒙太奇、四向动作与装备收起，单独播放动画不能替代运行时验收。

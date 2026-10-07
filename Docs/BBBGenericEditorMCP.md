@@ -293,3 +293,11 @@ UE5.8 以 `DefaultKeyMappings` 为实际映射来源 工具调用引擎的 `unma
 `configure_projectile_impact_system(channel_path, system_path, material_path)` 将命中通道配置为空间岛 创建或重建三个 CPU 发射器分别按 `Surface` 的 0 1 2 筛选硬表面 金属 血肉 表面事实仅含 `Position` `Normal` `Surface` 读取上一帧完整批次 后续粒子独立运动淡出 不持有命中历史
 
 以上写入入口拒绝 PIE 新资产须处于 Perforce 可添加映射 已有资产须提前独占签出 原生图表构建位于项目 `ABBB_EvacEditor/BBBNiagaraEditorLibrary` 写入后须通过 `inspect_niagara_graphs` 核对所有脚本编译状态
+
+# 角色输入与自动化验证
+
+`inspect_pie_characters` 同时只读检查当前宿主所有 PIE 世界中的角色阶段、生命、装备使用许可、速度、移动胶囊、动画来源阶段、关键骨骼及物理模拟。它不从显示结果推演远端玩法。
+
+`apply_pie_damage` 使用引擎伤害入口提交真实伤害，来源必须是同一 PIE 世界本机控制的 Pawn。工具不改写生命字段，返回的只是适配器接受数值，实际结果需在后续帧通过只读查询验证。跨连接测试分别选取相应世界中的来源和目标副本。
+
+`run_automation_tests` 在无 PIE 时启动已注册测试的明确前缀，拒绝包含命令分隔符的输入。启动返回值不表示测试通过，须读取引擎最终日志；测试运行期间不能启动 PIE 或重载被测试模块。

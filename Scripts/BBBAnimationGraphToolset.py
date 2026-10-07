@@ -6,7 +6,7 @@ import re
 import unreal
 from BBBMcpCapabilities import mcp_tool
 from toolset_registry.registration import Registration
-from BBBAssetWritePolicy import require_write_access
+from BBBAssetWritePolicy import require_asset_write, require_write_access
 
 
 @unreal.uclass()
@@ -16,6 +16,71 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
      * 创建显式时间双通道动画图并配置明确的骨骼表现组件
      */
     """
+
+    @mcp_tool
+    @staticmethod
+    def create_directional_blend_space(asset_path: str, sequence_paths: list[str], maximum_speed: float) -> str:
+        """
+        /**
+         * 创建待机与四向实际速度二维循环混合资产
+         * @param asset_path		不存在的项目资产包
+         * @param sequence_paths	待机 前 后 左 右五个同骨架循环
+         * @param maximum_speed	两个速度轴的正上限 单位厘米每秒
+         * @return 新资产和已保存的样本数量
+         */
+        """
+        if len(sequence_paths) != 5 or not math.isfinite(maximum_speed) or maximum_speed <= 0.0:
+            raise RuntimeError("四向混合需要五个序列与有限正速度")
+
+        if unreal.EditorAssetLibrary.does_asset_exist(asset_path):
+            raise RuntimeError("拒绝覆盖已有混合资产")
+
+        require_asset_write([], destinations=[asset_path])
+        sequences = [unreal.load_asset(path) for path in sequence_paths]
+        if any(not isinstance(value, unreal.AnimSequence) for value in sequences):
+            raise RuntimeError("四向动画序列无效")
+
+        factory = unreal.BlendSpaceFactoryNew()
+        factory.target_skeleton = sequences[0].get_editor_property("skeleton")
+        directory, name = asset_path.rsplit("/", 1)
+        asset = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, directory, unreal.BlendSpace, factory)
+        if not unreal.BBBAnimationGraphEditorLibrary.configure_directional_blend_space(asset, sequences, maximum_speed):
+            raise RuntimeError("四向混合构建失败 不保存")
+
+        if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
+            raise RuntimeError("四向混合保存失败")
+
+        return json.dumps({"asset": asset_path, "samples": 5, "saved": True})
+
+    @mcp_tool
+    @staticmethod
+    def configure_character_downed_graph(asset_path: str, locomotion_path: str, full_body_slot_guid: str) -> str:
+        """
+        /**
+         * 从角色生命事实选择倒地循环 共用现有全身蒙太奇槽位
+         * @param asset_path		已独占签出的角色动画蓝图
+         * @param locomotion_path	同骨架二维倒地循环
+         * @param full_body_slot_guid	现有全身槽位的节点标识
+         * @return 编译和保存结果 失败时不保存
+         */
+        """
+        blueprint = unreal.load_asset(asset_path)
+        locomotion = unreal.load_asset(locomotion_path)
+        if not isinstance(blueprint, unreal.AnimBlueprint) or not isinstance(locomotion, unreal.BlendSpace):
+            raise RuntimeError("角色动画蓝图或倒地混合无效")
+
+        require_write_access(blueprint)
+        if not unreal.BBBAnimationGraphEditorLibrary.configure_character_downed_graph(blueprint, locomotion, full_body_slot_guid):
+            raise RuntimeError("角色倒地图连接失败 不保存")
+
+        unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
+        if blueprint.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+            raise RuntimeError("角色倒地图存在编译错误或警告 不保存")
+
+        if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
+            raise RuntimeError("角色倒地图保存失败")
+
+        return json.dumps({"asset": asset_path, "locomotion": locomotion_path, "saved": True})
 
     @mcp_tool
     @staticmethod
@@ -627,3 +692,18 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
 
 
 _registration = Registration([BBBAnimationGraphToolset])
+
+if __name__ == "__bbb_editor_script__":
+    def register_after_reload(delta_seconds):
+        """
+        /**
+         * 在当前调用结束后的编辑器帧重新注册工具类
+         * @param delta_seconds	编辑器帧间隔
+         * @return 无返回值
+         */
+        """
+        _registration.unregister()
+        _registration.register()
+        unreal.unregister_slate_post_tick_callback(registration_handle)
+
+    registration_handle = unreal.register_slate_post_tick_callback(register_after_reload)

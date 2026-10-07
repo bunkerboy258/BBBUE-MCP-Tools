@@ -4,6 +4,7 @@ import re
 import uuid
 import time
 import csv
+import math
 
 import unreal
 from BBBMcpCapabilities import mcp_tool
@@ -290,7 +291,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def capture_animation_samples(mesh_path: str, animation_paths: list[str], sample_progress: list[float], file_prefix: str) -> str:
+    def capture_animation_samples(mesh_path: str, animation_paths: list[str], sample_progress: list[float], file_prefix: str, view_yaw_degrees: float = 0.0, camera_distance_cm: float = 650.0, camera_height_cm: float = 95.0) -> str:
         """
         /**
          * 在当前唯一渲染宿主的 PIE 世界逐动画生成姿势对比图
@@ -298,6 +299,9 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
          * @param animation_paths	明确动画路径 每次至多八条
          * @param sample_progress	归一化时间 从左至右 至多三项
          * @param file_prefix		不含目录的唯一截图前缀
+         * @param view_yaw_degrees	绕角色竖轴的有限观察角度 零为正面 九十为侧面
+         * @param camera_distance_cm	相机与演员中心的正距离 用于单样本近景
+         * @param camera_height_cm	相机距离角色根骨的有限高度
          * @return 截图路径 实际采样时间与临时对象清理结果
          */
         """
@@ -310,6 +314,12 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
 
         if not re.fullmatch(r"[A-Za-z0-9_-]+", file_prefix):
             raise RuntimeError("截图前缀无效")
+
+        if not math.isfinite(view_yaw_degrees):
+            raise RuntimeError("观察角度必须有限")
+
+        if not math.isfinite(camera_distance_cm) or camera_distance_cm <= 0.0 or not math.isfinite(camera_height_cm):
+            raise RuntimeError("相机距离与高度无效")
 
         if not animation_paths or len(animation_paths) > 8 or len(set(animation_paths)) != len(animation_paths):
             raise RuntimeError("动画数量或唯一性无效")
@@ -342,7 +352,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
             try:
                 for index, progress in enumerate(sample_progress):
                     offset = (index - (len(sample_progress) - 1) * 0.5) * 180.0
-                    actor = spawn(world, unreal.SkeletalMeshActor, unreal.Transform(location=unreal.Vector(0.0, offset, 20000.0), rotation=unreal.Rotator(pitch=0.0, yaw=90.0, roll=0.0)))
+                    actor = spawn(world, unreal.SkeletalMeshActor, unreal.Transform(location=unreal.Vector(0.0, offset, 20000.0), rotation=unreal.Rotator(pitch=0.0, yaw=90.0 + view_yaw_degrees, roll=0.0)))
                     if actor is None:
                         raise RuntimeError("临时骨骼演员创建失败")
 
@@ -361,7 +371,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
                 light_component = light.get_component_by_class(unreal.PointLightComponent)
                 light_component.set_intensity(50000.0)
                 light_component.set_attenuation_radius(1600.0)
-                camera = spawn(world, unreal.SceneCapture2D, unreal.Transform(location=unreal.Vector(-650.0, 0.0, 20095.0)))
+                camera = spawn(world, unreal.SceneCapture2D, unreal.Transform(location=unreal.Vector(-camera_distance_cm, 0.0, 20000.0 + camera_height_cm)))
                 if camera is None:
                     raise RuntimeError("临时相机创建失败")
 
@@ -607,3 +617,18 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
 
 
 _registration = Registration([BBBAnimationPreviewToolset])
+
+if __name__ == "__bbb_editor_script__":
+    def register_after_reload(delta_seconds):
+        """
+        /**
+         * 在当前调用结束后的编辑器帧重新注册工具类
+         * @param delta_seconds	编辑器帧间隔
+         * @return 无返回值
+         */
+        """
+        _registration.unregister()
+        _registration.register()
+        unreal.unregister_slate_post_tick_callback(registration_handle)
+
+    registration_handle = unreal.register_slate_post_tick_callback(register_after_reload)
