@@ -141,6 +141,8 @@
 
 上例用于 Stop。每个 `held` 必须同时包含 `move` 与 `look` 二维数组。蹲下立即反向时，将前进与后退段的 `held.crouch` 都设为 `true`，不插入空输入帧。持枪场景使用 `{"frames":1,"held":{"move":[0,0],"look":[0,0]},"pulse":["equip_slot_1"]}`，等待 120 游戏帧，再保持前进 240 游戏帧。
 
+物品快捷栏输入支持 `equip_slot_1` 至 `equip_slot_5`，分别注入玩家输入配置 `ItemSlotActions[0..4]` 的动作。序列会预检请求槽位对应的动作是否已配置；角色输入系统继续检查实际快捷栏范围及当前输入状态。选择空格会由物品系统清除选择，注入成功只表示输入已投递，验收仍需核对控制器公开的选择索引与实际手持物品。默认项目映射使用 `IA_ItemSlot_1` 至 `IA_ItemSlot_5`，旧 `IA_Equip1`、`IA_Equip2` 已删除。
+
 距离匹配断线修复入口为 `Scripts/Animation/P5_RestoreUADistanceMatching.py`。它只接受 `/Game/BBBC` Base 为结构参考，只修改 `/Game/BBBC_UA` Base 中 `UpdateStartAnim` 和 `UpdateStopAnim`，执行前拒绝 PIE，执行后编译并保存目标蓝图。
 
 ## 当前关卡编辑
