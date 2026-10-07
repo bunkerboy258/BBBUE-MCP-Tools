@@ -19,6 +19,57 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def inspect_mass_scene_population() -> str:
+        """
+        /**
+         * 只读检查当前 PIE 的全部小怪事实 不生成临时展示配置
+         * @return 当前实体 生命 移动 爬行与导航诊断
+         */
+        """
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if world is None:
+            raise RuntimeError("群体检查必须位于当前 PIE")
+
+        return unreal.BBBMassValidationLibrary.inspect_population(world, [])
+
+    @mcp_tool
+    @staticmethod
+    def configure_fact_crawl_states(asset_path: str, sequence_paths: list[str], blend_duration: float = 0.18) -> str:
+        """
+        /**
+         * 为当前事实图配置持续爬行的六种姿势 不创建玩法状态
+         * @param asset_path\t\t独占持有的事实动画蓝图
+         * @param sequence_paths\t\t倒地 待机 警觉 移动 攻击 死亡六个序列
+         * @param blend_duration\t\t姿势切换秒数
+         * @return 无警告编译与保存结果
+         */
+        """
+        if len(sequence_paths) != 6 or not math.isfinite(blend_duration) or not 0.0 < blend_duration <= 0.5:
+            raise RuntimeError("爬行必须使用六个明确序列与有效混合时间")
+
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止配置爬行姿势")
+
+        blueprint = unreal.load_asset(asset_path)
+        sequences = [unreal.load_asset(path) for path in sequence_paths]
+        if not isinstance(blueprint, unreal.AnimBlueprint) or any(not isinstance(sequence, unreal.AnimSequence) for sequence in sequences):
+            raise RuntimeError("爬行动画蓝图或序列无效")
+
+        require_write_access(blueprint)
+        if not unreal.BBBAnimationGraphEditorLibrary.configure_fact_crawl_states(blueprint, sequences, blend_duration):
+            raise RuntimeError("爬行构图失败 不保存")
+
+        unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
+        if blueprint.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+            raise RuntimeError("爬行图编译未通过 不保存")
+
+        if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
+            raise RuntimeError("爬行图保存失败")
+
+        return json.dumps({"asset": asset_path, "sequences": list(sequence_paths), "saved": True}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def audit_animation_tracks(asset_paths: list[str], bone_names: list[str], file_prefix: str) -> str:
         """
         /**

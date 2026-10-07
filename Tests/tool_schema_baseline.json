@@ -8555,6 +8555,30 @@
     }
   },
   "BBBAnimationGraphToolset": {
+    "inspect_mass_scene_population": {
+      "inputSchema": {"type": "object"},
+      "outputSchema": {
+        "type": "object",
+        "properties": {"returnValue": {"type": "string", "description": "当前实体 生命 移动 爬行与导航诊断 */"}},
+        "required": ["returnValue"]
+      }
+    },
+    "configure_fact_crawl_states": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {"type": "string", "description": "独占持有的事实动画蓝图 *"},
+          "sequence_paths": {"type": "array", "items": {"type": "string"}, "description": "倒地 待机 警觉 移动 攻击 死亡六个序列 *"},
+          "blend_duration": {"type": "number", "description": "姿势切换秒数 *", "default": 0.18}
+        },
+        "required": ["asset_path", "sequence_paths"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {"returnValue": {"type": "string", "description": "无警告编译与保存结果 */"}},
+        "required": ["returnValue"]
+      }
+    },
     "bind_sequence_crossfade_getters": {
       "inputSchema": {
         "type": "object",
