@@ -35,14 +35,14 @@ class FactAnimationGraphTests(unittest.TestCase):
         exec(compile(ast.Module(body=methods, type_ignores=[]), "fact_graph_test", "exec"), namespace)
         self.actions = namespace["configure_fact_action_variants"]
         self.locomotion = namespace["configure_fact_locomotion_variants"]
-        self.arguments = ("/Game/Test/ABP", ["/Game/A", "/Game/H", "/Game/D"], [1, 1, 1], [0.4, 0.5, 0.2], [0.65, 0.5, 0.5], [1.0, 1.0, 0.4])
+        self.arguments = ("/Game/Test/ABP", ["/Game/A", "/Game/D"], [1, 1], [0.4, 0.2], [0.65, 0.5], [1.0, 0.4])
 
     def test_explicit_mapping_forwarded_and_only_target_saved(self):
         """/** @return 完整时间锚点前传且不保存其它资产 */"""
         result = json.loads(self.actions(*self.arguments))
         self.access.assert_called_once_with(self.blueprint)
         self.engine.BBBAnimationGraphEditorLibrary.configure_fact_action_variants.assert_called_once_with(
-            self.blueprint, [self.sequence] * 3, [1, 1, 1], [0.4, 0.5, 0.2], [0.65, 0.5, 0.5], [1.0, 1.0, 0.4], 0.16)
+            self.blueprint, [self.sequence] * 2, [1, 1], [0.4, 0.2], [0.65, 0.5], [1.0, 0.4], 0.16)
         self.engine.EditorAssetLibrary.save_loaded_asset.assert_called_once_with(self.blueprint, False)
         self.assertTrue(result["saved"])
 
@@ -52,6 +52,13 @@ class FactAnimationGraphTests(unittest.TestCase):
                                       ([0.4] * 3, [0.5] * 3, [0.4] * 3), ([0.4] * 3, [1.0] * 3, [1.0] * 3)]:
             with self.assertRaises(RuntimeError):
                 self.actions(*self.arguments[:3], pivots, samples, ends)
+        self.engine.load_asset.assert_not_called()
+
+    def test_removed_three_action_contract_is_rejected(self):
+        """/** @return 旧硬直动作组不再被构图入口接受 */"""
+        with self.assertRaises(RuntimeError):
+            self.actions("/Game/Test/ABP", ["/Game/A", "/Game/H", "/Game/D"], [1, 1, 1],
+                         [0.4, 0.5, 0.2], [0.65, 0.5, 0.5], [1.0, 1.0, 0.4])
         self.engine.load_asset.assert_not_called()
 
     def test_pie_and_access_failure_prevent_native_changes(self):
@@ -121,12 +128,12 @@ class FactAnimationSamplingTests(unittest.TestCase):
         spawn(*arguments)
         self.assertEqual(engine.BBBMassValidationLibrary.spawn_population.call_count, 2)
 
-    def test_seven_behavior_sampling_contract(self):
-        """/** @return 抽样入口只使用当前七行为 */"""
+    def test_six_behavior_sampling_contract(self):
+        """/** @return 抽样入口只使用六行为且没有硬直状态 */"""
         tree = ast.parse((ROOT / "Scripts/BBBAnimationPreviewToolset.py").read_text(encoding="utf-8-sig"))
         method = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "capture_monster_animation_transition")
         states = next(node.value for node in ast.walk(method) if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "states" for target in node.targets))
-        self.assertEqual([value.attr for value in states.elts], ["IDLE", "ALERT", "PATROL", "CHASE", "ATTACK", "HURT", "DEAD"])
+        self.assertEqual([value.attr for value in states.elts], ["IDLE", "ALERT", "PATROL", "CHASE", "ATTACK", "DEAD"])
 
     def test_preview_requires_explicit_speeds_and_rejects_invalid_values(self):
         """/** @return 静止不被固定移动速度替代 无效值拒绝 */"""

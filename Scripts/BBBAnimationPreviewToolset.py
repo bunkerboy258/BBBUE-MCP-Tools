@@ -428,7 +428,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
         if not re.fullmatch(r"[A-Za-z0-9_-]+", file_prefix):
             raise RuntimeError("截图前缀无效")
 
-        if initial_state not in range(7) or target_state not in range(7) or not 0.0 <= initial_progress <= 1.0 or not 0.0 <= target_progress <= 1.0:
+        if initial_state not in range(6) or target_state not in range(6) or not 0.0 <= initial_progress <= 1.0 or not 0.0 <= target_progress <= 1.0:
             raise RuntimeError("表现状态或逻辑进度无效")
 
         if not sample_seconds or len(sample_seconds) > 3 or any(not 0.0 <= value <= 0.5 for value in sample_seconds) or sample_seconds != sorted(sample_seconds):
@@ -441,7 +441,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
         if not isinstance(blueprint, unreal.Blueprint):
             raise RuntimeError("表现演员蓝图不存在")
 
-        states = [unreal.BBBMonsterBehavior.IDLE, unreal.BBBMonsterBehavior.ALERT, unreal.BBBMonsterBehavior.PATROL, unreal.BBBMonsterBehavior.CHASE, unreal.BBBMonsterBehavior.ATTACK, unreal.BBBMonsterBehavior.HURT, unreal.BBBMonsterBehavior.DEAD]
+        states = [unreal.BBBMonsterBehavior.IDLE, unreal.BBBMonsterBehavior.ALERT, unreal.BBBMonsterBehavior.PATROL, unreal.BBBMonsterBehavior.CHASE, unreal.BBBMonsterBehavior.ATTACK, unreal.BBBMonsterBehavior.DEAD]
         directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "temp", file_prefix))
         filename = file_prefix + "_" + blueprint.get_name() + ".png"
         image_path = os.path.join(directory, filename)

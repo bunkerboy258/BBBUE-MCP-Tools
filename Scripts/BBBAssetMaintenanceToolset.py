@@ -626,6 +626,65 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def configure_monster_blood_presentation(settings_path: str, channel_path: str, ground_material_paths: list[str], definition_paths: list[str]) -> str:
+        """
+        /**
+         * 将共享血效配置绑定到明确小怪定义 不重建已打磨的粒子系统
+         * @param settings_path		自有血效配置资产
+         * @param channel_path		已有血效数据通道
+         * @param ground_material_paths	已有血迹材质
+         * @param definition_paths		独占持有的小怪定义
+         * @return 保存后回读的定义绑定 不保留表现蓝图旧入口
+         */
+        """
+        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+            raise RuntimeError("脏包或 PIE 期间拒绝配置")
+        definition_paths = [_move_path(value) for value in definition_paths]
+        ground_material_paths = list(ground_material_paths)
+        settings_path = _move_path(settings_path)
+        if not definition_paths or len(set(definition_paths)) != len(definition_paths):
+            raise RuntimeError("必须明确互不重复的小怪定义")
+
+        definitions = [unreal.load_asset(value) for value in definition_paths]
+        materials = [unreal.load_asset(value) for value in ground_material_paths]
+        channel = unreal.load_asset(channel_path)
+        if any(not isinstance(item, unreal.BBBMonsterDefinition) for item in definitions) or not materials or any(not isinstance(item, unreal.MaterialInterface) for item in materials) or not isinstance(channel, unreal.NiagaraDataChannelAsset):
+            raise RuntimeError("小怪定义 血迹材质或已有数据通道无效")
+
+        settings = unreal.load_asset(settings_path)
+        if settings is not None and not isinstance(settings, unreal.BBBMonsterBloodPresentationDefinition):
+            raise RuntimeError("已有血效配置类型无效")
+
+        source = definition_paths + ([settings_path] if settings is not None else [])
+        target = [settings_path] if settings is None else []
+        require_asset_write(source, target)
+        if settings is None:
+            factory = unreal.DataAssetFactory()
+            factory.set_editor_property("data_asset_class", unreal.BBBMonsterBloodPresentationDefinition)
+            settings = unreal.AssetToolsHelpers.get_asset_tools().create_asset(settings_path.rsplit("/", 1)[-1], settings_path.rsplit("/", 1)[0], unreal.BBBMonsterBloodPresentationDefinition, factory)
+        if settings is None:
+            raise RuntimeError("血效配置创建失败")
+
+        settings.modify()
+        settings.set_editor_property("impact_channel", channel)
+        settings.set_editor_property("ground_materials", materials)
+        if not unreal.EditorAssetLibrary.save_loaded_asset(settings, False):
+            raise RuntimeError("血效配置保存失败")
+        bindings = []
+        for definition in definitions:
+            definition.modify()
+            definition.set_editor_property("blood_presentation", settings)
+            if not unreal.EditorAssetLibrary.save_loaded_asset(definition, False):
+                raise RuntimeError("小怪定义保存失败: " + definition.get_path_name())
+            bound = definition.get_editor_property("blood_presentation")
+            if bound != settings:
+                raise RuntimeError("血效绑定回读失败: " + definition.get_path_name())
+            bindings.append({"definition": definition.get_path_name(), "settings": bound.get_path_name()})
+        return json.dumps({"success": True, "bindings": bindings, "particleSystemRebuilt": False}, ensure_ascii=False)
+
+
+    @mcp_tool
+    @staticmethod
     def delete_ownerless_external_actor_packages(package_paths: list[str], backup_directory: str, dry_run: bool = True) -> str:
         """
         /**

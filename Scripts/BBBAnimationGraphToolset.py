@@ -242,14 +242,14 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
         /**
          * 为现有事实状态机配置线程安全动作变体及同状态惯性重启
          * @param asset_path		独占持有的动画蓝图
-         * @param variant_paths		按攻击 受伤 死亡分组的序列路径
+         * @param variant_paths		按攻击 死亡分组的序列路径
          * @param counts		各分组数量
          * @param blend_duration		重启过渡秒数
          * @return 严格编译保存结果
          */
         """
-        if len(counts) != 3 or any(count < 1 for count in counts) or sum(counts) != len(variant_paths):
-            raise RuntimeError("动作变体必须明确分为攻击 受伤 死亡三个非空组")
+        if len(counts) != 2 or any(count < 1 for count in counts) or sum(counts) != len(variant_paths):
+            raise RuntimeError("动作变体必须明确分为攻击 死亡两个非空组")
 
         if any(len(values) != len(variant_paths) for values in (progress_pivots, sample_pivots, progress_ends)):
             raise RuntimeError("时间锚点必须与全部动作变体一一对应")
@@ -396,10 +396,10 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
     def rebuild_fact_driven_state_machine(asset_path: str, locomotion_path: str, action_paths: list[str], fact_properties: list[str], action_values: list[int], blend_duration: float = 0.18, parent_class_path: str = "") -> str:
         """
         /**
-         * 在独占持有且由调用方备份的动画蓝图上重建标准事实状态机
+         * 在独占持有的动画蓝图上干净重建六行为事实状态机
          * @param asset_path		目标动画蓝图
          * @param locomotion_path		同骨架移动混合资产
-         * @param action_paths		攻击 受伤 死亡序列
+         * @param action_paths		攻击 死亡序列
          * @param fact_properties		行为 速度 进度只读属性
          * @param action_values		递增动作枚举值
          * @param blend_duration		状态过渡秒数
@@ -409,6 +409,9 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
         """
         if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
             raise RuntimeError("PIE 期间禁止重建动画图")
+
+        if len(action_paths) != 2 or list(action_values) != [4, 5] or len(fact_properties) != 3:
+            raise RuntimeError("六行为图只接受攻击 死亡两个动作及枚举值四 五")
 
         library = getattr(unreal, "BBBAnimationGraphEditorLibrary", None)
         if library is None or not hasattr(library, "build_fact_driven_state_machine_graph"):
@@ -420,8 +423,8 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
         if not isinstance(blueprint, unreal.AnimBlueprint) or not isinstance(locomotion, unreal.BlendSpace):
             raise RuntimeError("动画蓝图或移动混合资产无效")
 
-        if len(actions) != 3 or any(not isinstance(action, unreal.AnimSequence) for action in actions):
-            raise RuntimeError("必须指定三个有效动作序列")
+        if len(actions) != 2 or any(not isinstance(action, unreal.AnimSequence) for action in actions):
+            raise RuntimeError("必须指定攻击 死亡两个有效动作序列")
 
         require_write_access(blueprint)
 

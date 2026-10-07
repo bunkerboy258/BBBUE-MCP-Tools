@@ -6827,6 +6827,53 @@
     }
   },
   "BBBAssetMaintenanceToolset": {
+    "configure_monster_blood_presentation": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "settings_path": {
+            "type": "string",
+            "description": "自有血效配置资产 *"
+          },
+          "channel_path": {
+            "type": "string",
+            "description": "已有血效数据通道 *"
+          },
+          "ground_material_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "已有血迹材质 *"
+          },
+          "definition_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "独占持有的小怪定义 *"
+          }
+        },
+        "required": [
+          "settings_path",
+          "channel_path",
+          "ground_material_paths",
+          "definition_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "保存后回读的定义绑定 不保留表现蓝图旧入口 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
     "repair_foliage_base_cache": {
       "inputSchema": {
         "type": "object",
@@ -8754,7 +8801,7 @@
             "items": {
               "type": "string"
             },
-            "description": "攻击 受伤 死亡序列 *"
+            "description": "攻击 死亡序列 *"
           },
           "fact_properties": {
             "type": "array",
@@ -8893,7 +8940,7 @@
             "items": {
               "type": "string"
             },
-            "description": "按攻击 受伤 死亡分组的序列路径 *"
+            "description": "按攻击 死亡分组的序列路径 *"
           },
           "counts": {
             "type": "array",
