@@ -30,7 +30,7 @@
 
 通用显式双通道构图与只读查询连接能力用于明确的新表现需求 不用于僵尸旧状态机兼容。僵尸正式父类只使用 BBBMonsterFactAnimInstance。
 
-`capture_monster_animation_transition` 使用六行为编号 必须明确传入 initial_speed target_speed hit_region hit_direction。静止速度为零。采样走真实动画蓝图 不替换成单节点播放。
+`capture_monster_animation_transition` 使用六行为编号 必须明确传入 initial_speed target_speed。静止速度为零。采样走真实动画蓝图 不替换成单节点播放。
 
 动画样本 群体验收 根轨道审查分别写入 Saved/temp/AnimationSamples Saved/temp/PopulationBenchmarks Saved/temp/AnimationAudits。收尾仅清除本次前缀。任何构图成功都不等于视觉或性能通过。
 
