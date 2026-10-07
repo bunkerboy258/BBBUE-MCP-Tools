@@ -9,11 +9,17 @@ from BBBAssetWritePolicy import require_asset_write, require_write_access
 from toolset_registry.registration import Registration
 from editor_toolset.toolsets.blueprint import BlueprintTools
 
-_fixture = []
+_fixtures = {}
 _fixture_world = None
 _samples = []
 _sample_handle = None
 _sample_until = 0.0
+_play_settings_snapshot = None
+
+
+def _player_id(character):
+    """/** @param character 角色副本 @return 复制的玩家标识 */"""
+    return json.loads(unreal.ToolsetLibrary.get_object_properties(character.player_state, ["PlayerId"]))["PlayerId"]
 
 
 def _blueprint(path):
@@ -234,15 +240,17 @@ class BBBTraversalToolset(unreal.ToolsetDefinition):
          * @return 是否成功删除临时障碍
          */
         """
-        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is None or len(_fixture) < 2:
+        fixture = _fixtures.get(_fixture_world, [])
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is None or len(fixture) < 2:
             raise RuntimeError("需要本工具创建的 PIE 障碍")
-        actor = _fixture.pop(1)
+        actor = fixture.pop(1)
         actor.destroy_actor()
         return json.dumps({"removed": not unreal.SystemLibrary.is_valid(actor)})
 
     @mcp_tool
     @staticmethod
-    def prepare_pie_traversal_fixture(height: float, depth: float, blocked: bool = False) -> str:
+    def prepare_pie_traversal_fixture(height: float, depth: float, blocked: bool = False,
+                                      world_index: int = 0, place_player: bool = True, lateral_offset: float = 0.0) -> str:
         """
         /**
          * 在当前 PIE 创建临时地板和障碍 并安置本地玩家 不保存关卡
@@ -252,22 +260,26 @@ class BBBTraversalToolset(unreal.ToolsetDefinition):
          * @return 玩家和临时碰撞场景位置
          */
         """
-        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        worlds = sorted(unreal.EditorLevelLibrary.get_pie_worlds(False), key=lambda item: item.get_path_name())
+        world = worlds[world_index] if 0 <= world_index < len(worlds) else None
         global _fixture_world
         if world is None or not 0 <= height <= 300 or not 1 <= depth <= 600:
             raise RuntimeError("需要 PIE 世界和有效厘米尺寸")
         player = unreal.GameplayStatics.get_player_character(world, 0)
         if player is None:
             raise RuntimeError("PIE 没有本地角色")
-        if _fixture_world != world:
-            _fixture.clear()
+        if len(worlds) > 1 and not player.player_state:
+            raise RuntimeError("玩家身份尚未复制 请稍后重试")
+        if not -500 <= lateral_offset <= 500:
+            raise RuntimeError("侧向观察位置必须仍在验收地板上")
         _fixture_world = world
-        for actor in _fixture:
+        fixture = _fixtures.setdefault(world, [])
+        for actor in fixture:
             if unreal.SystemLibrary.is_valid(actor):
                 actor.destroy_actor()
-        _fixture.clear()
+        fixture.clear()
         cube = unreal.load_asset("/Engine/BasicShapes/Cube")
-        origin = unreal.Vector(10000, 10000, 30000)
+        origin = unreal.Vector(10000, 10000 + lateral_offset, 30000)
         definitions = [(unreal.Vector(10000, 10000, 29995), unreal.Vector(12, 12, 0.1))]
         if height > 0:
             definitions.append((unreal.Vector(10090 + depth / 2, 10000, 30000 + height / 2), unreal.Vector(depth / 100, 3, height / 100)))
@@ -283,21 +295,30 @@ class BBBTraversalToolset(unreal.ToolsetDefinition):
             mesh.set_static_mesh(cube)
             mesh.set_collision_profile_name("BlockAll")
             mesh.set_mobility(unreal.ComponentMobility.STATIC)
-            _fixture.append(actor)
+            fixture.append(actor)
         capsule = player.capsule_component
         half = capsule.get_scaled_capsule_half_height()
-        movement = player.character_movement
-        movement.stop_movement_immediately()
-        player.set_actor_location(origin + unreal.Vector(0, 0, half + 2.5), False, True)
-        player.set_actor_rotation(unreal.Rotator(), True)
+        if not place_player:
+            return json.dumps({"world": world.get_path_name(), "geometryReady": True})
+        targets = [player]
+        if len(worlds) > 1:
+            player_id = _player_id(player)
+            targets = [character for active_world in worlds
+                       for character in unreal.GameplayStatics.get_all_actors_of_class(active_world, unreal.BBBCharacter)
+                       if character.player_state and _player_id(character) == player_id]
+        for target in targets:
+            movement = target.character_movement
+            movement.stop_movement_immediately()
+            target.set_actor_location(origin + unreal.Vector(0, 0, half + 2.5), False, True)
+            target.set_actor_rotation(unreal.Rotator(), True)
+            movement.set_movement_mode(unreal.MovementMode.MOVE_FALLING)
         controller = player.get_controller()
         controller.set_control_rotation(unreal.Rotator())
-        movement.set_movement_mode(unreal.MovementMode.MOVE_FALLING)
         return json.dumps({"player": player.get_path_name(), "height": height, "depth": depth, "blocked": blocked, "capsuleHalfHeight": half, "capsuleRadius": capsule.get_scaled_capsule_radius()}, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod
-    def sample_pie_traversal(seconds: float = 5.0, include_ik_curves: bool = False) -> str:
+    def sample_pie_traversal(seconds: float = 5.0, include_ik_curves: bool = False, world_index: int = 0) -> str:
         """
         /**
          * 异步按游戏时间采集动作 根骨 胶囊 移动模式和动画播放 不修改玩法状态
@@ -306,7 +327,8 @@ class BBBTraversalToolset(unreal.ToolsetDefinition):
          */
         """
         global _sample_handle, _sample_until
-        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        worlds = sorted(unreal.EditorLevelLibrary.get_pie_worlds(False), key=lambda item: item.get_path_name())
+        world = worlds[world_index] if 0 <= world_index < len(worlds) else None
         if world is None or not 0.1 <= seconds <= 15:
             raise RuntimeError("需要 PIE 和有效采样时长")
         if _sample_handle is not None:
@@ -322,8 +344,7 @@ class BBBTraversalToolset(unreal.ToolsetDefinition):
 
         def tick(delta):
             global _sample_handle
-            active_world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
-            if active_world != world:
+            if world not in unreal.EditorLevelLibrary.get_pie_worlds(False):
                 unreal.unregister_slate_post_tick_callback(_sample_handle)
                 _sample_handle = None
                 return
@@ -340,6 +361,16 @@ class BBBTraversalToolset(unreal.ToolsetDefinition):
             current = animation.get_current_active_montage()
             equipment = player.get_active_equipment()
             sample = {"time": now - start, "absoluteTime": now, "location": [center.x, center.y, center.z], "feetZ": center.z - player.capsule_component.get_scaled_capsule_half_height(), "rootZ": root.z, "yaw": player.get_actor_rotation().yaw, "mode": str(player.character_movement.get_editor_property("movement_mode")), "montage": current.get_path_name() if current else None, "traversing": animation.is_traversing(), "equipment": equipment.get_path_name() if equipment else None}
+            velocity = player.get_velocity()
+            sample["velocity"] = [velocity.x, velocity.y, velocity.z]
+            sample["deltaSeconds"] = unreal.GameplayStatics.get_world_delta_seconds(world)
+            sample["aiming"] = animation.is_aiming()
+            if isinstance(equipment, unreal.BBBRifleEquipment):
+                sample["rifle"] = {"ammo": equipment.get_loaded_ammo(), "reloading": equipment.is_reloading()}
+            sample["hands"] = {}
+            for bone in ("hand_l", "hand_r"):
+                position = mesh.get_socket_location(bone)
+                sample["hands"][bone] = [position.x, position.y, position.z]
             if include_ik_curves:
                 try:
                     for layer_class in layer_classes:
@@ -358,13 +389,266 @@ class BBBTraversalToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def get_pie_traversal_samples() -> str:
+    def get_pie_traversal_samples(offset: int = 0, count: int = 80) -> str:
         """
         /**
          * @return 本轮基础验收样本与是否仍在运行
          */
         """
-        return json.dumps({"running": _sample_handle is not None, "samples": _samples}, ensure_ascii=False)
+        if offset < 0 or not 1 <= count <= 100:
+            raise RuntimeError("需要有效分页区间 每次最多一百条样本")
+        return json.dumps({"running": _sample_handle is not None, "total": len(_samples),
+                           "samples": _samples[offset:offset + count]}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def summarize_pie_traversal_samples() -> str:
+        """
+        /**
+         * 从完整采样中提取动作与操作限制的验收指标 避免大结果被传输截断
+         * @return 帧时范围 移动模式交接 以及攀爬期间的装备操作事实
+         */
+        """
+        active = [sample for sample in _samples if sample["traversing"]]
+        changes = [sample for index, sample in enumerate(_samples) if index > 0
+                   and sample["mode"] != _samples[index - 1]["mode"]]
+        return json.dumps({"running": _sample_handle is not None, "total": len(_samples),
+                           "first": _samples[0] if _samples else None, "last": _samples[-1] if _samples else None,
+                           "firstTraversal": active[0] if active else None, "lastTraversal": active[-1] if active else None,
+                           "modeChanges": changes, "ammoDuringTraversal": sorted({sample["rifle"]["ammo"] for sample in active if "rifle" in sample}),
+                           "reloadDuringTraversal": any(sample.get("rifle", {}).get("reloading", False) for sample in active),
+                           "equipmentDuringTraversal": list({sample["equipment"] for sample in active}),
+                           "minDeltaSeconds": min((sample["deltaSeconds"] for sample in _samples), default=0),
+                           "maxDeltaSeconds": max((sample["deltaSeconds"] for sample in _samples), default=0)}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def inspect_pie_traversal_contact_points(montage_paths: list[str]) -> str:
+        """
+        /**
+         * 以完整骨骼容器只读采样接触骨骼 不写资产
+         * @param montage_paths	自有攀爬蒙太奇
+         * @return 原配置与完整骨骼采样得到的接触点
+         */
+        """
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        player = unreal.GameplayStatics.get_player_character(world, 0) if world else None
+        animation = player.mesh.get_anim_instance() if player else None
+        if animation is None or not montage_paths or len(montage_paths) > 8:
+            raise RuntimeError("需要已初始化的 PIE 角色与一至八条明确蒙太奇")
+        reports = []
+        for path in montage_paths:
+            montage = unreal.load_asset(path)
+            if not path.startswith("/Game/_Project/") or not isinstance(montage, unreal.AnimMontage):
+                raise RuntimeError("接触目标必须是自有蒙太奇")
+            if montage.get_editor_property("skeleton") != player.mesh.skeletal_mesh_asset.get_editor_property("skeleton"):
+                raise RuntimeError("接触动画与角色骨架必须一致")
+            matches = []
+            for event in unreal.AnimationLibrary.get_animation_notify_events(montage):
+                notify = event.get_editor_property("notify_state_class")
+                if not isinstance(notify, unreal.AnimNotifyState_MotionWarping):
+                    continue
+                modifier = notify.get_editor_property("root_motion_modifier")
+                if str(modifier.get_editor_property("warp_target_name")) == "TraversalContact":
+                    matches.append((event, modifier))
+            if len(matches) != 1:
+                raise RuntimeError("接触窗口必须唯一 " + path)
+            event, modifier = matches[0]
+            end = unreal.AnimationLibrary.get_anim_notify_event_trigger_time(event) + unreal.AnimationLibrary.get_anim_notify_event_duration(event)
+            bone = str(modifier.get_editor_property("warp_point_anim_bone_name"))
+            if bone != "hand_l" or not player.mesh.does_socket_exist(bone):
+                raise RuntimeError("需要明确存在的左手接触骨骼")
+            pose = unreal.MotionWarpingUtilities.extract_bone_transform_from_animation_at_time(animation, montage, end, False, bone, False)
+            reports.append({"montage": path, "time": end, "bone": bone,
+                "oldProvider": str(modifier.get_editor_property("warp_point_anim_provider")),
+                "point": [pose.translation.x, pose.translation.y, pose.translation.z]})
+        return json.dumps({"contacts": reports}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def configure_traversal_contact_points(points_json: str, dry_run: bool = True) -> str:
+        """
+        /**
+         * 在停止 PIE 后配置已核对的动画空间接触点 不修改窗口与源动画
+         * @param points_json	只读采样返回的 contacts 数组
+         * @param dry_run	只核对签出和接触窗口 不写资产
+         * @return 预检或保存的明确接触点
+         */
+        """
+        points = json.loads(points_json)
+        if not isinstance(points, list) or not 1 <= len(points) <= 8:
+            raise RuntimeError("需要一至八个已核对的接触点")
+        require_asset_write([item["montage"] for item in points])
+        prepared = []
+        for item in points:
+            path = item["montage"]
+            montage = unreal.load_asset(path)
+            if not path.startswith("/Game/_Project/") or not isinstance(montage, unreal.AnimMontage):
+                raise RuntimeError("接触目标必须是自有蒙太奇")
+            if len(item["point"]) != 3 or not all(abs(value) < 10000 for value in item["point"]):
+                raise RuntimeError("接触点必须是有限动画空间厘米坐标")
+            matches = []
+            for event in unreal.AnimationLibrary.get_animation_notify_events(montage):
+                notify = event.get_editor_property("notify_state_class")
+                if not isinstance(notify, unreal.AnimNotifyState_MotionWarping):
+                    continue
+                modifier = notify.get_editor_property("root_motion_modifier")
+                end = unreal.AnimationLibrary.get_anim_notify_event_trigger_time(event) + unreal.AnimationLibrary.get_anim_notify_event_duration(event)
+                if str(modifier.get_editor_property("warp_target_name")) == "TraversalContact" and abs(end - item["time"]) < 0.0001:
+                    matches.append(modifier)
+            if len(matches) != 1:
+                raise RuntimeError("接触窗口已变动 请重新采样 " + path)
+            prepared.append((montage, matches[0], unreal.Transform(location=unreal.Vector(*item["point"]))))
+        if not dry_run:
+            for montage, modifier, point in prepared:
+                modifier.set_editor_properties({"warp_point_anim_provider": unreal.WarpPointAnimProvider.STATIC,
+                    "warp_point_anim_transform": point})
+                if not unreal.EditorAssetLibrary.save_loaded_asset(montage, False):
+                    raise RuntimeError("接触点保存失败 " + montage.get_path_name())
+        return json.dumps({"dryRun": dry_run, "contacts": points}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def capture_pie_traversal_side_view(file_name: str, world_index: int = 0) -> str:
+        """
+        /**
+         * 使用临时侧视相机检查全身接触姿势 不移动玩家或修改资产
+         * @param file_name	本任务截图的 PNG 文件名
+         * @param world_index	同进程 PIE 世界索引
+         * @return 截图绝对路径与角色位置
+         */
+        """
+        if not file_name.endswith(".png") or not file_name.replace(".png", "").replace("_", "").isalnum():
+            raise RuntimeError("截图文件名只允许字母数字与下划线")
+        worlds = sorted(unreal.EditorLevelLibrary.get_pie_worlds(False), key=lambda item: item.get_path_name())
+        world = worlds[world_index] if 0 <= world_index < len(worlds) else None
+        player = unreal.GameplayStatics.get_player_character(world, 0) if world else None
+        if player is None:
+            raise RuntimeError("需要有效的 PIE 本地角色")
+        directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "temp", "TraversalSideView"))
+        path = os.path.join(directory, file_name)
+        if os.path.exists(path):
+            raise RuntimeError("截图已存在 不覆盖已有验收文件")
+        center = player.get_actor_location()
+        location = center + unreal.Vector(-140, -430, 45)
+        rotation = unreal.MathLibrary.find_look_at_rotation(location, center + unreal.Vector(30, 0, 0))
+        actor = unreal.BBBBlueprintEditorLibrary.spawn_transient_pie_actor(
+            world, unreal.SceneCapture2D, unreal.Transform(location=location, rotation=rotation))
+        if actor is None:
+            raise RuntimeError("无法创建临时侧视相机")
+        try:
+            target = unreal.RenderingLibrary.create_render_target2d(world, 1024, 768, unreal.TextureRenderTargetFormat.RTF_RGBA8)
+            component = actor.capture_component2d
+            component.set_editor_properties({"texture_target": target,
+                "capture_source": unreal.SceneCaptureSource.SCS_FINAL_COLOR_LDR, "fov_angle": 55.0})
+            component.set_editor_property("post_process_settings", unreal.PostProcessSettings(
+                override_auto_exposure_bias=True, auto_exposure_bias=3.0))
+            component.capture_scene()
+            os.makedirs(directory, exist_ok=True)
+            unreal.RenderingLibrary.export_render_target(world, target, directory, file_name)
+            if not os.path.isfile(path):
+                raise RuntimeError("截图失败 需要启用渲染的宿主")
+            return json.dumps({"imagePath": path, "playerLocation": [center.x, center.y, center.z]}, ensure_ascii=False)
+        finally:
+            actor.destroy_actor()
+
+    @mcp_tool
+    @staticmethod
+    def inspect_traversal_montage_windows(montage_paths: list[str]) -> str:
+        """
+        /**
+         * 核对提前交接所依赖的校正窗口和动画混合参数 不写入资产
+         * @param montage_paths	攀爬蒙太奇路径
+         * @return 实际播放长度 校正窗口与混合参数
+         */
+        """
+        if not montage_paths or len(montage_paths) > 16:
+            raise RuntimeError("需要一至十六条蒙太奇")
+        results = []
+        for path in montage_paths:
+            montage = unreal.load_asset(path)
+            if not isinstance(montage, unreal.AnimMontage):
+                raise RuntimeError("资产不是蒙太奇 " + path)
+            windows = []
+            for event in unreal.AnimationLibrary.get_animation_notify_events(montage):
+                notify = event.get_editor_property("notify_state_class")
+                if not isinstance(notify, unreal.AnimNotifyState_MotionWarping):
+                    continue
+                modifier = notify.get_editor_property("root_motion_modifier")
+                start = unreal.AnimationLibrary.get_anim_notify_event_trigger_time(event)
+                duration = unreal.AnimationLibrary.get_anim_notify_event_duration(event)
+                windows.append({"start": start, "end": start + duration,
+                        "target": str(modifier.get_editor_property("warp_target_name")),
+                        "warpPointProvider": str(modifier.get_editor_property("warp_point_anim_provider")),
+                        "warpPointBone": str(modifier.get_editor_property("warp_point_anim_bone_name")),
+                        "warpToFeet": modifier.get_editor_property("warp_to_feet_location")})
+            results.append({"path": montage.get_path_name(), "length": montage.get_play_length(), "windows": windows,
+                            "blendIn": str(montage.get_editor_property("blend_in")),
+                            "blendOut": str(montage.get_editor_property("blend_out"))})
+        return json.dumps({"montages": results}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def configure_pie_traversal_network(clients: int = 3, restore: bool = False) -> str:
+        """
+        /**
+         * 临时配置同一宿主中的主机和客机 验收后须先恢复再停止 PIE
+         * @param clients	含主机的玩家数量
+         * @param restore	恢复调用前的设置
+         * @return 生效设置 不主动保存用户配置
+         */
+        """
+        global _play_settings_snapshot
+        settings_class = unreal.load_class(None, "/Script/UnrealEd.LevelEditorPlaySettings")
+        settings = unreal.get_default_object(settings_class)
+        names = ("PlayNetMode", "PlayNumberOfClients", "RunUnderOneProcess")
+        if restore:
+            if _play_settings_snapshot is None:
+                raise RuntimeError("没有待恢复的网络验收设置")
+            if not unreal.ToolsetLibrary.set_object_properties(settings, _play_settings_snapshot):
+                raise RuntimeError("网络验收设置恢复失败")
+            _play_settings_snapshot = None
+            return json.dumps({"restored": True})
+        if unreal.EditorLevelLibrary.get_pie_worlds(False) or not 2 <= clients <= 4:
+            raise RuntimeError("请停止 PIE 并选择二至四名玩家")
+        if _play_settings_snapshot is not None:
+            raise RuntimeError("网络验收设置尚未恢复")
+        previous = unreal.ToolsetLibrary.get_object_properties(settings, list(names))
+        try:
+            values = json.dumps({"PlayNetMode": "PIE_ListenServer", "PlayNumberOfClients": clients, "RunUnderOneProcess": True})
+            if not unreal.ToolsetLibrary.set_object_properties(settings, values):
+                raise RuntimeError("网络验收设置应用失败")
+            _play_settings_snapshot = previous
+        except Exception:
+            unreal.ToolsetLibrary.set_object_properties(settings, previous)
+            raise
+        return unreal.ToolsetLibrary.get_object_properties(settings, list(names))
+
+    @mcp_tool
+    @staticmethod
+    def inspect_pie_traversal_network() -> str:
+        """
+        /**
+         * 同时只读查看所有 PIE 世界中的角色副本 不推演远端玩法
+         * @return 角色网络身份 位置 移动模式与动画事实
+         */
+        """
+        worlds = []
+        for world in unreal.EditorLevelLibrary.get_pie_worlds(False):
+            actors = []
+            for character in unreal.GameplayStatics.get_all_actors_of_class(world, unreal.BBBCharacter):
+                center = character.get_actor_location()
+                animation = character.mesh.get_anim_instance()
+                montage = animation.get_current_active_montage() if animation else None
+                actors.append({"path": character.get_path_name(), "local": character.is_locally_controlled(),
+                               "playerId": _player_id(character) if character.player_state else None,
+                               "role": str(character.get_local_role()), "location": [center.x, center.y, center.z],
+                               "mode": str(character.character_movement.get_editor_property("movement_mode")),
+                               "traversing": animation.is_traversing() if animation else None,
+                               "montage": montage.get_path_name() if montage else None,
+                               "position": animation.montage_get_position(montage) if montage else None})
+            worlds.append({"world": world.get_path_name(), "time": unreal.GameplayStatics.get_time_seconds(world), "characters": actors})
+        return json.dumps({"worlds": worlds}, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod

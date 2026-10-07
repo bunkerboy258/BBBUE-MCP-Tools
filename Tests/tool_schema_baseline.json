@@ -1,4 +1,484 @@
 {
+  "BBBTraversalToolset": {
+    "configure_traversal_montages": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sequence_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "已检查的根运动序列 *"
+          },
+          "destination_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "自有目录下的目标蒙太奇 *"
+          },
+          "windows_json": {
+            "type": "string",
+            "description": "每条动画的窗口数组 含 start end target 及可选 bone *"
+          }
+        },
+        "required": [
+          "sequence_paths",
+          "destination_paths",
+          "windows_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "保存的蒙太奇与窗口配置 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_traversal_editing_schema": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "base_path": {
+            "type": "string",
+            "description": "基础链接动画蓝图 *"
+          },
+          "main_path": {
+            "type": "string",
+            "description": "主动画蓝图 *"
+          }
+        },
+        "required": [
+          "base_path",
+          "main_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "图表路径 节点类型和工具接口 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_traversal_blueprints": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "base_path": {
+            "type": "string",
+            "description": "基础链接动画蓝图 *"
+          },
+          "main_path": {
+            "type": "string",
+            "description": "主动画蓝图 *"
+          },
+          "montage_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Vault 低攀爬 高攀爬三条蒙太奇 *"
+          }
+        },
+        "required": [
+          "base_path",
+          "main_path",
+          "montage_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "编译和保存结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_pie_traversal_network": {
+      "inputSchema": {
+        "type": "object"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "角色网络身份 位置 移动模式与动画事实 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_pie_traversal_network": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "clients": {
+            "type": "integer",
+            "description": "含主机的玩家数量 *",
+            "default": 3
+          },
+          "restore": {
+            "type": "boolean",
+            "description": "恢复调用前的设置 *",
+            "default": false
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "生效设置 不主动保存用户配置 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_traversal_montage_windows": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "montage_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "攀爬蒙太奇路径 *"
+          }
+        },
+        "required": [
+          "montage_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "实际播放长度 校正窗口与混合参数 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "capture_pie_traversal_side_view": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "file_name": {
+            "type": "string",
+            "description": "本任务截图的 PNG 文件名 *"
+          },
+          "world_index": {
+            "type": "integer",
+            "description": "同进程 PIE 世界索引 *",
+            "default": 0
+          }
+        },
+        "required": [
+          "file_name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "截图绝对路径与角色位置 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_traversal_contact_points": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "points_json": {
+            "type": "string",
+            "description": "只读采样返回的 contacts 数组 *"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "只核对签出和接触窗口 不写资产 *",
+            "default": true
+          }
+        },
+        "required": [
+          "points_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "预检或保存的明确接触点 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_pie_traversal_contact_points": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "montage_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "自有攀爬蒙太奇 *"
+          }
+        },
+        "required": [
+          "montage_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "原配置与完整骨骼采样得到的接触点 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "summarize_pie_traversal_samples": {
+      "inputSchema": {
+        "type": "object"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "帧时范围 移动模式交接 以及攀爬期间的装备操作事实 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "get_pie_traversal_samples": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "offset": {
+            "type": "integer",
+            "default": 0
+          },
+          "count": {
+            "type": "integer",
+            "default": 80
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "本轮基础验收样本与是否仍在运行 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "sample_pie_traversal": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "seconds": {
+            "type": "number",
+            "description": "采样游戏秒数 *",
+            "default": 5
+          },
+          "include_ik_curves": {
+            "type": "boolean",
+            "default": false
+          },
+          "world_index": {
+            "type": "integer",
+            "default": 0
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "采样开始结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "prepare_pie_traversal_fixture": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "height": {
+            "type": "number",
+            "description": "障碍高度 零表示无障碍 *"
+          },
+          "depth": {
+            "type": "number",
+            "description": "障碍厚度 *"
+          },
+          "blocked": {
+            "type": "boolean",
+            "description": "是否在上方增加阻挡以验收失败回退 *",
+            "default": false
+          },
+          "world_index": {
+            "type": "integer",
+            "default": 0
+          },
+          "place_player": {
+            "type": "boolean",
+            "default": true
+          },
+          "lateral_offset": {
+            "type": "number",
+            "default": 0
+          }
+        },
+        "required": [
+          "height",
+          "depth"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "玩家和临时碰撞场景位置 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "remove_pie_traversal_obstacle": {
+      "inputSchema": {
+        "type": "object"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "是否成功删除临时障碍 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_traversal_ik_transition": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sequence_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "自有翻越动画序列 *"
+          },
+          "base_path": {
+            "type": "string",
+            "description": "基础链接动画蓝图 *"
+          },
+          "expected_graph_signature": {
+            "type": "string",
+            "description": "调用前只读核对的骨骼控制图逻辑指纹 *"
+          },
+          "disable_seconds": {
+            "type": "number",
+            "description": "开头退出握持和瞄准的秒数 *",
+            "default": 0.15
+          },
+          "restore_seconds": {
+            "type": "number",
+            "description": "结尾恢复握持和瞄准的秒数 *",
+            "default": 0.25
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "仅检查参数 签出和图结构 *",
+            "default": true
+          },
+          "allow_dirty_sequences": {
+            "type": "boolean",
+            "description": "明确允许保留并继续编辑目标动画的未保存改动 *",
+            "default": false
+          }
+        },
+        "required": [
+          "sequence_paths",
+          "base_path",
+          "expected_graph_signature"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "曲线关键帧 编译保存结果和保留数据指纹 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    }
+  },
   "BBBAnimationMigrationToolset": {
     "create_animation_slice": {
       "inputSchema": {

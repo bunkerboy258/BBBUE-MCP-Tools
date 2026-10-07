@@ -7,6 +7,7 @@ from MCP.mcp_result import require_business_success
 
 
 TOOLSET_ROUTES = {
+    "BBBTraversalToolset": "攀爬资产与运行验收",
     "BBBAnimationMigrationToolset": "动画项目流程",
     "BBBExternalToolset": "第三方领域动作",
     "BBBGenericEditorToolset": "通用项目资产校验",

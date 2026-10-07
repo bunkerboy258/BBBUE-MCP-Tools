@@ -1,6 +1,6 @@
 # Traversal 资产与基础验收工具
 
-`Scripts/BBBTraversalToolset.py` 通过官方 `run_editor_script` 按需注册。
+`BBBTraversalToolset` 已纳入标准启动注册表 工具开发重载仍使用官方 `run_editor_script`
 
 - `inspect_traversal_editing_schema` 只读返回 Base 和主动画蓝图的实际图表、可创建节点及 Motion Warping API。
 - `configure_traversal_montages` 从已准备的根运动序列配置 FullBody 蒙太奇和官方 Skew Warp 窗口；目标脚底空间采用 UE Character Adapter，窗口可配置动画骨骼 Warp Point。
@@ -24,3 +24,30 @@
 当前原生逻辑快照检查器会把没有 VariableReference 的 `K2Node_MakeStruct` 也作为变量检查，可能报告“变量引用无法解析”。此类结构构造节点需结合真实蓝图编译结果判断，不能仅据该快照提示判定资产损坏。可调用官方 `BlueprintTools.compile_blueprint` 并设置 `warnings_as_errors: true` 检查编译错误与警告。
 
 已有资产必须先独占签出。新目标先检查 Perforce 映射，保存后打开添加。蒙太奇配置工具不修改源动画；过渡工具只修改调用者明确指定的自有序列的两条禁用曲线。工具不执行提交或回退。
+
+## 控制交接与网络验收
+
+`inspect_traversal_montage_windows` 只读核对根运动校正窗口与混合时间
+采样增加角色速度 双手位置 实际帧时 瞄准状态 步枪弹量与换弹状态
+`get_pie_traversal_samples` 使用 `offset` 和 `count` 分页 每次最多一百条
+`summarize_pie_traversal_samples` 从全量采样提取模式交接与攀爬期间的操作事实
+
+`prepare_pie_traversal_fixture` 与 `sample_pie_traversal` 可用 `world_index` 选择同进程 PIE 世界
+几何按世界独立持有 `place_player` 控制是否安置玩家 `lateral_offset` 让观察者停在同一场景侧面
+多人安置按复制的玩家标识同时移动各世界中的同一角色副本 不混淆控制者与观察者
+
+`configure_pie_traversal_network` 在内存中配置同进程的主机与客机
+验收结束必须先以 `restore` 恢复原设置 再调用官方 `StopPIE` 以免编辑器保存临时偏好
+`inspect_pie_traversal_network` 同时只读检查各世界中的角色副本
+验收应复用唯一编辑器宿主 不使用固定时间步替代实际性能
+
+`capture_pie_traversal_side_view` 用临时侧视相机保存全身姿势截图 不改玩家视点 不移动玩家
+需要启用真实渲染 参数为独占的 PNG 文件名与 `world_index`
+相机和渲染目标不保存为资产 截图位于 `Saved/temp/TraversalSideView` 任务结束后清理本轮文件
+截图会引入渲染开销 平滑度应结合无截图时的实际帧时与位置采样判断
+
+`inspect_pie_traversal_contact_points` 使用已初始化 PIE 角色的完整骨骼容器只读采样接触窗口末尾的左手组件空间位置
+停止 PIE 后将其 `contacts` 数组传入 `configure_traversal_contact_points` 的 `points_json`
+先 `dry_run` 核对再保存 已有自有蒙太奇必须独占签出 不改源序列与窗口时间
+接触点采用无额外旋转的动画空间 Static Warp Point 最终落点仍使用原来的脚底空间目标
+用于精确配置当前角色骨架 不修改引擎 也不新增运行时骨骼采样或手部 IK
