@@ -10,6 +10,7 @@ import struct
 import unreal
 
 from BBBMcpCapabilities import mcp_tool
+from BBBSoundAssetAudit import inspect_sounds, export_waves
 from toolset_registry.registration import Registration
 
 
@@ -88,6 +89,31 @@ def _apply_editor_property(target, property_name, requested_value):
 @unreal.uclass()
 class BBBGenericEditorToolset(unreal.ToolsetDefinition):
     """提供不绑定具体领域的官方 UE 编辑器工具"""
+
+    @mcp_tool
+    @staticmethod
+    def inspect_sound_assets(asset_paths: list[str]) -> str:
+        """
+        /**
+         * 只读检查 SoundWave 与 SoundCue 的属性和节点引用
+         * @param asset_paths\t声音资产路径 每批最多 256 项
+         * @return JSON 属性 节点 依赖及不可读取项
+         */
+        """
+        return inspect_sounds(asset_paths)
+
+    @mcp_tool
+    @staticmethod
+    def export_sound_waves(asset_paths: list[str], output_directory: str) -> str:
+        """
+        /**
+         * 使用原生 WAV 导出器生成审计副本 不修改声音资产
+         * @param asset_paths\tSoundWave 资产路径 每批最多 256 项
+         * @param output_directory\tSaved/temp 内的导出目录 禁止覆盖
+         * @return JSON 导出文件清单
+         */
+        """
+        return export_waves(asset_paths, output_directory)
 
     @mcp_tool
     @staticmethod

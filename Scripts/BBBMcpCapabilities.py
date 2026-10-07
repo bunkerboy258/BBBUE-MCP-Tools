@@ -25,6 +25,7 @@ TOOLSET_ROUTES = {
 HELPER_MODULES = (
     "BBBBlueprintLayout", "BBBBlueprintAnnotations", "BBBAnimationMotionTools",
     "BBBAnimationTrajectoryTools", "BBBArmTwistTools", "BBBWeaponHandlingTools",
+    "BBBSoundAssetAudit",
 )
 OFFICIAL_ROUTES = {
     "对象属性": "editor_toolset.toolsets.object.ObjectTools",

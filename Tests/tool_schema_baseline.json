@@ -3385,6 +3385,69 @@
     }
   },
   "BBBGenericEditorToolset": {
+    "export_sound_waves": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "SoundWave 资产路径 每批最多 256 项 *"
+          },
+          "output_directory": {
+            "type": "string",
+            "description": "Saved/temp 内的导出目录 禁止覆盖 *"
+          }
+        },
+        "required": [
+          "asset_paths",
+          "output_directory"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "JSON 导出文件清单 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_sound_assets": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "声音资产路径 每批最多 256 项 *"
+          }
+        },
+        "required": [
+          "asset_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "JSON 属性 节点 依赖及不可读取项 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
     "export_skeletal_mesh_fbx": {
       "inputSchema": {
         "type": "object",
