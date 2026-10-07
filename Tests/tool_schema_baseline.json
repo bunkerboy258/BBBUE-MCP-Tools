@@ -10032,6 +10032,188 @@
           "returnValue"
         ]
       }
+    },
+    "rebuild_monster_blood_system": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "channel_path": {
+            "type": "string",
+            "description": "已独占签出的自有数据通道 *"
+          },
+          "system_path": {
+            "type": "string",
+            "description": "已独占签出的自有 Niagara 系统 *"
+          },
+          "spray_material_path": {
+            "type": "string",
+            "description": "方向血滴材质 *"
+          },
+          "splash_material_path": {
+            "type": "string",
+            "description": "单张喷溅材质 *"
+          },
+          "mist_material_path": {
+            "type": "string",
+            "description": "八乘八血雾序列材质 *"
+          }
+        },
+        "required": [
+          "channel_path",
+          "system_path",
+          "spray_material_path",
+          "splash_material_path",
+          "mist_material_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "原生构建结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "normalize_hit_reaction_arm_bodies": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "已独占签出的物理资产 *"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "参考骨骼网格 *"
+          }
+        },
+        "required": [
+          "asset_path",
+          "mesh_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "实际改绑数量 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "start_player_weapon_hit_capture": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "file_prefix": {
+            "type": "string",
+            "description": "Saved/temp 下的任务目录名 *"
+          },
+          "duration_seconds": {
+            "type": "number",
+            "description": "游戏时间采样秒数 零点五至十二 *",
+            "default": 3
+          },
+          "width": {
+            "type": "integer",
+            "description": "图像宽度 三百二十至一千九百二十 *",
+            "default": 960
+          },
+          "height": {
+            "type": "integer",
+            "description": "图像高度 一百八十至一千零八十 *",
+            "default": 540
+          },
+          "blood_system_path": {
+            "type": "string",
+            "description": "可选血效系统 同帧记录真实粒子状态 *"
+          }
+        },
+        "required": [
+          "file_prefix",
+          "blood_system_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "采样编号 用 inspect_skeletal_hit_reaction_capture 查询 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_player_weapon_hit_state": {
+      "inputSchema": {
+        "type": "object"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "当前 PIE 玩家与步枪事实 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "spawn_mass_hit_acceptance_population": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "config_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "互不重复的正式配置 最多十六种 *"
+          },
+          "center": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "出生行中心 三个厘米坐标 *"
+          },
+          "spacing": {
+            "type": "number",
+            "description": "相邻实体距离 至少二百厘米 *",
+            "default": 200
+          }
+        },
+        "required": [
+          "config_paths",
+          "center"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "实际创建实体的只读快照 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBMeleeToolset": {

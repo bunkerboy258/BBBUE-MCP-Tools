@@ -11,11 +11,227 @@ from BBBAssetWritePolicy import require_asset_write, require_write_access
 
 
 _captures = {}
+_acceptance_population = {}
 
 
 @unreal.uclass()
 class BBBHitReactionToolset(unreal.ToolsetDefinition):
     """/** 配置骨骼物理受击资产并移除被替换的动画偏转层 */"""
+
+    @mcp_tool
+    @staticmethod
+    def spawn_mass_hit_acceptance_population(config_paths: list[str], center: list[float], spacing: float = 200.0) -> str:
+        """
+        /**
+         * 使用正式配置与正式 LOD 生成受击验收实体 每种一个 不修改资产
+         * @param config_paths	互不重复的正式配置 最多十六种
+         * @param center	出生行中心 三个厘米坐标
+         * @param spacing	相邻实体距离 至少二百厘米
+         * @return 实际创建实体的只读快照
+         */
+        """
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if world is None or not config_paths or len(config_paths) > 16 or len(set(config_paths)) != len(config_paths):
+            raise RuntimeError("需要当前 PIE 和明确的正式实体配置")
+        if len(center) != 3 or not all(math.isfinite(value) for value in center) or not math.isfinite(spacing) or spacing < 200.0:
+            raise RuntimeError("验收出生位置或间距无效")
+        if _acceptance_population.get("worldIdentity") == hash(world):
+            raise RuntimeError("本 PIE 已创建正式受击验收群体")
+        configs = [unreal.load_asset(path) for path in config_paths]
+        if any(not isinstance(config, unreal.MassEntityConfigAsset) for config in configs):
+            raise RuntimeError("正式 Mass 配置不存在")
+        entities = []
+        try:
+            for index, config in enumerate(configs):
+                location = unreal.Vector(center[0] + spacing * 0.5,
+                    center[1] + (index - (len(configs) - 1) * 0.5) * spacing + spacing * 0.5, center[2])
+                entities.extend(unreal.BBBMassValidationLibrary.spawn_population(world, [config], 1, location, spacing))
+            if len(entities) != len(configs):
+                raise RuntimeError("正式验收实体创建数量不一致")
+        except Exception:
+            unreal.BBBMassValidationLibrary.destroy_population(world, entities)
+            raise
+        _acceptance_population.clear()
+        _acceptance_population.update({"worldIdentity": hash(world), "configs": configs, "entities": entities})
+        return str(unreal.BBBMassValidationLibrary.inspect_population(world, entities))
+
+    @mcp_tool
+    @staticmethod
+    def inspect_player_weapon_hit_state() -> str:
+        """
+        /**
+         * 只读检查玩家武器伤害权限 弹量与枪口方向
+         * @return 当前 PIE 玩家与步枪事实
+         */
+        """
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if world is None:
+            raise RuntimeError("需要当前 PIE 世界")
+        return str(unreal.BBBHitReactionEditorLibrary.inspect_player_weapon_hit_state(world))
+
+    @mcp_tool
+    @staticmethod
+    def start_player_weapon_hit_capture(file_prefix: str, duration_seconds: float = 3.0, width: int = 960, height: int = 540, blood_system_path: str = "") -> str:
+        """
+        /**
+         * 跨真实游戏帧采集玩家视点及真实实体状态 不生成子弹或修改伤害
+         * @param file_prefix Saved/temp 下的任务目录名
+         * @param duration_seconds 游戏时间采样秒数 零点五至十二
+         * @param width 图像宽度 三百二十至一千九百二十
+         * @param height 图像高度 一百八十至一千零八十
+         * @param blood_system_path	可选血效系统 同帧记录真实粒子状态
+         * @return 采样编号 用 inspect_skeletal_hit_reaction_capture 查询
+         */
+        """
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", file_prefix) or not math.isfinite(duration_seconds) or not 0.5 <= duration_seconds <= 12.0:
+            raise RuntimeError("任务目录或采样时长无效")
+        if not 320 <= width <= 1920 or not 180 <= height <= 1080:
+            raise RuntimeError("玩家截图尺寸无效")
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if world is None or "-nullrhi" in unreal.SystemLibrary.get_command_line().lower():
+            raise RuntimeError("玩家视点采样需要带渲染的 PIE")
+        if any(item["status"] == "pending" for item in _captures.values()):
+            raise RuntimeError("已有受击采样尚未完成")
+        manager = unreal.GameplayStatics.get_player_camera_manager(world, 0)
+        if manager is None:
+            raise RuntimeError("本地玩家相机不存在")
+        blood_system = unreal.load_asset(blood_system_path) if blood_system_path else None
+        if blood_system_path and not isinstance(blood_system, unreal.NiagaraSystem):
+            raise RuntimeError("血效采样目标不是 Niagara 系统")
+        identifier = str(uuid.uuid4())
+        directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "temp", file_prefix, identifier))
+        os.makedirs(directory, exist_ok=False)
+        camera = unreal.BBBBlueprintEditorLibrary.spawn_transient_pie_actor(world, unreal.SceneCapture2D, unreal.Transform())
+        if camera is None:
+            raise RuntimeError("玩家采样相机创建失败")
+        try:
+            target = unreal.RenderingLibrary.create_render_target2d(world, width, height, unreal.TextureRenderTargetFormat.RTF_RGBA8)
+            capture = camera.capture_component2d
+            capture.set_editor_property("texture_target", target)
+            capture.set_editor_property("capture_source", unreal.SceneCaptureSource.SCS_FINAL_COLOR_LDR)
+            capture.set_editor_property("capture_every_frame", False)
+            capture.set_editor_property("capture_on_movement", False)
+            write_options = unreal.ImageWriteOptions()
+            write_options.set_editor_property("format", unreal.DesiredImageFormat.PNG)
+            write_options.set_editor_property("overwrite_file", False)
+            write_options.set_editor_property("compression_quality", 0)
+        except Exception:
+            camera.destroy_actor()
+            raise
+        record = {"status": "pending", "captureId": identifier, "playerView": True, "includesUI": False,
+                  "imagePaths": [], "imageSeconds": [], "samples": [], "durationSeconds": duration_seconds}
+        _captures[identifier] = record
+        data = {"start": unreal.GameplayStatics.get_time_seconds(world), "last": -1.0, "lastImage": -1.0, "handle": None}
+
+        def complete(error=None):
+            """/** @return 销毁相机并保存完整采样 失败时保留诊断 */"""
+            unreal.unregister_slate_post_tick_callback(data["handle"])
+            camera.destroy_actor()
+            record["temporaryActorsDestroyed"] = True
+            record["status"] = "failed" if error else "completed"
+            if error:
+                record["error"] = str(error)
+            report = os.path.join(directory, "capture.json")
+            with open(report, "w", encoding="utf-8") as stream:
+                json.dump(record, stream, ensure_ascii=False)
+            record["reportPath"] = report
+            record["sampleFrames"] = len(record["samples"])
+            record.pop("samples")
+
+        def tick(delta_seconds):
+            """/** @return 依据实际游戏时间采样 不使用截图数量推算时长 */"""
+            try:
+                if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() != world:
+                    raise RuntimeError("玩家采样期间 PIE 已结束")
+                now = unreal.GameplayStatics.get_time_seconds(world)
+                if now == data["last"]:
+                    return
+                data["last"] = now
+                elapsed = now - data["start"]
+                if elapsed < duration_seconds and elapsed - data["lastImage"] >= 1.0 / 60.0 - 0.0001:
+                    camera.set_actor_location_and_rotation(manager.get_camera_location(), manager.get_camera_rotation(), False, True)
+                    capture.set_editor_property("fov_angle", manager.get_fov_angle())
+                    capture.capture_scene()
+                    filename = "frame_" + str(len(record["imagePaths"])).zfill(4) + ".png"
+                    path = os.path.join(directory, filename)
+                    unreal.ImageWriteBlueprintLibrary.export_to_disk(target, path, write_options)
+                    record["imagePaths"].append(path)
+                    record["imageSeconds"].append(elapsed)
+                    record["samples"].append({"seconds": elapsed,
+                        "bloodRuntime": str(unreal.BBBNiagaraEditorLibrary.inspect_pie_system(blood_system.get_path_name())) if blood_system else "",
+                        "weapon": json.loads(unreal.BBBHitReactionEditorLibrary.inspect_player_weapon_hit_state(world)),
+                        "population": json.loads(unreal.BBBMassValidationLibrary.inspect_population(world, [])),
+                        "performance": list(unreal.BBBAnimationGraphEditorLibrary.read_performance_frame_metrics())})
+                    data["lastImage"] = elapsed
+                if elapsed >= duration_seconds:
+                    if not all(os.path.isfile(path) and os.path.getsize(path) >= 1024 for path in record["imagePaths"]):
+                        if elapsed > duration_seconds + 5.0:
+                            raise RuntimeError("玩家画面异步导出超时")
+                        return
+                    complete()
+            except Exception as error:
+                complete(error)
+
+        try:
+            data["handle"] = unreal.register_slate_post_tick_callback(tick)
+        except Exception:
+            camera.destroy_actor()
+            _captures.pop(identifier)
+            raise
+        return json.dumps({"captureId": identifier, "status": "pending", "playerView": True}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def normalize_hit_reaction_arm_bodies(asset_path: str, mesh_path: str) -> str:
+        """
+        /**
+         * 统一自有手臂刚体绑定 保持参考姿势下的形状与约束 不保存
+         * @param asset_path	已独占签出的物理资产
+         * @param mesh_path	参考骨骼网格
+         * @return 实际改绑数量
+         */
+        """
+        if unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+            raise RuntimeError("改绑物理资产前需要结束 PIE")
+        asset = unreal.load_asset(asset_path)
+        mesh = unreal.load_asset(mesh_path)
+        if not isinstance(asset, unreal.PhysicsAsset) or not isinstance(mesh, unreal.SkeletalMesh):
+            raise RuntimeError("需要物理资产和参考骨骼网格")
+        require_write_access(asset)
+        count = unreal.BBBHitReactionEditorLibrary.normalize_arm_bodies(asset, mesh)
+        if count < 0:
+            raise RuntimeError("手臂刚体或参考姿势不满足完整改绑条件")
+        return json.dumps({"asset": asset.get_path_name(), "normalizedBodies": count}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def rebuild_monster_blood_system(channel_path: str, system_path: str, spray_material_path: str, splash_material_path: str, mist_material_path: str) -> str:
+        """
+        /**
+         * 使用指定现有材质重建并保存批量僵尸血效
+         * @param channel_path	已独占签出的自有数据通道
+         * @param system_path	已独占签出的自有 Niagara 系统
+         * @param spray_material_path	方向血滴材质
+         * @param splash_material_path	单张喷溅材质
+         * @param mist_material_path	八乘八血雾序列材质
+         * @return 原生构建结果
+         */
+        """
+        if unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+            raise RuntimeError("重建血效资产前需要结束 PIE")
+        for path, asset_type in ((channel_path, unreal.NiagaraDataChannelAsset), (system_path, unreal.NiagaraSystem)):
+            asset = unreal.load_asset(path)
+            if not isinstance(asset, asset_type) or not path.startswith("/Game/_Project/"):
+                raise RuntimeError("重建目标必须是现有自有血效资产")
+            require_write_access(asset)
+        for path in (spray_material_path, splash_material_path, mist_material_path):
+            if not isinstance(unreal.load_asset(path), unreal.MaterialInterface):
+                raise RuntimeError("血效材质不存在")
+        result = unreal.BBBNiagaraEditorLibrary.configure_monster_blood_impact_system(
+            channel_path, system_path, spray_material_path, splash_material_path, mist_material_path)
+        if str(result).startswith("失败"):
+            raise RuntimeError(str(result))
+        return str(result)
 
     @mcp_tool
     @staticmethod
@@ -167,26 +383,20 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
         actor.set_actor_enable_collision(True)
         mesh = actor.get_monster_mesh()
         mesh.set_forced_lod(1)
+        mesh.set_editor_property("visibility_based_anim_tick_option", unreal.VisibilityBasedAnimTickOption.ALWAYS_TICK_POSE_AND_REFRESH_BONES)
         presentation = actor.get_monster_presentation()
         state = unreal.BBBMonsterBehavior.CHASE if speed > 0.0 else unreal.BBBMonsterBehavior.IDLE
         presentation.call_method("ApplyPresentationState", (state, speed, 1.0, 1, 0.0))
         library.set_preview_hit_facts(mesh, region, unreal.Vector(*direction), 10.0)
         actors = [actor]
         subjects = [actor]
-        control = None
-        if shots > 0 and actor_count == 1 and interrupt == "none":
-            control = unreal.BBBBlueprintEditorLibrary.spawn_transient_pie_actor(world, blueprint.generated_class(), unreal.Transform(location=unreal.Vector(0.0, 150.0, 20090.0), rotation=unreal.Rotator(yaw=180.0)))
-            actors.append(control)
-            control.get_monster_mesh().set_forced_lod(1)
-            control.get_monster_mesh().get_anim_instance().set_editor_property("presentation_id_fact", mesh.get_anim_instance().get_editor_property("presentation_id_fact"))
-            control.get_monster_presentation().call_method("ApplyPresentationState", (state, speed, 1.0, 1, 0.0))
-            control.get_monster_mesh().set_editor_property("visibility_based_anim_tick_option", unreal.VisibilityBasedAnimTickOption.ALWAYS_TICK_POSE_AND_REFRESH_BONES)
         for index in range(1, actor_count):
             subject = unreal.BBBBlueprintEditorLibrary.spawn_transient_pie_actor(world, blueprint.generated_class(), unreal.Transform(location=unreal.Vector((index % 8) * 150.0, (index // 8) * 150.0, 20090.0), rotation=unreal.Rotator(yaw=180.0)))
             actors.append(subject)
             subjects.append(subject)
             subject.set_actor_enable_collision(True)
             subject.get_monster_mesh().set_forced_lod(1)
+            subject.get_monster_mesh().set_editor_property("visibility_based_anim_tick_option", unreal.VisibilityBasedAnimTickOption.ALWAYS_TICK_POSE_AND_REFRESH_BONES)
             subject.get_monster_presentation().call_method("ApplyPresentationState", (state, speed, 1.0, 1, 0.0))
             library.set_preview_hit_facts(subject.get_monster_mesh(), region, unreal.Vector(*direction), 10.0)
         camera = None
@@ -212,19 +422,19 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
             capture.set_editor_property("fov_angle", 35.0)
             capture.set_editor_property("capture_every_frame", False)
             capture.set_editor_property("capture_on_movement", False)
+            write_options = unreal.ImageWriteOptions()
+            write_options.set_editor_property("format", unreal.DesiredImageFormat.PNG)
+            write_options.set_editor_property("overwrite_file", False)
+            write_options.set_editor_property("compression_quality", 0)
             settings = unreal.PostProcessSettings()
             settings.set_editor_property("override_auto_exposure_method", True)
             settings.set_editor_property("auto_exposure_method", unreal.AutoExposureMethod.AEM_MANUAL)
             settings.set_editor_property("override_auto_exposure_apply_physical_camera_exposure", True)
             settings.set_editor_property("auto_exposure_apply_physical_camera_exposure", False)
             capture.set_editor_property("post_process_settings", settings)
-        if control is not None:
-            unreal.AnimationBudget.enable_animation_budget(world, False)
-            for subject in (actor, control):
-                subject.get_monster_presentation().call_method("ApplyPresentationState", (unreal.BBBMonsterBehavior.ALERT, 0.0, 0.0, 1, 0.0))
         bones = ["head", "spine_03", "upperarm_l", "upperarm_r", "thigh_l", "thigh_r", "hand_l", "hand_r", "foot_l", "foot_r"]
         start_time = unreal.GameplayStatics.get_time_seconds(world)
-        data = {"baseline": None, "start": None, "last": -1.0, "shots": 0, "samples": [], "images": [], "imageSeconds": [], "handle": None, "interrupted": False, "lastImage": -1.0, "synchronized": control is None}
+        data = {"baseline": None, "start": None, "last": -1.0, "shots": 0, "samples": [], "images": [], "imageSeconds": [], "handle": None, "interrupted": False, "lastImage": -1.0}
 
         def pose(component=mesh):
             result = {}
@@ -245,13 +455,12 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
                 peak_distances = {name: 0.0 for name in bones}
                 for sample in data["samples"]:
                     for name in bones:
-                        before = sample["controlPose"][name] if control is not None and record.get("initialControlErrorCm", 100.0) <= 0.25 else data["baseline"][name]
+                        before = data["baseline"][name]
                         current = sample["pose"][name]
                         dot = abs(sum(a * b for a, b in zip(before["rotation"], current["rotation"])))
                         peak_angles[name] = max(peak_angles[name], math.degrees(2.0 * math.acos(min(1.0, dot))))
                         distance = math.sqrt(sum((a - b) ** 2 for a, b in zip(before["position"], current["position"])))
                         peak_distances[name] = max(peak_distances[name], distance)
-                record["matchedAnimationControl"] = control is not None and record.get("initialControlErrorCm", 100.0) <= 0.25
                 rows = [sample["performance"] for sample in data["samples"] if 0.05 <= sample["seconds"] <= max(1.1, (shots - 1) * interval_seconds)]
                 times = sorted(row[1] for row in rows)
                 record["gameThreadMs"] = {"mean": sum(times) / len(times), "p95": times[int((len(times) - 1) * 0.95)], "samples": len(times)}
@@ -261,8 +470,6 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
                 with open(report_path, "w", encoding="utf-8") as stream:
                     json.dump({**record, "baseline": data["baseline"], "samples": data["samples"]}, stream, ensure_ascii=False)
                 record["reportPath"] = report_path
-            if control is not None:
-                unreal.AnimationBudget.enable_animation_budget(world, True)
             for item in reversed(actors):
                 if unreal.SystemLibrary.is_valid(item):
                     item.destroy_actor()
@@ -276,17 +483,14 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
                 if now == data["last"]:
                     return
                 data["last"] = now
-                if not data["synchronized"] and now - start_time >= 0.1:
-                    for subject in (actor, control):
-                        subject.get_monster_presentation().call_method("ApplyPresentationState", (state, speed, 1.0, 1, 0.0))
-                    data["synchronized"] = True
                 if now - start_time < (2.0 if actor_count > 1 else 0.5):
                     return
                 if data["start"] is None:
+                    frozen_pose = speed == 0.0 and actor_count == 1 and interrupt == "none"
+                    if frozen_pose:
+                        mesh.set_editor_property("pause_anims", True)
+                    record["animationPausedForMeasurement"] = frozen_pose
                     data["baseline"] = pose()
-                    if control is not None:
-                        reference = pose(control.get_monster_mesh())
-                        record["initialControlErrorCm"] = max(math.sqrt(sum((x - y) ** 2 for x, y in zip(data["baseline"][name]["position"], reference[name]["position"]))) for name in bones)
                     data["start"] = now
                 elapsed = now - data["start"]
                 if speed > 0.0:
@@ -305,17 +509,19 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
                     data["interrupted"] = True
                 physics_state = json.loads(physics.inspect_physics_state(mesh))
                 sample = {"seconds": elapsed, "pose": pose(), "physics": physics_state, "performance": list(library.read_performance_frame_metrics())}
-                if control is not None:
-                    sample["controlPose"] = pose(control.get_monster_mesh())
                 data["samples"].append(sample)
-                if camera is not None and elapsed - data["lastImage"] >= 0.04 and elapsed < (shots - 1) * interval_seconds + 0.8:
+                if camera is not None and elapsed - data["lastImage"] >= 1.0 / 60.0 - 0.0001 and elapsed < (shots - 1) * interval_seconds + 0.8:
                     camera.capture_component2d.capture_scene()
                     filename = identifier + "_" + str(len(data["images"])).zfill(3) + ".png"
-                    unreal.RenderingLibrary.export_render_target(world, target, directory, filename)
+                    unreal.ImageWriteBlueprintLibrary.export_to_disk(target, os.path.join(directory, filename), write_options)
                     data["images"].append(os.path.join(directory, filename))
                     data["imageSeconds"].append(elapsed)
                     data["lastImage"] = elapsed
                 if elapsed >= (shots - 1) * interval_seconds + 2.0:
+                    if not all(os.path.isfile(path) and os.path.getsize(path) >= 1024 for path in data["images"]):
+                        if elapsed > (shots - 1) * interval_seconds + 7.0:
+                            raise RuntimeError("部位画面异步导出超时")
+                        return
                     complete()
             except Exception as error:
                 complete(error)
