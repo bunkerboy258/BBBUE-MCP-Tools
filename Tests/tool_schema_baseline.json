@@ -9083,27 +9083,59 @@
   },
   "BBBAnimationGraphToolset": {
     "inspect_mass_scene_population": {
-      "inputSchema": {"type": "object"},
+      "inputSchema": {
+        "type": "object"
+      },
       "outputSchema": {
         "type": "object",
-        "properties": {"returnValue": {"type": "string", "description": "当前实体 生命 移动 爬行与导航诊断 */"}},
-        "required": ["returnValue"]
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "当前实体 生命 移动 爬行与导航诊断 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
       }
     },
     "configure_fact_crawl_states": {
       "inputSchema": {
         "type": "object",
         "properties": {
-          "asset_path": {"type": "string", "description": "独占持有的事实动画蓝图 *"},
-          "sequence_paths": {"type": "array", "items": {"type": "string"}, "description": "倒地 待机 警觉 移动 攻击 死亡六个序列 *"},
-          "blend_duration": {"type": "number", "description": "姿势切换秒数 *", "default": 0.18}
+          "asset_path": {
+            "type": "string",
+            "description": "独占持有的事实动画蓝图 *"
+          },
+          "sequence_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "倒地 待机 警觉 移动 攻击 死亡六个序列 *"
+          },
+          "blend_duration": {
+            "type": "number",
+            "description": "姿势切换秒数 *",
+            "default": 0.18
+          }
         },
-        "required": ["asset_path", "sequence_paths"]
+        "required": [
+          "asset_path",
+          "sequence_paths"
+        ]
       },
       "outputSchema": {
         "type": "object",
-        "properties": {"returnValue": {"type": "string", "description": "无警告编译与保存结果 */"}},
-        "required": ["returnValue"]
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "无警告编译与保存结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
       }
     },
     "bind_sequence_crossfade_getters": {
@@ -9931,6 +9963,321 @@
           "returnValue": {
             "type": "string",
             "description": "子弹出生输入提交结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    }
+  },
+  "BBBMeleeToolset": {
+    "register_melee_equipment": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "catalog_path": {
+            "type": "string",
+            "description": "已独占签出的现有装备目录 *"
+          },
+          "blueprint_path": {
+            "type": "string",
+            "description": "已验证并合入的近战装备蓝图 *"
+          }
+        },
+        "required": [
+          "catalog_path",
+          "blueprint_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "登记后的装备总数 不修改已有条目 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "validate_melee_equipment": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "definition_path": {
+            "type": "string",
+            "description": "近战装备定义 *"
+          },
+          "blueprint_path": {
+            "type": "string",
+            "description": "实际装备蓝图 *"
+          },
+          "source_animation_path": {
+            "type": "string",
+            "description": "不修改的原始角色攻击序列 *"
+          }
+        },
+        "required": [
+          "definition_path",
+          "blueprint_path",
+          "source_animation_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "骨骼轨道保真 曲线 通知 图表与网格配置检查结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_melee_equipment": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mesh_path": {
+            "type": "string",
+            "description": "新装备骨骼网格 *"
+          },
+          "montage_path": {
+            "type": "string",
+            "description": "新攻击蒙太奇 *"
+          },
+          "definition_path": {
+            "type": "string",
+            "description": "不存在的装备定义 *"
+          },
+          "blueprint_path": {
+            "type": "string",
+            "description": "不存在的装备演员蓝图 *"
+          },
+          "animation_blueprint_path": {
+            "type": "string",
+            "description": "不存在的装备参考姿势动画蓝图 *"
+          },
+          "character_layer_path": {
+            "type": "string",
+            "description": "已有同骨架角色动画层 *"
+          },
+          "catalog_path": {
+            "type": "string",
+            "description": "已独占签出的装备目录 *"
+          },
+          "equipment_id": {
+            "type": "string",
+            "description": "唯一装备标识 *"
+          },
+          "display_name": {
+            "type": "string",
+            "description": "中文显示名 *"
+          },
+          "settings_json": {
+            "type": "string",
+            "description": "攻击伤害间隔及挂接位置旋转 *"
+          },
+          "register_catalog": {
+            "type": "boolean",
+            "description": "是否立即登记目录 隔离阶段必须关闭 *",
+            "default": true
+          }
+        },
+        "required": [
+          "mesh_path",
+          "montage_path",
+          "definition_path",
+          "blueprint_path",
+          "animation_blueprint_path",
+          "character_layer_path",
+          "catalog_path",
+          "equipment_id",
+          "display_name",
+          "settings_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "创建的装备类及严格编译保存结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_melee_attack": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_path": {
+            "type": "string",
+            "description": "不修改的非叠加角色动画 *"
+          },
+          "sequence_path": {
+            "type": "string",
+            "description": "不存在的自有攻击序列 *"
+          },
+          "montage_path": {
+            "type": "string",
+            "description": "不存在的自有攻击蒙太奇 *"
+          },
+          "contact_start": {
+            "type": "number",
+            "description": "伤害窗口开始秒数 *"
+          },
+          "contact_end": {
+            "type": "number",
+            "description": "伤害窗口结束秒数 *"
+          }
+        },
+        "required": [
+          "source_path",
+          "sequence_path",
+          "montage_path",
+          "contact_start",
+          "contact_end"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "FullBody 蒙太奇及骨骼关键帧保真核验 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_rigid_equipment_mesh": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_path": {
+            "type": "string",
+            "description": "只读静态网格源 *"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "不存在的自有骨骼网格包 *"
+          },
+          "skeleton_path": {
+            "type": "string",
+            "description": "不存在的自有骨架包 *"
+          },
+          "sockets_json": {
+            "type": "string",
+            "description": "根骨骼插槽名称和三维位置数组 *"
+          }
+        },
+        "required": [
+          "source_path",
+          "mesh_path",
+          "skeleton_path",
+          "sockets_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "新网格骨架及材质骨骼检查结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_melee_sources": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mesh_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "只读候选网格 *"
+          },
+          "animation_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "只读候选攻击序列 *"
+          }
+        },
+        "required": [
+          "mesh_paths",
+          "animation_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "网格边界及角色双手采样姿势 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "stage_character_aim_gate": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_path": {
+            "type": "string",
+            "description": "目标角色动画蓝图 *"
+          },
+          "node_path": {
+            "type": "string",
+            "description": "唯一 Aim IK 动画节点 *"
+          },
+          "task_directory": {
+            "type": "string",
+            "description": "独立项目 Saved/temp 下的任务目录 *"
+          },
+          "source_project_directory": {
+            "type": "string",
+            "description": "正式项目根目录 *"
+          },
+          "expected_source_sha256": {
+            "type": "string",
+            "description": "正式目标文件开始编辑时的摘要 *"
+          }
+        },
+        "required": [
+          "blueprint_path",
+          "node_path",
+          "task_directory",
+          "source_project_directory",
+          "expected_source_sha256"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "严格编译和暂存结果 不保存正式目录 */"
           }
         },
         "required": [

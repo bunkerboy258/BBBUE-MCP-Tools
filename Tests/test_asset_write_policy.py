@@ -28,6 +28,7 @@ class AssetWritePolicyTests(unittest.TestCase):
         control = types.SimpleNamespace(is_enabled=lambda: True, is_available=lambda: True,
             current_provider=lambda: "Perforce", query_file_states=query)
         self.unreal = types.SimpleNamespace(SourceControl=control, LevelEditorSubsystem=object,
+            SystemLibrary=types.SimpleNamespace(get_command_line=lambda: ""),
             Actor=type("Actor", (), {}), ActorComponent=type("ActorComponent", (), {}),
             get_editor_subsystem=lambda kind: types.SimpleNamespace(is_in_play_in_editor=lambda: self.pie))
         with patch.dict(sys.modules, {"unreal": self.unreal}):
@@ -52,6 +53,17 @@ class AssetWritePolicyTests(unittest.TestCase):
         self.policy.require_asset_write(["/Game/A"])
         self.assertEqual([query[0] for query in self.queries], [["/Game/A", "/Game/B"], ["/Game/A"]])
         self.assertTrue(all(query[1]["use_source_control_state_cache"] is False for query in self.queries))
+
+    def test_commandlet_has_no_level_editor_subsystem(self):
+        """/** @return 命令行编辑器保留源控检查且不访问不存在的视口子系统 */"""
+        self.unreal.SystemLibrary.get_command_line = lambda: "Project.uproject -run=pythonscript -unattended"
+        self.unreal.get_editor_subsystem = lambda kind: self.fail("命令行不能读取 LevelEditorSubsystem")
+        self.policy.require_asset_write(["/Game/A"])
+        values = self.state()
+        values["is_checked_out_other"] = True
+        self.states["/Game/A"] = types.SimpleNamespace(**values)
+        with self.assertRaisesRegex(RuntimeError, "冲突"):
+            self.policy.require_asset_write(["/Game/A"])
 
     def test_unchecked_out_conflicted_stale_or_foreign_states_reject(self):
         """/** @return 写入前拒绝无签出 冲突 非最新与他人占用 */"""

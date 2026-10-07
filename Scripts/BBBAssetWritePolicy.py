@@ -35,7 +35,8 @@ def require_asset_write(assets, destinations=()):
         raise RuntimeError("写入预检必须提供目标资产")
     if set(sources) & set(targets):
         raise RuntimeError("现有资产与新目标不能重叠")
-    if unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+    commandlet = any(argument.lower().startswith("-run=") for argument in unreal.SystemLibrary.get_command_line().split())
+    if not commandlet and unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
         raise RuntimeError("PIE 期间禁止写入项目资产")
     control = unreal.SourceControl
     if not control.is_enabled() or not control.is_available() or control.current_provider() != "Perforce":
