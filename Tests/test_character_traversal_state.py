@@ -138,11 +138,13 @@ class CharacterTraversalStateTests(unittest.TestCase):
 class CharacterMovementInputTests(unittest.TestCase):
     """/** 移动意图构图只能持久化无警告的明确目标 */"""
 
+    method_name = "configure_character_movement_input"
+
     def setUp(self):
         """/** @return 隔离真实工具方法与编辑器依赖 */"""
         tree = ast.parse((ROOT / "Scripts/BBBTraversalToolset.py").read_text(encoding="utf-8-sig"))
         method = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
-                      and node.name == "configure_character_movement_input")
+                      and node.name == self.method_name)
         method.decorator_list = []
         self.engine = Mock()
         self.main = Mock()
@@ -151,7 +153,7 @@ class CharacterMovementInputTests(unittest.TestCase):
         self.main.get_editor_property.return_value = "Ready"
         self.engine.BlueprintStatus.BS_UP_TO_DATE = "Ready"
         self.engine.EditorLoadingAndSavingUtils.get_dirty_content_packages.return_value = []
-        self.engine.BBBAnimationGraphEditorLibrary.configure_character_movement_input.return_value = True
+        getattr(self.engine.BBBAnimationGraphEditorLibrary, self.method_name).return_value = True
         self.engine.EditorAssetLibrary.save_loaded_asset.return_value = True
         self.access = Mock()
         namespace = {"unreal": self.engine, "json": json, "require_asset_write": self.access,
@@ -173,18 +175,34 @@ class CharacterMovementInputTests(unittest.TestCase):
         self.engine.EditorLoadingAndSavingUtils.get_dirty_content_packages.return_value = [dirty]
         with self.assertRaises(RuntimeError):
             self.configure("/Game/Main")
-        self.engine.BBBAnimationGraphEditorLibrary.configure_character_movement_input.assert_not_called()
+        getattr(self.engine.BBBAnimationGraphEditorLibrary, self.method_name).assert_not_called()
 
     def test_native_failure_and_compile_warning_do_not_save(self):
         """/** @return 构图或严格编译失败时保留现场 */"""
-        self.engine.BBBAnimationGraphEditorLibrary.configure_character_movement_input.return_value = False
+        getattr(self.engine.BBBAnimationGraphEditorLibrary, self.method_name).return_value = False
         with self.assertRaises(RuntimeError):
             self.configure("/Game/Main")
-        self.engine.BBBAnimationGraphEditorLibrary.configure_character_movement_input.return_value = True
+        getattr(self.engine.BBBAnimationGraphEditorLibrary, self.method_name).return_value = True
         self.main.get_editor_property.return_value = "Warning"
         with self.assertRaises(RuntimeError):
             self.configure("/Game/Main")
         self.engine.EditorAssetLibrary.save_loaded_asset.assert_not_called()
+
+
+class CharacterTraversalExitTests(CharacterMovementInputTests):
+    """/** 攀爬出口遵循同一目标独占与严格保存边界 */"""
+
+    method_name = "configure_character_traversal_exits"
+
+    def test_only_main_saved(self):
+        """/** @return 地面出口只读输入 不被根运动尾速带入停步 */"""
+        result = json.loads(self.configure("/Game/Main"))
+        self.assertEqual(result["movementFact"], "SourceMovementInput")
+        self.assertEqual(result["groundExits"], ["Idle", "Cycle"])
+        self.assertFalse(result["rootVelocityUsed"])
+        self.access.assert_called_once_with([self.main])
+        getattr(self.engine.BBBAnimationGraphEditorLibrary, self.method_name).assert_called_once_with(self.main)
+        self.engine.EditorAssetLibrary.save_loaded_asset.assert_called_once_with(self.main, False)
 
 
 class TraversalFixtureRemovalTests(unittest.TestCase):

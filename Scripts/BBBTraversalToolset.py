@@ -78,6 +78,31 @@ class BBBTraversalToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def configure_character_traversal_exits(main_path: str) -> str:
+        """
+        /**
+         * 配置既有攀爬地面出口 避免镜像根运动尾速误触发移动和停步
+         * @param main_path	独占持有的角色主动画蓝图
+         * @return 无警告编译与保存结果 不修改其它状态
+         */
+        """
+        dirty = {value.get_path_name() for value in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
+        main = _blueprint(main_path)
+        require_asset_write([main])
+        if main.get_outermost().get_path_name() in dirty:
+            raise RuntimeError("目标有未保存改动 不覆盖其它会话")
+        if not unreal.BBBAnimationGraphEditorLibrary.configure_character_traversal_exits(main):
+            raise RuntimeError("攀爬地面出口结构不满足或构图失败 不保存")
+        unreal.BlueprintEditorLibrary.compile_blueprint(main)
+        if main.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+            raise RuntimeError("攀爬出口编译包含错误或警告 不保存")
+        if not unreal.EditorAssetLibrary.save_loaded_asset(main, False):
+            raise RuntimeError("攀爬出口保存失败")
+        return json.dumps({"saved": main.get_path_name(), "movementFact": "SourceMovementInput",
+                           "groundExits": ["Idle", "Cycle"], "rootVelocityUsed": False}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def configure_character_traversal_state(main_path: str, interface_path: str, base_path: str,
                                             child_paths: list[str], montage_paths: list[str]) -> str:
         """

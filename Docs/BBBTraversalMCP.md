@@ -25,7 +25,11 @@ Perforce 用于版本管理而非限制正常编辑 受控资产仍检查他人�
 
 ## 控制交接与网络验收
 
-`configure_character_movement_input(main_path)` 在主图既有线程安全 UpdateAccelerationData 中派生 HasMovementInput 普通移动转换按 SourceMovementInput 判断持续输入 急转方向与其有效分支仍使用真实 SourceAcceleration 攀爬出口按速度与持续输入选择 Cycle 或 Idle 不伪造 CMC 加速度 不改 EventGraph 或主姿势链 重复构图或脏目标拒绝 无警告编译后仅保存主图
+`configure_character_movement_input(main_path)` 在主图既有线程安全 UpdateAccelerationData 中派生 HasMovementInput 普通移动转换按 SourceMovementInput 判断持续输入 急转方向与其有效分支仍使用真实 SourceAcceleration 攀爬地面出口只按持续输入选择 Cycle 或 Idle 不读取残留根运动速度 不伪造 CMC 加速度 不改 EventGraph 或主姿势链 重复构图或脏目标拒绝 无警告编译后仅保存主图
+
+`configure_character_traversal_exits(main_path)` 仅配置既有 Traversal 到 Idle 与 Cycle 的两条地面规则 保留原过渡身份 坐标 混合参数 空中出口与其它状态拓扑 严格检查两条出口唯一且存在结果节点 无警告编译后仅保存主图 静止攀爬的本地与镜像均须直接进入 Idle 不能被根运动尾速带入 Cycle 再 Stop
+
+退出窗口按源动画有效运动与实际支撑姿势人工配置 不按片段总时长推定 高攀爬原根轨道约在 1.85 秒完成移动 后面的站立尾段不应继续占用 Flying 控制 低攀爬终点窗口到 1.2 秒 高攀爬到 1.9 秒 交还控制时暂停根运动 因此终点窗口不减去不再播放的剩余根运动 接触窗口与静态接触点保持原样 当前攀爬倍率为 1.8 翻越为 2.0 源动画与普通跳跃触发判断不改动 必须另行复验不同障碍高度与手脚姿势
 
 角色网络观察同步同版本的实际加速度与已解析世界空间移动输入 镜像只还原黑板 不重演输入 移动输入在根运动期间已存在 不等待退出后的首帧 CMC 加速度 网络诊断同时显示 SourceMovementInput 持续按住移动时退出后不得经过 Stop 或 Idle 松开输入后正常制动
 

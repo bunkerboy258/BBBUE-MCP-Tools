@@ -85,6 +85,32 @@
         ]
       }
     },
+    "configure_character_traversal_exits": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "main_path": {
+            "type": "string",
+            "description": "独占持有的角色主动画蓝图 *"
+          }
+        },
+        "required": [
+          "main_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "无警告编译与保存结果 不修改其它状态 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
     "configure_traversal_montages": {
       "inputSchema": {
         "type": "object",
