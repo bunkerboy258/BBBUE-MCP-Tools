@@ -200,6 +200,173 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def configure_fact_stagger_state(asset_path: str, sequence_paths: list[str], blend_duration: float = 0.12) -> str:
+        """
+        /**
+         * 为六行为站立事实图加入一个踉跄状态 保留爬行和死亡
+         * @param asset_path\t独占持有的僵尸动画蓝图
+         * @param sequence_paths\t头部 左向 右向三个同骨架序列
+         * @param blend_duration\t惯性混合秒数
+         * @return 无警告编译保存结果
+         */
+        """
+        if len(sequence_paths) != 3 or len(set(sequence_paths)) != 3 or not asset_path.startswith("/Game/_Project/") or not math.isfinite(blend_duration) or not 0.0 < blend_duration <= 0.3:
+            raise RuntimeError("踉跄需要项目动画蓝图 三个不同序列和有效混合时间")
+
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止配置踉跄状态")
+
+        library = getattr(unreal, "BBBAnimationGraphEditorLibrary", None)
+        if library is None or not hasattr(library, "configure_fact_stagger_state"):
+            raise RuntimeError("请先编译踉跄构图能力")
+
+        blueprint = unreal.load_asset(asset_path)
+        sequences = [unreal.load_asset(path) for path in sequence_paths]
+        if not isinstance(blueprint, unreal.AnimBlueprint) or any(not isinstance(sequence, unreal.AnimSequence) for sequence in sequences):
+            raise RuntimeError("踉跄蓝图或序列无效")
+
+        require_write_access(blueprint)
+        if not library.configure_fact_stagger_state(blueprint, sequences, blend_duration):
+            raise RuntimeError("踉跄构图失败 不保存")
+
+        unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
+        if blueprint.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+            raise RuntimeError("踉跄图未通过无警告编译 不保存")
+
+        if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
+            raise RuntimeError("踉跄图保存失败")
+
+        return json.dumps({"asset": asset_path, "sequences": list(sequence_paths), "state": "Stagger", "saved": True}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def capture_monster_stagger_samples(actor_blueprint_paths: list[str], hit_region: int, sample_progress: list[float], file_prefix: str) -> str:
+        """
+        /**
+         * 在临时非 Mass 载体上采样正式踉跄蓝图 不修改场景实例或资产
+         * @param actor_blueprint_paths\t明确表现蓝图 每批最多十项
+         * @param hit_region\t六种命中部位编号
+         * @param sample_progress\t踉跄进度 至多三项 一表示结束回移动
+         * @param file_prefix\tSaved/temp 下不存在的截图前缀
+         * @return 正式蓝图运行图 骨骼位置 截图与临时对象清理结果
+         */
+        """
+        if "-nullrhi" in unreal.SystemLibrary.get_command_line().lower():
+            raise RuntimeError("踉跄截图需要渲染宿主")
+
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        library = getattr(unreal, "BBBAnimationGraphEditorLibrary", None)
+        if world is None or library is None:
+            raise RuntimeError("缺少 PIE 世界或原生同步动画求值")
+
+        if not actor_blueprint_paths or len(actor_blueprint_paths) > 10 or len(set(actor_blueprint_paths)) != len(actor_blueprint_paths) or any(not path.startswith("/Game/_Project/") for path in actor_blueprint_paths):
+            raise RuntimeError("必须明确一至十个不同项目表现蓝图")
+
+        if hit_region not in range(6) or not sample_progress or len(sample_progress) > 3 or any(not math.isfinite(value) or not 0.0 <= value <= 1.0 for value in sample_progress) or sample_progress != sorted(sample_progress):
+            raise RuntimeError("命中部位或有序采样进度无效")
+
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", file_prefix):
+            raise RuntimeError("截图前缀无效")
+
+        directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "temp", file_prefix))
+        if os.path.exists(directory):
+            raise RuntimeError("截图目录已存在 禁止覆盖")
+
+        blueprints = [unreal.load_asset(path) for path in actor_blueprint_paths]
+        if any(not isinstance(blueprint, unreal.Blueprint) for blueprint in blueprints):
+            raise RuntimeError("表现蓝图不存在")
+
+        regions = [unreal.BBBMonsterHitRegion.TORSO, unreal.BBBMonsterHitRegion.HEAD,
+                   unreal.BBBMonsterHitRegion.LEFT_ARM, unreal.BBBMonsterHitRegion.RIGHT_ARM,
+                   unreal.BBBMonsterHitRegion.LEFT_LEG, unreal.BBBMonsterHitRegion.RIGHT_LEG]
+        spawn = unreal.BBBBlueprintEditorLibrary.spawn_transient_pie_actor
+        os.makedirs(directory)
+        reports = []
+        for blueprint in blueprints:
+            actors = []
+            samples = []
+            centers = []
+            try:
+                for index, progress in enumerate(sample_progress):
+                    offset = (index - (len(sample_progress) - 1) * 0.5) * 180.0
+                    actor = spawn(world, blueprint.generated_class(), unreal.Transform(location=unreal.Vector(0.0, offset, 20090.0), rotation=unreal.Rotator(yaw=180.0)))
+                    if actor is None:
+                        raise RuntimeError("临时表现载体创建失败")
+
+                    actors.append(actor)
+                    mesh = actor.get_monster_mesh()
+                    presentation = actor.get_monster_presentation()
+                    mesh.set_component_tick_enabled(False)
+                    presentation.call_method("ApplyPresentationState", (unreal.BBBMonsterBehavior.CHASE, 180.0, 1.0, 1, 0.0))
+                    for frame in range(20):
+                        if not library.evaluate_animation_blueprint_frame(mesh, 1.0 / 60.0):
+                            raise RuntimeError("初始移动姿势求值失败")
+
+                    presentation.call_method("ApplyStaggerState", (True, min(progress, 0.999), regions[hit_region]))
+                    presentation.call_method("ApplyPresentationState", (unreal.BBBMonsterBehavior.CHASE, 0.0, 1.0, 1, 0.0))
+                    for frame in range(20):
+                        if not library.evaluate_animation_blueprint_frame(mesh, 1.0 / 60.0):
+                            raise RuntimeError("踉跄姿势求值失败")
+
+                    if progress >= 1.0:
+                        presentation.call_method("ApplyStaggerState", (False, 1.0, regions[hit_region]))
+                        presentation.call_method("ApplyPresentationState", (unreal.BBBMonsterBehavior.CHASE, 180.0, 1.0, 1, 0.0))
+                        for frame in range(20):
+                            if not library.evaluate_animation_blueprint_frame(mesh, 1.0 / 60.0):
+                                raise RuntimeError("踉跄结束回移动求值失败")
+
+                    animation = mesh.get_anim_instance()
+                    runtime = json.loads(unreal.BBBBlueprintEditorLibrary.probe_animation_instance_runtime(animation))
+                    bones = {}
+                    for name in ("pelvis", "spine_03", "head", "foot_l", "foot_r"):
+                        position = mesh.get_socket_transform(name, unreal.RelativeTransformSpace.RTS_COMPONENT).translation
+                        bones[name] = [position.x, position.y, position.z]
+                    samples.append({"progress": progress, "animationClass": animation.get_class().get_path_name(), "runtimeGraph": runtime, "bones": bones})
+                    centers.append(unreal.SystemLibrary.get_component_bounds(mesh)[0].z)
+
+                light = spawn(world, unreal.PointLight, unreal.Transform(location=unreal.Vector(-220.0, 0.0, max(centers) + 130.0)))
+                if light is None:
+                    raise RuntimeError("临时补光创建失败")
+                actors.append(light)
+                component = light.get_component_by_class(unreal.PointLightComponent)
+                component.set_intensity(50000.0)
+                component.set_attenuation_radius(1600.0)
+                camera = spawn(world, unreal.SceneCapture2D, unreal.Transform(location=unreal.Vector(-650.0, 0.0, sum(centers) / len(centers))))
+                if camera is None:
+                    raise RuntimeError("临时相机创建失败")
+                actors.append(camera)
+                target = unreal.RenderingLibrary.create_render_target2d(world, 960, 540, unreal.TextureRenderTargetFormat.RTF_RGBA8)
+                capture = camera.capture_component2d
+                capture.set_editor_property("texture_target", target)
+                capture.set_editor_property("capture_source", unreal.SceneCaptureSource.SCS_FINAL_COLOR_LDR)
+                capture.set_editor_property("capture_every_frame", False)
+                capture.set_editor_property("capture_on_movement", False)
+                capture.set_editor_property("fov_angle", 55.0)
+                settings = unreal.PostProcessSettings()
+                settings.set_editor_property("override_auto_exposure_method", True)
+                settings.set_editor_property("auto_exposure_method", unreal.AutoExposureMethod.AEM_MANUAL)
+                settings.set_editor_property("override_auto_exposure_apply_physical_camera_exposure", True)
+                settings.set_editor_property("auto_exposure_apply_physical_camera_exposure", False)
+                capture.set_editor_property("post_process_settings", settings)
+                capture.set_editor_property("post_process_blend_weight", 1.0)
+                capture.set_editor_property("primitive_render_mode", unreal.SceneCapturePrimitiveRenderMode.PRM_USE_SHOW_ONLY_LIST)
+                capture.set_editor_property("show_only_actors", actors[:-2])
+                capture.capture_scene()
+                filename = blueprint.get_name() + ".png"
+                image_path = os.path.join(directory, filename)
+                unreal.RenderingLibrary.export_render_target(world, target, directory, filename)
+                if not os.path.isfile(image_path) or os.path.getsize(image_path) < 1024:
+                    raise RuntimeError("踉跄截图导出失败")
+                reports.append({"actorBlueprint": blueprint.get_path_name(), "imagePath": image_path, "samples": samples})
+            finally:
+                for actor in reversed(actors):
+                    actor.destroy_actor()
+
+        unreal.log("[BBBMonsterStaggerCapture] Completed=" + str(len(reports)))
+        return json.dumps({"captures": reports, "temporaryActorsDestroyed": True}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def configure_fact_crawl_states(asset_path: str, sequence_paths: list[str], blend_duration: float = 0.18) -> str:
         """
         /**

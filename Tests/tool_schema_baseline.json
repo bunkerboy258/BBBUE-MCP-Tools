@@ -10389,6 +10389,92 @@
           "returnValue"
         ]
       }
+    },
+    "configure_fact_stagger_state": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "独占持有的僵尸动画蓝图 *"
+          },
+          "sequence_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "头部 左向 右向三个同骨架序列 *"
+          },
+          "blend_duration": {
+            "type": "number",
+            "description": "惯性混合秒数 *",
+            "default": 0.12
+          }
+        },
+        "required": [
+          "asset_path",
+          "sequence_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "无警告编译保存结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "capture_monster_stagger_samples": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "actor_blueprint_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "明确表现蓝图 每批最多十项 *"
+          },
+          "hit_region": {
+            "type": "integer",
+            "description": "六种命中部位编号 *"
+          },
+          "sample_progress": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "踉跄进度 至多三项 一表示结束回移动 *"
+          },
+          "file_prefix": {
+            "type": "string",
+            "description": "Saved/temp 下不存在的截图前缀 *"
+          }
+        },
+        "required": [
+          "actor_blueprint_paths",
+          "hit_region",
+          "sample_progress",
+          "file_prefix"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "正式蓝图运行图 骨骼位置 截图与临时对象清理结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBHitReactionToolset": {
