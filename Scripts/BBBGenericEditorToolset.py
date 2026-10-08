@@ -14,6 +14,9 @@ from BBBSoundAssetAudit import inspect_sounds, export_waves
 from toolset_registry.registration import Registration
 
 
+_pie_audio_capture = None
+
+
 def _serialize_value(value):
     if value is None:
         return None
@@ -114,6 +117,60 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
          */
         """
         return export_waves(asset_paths, output_directory)
+
+    @mcp_tool
+    @staticmethod
+    def start_pie_audio_recording(file_prefix: str) -> str:
+        """
+        /**
+         * 录制当前 PIE 的混音输出 不使用麦克风
+         * @param file_prefix\tSaved/temp 下的任务目录名和文件名 使用单个斜杠分隔
+         * @return JSON 输出路径 开始请求不证明已有有效采样
+         */
+        """
+        global _pie_audio_capture
+        from BBBSoundAssetAudit import _directory
+
+        if _pie_audio_capture is not None:
+            raise RuntimeError("已有 PIE 录音未结束")
+        if not re.fullmatch(r"[A-Za-z0-9_-]+/[A-Za-z0-9_-]+", file_prefix):
+            raise RuntimeError("录音前缀必须为任务目录名和文件名")
+        if "-nosound" in unreal.SystemLibrary.get_command_line().lower():
+            raise RuntimeError("宿主禁用了声音 不能请求混音录制")
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if world is None:
+            raise RuntimeError("录音需要当前 PIE 世界")
+        folder, name = file_prefix.split("/")
+        saved = unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_saved_dir())
+        directory = _directory(os.path.join(saved, "temp", folder))
+        filename = directory / (name + ".wav")
+        if filename.exists():
+            raise RuntimeError("禁止覆盖录音文件")
+        directory.mkdir(parents=True, exist_ok=True)
+        unreal.AudioMixerLibrary.start_recording_output(world, 30.0)
+        _pie_audio_capture = {"world": world, "directory": str(directory), "name": name, "file": str(filename)}
+        return json.dumps({"file": str(filename), "recording_requested": True})
+
+    @mcp_tool
+    @staticmethod
+    def finish_pie_audio_recording() -> str:
+        """
+        /**
+         * 结束当前 PIE 混音录制并请求原生 WAV 导出
+         * @return JSON 输出路径 调用者须等待异步落盘并检查有效音频
+         */
+        """
+        global _pie_audio_capture
+        if _pie_audio_capture is None:
+            raise RuntimeError("没有活动的 PIE 录音")
+        record = _pie_audio_capture
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if world != record["world"]:
+            _pie_audio_capture = None
+            raise RuntimeError("PIE 世界已经变化 录音失效")
+        unreal.AudioMixerLibrary.stop_recording_output(world, unreal.AudioRecordingExportType.WAV_FILE, record["name"], record["directory"])
+        _pie_audio_capture = None
+        return json.dumps({"file": record["file"], "export_requested": True})
 
     @mcp_tool
     @staticmethod

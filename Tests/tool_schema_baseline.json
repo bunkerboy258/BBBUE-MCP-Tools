@@ -3444,6 +3444,41 @@
     }
   },
   "BBBGenericEditorToolset": {
+    "start_pie_audio_recording": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "file_prefix": {
+            "type": "string",
+            "description": "Saved/temp 下的任务目录名和文件名 使用单个斜杠分隔 *"
+          }
+        },
+        "required": ["file_prefix"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "JSON 输出路径 开始请求不证明已有有效采样 */"
+          }
+        },
+        "required": ["returnValue"]
+      }
+    },
+    "finish_pie_audio_recording": {
+      "inputSchema": {"type": "object"},
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "JSON 输出路径 调用者须等待异步落盘并检查有效音频 */"
+          }
+        },
+        "required": ["returnValue"]
+      }
+    },
     "export_sound_waves": {
       "inputSchema": {
         "type": "object",

@@ -97,6 +97,9 @@ def _require_reload_idle():
     if unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
         raise RuntimeError("PIE 期间禁止重载 MCP 工具")
     motion = sys.modules.get("BBBAnimationMotionTools")
+    generic = sys.modules.get("BBBGenericEditorToolset")
+    if generic is not None and getattr(generic, "_pie_audio_capture", None) is not None:
+        raise RuntimeError("PIE 音频录制尚未结束 禁止重载 MCP 工具")
     if motion is not None and getattr(motion, "_capture_handle", None) is not None:
         raise RuntimeError("动画运动采样尚未结束 禁止重载 MCP 工具")
     preview = sys.modules.get("BBBAnimationPreviewToolset")
