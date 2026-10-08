@@ -9,6 +9,7 @@ param(
     [ValidateRange(1, 600)]
     [int]$TimeoutSeconds = 90,
     [switch]$EnableRendering,
+    [switch]$EnableSlateInspector,
     [ValidateSet('Speed', 'Balanced', 'Economy', 'GamingBackground')]
     [string]$PerformanceProfile = 'Speed',
     [ValidateRange(-1, 240)]
@@ -167,6 +168,10 @@ try
             '-FullStdOutLogOutput'
         )
         $consoleCommands = "t.MaxFPS $frameLimit,t.IdleWhenNotForeground 0"
+        if ($EnableSlateInspector)
+        {
+            $arguments += '-EnablePlugins=SlateInspectorToolset'
+        }
         if ($Culture)
         {
             $arguments += '-culture=' + $Culture

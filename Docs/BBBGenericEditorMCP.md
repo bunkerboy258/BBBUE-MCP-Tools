@@ -301,3 +301,17 @@ UE5.8 以 `DefaultKeyMappings` 为实际映射来源 工具调用引擎的 `unma
 `apply_pie_damage` 使用引擎伤害入口提交真实伤害，来源必须是同一 PIE 世界本机控制的 Pawn。工具不改写生命字段，返回的只是适配器接受数值，实际结果需在后续帧通过只读查询验证。跨连接测试分别选取相应世界中的来源和目标副本。
 
 `run_automation_tests` 在无 PIE 时启动已注册测试的明确前缀，拒绝包含命令分隔符的输入。启动返回值不表示测试通过，须读取引擎最终日志；测试运行期间不能启动 PIE 或重载被测试模块。
+
+- HUD 网格轮廓请求可传 excluded_material_slots 逗号分隔材质槽名 排除皮肤等非物品几何 并按剩余几何重新取景 不修改源网格。
+
+- 网格缩略图请求支持 excluded_material_slots 与 output_directory 排除非物品表面 输出到 Saved/temp 对应任务目录。
+- `render_mesh_silhouettes` 请求可选 `line_art=true` 输出正交白色边缘线稿和微弱内部填充，尺寸为 512×512；不显示排除材质所属的人体表面。
+- `render_asset_thumbnails` 请求可选 `orthographic=true` 使用无俯视的正交视角，以 `yaw` 明确物品正面方向，避免透视歪斜。
+- `rebind_asset_import_sources(requests_json)` 将指定资产的第一个导入源文件绑定到项目 Content 内的永久文件，保留资产内容、逐项签出保存，用于清理临时生成目录前固定重导入来源。
+- 图标和详情成图的 `mesh` 或 `source` 可用分号连接最多八个骨骼网格，组合物品按同一正面方向平放排开；不创建合并模型或第二份物品。
+- 隐藏官方宿主启动脚本可选 `-EnableSlateInspector` 启用官方 Slate 树观察、按键、拖动和截图工具；视觉测试须同时启用 `-EnableRendering`，仍只允许一个可写宿主。
+`render_asset_thumbnails` 的正交输出按非透明网格边界裁切并保留 12 像素留白 保持网格比例与水平观察方向 便于直接用于详情图。
+`dispatch_slate_key(key_name, pressed)` 发送当前聚焦控件的真实 Slate 按下或松开事件 支持 Tab 等持续按键 调用者必须在操作结束后松开 使用 Two 等引擎按键名称。
+成对物件的图标与缩略图请求支持 `pack_sides: true`。仅适用于分列 X 轴两侧的单个骨骼网格。工具先移除明确排除的材质三角面 再平移两侧物件以减少空隙 不旋转或改变外形 不修改源网格。
+`activate_slate_button(label)` 直接执行包含完整文本的唯一可用 Slate 按钮委托 重名时拒绝执行 不移动系统光标 不发送系统按键 不激活窗口 适合前台运行其它程序时的后台界面验收。
+PIE 反射调用中的 Guid 返回值按标准字符串序列化 位置参数可显式使用 `{"$guid":"有效 Guid 字符串"}` 传入稳定实例身份 格式无效时在调用前拒绝 不转换其它普通参数。

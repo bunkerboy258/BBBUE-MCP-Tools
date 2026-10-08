@@ -27,6 +27,9 @@ def _serialize_value(value):
     if isinstance(value, unreal.Object):
         return value.get_path_name()
 
+    if isinstance(value, unreal.Guid):
+        return value.to_string()
+
     if isinstance(value, (list, tuple)):
         return [_serialize_value(item) for item in value]
 
@@ -40,6 +43,16 @@ def _serialize_value(value):
         return _serialize_value(value.to_tuple())
 
     return str(value)
+
+
+def _function_argument(value):
+    """/** @param value	JSON 位置参数 @return	保留普通参数并解析显式 Guid 标记 */"""
+    if isinstance(value, dict) and set(value) == {"$guid"}:
+        guid, success = unreal.GuidLibrary.parse_string_to_guid(value["$guid"])
+        if not success:
+            raise RuntimeError("Guid 格式无效")
+        return guid
+    return value
 
 
 def _load_blueprint_default_object(asset_path):
@@ -1136,7 +1149,10 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
             file_name = destination.rsplit("/", 1)[1] + ".png"
             image_path = unreal.BBBAssetThumbnailEditorLibrary.render_mesh_thumbnail(
-                source, file_name, float(request.get("yaw", 75.0)))
+                source, file_name, float(request.get("yaw", 75.0)),
+                str(request.get("excluded_material_slots", "")),
+                str(request.get("output_directory", "AssetThumbnails")), bool(request.get("orthographic", False)),
+                bool(request.get("pack_sides", False)))
             if not image_path:
                 results.append({"destination": destination, "error": "网格渲染失败"})
                 continue
@@ -1662,7 +1678,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             raise RuntimeError("目标必须是当前 PIE 世界中已存在的 Actor")
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", function_name) or not isinstance(arguments, list):
             raise RuntimeError("函数名或位置参数数组无效")
-        result = actor.call_method(function_name, tuple(arguments))
+        result = actor.call_method(function_name, tuple(_function_argument(value) for value in arguments))
         return json.dumps({"actor": actor_path, "function": function_name, "result": _serialize_value(result)}, ensure_ascii=False)
 
     @mcp_tool
@@ -2743,7 +2759,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", function_name) or not isinstance(arguments, list):
             raise RuntimeError("函数名或位置参数数组无效")
 
-        result = target.call_method(function_name, tuple(arguments))
+        result = target.call_method(function_name, tuple(_function_argument(value) for value in arguments))
         report = {"object": object_path, "world": owner.get_world().get_path_name(), "function": function_name, "result": _serialize_value(result)}
         unreal.log("[BBBPIEObjectCall] " + object_path + " " + function_name)
         return json.dumps(report, ensure_ascii=False)
@@ -3261,6 +3277,69 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         result = {"directory": directory, "fbx": fbx_path, "skeletonJson": json_path, "boneCount": len(bones), "vertexCount": report["lod0VertexCount"]}
         unreal.log("[BBB][SkeletalExport] " + json.dumps(result, ensure_ascii=False))
         return json.dumps(result, ensure_ascii=False)
+
+
+    @mcp_tool
+    @staticmethod
+    def rebind_asset_import_sources(requests_json: str) -> str:
+        """
+        /**
+         * @param requests_json\t每项提供 asset 资产和 source 永久源文件路径
+         * @return\t逐项保存的资产及源文件 不重新导入或修改内容
+         */
+        """
+        from BBBAssetWritePolicy import require_write_access
+
+        requests = json.loads(requests_json)
+        if not isinstance(requests, list) or not 1 <= len(requests) <= 100:
+            raise RuntimeError("源文件绑定请求必须为一至一百项")
+        root = os.path.realpath(unreal.Paths.project_content_dir())
+        prepared = []
+        for request in requests:
+            source = os.path.realpath(request["source"])
+            if os.path.commonpath([root, source]) != root or not os.path.isfile(source):
+                raise RuntimeError("源文件必须位于项目 Content 内且确实存在")
+            asset = unreal.EditorAssetLibrary.load_asset(request["asset"])
+            if asset is None:
+                raise RuntimeError("需要绑定源文件的资产不存在")
+            data = asset.get_editor_property("asset_import_data")
+            if data is None:
+                raise RuntimeError("目标没有导入数据")
+            prepared.append((asset, data, source))
+        results = []
+        for asset, data, source in prepared:
+            require_write_access(asset)
+            asset.modify()
+            data.scripted_add_filename(source, 0, "")
+            if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
+                raise RuntimeError("源文件绑定保存失败")
+            results.append({"asset": asset.get_path_name(), "source": source})
+        return json.dumps(results, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def dispatch_slate_key(key_name: str, pressed: bool) -> bool:
+        """
+        /**
+         * 向当前聚焦控件分别发送按下与松开 用于持续按键操作
+         * @param key_name\t引擎按键名称 如 Tab 或 Two
+         * @param pressed\t是否按下 松开须显式调用
+         * @return\t有效按键是否发送 不修改持久配置
+         */
+        """
+        return unreal.BBBAssetThumbnailEditorLibrary.dispatch_slate_key(key_name, pressed)
+
+    @mcp_tool
+    @staticmethod
+    def activate_slate_button(label: str) -> bool:
+        """
+        /**
+         * 直接执行唯一可用文本按钮的点击委托 不移动系统光标或激活窗口
+         * @param label\t按钮内的完整文本 多个匹配时拒绝执行
+         * @return\t是否执行 不改变系统焦点
+         */
+        """
+        return unreal.BBBAssetThumbnailEditorLibrary.activate_slate_button(label)
 
 
 _registration = Registration([BBBGenericEditorToolset])

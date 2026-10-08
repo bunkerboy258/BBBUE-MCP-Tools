@@ -24,7 +24,9 @@ class BBBHudAssetToolset(unreal.ToolsetDefinition):
         for request in requests:
             path = unreal.BBBAssetThumbnailEditorLibrary.render_mesh_silhouette(
                 request["mesh"], request["output"], int(request.get("horizontal_axis", 0)),
-                int(request.get("vertical_axis", 2)), bool(request.get("flip_horizontal", False)))
+                int(request.get("vertical_axis", 2)), bool(request.get("flip_horizontal", False)),
+                str(request.get("excluded_material_slots", "")), bool(request.get("line_art", False)),
+                bool(request.get("pack_sides", False)))
             if not path:
                 raise RuntimeError("轮廓图生成失败: " + request["mesh"])
             results.append({"mesh": request["mesh"], "image": path})

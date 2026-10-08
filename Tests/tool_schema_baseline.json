@@ -5670,6 +5670,89 @@
           "returnValue"
         ]
       }
+    },
+    "rebind_asset_import_sources": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "requests_json": {
+            "type": "string",
+            "description": "每项提供 asset 资产和 source 永久源文件路径 *"
+          }
+        },
+        "required": [
+          "requests_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "逐项保存的资产及源文件 不重新导入或修改内容 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "dispatch_slate_key": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "key_name": {
+            "type": "string",
+            "description": "引擎按键名称 如 Tab 或 Two *"
+          },
+          "pressed": {
+            "type": "boolean",
+            "description": "是否按下 松开须显式调用 *"
+          }
+        },
+        "required": [
+          "key_name",
+          "pressed"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "boolean",
+            "description": "有效按键是否发送 不修改持久配置 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "activate_slate_button": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string",
+            "description": "按钮内的完整文本 多个匹配时拒绝执行 *"
+          }
+        },
+        "required": [
+          "label"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "boolean",
+            "description": "是否执行 不改变系统焦点 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBLevelEditingToolset": {
@@ -11238,6 +11321,39 @@
           "returnValue": {
             "type": "string",
             "description": "严格编译和暂存结果 不保存正式目录 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    }
+  },
+  "BBBSkeletalMeshImportToolset": {
+    "reimport_skeletal_mesh": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "已有骨骼网格的明确对象路径 *"
+          },
+          "source_file": {
+            "type": "string",
+            "description": "已存在的 FBX 绝对路径 *"
+          }
+        },
+        "required": [
+          "asset_path",
+          "source_file"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "原位保存结果 骨架与顶点数量 */"
           }
         },
         "required": [
