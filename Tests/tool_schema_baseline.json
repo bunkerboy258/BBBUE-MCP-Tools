@@ -1,4 +1,63 @@
 {
+  "BBBHudAssetToolset": {
+    "set_input_action_keys": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mapping_context_path": {
+            "type": "string",
+            "description": "需要更新的输入映射资产 *"
+          },
+          "mappings_json": {
+            "type": "string",
+            "description": "每项包含 action 资产路径和 key 按键名称 *"
+          }
+        },
+        "required": [
+          "mapping_context_path",
+          "mappings_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "更新后的按键映射和保留映射数量 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "render_mesh_silhouettes": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "requests_json": {
+            "type": "string",
+            "description": "每项包含 mesh output 以及可选 horizontal_axis vertical_axis flip_horizontal *"
+          }
+        },
+        "required": [
+          "requests_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "Saved/temp 下新建 PNG 路径列表 不修改源资产 不覆盖文件 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    }
+  },
   "BBBTraversalToolset": {
     "configure_traversal_montages": {
       "inputSchema": {

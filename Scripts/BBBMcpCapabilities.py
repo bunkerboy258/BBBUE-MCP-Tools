@@ -7,6 +7,7 @@ from MCP.mcp_result import require_business_success
 
 
 TOOLSET_ROUTES = {
+    "BBBHudAssetToolset": "网格轮廓图与 HUD 资产",
     "BBBTraversalToolset": "攀爬资产与运行验收",
     "BBBMeleeToolset": "近战装备制作与验收",
     "BBBAnimationMigrationToolset": "动画项目流程",
