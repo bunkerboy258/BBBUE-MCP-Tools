@@ -5653,6 +5653,23 @@
           "returnValue"
         ]
       }
+    },
+    "request_pie_late_join": {
+      "inputSchema": {
+        "type": "object"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "请求结果 不启动其它编辑器 不修改持久配置 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBLevelEditingToolset": {

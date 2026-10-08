@@ -95,6 +95,17 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def request_pie_late_join() -> str:
+        """
+        /**
+         * 请求现有监听主机 PIE 增加一个迟加入客机
+         * @return 请求结果 不启动其它编辑器 不修改持久配置
+         */
+        """
+        return unreal.BBBPIEInputEditorLibrary.request_pie_late_join()
+
+    @mcp_tool
+    @staticmethod
     def inspect_sound_assets(asset_paths: list[str]) -> str:
         """
         /**
