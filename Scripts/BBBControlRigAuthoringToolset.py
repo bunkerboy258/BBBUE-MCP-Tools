@@ -726,6 +726,25 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         require_write_access(asset)
         graph = asset.get_controller()
         request = json.loads(request_json)
+        hierarchy = asset.hierarchy
+        hierarchy_controller = hierarchy.get_controller()
+        for control in request.get("controls", []):
+            key = _key(control["name"], "CONTROL")
+            if hierarchy.contains(key):
+                raise RuntimeError("控制器已存在 " + control["name"])
+
+            settings = unreal.RigControlSettings()
+            settings.control_type = unreal.RigControlType.EULER_TRANSFORM
+            settings.shape_visible = control.get("visible", False)
+            initial = unreal.RigHierarchy.make_control_value_from_euler_transform(unreal.EulerTransform())
+            created = hierarchy_controller.add_control(control["name"], unreal.RigElementKey(), settings, initial, False, False)
+            if str(created.name) != control["name"]:
+                raise RuntimeError("控制器创建失败 " + control["name"])
+
+        for source, target in request.get("breakLinks", []):
+            if not graph.break_link(source, target, False, False):
+                raise RuntimeError("断开绑定连线失败 " + source + " -> " + target)
+
         for name in request.get("removeNodes", []):
             node = graph.get_graph().find_node_by_name(name)
             if node is not None:
@@ -924,6 +943,25 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def inspect_control_rig_controls(asset_path: str) -> str:
+        """
+        /**
+         * 读取控制器实际类型与偏移 避免使用不匹配的 Sequencer 写键接口
+         * @param asset_path	控制绑定资产
+         * @return 控制器名称 类型 初始偏移和是否允许动画
+         */
+        """
+        hierarchy = _asset(asset_path, unreal.ControlRigBlueprint).hierarchy
+        controls = []
+        for key in hierarchy.get_controls():
+            settings = hierarchy.get_control_settings(key)
+            controls.append({"name": str(key.name), "type": str(settings.control_type),
+                             "animationType": str(settings.animation_type),
+                             "offset": _read_transform(hierarchy.get_global_control_offset_transform(key, True))})
+        return json.dumps({"asset": asset_path, "controls": controls}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def sample_animation_poses(animation_path: str, mesh_path: str, times: list[float], bone_names: list[str]) -> str:
         """
         /**
@@ -962,6 +1000,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         require_write_access(sequence)
         binding = _mesh_binding(sequence, _asset(mesh_path, unreal.SkeletalMesh))
         world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+        unreal.LevelSequenceEditorBlueprintLibrary.open_level_sequence(sequence)
         track = unreal.ControlRigSequencerLibrary.find_or_create_control_rig_track(world, sequence, asset.get_control_rig_class(), binding, is_layered_control_rig=is_layered)
         for source_track in binding.find_tracks_by_type(unreal.MovieSceneSkeletalAnimationTrack):
             for section in source_track.get_sections():
@@ -969,12 +1008,12 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         if track is None:
             raise RuntimeError("建立叠加绑定轨道失败")
 
+        unreal.LevelSequenceEditorBlueprintLibrary.force_update()
         rigs = [value.control_rig for value in unreal.ControlRigSequencerLibrary.get_control_rigs(sequence) if value.track == track]
         if len(rigs) != 1:
             raise RuntimeError("绑定轨道实例数量异常")
 
         rig = rigs[0]
-        unreal.LevelSequenceEditorBlueprintLibrary.open_level_sequence(sequence)
         keys = json.loads(keys_json)
         for key in keys:
             frame = unreal.FrameNumber(value=key["frame"])

@@ -3440,7 +3440,9 @@
             "description": "Saved/temp 下的任务目录名和文件名 使用单个斜杠分隔 *"
           }
         },
-        "required": ["file_prefix"]
+        "required": [
+          "file_prefix"
+        ]
       },
       "outputSchema": {
         "type": "object",
@@ -3450,11 +3452,15 @@
             "description": "JSON 输出路径 开始请求不证明已有有效采样 */"
           }
         },
-        "required": ["returnValue"]
+        "required": [
+          "returnValue"
+        ]
       }
     },
     "finish_pie_audio_recording": {
-      "inputSchema": {"type": "object"},
+      "inputSchema": {
+        "type": "object"
+      },
       "outputSchema": {
         "type": "object",
         "properties": {
@@ -3463,7 +3469,9 @@
             "description": "JSON 输出路径 调用者须等待异步落盘并检查有效音频 */"
           }
         },
-        "required": ["returnValue"]
+        "required": [
+          "returnValue"
+        ]
       }
     },
     "export_sound_waves": {
@@ -7592,6 +7600,32 @@
           "returnValue"
         ]
       }
+    },
+    "inspect_control_rig_controls": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "控制绑定资产 *"
+          }
+        },
+        "required": [
+          "asset_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "控制器名称 类型 初始偏移和是否允许动画 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBMcpRuntimeToolset": {
@@ -10161,6 +10195,60 @@
           "returnValue": {
             "type": "string",
             "description": "编译与保存清单 失败不保存 未生成备份 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_character_rescue_state": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "已有角色主动画蓝图 *"
+          },
+          "interface_path": {
+            "type": "string",
+            "description": "已有移动动画层接口 *"
+          },
+          "base_layer_path": {
+            "type": "string",
+            "description": "已有基础动画层 *"
+          },
+          "animation_path": {
+            "type": "string",
+            "description": "同骨架半蹲帮扶循环 *"
+          },
+          "child_layer_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "直接继承基础层的装备动画层 *"
+          },
+          "recovery_blend_seconds": {
+            "type": "number",
+            "description": "倒地恢复到正常移动的混合秒数 *",
+            "default": 0.5
+          }
+        },
+        "required": [
+          "asset_path",
+          "interface_path",
+          "base_layer_path",
+          "animation_path",
+          "child_layer_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "无警告编译和保存清单 不改主图节点布局 */"
           }
         },
         "required": [
