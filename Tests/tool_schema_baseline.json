@@ -7754,53 +7754,6 @@
     }
   },
   "BBBAssetMaintenanceToolset": {
-    "configure_monster_blood_presentation": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "settings_path": {
-            "type": "string",
-            "description": "自有血效配置资产 *"
-          },
-          "channel_path": {
-            "type": "string",
-            "description": "已有血效数据通道 *"
-          },
-          "ground_material_paths": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "已有血迹材质 *"
-          },
-          "definition_paths": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "独占持有的小怪定义 *"
-          }
-        },
-        "required": [
-          "settings_path",
-          "channel_path",
-          "ground_material_paths",
-          "definition_paths"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string",
-            "description": "保存后回读的定义绑定 不保留表现蓝图旧入口 */"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
     "repair_foliage_base_cache": {
       "inputSchema": {
         "type": "object",
@@ -9196,6 +9149,61 @@
           "returnValue": {
             "type": "string",
             "description": "原件哈希 原生删除结果和剩余文件 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_monster_blood_residue": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "settings_path": {
+            "type": "string",
+            "description": "独占持有的自有配置资产 *"
+          },
+          "channel_path": {
+            "type": "string",
+            "description": "已有血效数据通道 *"
+          },
+          "splatter_material_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "主飞溅材质 *"
+          },
+          "droplet_material_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "外围细滴材质 *"
+          },
+          "pool_material_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "局部积血材质 *"
+          }
+        },
+        "required": [
+          "settings_path",
+          "channel_path",
+          "splatter_material_paths",
+          "droplet_material_paths",
+          "pool_material_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "保存并回读的配置 不提供旧字段兼容 */"
           }
         },
         "required": [
@@ -10759,6 +10767,162 @@
           "returnValue": {
             "type": "string",
             "description": "实际创建实体的只读快照 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_blood_residue_material": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "material_path": {
+            "type": "string",
+            "description": "新材质路径 *"
+          },
+          "mask_path": {
+            "type": "string",
+            "description": "初始形状纹理 *"
+          },
+          "noise_path": {
+            "type": "string",
+            "description": "细节噪声纹理 *"
+          }
+        },
+        "required": [
+          "material_path",
+          "mask_path",
+          "noise_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "原生创建 保存结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "preview_blood_residue": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "settings_path": {
+            "type": "string",
+            "description": "正式血效配置 *"
+          },
+          "positions_json": {
+            "type": "string",
+            "description": "一至六十四个接触位置 JSON 数组 *"
+          },
+          "direction": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "入射方向 *"
+          },
+          "normal": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "表面外法线 *"
+          },
+          "seed": {
+            "type": "integer",
+            "description": "变化种子 *",
+            "default": 1
+          }
+        },
+        "required": [
+          "settings_path",
+          "positions_json",
+          "direction",
+          "normal"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "表现接触提交结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_blood_residue": {
+      "inputSchema": {
+        "type": "object"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "当前 PIE 血迹数量 有效形状 方向 寿命与处理预算 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "start_blood_residue_capture": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "settings_path": {
+            "type": "string",
+            "description": "正式血效配置 *"
+          },
+          "scenario": {
+            "type": "string",
+            "description": "floor wall slope edge accumulation 四类表面或连续命中 *"
+          },
+          "file_prefix": {
+            "type": "string",
+            "description": "Saved/temp 下的任务目录名 *"
+          },
+          "seed": {
+            "type": "integer",
+            "description": "变化种子 *",
+            "default": 1
+          },
+          "duration_seconds": {
+            "type": "number",
+            "description": "四至一百三十秒实际游戏时间 *",
+            "default": 4.0
+          },
+          "aging_time_scale": {
+            "type": "number",
+            "description": "落定六秒后寿命验收时间倍率 一至二十 完成时还原 *",
+            "default": 1.0
+          }
+        },
+        "required": [
+          "settings_path",
+          "scenario",
+          "file_prefix"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "采样编号 使用 inspect_skeletal_hit_reaction_capture 查询 */"
           }
         },
         "required": [

@@ -20,6 +20,254 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def create_blood_residue_material(material_path: str, mask_path: str, noise_path: str) -> str:
+        """
+        /**
+         * 创建不存在的自有环境血迹父材质 原包不变
+         * @param material_path	新材质路径
+         * @param mask_path	初始形状纹理
+         * @param noise_path	细节噪声纹理
+         * @return 原生创建 保存结果
+         */
+        """
+        if not material_path.startswith("/Game/_Project/") or unreal.EditorAssetLibrary.does_asset_exist(material_path):
+            raise RuntimeError("仅创建不存在的自有材质")
+        if not isinstance(unreal.load_asset(mask_path), unreal.Texture) or not isinstance(unreal.load_asset(noise_path), unreal.Texture):
+            raise RuntimeError("需要有效形状与噪声纹理")
+        require_asset_write([], [material_path])
+        result = str(unreal.BBBBloodResidueEditorLibrary.create_residue_material(material_path, mask_path, noise_path))
+        if not result.startswith("OK:"):
+            raise RuntimeError(result)
+        return result
+
+    @mcp_tool
+    @staticmethod
+    def preview_blood_residue(settings_path: str, positions_json: str, direction: list[float], normal: list[float], seed: int = 1) -> str:
+        """
+        /**
+         * 当前 PIE 纯表现验收 使用正式配置 不修改生命和资产
+         * @param settings_path	正式血效配置
+         * @param positions_json	一至六十四个接触位置 JSON 数组
+         * @param direction	入射方向
+         * @param normal	表面外法线
+         * @param seed	变化种子
+         * @return 表现接触提交结果
+         */
+        """
+        positions = json.loads(positions_json)
+        if not isinstance(positions, list):
+            raise RuntimeError("接触位置必须是数组")
+        direction = list(direction)
+        normal = list(normal)
+        vectors = [*positions, direction, normal]
+        if not positions or len(positions) > 64 or any(not isinstance(value, list) or len(value) != 3 or not all(isinstance(item, (int, float)) and math.isfinite(item) for item in value) for value in vectors):
+            raise RuntimeError("需要有限且有效的三维接触输入")
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if world is None or "-nullrhi" in unreal.SystemLibrary.get_command_line().lower():
+            raise RuntimeError("表现验收需要带渲染的 PIE")
+        result = str(unreal.BBBBloodResidueEditorLibrary.preview_residue(world, settings_path,
+            [unreal.Vector(*value) for value in positions], unreal.Vector(*direction), unreal.Vector(*normal), seed))
+        if not result.startswith("OK:"):
+            raise RuntimeError(result)
+        return result
+
+    @mcp_tool
+    @staticmethod
+    def inspect_blood_residue() -> str:
+        """/** @return 当前 PIE 血迹数量 有效形状 方向 寿命与处理预算 */"""
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if world is None:
+            raise RuntimeError("需要当前 PIE")
+        return str(unreal.BBBBloodResidueEditorLibrary.inspect_residue(world))
+
+    @mcp_tool
+    @staticmethod
+    def start_blood_residue_capture(settings_path: str, scenario: str, file_prefix: str, seed: int = 1, duration_seconds: float = 4.0, aging_time_scale: float = 1.0) -> str:
+        """
+        /**
+         * 创建短时隔离平台并采集环境血迹 不保存关卡
+         * @param settings_path	正式血效配置
+         * @param scenario	floor wall slope edge accumulation 四类表面或连续命中
+         * @param file_prefix	Saved/temp 下的任务目录名
+         * @param seed	变化种子
+         * @param duration_seconds	四至一百三十秒实际游戏时间
+         * @param aging_time_scale	落定六秒后寿命验收时间倍率 一至二十 完成时还原
+         * @return 采样编号 使用 inspect_skeletal_hit_reaction_capture 查询
+         */
+        """
+        if scenario not in {"floor", "wall", "slope", "edge", "accumulation"} or not re.fullmatch(r"[A-Za-z0-9_-]+", file_prefix):
+            raise RuntimeError("场景或任务目录无效")
+        if not math.isfinite(duration_seconds) or not 4.0 <= duration_seconds <= 130.0:
+            raise RuntimeError("寿命采样需要四至一百三十秒")
+        if not math.isfinite(aging_time_scale) or not 1.0 <= aging_time_scale <= 20.0:
+            raise RuntimeError("寿命验收倍率需要一至二十")
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if world is None or "-nullrhi" in unreal.SystemLibrary.get_command_line().lower():
+            raise RuntimeError("环境画面采集需要带渲染的 PIE")
+        if any(item["status"] == "pending" for item in _captures.values()):
+            raise RuntimeError("已有采样尚未完成")
+        settings = unreal.load_asset(settings_path)
+        if not isinstance(settings, unreal.BBBMonsterBloodPresentationDefinition):
+            raise RuntimeError("正式血效配置无效")
+        cube = unreal.load_asset("/Engine/BasicShapes/Cube")
+        neutral = unreal.load_asset("/Engine/BasicShapes/BasicShapeMaterial")
+        identifier = str(uuid.uuid4())
+        directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "temp", file_prefix, identifier))
+        os.makedirs(directory, exist_ok=False)
+        actors = []
+
+        def spawn(kind, location, rotation=unreal.Rotator(), scale=unreal.Vector(1, 1, 1)):
+            """/** @return 仅存在本次 PIE 的验收演员 */"""
+            actor = unreal.BBBBlueprintEditorLibrary.spawn_transient_pie_actor(world, kind, unreal.Transform(location=location, rotation=rotation, scale=scale))
+            if actor is None:
+                raise RuntimeError("短时验收演员创建失败")
+            actors.append(actor)
+            return actor
+
+        record = {"status": "pending", "captureId": identifier, "scenario": scenario, "imagePaths": [], "samples": [],
+                  "durationSeconds": duration_seconds, "agingTimeScale": aging_time_scale, "maxTraceCount": 0, "maxAdvanceMilliseconds": 0.0}
+        data = {"handle": None, "lastImage": -1.0, "burst": 0, "finishing": False, "closeFocus": None,
+                "originalTimeScale": unreal.GameplayStatics.get_global_time_dilation(world), "accelerated": False}
+        try:
+            floor = spawn(unreal.StaticMeshActor, unreal.Vector(0, 0, 19990), scale=unreal.Vector(40, 40, .2))
+            floor.static_mesh_component.set_mobility(unreal.ComponentMobility.MOVABLE)
+            floor.static_mesh_component.set_static_mesh(cube)
+            floor.static_mesh_component.set_material(0, neutral)
+            floor.static_mesh_component.set_collision_profile_name("BlockAll")
+            floor.static_mesh_component.set_collision_object_type(unreal.CollisionChannel.ECC_WORLD_STATIC)
+            if scenario == "slope":
+                floor.set_actor_rotation(unreal.Rotator(pitch=20, yaw=0, roll=0), True)
+            if scenario == "edge":
+                floor.set_actor_scale3d(unreal.Vector(12, 40, .2))
+            if scenario == "wall":
+                wall = spawn(unreal.StaticMeshActor, unreal.Vector(750, 0, 20200), scale=unreal.Vector(.2, 40, 4))
+                wall.static_mesh_component.set_mobility(unreal.ComponentMobility.MOVABLE)
+                wall.static_mesh_component.set_static_mesh(cube)
+                wall.static_mesh_component.set_material(0, neutral)
+                wall.static_mesh_component.set_collision_profile_name("BlockAll")
+                wall.static_mesh_component.set_collision_object_type(unreal.CollisionChannel.ECC_WORLD_STATIC)
+            light = spawn(unreal.PointLight, unreal.Vector(-400, -500, 21500))
+            light_component = light.get_component_by_class(unreal.PointLightComponent)
+            light_component.set_mobility(unreal.ComponentMobility.MOVABLE)
+            light_component.set_intensity(1600000.0)
+            light_component.set_attenuation_radius(7000.0)
+            camera_location = unreal.Vector(-1600, -2000, 22000)
+            if scenario == "wall":
+                camera_location = unreal.Vector(-1400, -1700, 21200)
+            camera = spawn(unreal.SceneCapture2D, camera_location,
+                unreal.MathLibrary.find_look_at_rotation(camera_location, unreal.Vector(0, 0, 20100)))
+            target = unreal.RenderingLibrary.create_render_target2d(world, 1280, 720, unreal.TextureRenderTargetFormat.RTF_RGBA8)
+            capture = camera.capture_component2d
+            capture.set_editor_property("texture_target", target)
+            capture.set_editor_property("capture_source", unreal.SceneCaptureSource.SCS_FINAL_COLOR_LDR)
+            capture.set_editor_property("capture_every_frame", False)
+            capture.set_editor_property("capture_on_movement", False)
+            exposure = unreal.PostProcessSettings()
+            exposure.set_editor_property("override_auto_exposure_method", True)
+            exposure.set_editor_property("auto_exposure_method", unreal.AutoExposureMethod.AEM_MANUAL)
+            exposure.set_editor_property("override_auto_exposure_apply_physical_camera_exposure", True)
+            exposure.set_editor_property("auto_exposure_apply_physical_camera_exposure", False)
+            capture.set_editor_property("post_process_settings", exposure)
+            options = unreal.ImageWriteOptions()
+            options.set_editor_property("format", unreal.DesiredImageFormat.PNG)
+            options.set_editor_property("overwrite_file", False)
+            options.set_editor_property("compression_quality", 0)
+            positions = [[-500.0, (index - 2) * 350.0, 20100.0] for index in range(5)]
+            if scenario == "wall":
+                positions = [[500.0, (index - 2) * 350.0, 20200.0] for index in range(5)]
+            if scenario == "slope":
+                positions = [[-400.0, (index - 2) * 350.0, 20220.0] for index in range(5)]
+            if scenario == "edge":
+                positions = [[0.0, (index - 2) * 350.0, 20100.0] for index in range(5)]
+            if scenario == "accumulation":
+                positions = [[-400.0, 0.0, 20100.0]] * 8
+            data["start"] = unreal.GameplayStatics.get_time_seconds(world)
+            BBBHitReactionToolset.preview_blood_residue(settings_path, json.dumps(positions), [1, 0, 0], [1, 0, 0], seed)
+        except Exception:
+            for actor in actors:
+                actor.destroy_actor()
+            raise
+        _captures[identifier] = record
+
+        def complete(error=None):
+            """/** @return 结束采样并销毁全部短时演员 */"""
+            unreal.unregister_slate_post_tick_callback(data["handle"])
+            if data["accelerated"] and unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() == world:
+                unreal.GameplayStatics.set_global_time_dilation(world, data["originalTimeScale"])
+            for actor in actors:
+                actor.destroy_actor()
+            record["temporaryActorsDestroyed"] = True
+            record["status"] = "failed" if error else "completed"
+            if error:
+                record["error"] = str(error)
+            report = os.path.join(directory, "capture.json")
+            with open(report, "w", encoding="utf-8") as stream:
+                json.dump(record, stream, ensure_ascii=False)
+            record["reportPath"] = report
+            record["sampleFrames"] = len(record["samples"])
+            record.pop("samples")
+
+        def tick(delta_seconds):
+            """/** @return 按真实游戏时间采集落地与连续命中 */"""
+            try:
+                if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() != world:
+                    raise RuntimeError("采样期间 PIE 已结束")
+                elapsed = unreal.GameplayStatics.get_time_seconds(world) - data["start"]
+                residue = json.loads(unreal.BBBBloodResidueEditorLibrary.inspect_residue(world))
+                record["maxTraceCount"] = max(record["maxTraceCount"], residue["lastTraceCount"])
+                record["maxAdvanceMilliseconds"] = max(record["maxAdvanceMilliseconds"], residue["lastAdvanceMilliseconds"])
+                if elapsed >= 6.0 and aging_time_scale > 1.0 and not data["accelerated"] and residue["activeFlights"] == 0:
+                    unreal.GameplayStatics.set_global_time_dilation(world, aging_time_scale)
+                    data["accelerated"] = True
+                if scenario == "accumulation" and data["burst"] < 8 and elapsed >= (data["burst"] + 1) * .3:
+                    data["burst"] += 1
+                    BBBHitReactionToolset.preview_blood_residue(settings_path, json.dumps(positions), [1, 0, 0], [1, 0, 0], seed + data["burst"] * 31)
+                interval = .2 if elapsed < 4.0 else 10.0
+                if not data["finishing"] and (elapsed - data["lastImage"] >= interval or elapsed >= duration_seconds):
+                    if elapsed >= 1.8:
+                        close_focus = unreal.Vector(350, 0, 20000)
+                        if elapsed < 4.0 and residue["visibleResidues"]:
+                            points = [list(map(float, re.findall(r"[XYZ]=(-?\d+(?:\.\d+)?)", item["position"]))) for item in residue["visibleResidues"]]
+                            if all(len(point) == 3 for point in points):
+                                data["closeFocus"] = unreal.Vector(*[sum(point[axis] for point in points) / len(points) for axis in range(3)])
+                        if data["closeFocus"] is not None:
+                            close_focus = data["closeFocus"]
+                        close_location = close_focus + unreal.Vector(-450, -600, 1000)
+                        if scenario == "wall":
+                            close_location = unreal.Vector(-300, -800, 20700)
+                            close_focus = unreal.Vector(740, 0, 20200)
+                        camera.set_actor_location_and_rotation(close_location,
+                            unreal.MathLibrary.find_look_at_rotation(close_location, close_focus), False, True)
+                        capture.set_editor_property("fov_angle", 50.0)
+                    capture.capture_scene()
+                    path = os.path.join(directory, "frame_" + str(len(record["imagePaths"])).zfill(3) + ".png")
+                    unreal.ImageWriteBlueprintLibrary.export_to_disk(target, path, options)
+                    record["imagePaths"].append(path)
+                    record["samples"].append({"seconds": elapsed,
+                        "residue": residue,
+                        "performance": list(unreal.BBBAnimationGraphEditorLibrary.read_performance_frame_metrics())})
+                    data["lastImage"] = elapsed
+                    data["finishing"] = elapsed >= duration_seconds
+                if elapsed >= duration_seconds:
+                    if not all(os.path.isfile(path) and os.path.getsize(path) >= 1024 for path in record["imagePaths"]):
+                        if elapsed > duration_seconds + 5.0:
+                            raise RuntimeError("画面导出超时")
+                        return
+                    complete()
+            except Exception as error:
+                complete(error)
+
+        try:
+            data["handle"] = unreal.register_slate_post_tick_callback(tick)
+        except Exception:
+            for actor in actors:
+                actor.destroy_actor()
+            _captures.pop(identifier)
+            raise
+        return json.dumps({"captureId": identifier, "status": "pending", "directory": directory}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def spawn_mass_hit_acceptance_population(config_paths: list[str], center: list[float], spacing: float = 200.0) -> str:
         """
         /**

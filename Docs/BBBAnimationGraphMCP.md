@@ -38,9 +38,9 @@
 
 ## 血效定义绑定
 
-`BBBAssetMaintenanceToolset.configure_monster_blood_presentation` 参数为 settings_path channel_path ground_material_paths definition_paths。已有数据通道与血迹材质只读。配置与每个小怪 Definition 修改前必须独占签出。工具仅保存配置及定义并回读 BloodPresentation 绑定。不重建已打磨的 Niagara 不修改表现蓝图 不提供旧参数或旧工具名称的兼容入口。
+`BBBAssetMaintenanceToolset.configure_monster_blood_residue` 参数为 settings_path channel_path splatter_material_paths droplet_material_paths pool_material_paths。配置独占持有后重建三类环境残留参数并保存回读。现有 Definition 绑定与共享 Niagara 保留 不修改表现蓝图 不提供旧参数或旧工具名称兼容。材质构建与 PIE 只读验收见 BBBHitReactionMCP.md。
 
-拒绝脏包 PIE 重复或空定义列表及错误资产类型。创建新配置时需要明确待添加权限。返回 success bindings 和 particleSystemRebuilt=false。粒子效果必须另外进行真实命中验证。
+拒绝脏包 PIE 每组重复或空材质列表及错误资产类型。工具只编辑已有配置 不创建配置或改写定义绑定。返回 success settings parameters groups 和 particleSystemRebuilt=false。粒子效果必须另外进行真实命中验证。
 # 角色倒地姿势接入
 
 `create_directional_blend_space` 为五个同骨架循环创建二维混合资产，输入顺序为待机、前、后、左、右。轴表示角色局部前向和右向实际速度，单位为厘米每秒。创建前检查 Perforce 写入资格，保存后仍需核对新资产的 `binary+l` 添加状态。

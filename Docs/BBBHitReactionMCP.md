@@ -12,9 +12,19 @@
 
 `BBBHitReactionToolset` 配置局部物理受击资产并跨真实游戏帧采样 六部位通过 `BBBMonsterHitReactionComponent` 消费原始命中事实 受力方向 冲量 混合与恢复全部归属于表现层 普通命中保持追击和当前攻击 血效仍由独立共享表现管线处理
 
-`BBBAssetMaintenanceToolset.configure_monster_blood_presentation` 接收 settings_path channel_path ground_material_paths definition_paths。已有血通道和材质只读。血效配置与小怪定义必须独占持有 新配置必须允许添加。全部类型和权限验证通过后保存并回读每个定义的 BloodPresentation。不绑定表现蓝图 不重建已打磨的血滴或血雾系统。旧 configure_monster_blood_impact_system MCP 入口已删除 不保留参数或名称兼容。
+`BBBAssetMaintenanceToolset.configure_monster_blood_residue` 接收 settings_path channel_path splatter_material_paths droplet_material_paths pool_material_paths。三类材质各一至十六个不同资产。已有血通道与材质只读。配置必须独占持有。保存后回读全部参数与材质组。保留现有 Definition 绑定与共享 Niagara。旧地面材质数组和旧工具名称已删除 不提供兼容入口。
 
-运行时镜像弹丸只提交表现事实。该工具不增加伤害倍率或命中历史。地面血迹按真实静态几何查询 池上限默认 96 保留 24 秒后淡出 4 秒 并合并距离 24 厘米以内的连射血迹。
+运行时镜像弹丸只提交表现事实 不增加伤害倍率或命中历史。短时血滴按重力推进并查询静态环境。主飞溅与细滴沿表面投影方向放置。边缘支撑不足先缩小复查 再失败则放弃。血迹池上限 192 主痕迹保留 120 秒 细滴 50 秒 再淡出 4 秒。65 厘米局部邻域最多五个主痕迹和十个细滴 超额主命中增加已有不规则积血覆盖。飞行表现最多 64 每帧环境查询最多 96。
+
+当前飞行血滴碰撞后立即释放 最长两秒 超时或预算耗尽直接丢弃 不延后排队。方向血滴粒子保留约 1.2 至 1.8 秒 使用相同的喷射速度范围与重力 低透明度血雾仍为短促反馈。池内动态材质按共享父材质复用 切换形状只修改纹理参数。视觉淡出后组件隐藏复用 不让引擎淡出计时器销毁组件。
+
+`BBBHitReactionToolset.create_blood_residue_material` 创建不存在的自有父材质。初始形状与噪声纹理只读 新目标执行源控预检。父材质提供 BloodMask NoiseTexture Coverage SpawnTime MirrorU 并使用贴花生命周期淡出。材质使用非发光表面色彩与逐渐干燥的粗糙度 不修改第三方包。
+
+`preview_blood_residue` 仅带渲染 PIE 可用 接受正式配置和一至六十四个有限三维接触。只测试表现 不造成伤害。`inspect_blood_residue` 只读返回当前飞行数 已分配贴花数 每帧查询与 CPU 耗时 以及有效血迹位置 法线 长轴 尺寸 类型 覆盖 寿命与年龄。正式伤害链仍须使用玩家武器或正式 Mass 弹丸验收。
+
+`start_blood_residue_capture` 使用 floor wall slope edge accumulation 场景在高空建立短时隔离平台。duration_seconds 默认四秒 允许四至一百三十秒实际游戏时间。前四秒每零点二秒采图 后续每十秒与结束时采图。每帧记录最大查询数与 CPU 耗时 连续命中场景分批重复发布表现。近景对准弹道落点。图像仅写入 Saved/temp/<file_prefix>/<captureId>。通过 inspect_skeletal_hit_reaction_capture 查询。成功或失败均销毁平台 补光和相机 不保存关卡。各场景独立 PIE 防止上次血迹混入画面。它是材质和环境接收诊断 不替代正式 Mass 武器链验证。
+
+aging_time_scale 默认一 允许一至二十。只在六秒后且飞行血滴已经全部结束时加速寿命采样 不加速弹道。完成或失败时还原原游戏时间倍率。该选项仅用于隔离验收场景 不应在正式玩法 PIE 中使用。加速后的帧不能作为正常帧率性能验收证据。
 
 `BBBAnimationPreviewToolset.submit_monster_hit_ray` 仅在当前 PIE 用逻辑碰撞查找真实命中部位 经公开输入槽位提交命中与玩家累计伤害。`damage=0` 验证镜像表现 不直接改写实体 Fragment。`capture_monster_animation_transition` 必须明确给出 `hit_region` 和三维 `hit_direction` 在临时表现演员上写入快照 并通过真实动画蓝图采样方向与惯性过渡。
 
