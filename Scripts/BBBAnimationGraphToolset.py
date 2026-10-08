@@ -54,33 +54,69 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def configure_character_downed_graph(asset_path: str, locomotion_path: str, full_body_slot_guid: str) -> str:
+    def configure_character_downed_state(asset_path: str, interface_path: str, base_layer_path: str,
+                                         entry_path: str, locomotion_path: str, child_layer_paths: list[str],
+                                         character_config_path: str) -> str:
         """
         /**
-         * 从角色生命事实选择倒地循环 共用现有全身蒙太奇槽位
-         * @param asset_path		已独占签出的角色动画蓝图
+         * 将倒地接入移动状态机和基础继承层 保持统一姿态输出
+         * @param asset_path		已独占签出的角色主动画蓝图
+         * @param interface_path	已有移动动画层接口
+         * @param base_layer_path	已有基础动画层
+         * @param entry_path		同骨架倒地入场序列
          * @param locomotion_path	同骨架二维倒地循环
-         * @param full_body_slot_guid	现有全身槽位的节点标识
-         * @return 编译和保存结果 失败时不保存
+         * @param child_layer_paths	直接继承基础层的装备动画层
+         * @param character_config_path	移除旧入场蒙太奇字段后的角色配置
+         * @return 编译与保存清单 失败不保存 未生成备份
          */
         """
         blueprint = unreal.load_asset(asset_path)
+        interface = unreal.load_asset(interface_path)
+        base = unreal.load_asset(base_layer_path)
+        entry = unreal.load_asset(entry_path)
         locomotion = unreal.load_asset(locomotion_path)
-        if not isinstance(blueprint, unreal.AnimBlueprint) or not isinstance(locomotion, unreal.BlendSpace):
-            raise RuntimeError("角色动画蓝图或倒地混合无效")
-
-        require_write_access(blueprint)
-        if not unreal.BBBAnimationGraphEditorLibrary.configure_character_downed_graph(blueprint, locomotion, full_body_slot_guid):
-            raise RuntimeError("角色倒地图连接失败 不保存")
-
-        unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
-        if blueprint.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
-            raise RuntimeError("角色倒地图存在编译错误或警告 不保存")
-
-        if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
-            raise RuntimeError("角色倒地图保存失败")
-
-        return json.dumps({"asset": asset_path, "locomotion": locomotion_path, "saved": True})
+        children = [unreal.load_asset(path) for path in child_layer_paths]
+        config = unreal.load_asset(character_config_path)
+        if not all(isinstance(value, unreal.AnimBlueprint) for value in [blueprint, interface, base] + children):
+            raise RuntimeError("角色主图 接口或继承动画层类型无效")
+        if not isinstance(entry, unreal.AnimSequence) or not isinstance(locomotion, unreal.BlendSpace) or config is None:
+            raise RuntimeError("倒地序列 混合或角色配置无效")
+        if any(child.get_blueprint_parent_class() != base.generated_class() for child in children):
+            raise RuntimeError("装备层必须直接继承基础层")
+        sequences = [entry] + [sample.get_editor_property("animation") for sample in locomotion.get_editor_property("sample_data")]
+        if len(sequences) != 6 or any(not isinstance(value, unreal.AnimSequence) for value in sequences):
+            raise RuntimeError("倒地必须使用入场 待机和四向六个序列")
+        targets = [interface, base, blueprint] + children + sequences + [config]
+        require_asset_write(targets)
+        dirty = {value.get_path_name() for value in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
+        if any(value.get_outermost().get_path_name() in dirty for value in targets):
+            raise RuntimeError("目标存在未保存编辑 拒绝混入本次构图")
+        if unreal.BBBBlueprintEditorLibrary.ensure_animation_layer_interface_function(
+                interface, "FullBody_DownedState", "InputPose", "None") != 1:
+            raise RuntimeError("倒地接口必须是一次新增 不覆盖现有实现")
+        for value in [interface, base, blueprint]:
+            unreal.BlueprintEditorLibrary.compile_blueprint(value)
+        if not unreal.BBBAnimationGraphEditorLibrary.configure_character_downed_state(blueprint, base, entry, locomotion):
+            raise RuntimeError("倒地状态机或继承层构图失败 不保存")
+        library = unreal.AnimationLibrary
+        curve_type = unreal.RawCurveTrackTypes.RCT_FLOAT
+        for animation in sequences:
+            for name in ["DisableLegIK", "DisableAimIK", "DisableLHandIK", "DisableLocomotionAdditives"]:
+                if name in [str(value) for value in library.get_animation_curve_names(animation, curve_type)]:
+                    raise RuntimeError("倒地曲线已存在 拒绝覆盖 " + name)
+                library.add_curve(animation, name, curve_type, False)
+                library.add_float_curve_key(animation, name, 0.0, 1.0)
+                library.add_float_curve_key(animation, name, animation.sequence_length, 1.0)
+        for value in [interface, base, blueprint] + children:
+            unreal.BlueprintEditorLibrary.compile_blueprint(value)
+            if value.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+                raise RuntimeError("动画层存在编译错误或警告 不保存 " + value.get_path_name())
+        saved = []
+        for value in targets:
+            if not unreal.EditorAssetLibrary.save_loaded_asset(value, False):
+                raise RuntimeError("保存失败 已保存清单 " + json.dumps(saved))
+            saved.append(value.get_path_name())
+        return json.dumps({"asset": asset_path, "layer": "FullBody_DownedState", "saved": saved}, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod

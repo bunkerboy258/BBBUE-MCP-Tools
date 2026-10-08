@@ -94,7 +94,7 @@
 
 ## 无界面编辑器与 PIE 自动验收
 
-`capture_pie_character_pose(camera_offset, file_name, width, height)` 在 PIE 世界创建临时 SceneCapture，围绕本地角色渲染 PNG 到 `Saved/Diagnostics/StopPoseCaptures`，结束后销毁临时 Actor。它需要开启渲染，不能用于 `-NullRHI`；视觉验收时先关闭隐藏宿主，再使用唯一带窗口的官方 MCP 编辑器。`CaptureViewport` 仅捕获编辑器世界，不能替代 PIE 角色截图。
+`capture_pie_character_pose(camera_offset, file_name, width, height)` 在 PIE 世界创建临时 SceneCapture，围绕本地角色渲染 PNG 到 `Saved/temp/CharacterPoseCaptures`，结束后销毁临时 Actor。它需要开启渲染，不能用于 `-NullRHI`；视觉验收时先关闭隐藏宿主，再使用唯一带窗口的官方 MCP 编辑器。`CaptureViewport` 仅捕获编辑器世界，不能替代 PIE 角色截图。
 
 只能使用 UE5.8 官方 `ModelContextProtocol` 插件。禁止通过自定义 Socket、stdio 或 headless MCP 服务替代它。
 

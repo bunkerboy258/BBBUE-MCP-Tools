@@ -3032,7 +3032,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             component.set_editor_property("capture_source", unreal.SceneCaptureSource.SCS_FINAL_COLOR_LDR)
             component.set_editor_property("fov_angle", 45.0)
             component.capture_scene()
-            directory = os.path.join(unreal.Paths.project_saved_dir(), "Diagnostics", "StopPoseCaptures")
+            directory = os.path.join(unreal.Paths.project_saved_dir(), "temp", "CharacterPoseCaptures")
             os.makedirs(directory, exist_ok=True)
             unreal.RenderingLibrary.export_render_target(world, render_target, directory, file_name)
             output_path = os.path.abspath(os.path.join(directory, file_name))

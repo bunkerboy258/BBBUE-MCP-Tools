@@ -9992,27 +9992,50 @@
         ]
       }
     },
-    "configure_character_downed_graph": {
+    "configure_character_downed_state": {
       "inputSchema": {
         "type": "object",
         "properties": {
           "asset_path": {
             "type": "string",
-            "description": "已独占签出的角色动画蓝图 *"
+            "description": "已独占签出的角色主动画蓝图 *"
+          },
+          "interface_path": {
+            "type": "string",
+            "description": "已有移动动画层接口 *"
+          },
+          "base_layer_path": {
+            "type": "string",
+            "description": "已有基础动画层 *"
+          },
+          "entry_path": {
+            "type": "string",
+            "description": "同骨架倒地入场序列 *"
           },
           "locomotion_path": {
             "type": "string",
             "description": "同骨架二维倒地循环 *"
           },
-          "full_body_slot_guid": {
+          "child_layer_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "直接继承基础层的装备动画层 *"
+          },
+          "character_config_path": {
             "type": "string",
-            "description": "现有全身槽位的节点标识 *"
+            "description": "移除旧入场蒙太奇字段后的角色配置 *"
           }
         },
         "required": [
           "asset_path",
+          "interface_path",
+          "base_layer_path",
+          "entry_path",
           "locomotion_path",
-          "full_body_slot_guid"
+          "child_layer_paths",
+          "character_config_path"
         ]
       },
       "outputSchema": {
@@ -10020,7 +10043,7 @@
         "properties": {
           "returnValue": {
             "type": "string",
-            "description": "编译和保存结果 失败时不保存 */"
+            "description": "编译与保存清单 失败不保存 未生成备份 */"
           }
         },
         "required": [

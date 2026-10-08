@@ -45,6 +45,12 @@
 
 `create_directional_blend_space` 为五个同骨架循环创建二维混合资产，输入顺序为待机、前、后、左、右。轴表示角色局部前向和右向实际速度，单位为厘米每秒。创建前检查 Perforce 写入资格，保存后仍需核对新资产的 `binary+l` 添加状态。
 
-`configure_character_downed_graph` 只接受继承 `BBBAnimInstance` 的已独占签出动画蓝图、同骨架二维混合与现有全身槽位节点标识。构图读取 `SourceLifePhase`、`SourceVelocity`、`SourceActorRotation`，不生成生命或移动事实。倒地循环接在全身槽位之前；槽位输出只求值一次，经缓存同时供正常骨骼控制路径和倒地直接输出路径使用，避免站立瞄准、根朝向和脚部控制改变跪姿。死亡仍由角色物理表现接管。
+`configure_character_downed_state` 接收角色主动画蓝图、现有动画层接口、基础动画层、入场序列、二维混合、直接继承 Base 的装备层清单和角色配置。所有受影响资产与六个动画序列必须已独占签出。拒绝未保存编辑、重复状态、已有倒地曲线和错误继承关系。
 
-工具拒绝重复接入；连接或编译失败不保存。完成后必须检查真实角色的入场蒙太奇、四向动作与装备收起，单独播放动画不能替代运行时验收。
+主图沿用 `LocomotionSM`。`DownedSources` 别名集中转入 `Downed` 状态，状态只调用 `FullBody_DownedState` 动画层。入场选择导管允许首次展示已倒地角色时直接进入正确状态。状态转换读取 `SourceLifePhase`，不持有生命规则。
+
+接口在 `ItemAnimLayers` 组增加 `FullBody_DownedState`。Base 在该层内实现 `DownedSM`，由 EntrySelector 按 `SourceDownedEntryElapsed` 选择 Entry 或 Crawl。Entry 按角色发布的经过时间采样，Crawl 读取主实例的实际局部速度。Rifle、Unarmed 继承同一实现。负入场时间跳过倒下片段。死亡仍由角色物理表现接管。
+
+主 AnimGraph 保持统一的全身槽位、惯性化、根骨、骨骼控制和脚部控制输出链。六个倒地片段使用 `DisableLegIK`、`DisableAimIK`、`DisableLHandIK`、`DisableLocomotionAdditives` 曲线控制表现修正。原地转身函数在非存活阶段清零根骨朝向偏移。
+
+原生构图精确清理此前错误接入的直接输出分支，拒绝拓扑不匹配，不覆盖其它节点。旧直接接图工具和入场蒙太奇配置已移除，不保留兼容入口。构图或编译失败不保存；全部无警告编译后才逐项保存。完成后必须检查状态机、继承、布局、真实角色四向动作与装备收起，单独播放动画不能替代运行时验收。
