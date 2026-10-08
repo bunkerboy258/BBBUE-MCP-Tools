@@ -3281,6 +3281,14 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def import_font_faces(requests_json: str) -> str:
+        """/** @param requests_json\t明确字体源与新目标包 @return\t永久内联字体导入结果 */"""
+        from BBBFontFaceImport import import_font_faces
+        return import_font_faces(requests_json)
+
+
+    @mcp_tool
+    @staticmethod
     def rebind_asset_import_sources(requests_json: str) -> str:
         """
         /**

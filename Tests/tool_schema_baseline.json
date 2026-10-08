@@ -5753,6 +5753,32 @@
           "returnValue"
         ]
       }
+    },
+    "import_font_faces": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "requests_json": {
+            "type": "string",
+            "description": "明确字体源与新目标包"
+          }
+        },
+        "required": [
+          "requests_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "永久内联字体导入结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBLevelEditingToolset": {

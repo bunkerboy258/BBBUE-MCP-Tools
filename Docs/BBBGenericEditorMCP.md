@@ -1,5 +1,9 @@
 # BBB 通用编辑器 MCP
 
+## 明确字体源导入
+
+`import_font_faces(requests_json)` 每项指定项目 Content 内永久 `.ttf` 或 `.otf` 的 `source` 与新 `destination` 包路径。仅创建内联 `FontFace` 不生成额外 `Font` 不覆盖既有资源。批量一至十六项。导入前检查源文件与 Perforce 写入许可。
+
 ## 透明缩略图主体取景
 
 `frame_texture_thumbnails(asset_paths, occupancy=0.86, dry_run=True)` 只处理明确列出的真实透明纹理
