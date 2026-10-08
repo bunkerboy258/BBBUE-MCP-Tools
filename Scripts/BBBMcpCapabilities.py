@@ -22,6 +22,7 @@ TOOLSET_ROUTES = {
     "BBBAnimationPreviewToolset": "动画与群体预览",
     "BBBAnimationGraphToolset": "动画构图与校验",
     "BBBHitReactionToolset": "骨骼物理受击配置与校验",
+    "BBBSkeletalMeshImportToolset": "骨骼网格原位重导入",
 }
 HELPER_MODULES = (
     "BBBBlueprintLayout", "BBBBlueprintAnnotations", "BBBAnimationMotionTools",

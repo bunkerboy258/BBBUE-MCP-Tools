@@ -1,5 +1,7 @@
 # 骨骼网格原位导入
 
+工具已加入 `BBBMcpCapabilities.TOOLSET_ROUTES` 新宿主启动时自动注册。
+
 通过 `BBBSkeletalMeshImportToolset.reimport_skeletal_mesh(asset_path, source_file)`
 将存在的绝对路径 FBX 原位导入已有 SkeletalMesh 并保存唯一目标。
 
