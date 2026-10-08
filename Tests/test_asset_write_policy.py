@@ -28,6 +28,8 @@ class AssetWritePolicyTests(unittest.TestCase):
         control = types.SimpleNamespace(is_enabled=lambda: True, is_available=lambda: True,
             current_provider=lambda: "Perforce", query_file_states=query)
         self.unreal = types.SimpleNamespace(SourceControl=control, LevelEditorSubsystem=object,
+            Paths=types.SimpleNamespace(project_content_dir=lambda: "E:/BBB_Evac/Content"),
+            log_warning=lambda message: None,
             SystemLibrary=types.SimpleNamespace(get_command_line=lambda: ""),
             Actor=type("Actor", (), {}), ActorComponent=type("ActorComponent", (), {}),
             get_editor_subsystem=lambda kind: types.SimpleNamespace(is_in_play_in_editor=lambda: self.pie))
@@ -105,8 +107,7 @@ class AssetWritePolicyTests(unittest.TestCase):
             self.policy.require_asset_write(["/Game/A"])
         self.pie = False
         self.unreal.SourceControl.current_provider = lambda: "Git"
-        with self.assertRaisesRegex(RuntimeError, "Perforce"):
-            self.policy.require_asset_write(["/Game/A"])
+        self.assertEqual(self.policy.require_asset_write(["/Game/A"]), {"/Game/A": None})
         self.unreal.SourceControl.current_provider = lambda: "Perforce"
         self.unreal.SourceControl.query_file_states = lambda *args, **kwargs: []
         with self.assertRaisesRegex(RuntimeError, "完整"):
@@ -117,6 +118,29 @@ class AssetWritePolicyTests(unittest.TestCase):
         child = types.SimpleNamespace(get_outermost=lambda: types.SimpleNamespace(get_path_name=lambda: "/Game/Blueprint"))
         self.policy.require_write_access(child)
         self.assertEqual(self.queries[0][0], ["/Game/Blueprint"])
+
+    def test_uncontrolled_package_does_not_require_client_mapping(self):
+        """/** @return 非受控骨架可编辑 受控文件的冲突保护仍存在 */"""
+        values = self.state()
+        values.update(is_source_controlled=False, is_valid=False, is_unknown=True,
+                      is_checked_out=False, can_edit=False, can_add=False)
+        self.states["/Game/ThirdParty/Skeleton"] = types.SimpleNamespace(**values)
+        result = self.policy.require_asset_write(["/Game/ThirdParty/Skeleton"])
+        self.assertIn("/Game/ThirdParty/Skeleton", result)
+        values["is_checked_out_other"] = True
+        self.states["/Game/ThirdParty/Skeleton"] = types.SimpleNamespace(**values)
+        with self.assertRaisesRegex(RuntimeError, "他人占用"):
+            self.policy.require_asset_write(["/Game/ThirdParty/Skeleton"])
+
+    def test_uncontrolled_readonly_file_rejects(self):
+        """/** @return 无源控映射不等于能够覆盖只读文件 */"""
+        values = self.state()
+        values.update(is_source_controlled=False, is_checked_out=False)
+        self.states["/Game/Skeleton"] = types.SimpleNamespace(**values)
+        with patch.object(self.policy.os.path, "isfile", return_value=True), \
+                patch.object(self.policy.os, "access", return_value=False):
+            with self.assertRaisesRegex(RuntimeError, "只读"):
+                self.policy.require_asset_write(["/Game/Skeleton"])
 
     def test_public_property_setter_rejects_before_mutation(self):
         """/** @return 真实属性工具的签出拒绝发生在事务 修改和保存之前 */"""

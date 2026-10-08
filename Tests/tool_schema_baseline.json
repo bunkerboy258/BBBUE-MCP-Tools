@@ -59,6 +59,32 @@
     }
   },
   "BBBTraversalToolset": {
+    "configure_character_movement_input": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "main_path": {
+            "type": "string",
+            "description": "独占持有的角色主动画蓝图 *"
+          }
+        },
+        "required": [
+          "main_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "编译保存结果与事实语义 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
     "configure_traversal_montages": {
       "inputSchema": {
         "type": "object",
@@ -125,45 +151,6 @@
           "returnValue": {
             "type": "string",
             "description": "图表路径 节点类型和工具接口 */"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "configure_traversal_blueprints": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "base_path": {
-            "type": "string",
-            "description": "基础链接动画蓝图 *"
-          },
-          "main_path": {
-            "type": "string",
-            "description": "主动画蓝图 *"
-          },
-          "montage_paths": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Vault 低攀爬 高攀爬三条蒙太奇 *"
-          }
-        },
-        "required": [
-          "base_path",
-          "main_path",
-          "montage_paths"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string",
-            "description": "编译和保存结果 */"
           }
         },
         "required": [
@@ -463,7 +450,14 @@
     },
     "remove_pie_traversal_obstacle": {
       "inputSchema": {
-        "type": "object"
+        "type": "object",
+        "properties": {
+          "world_index": {
+            "type": "integer",
+            "description": "明确 PIE 世界索引 负一同时移除所有副本的障碍 *",
+            "default": -1
+          }
+        }
       },
       "outputSchema": {
         "type": "object",
@@ -478,50 +472,43 @@
         ]
       }
     },
-    "configure_traversal_ik_transition": {
+    "configure_character_traversal_state": {
       "inputSchema": {
         "type": "object",
         "properties": {
-          "sequence_paths": {
+          "main_path": {
+            "type": "string",
+            "description": "角色主动画蓝图 *"
+          },
+          "interface_path": {
+            "type": "string",
+            "description": "已有移动动画层接口 *"
+          },
+          "base_path": {
+            "type": "string",
+            "description": "基础继承层 *"
+          },
+          "child_paths": {
             "type": "array",
             "items": {
               "type": "string"
             },
-            "description": "自有翻越动画序列 *"
+            "description": "直接继承 Base 的具体装备层 *"
           },
-          "base_path": {
-            "type": "string",
-            "description": "基础链接动画蓝图 *"
-          },
-          "expected_graph_signature": {
-            "type": "string",
-            "description": "调用前只读核对的骨骼控制图逻辑指纹 *"
-          },
-          "disable_seconds": {
-            "type": "number",
-            "description": "开头退出握持和瞄准的秒数 *",
-            "default": 0.15
-          },
-          "restore_seconds": {
-            "type": "number",
-            "description": "结尾恢复握持和瞄准的秒数 *",
-            "default": 0.25
-          },
-          "dry_run": {
-            "type": "boolean",
-            "description": "仅检查参数 签出和图结构 *",
-            "default": true
-          },
-          "allow_dirty_sequences": {
-            "type": "boolean",
-            "description": "明确允许保留并继续编辑目标动画的未保存改动 *",
-            "default": false
+          "montage_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "翻越 低攀爬 高攀爬三个既有蒙太奇 *"
           }
         },
         "required": [
-          "sequence_paths",
+          "main_path",
+          "interface_path",
           "base_path",
-          "expected_graph_signature"
+          "child_paths",
+          "montage_paths"
         ]
       },
       "outputSchema": {
@@ -529,7 +516,7 @@
         "properties": {
           "returnValue": {
             "type": "string",
-            "description": "曲线关键帧 编译保存结果和保留数据指纹 */"
+            "description": "编译与保存清单 不生成备份或兼容入口 */"
           }
         },
         "required": [
@@ -5872,6 +5859,42 @@
           "returnValue": {
             "type": "string",
             "description": "语义快照与无法解析的信息"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "set_blueprint_node_positions": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_path": {
+            "type": "string",
+            "description": "项目图表完整路径"
+          },
+          "expected_snapshot": {
+            "type": "string",
+            "description": "当前只读逻辑快照身份"
+          },
+          "positions_json": {
+            "type": "string",
+            "description": "含 nodeGuid x y 的明确节点数组"
+          }
+        },
+        "required": [
+          "graph_path",
+          "expected_snapshot",
+          "positions_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "回读通过的节点坐标 尚未编译保存"
           }
         },
         "required": [

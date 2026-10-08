@@ -34,7 +34,7 @@
 
 动画样本 群体验收 根轨道审查分别写入 Saved/temp/AnimationSamples Saved/temp/PopulationBenchmarks Saved/temp/AnimationAudits。收尾仅清除本次前缀。任何构图成功都不等于视觉或性能通过。
 
-所有资产修改拒绝 PIE 要求 binary+l 独占签出或当前工作区待添加。保存后必须重载和实际验证。不自动 Submit Get Latest 或 Revert。
+所有资产修改拒绝 PIE 和其它会话未保存编辑 受控资产保留签出与冲突检查 未受控资产不因工作区映射而拒绝写入 并报告未受版本保护 保存后必须重载和实际验证 不自动 Submit Get Latest 或 Revert
 
 ## 血效定义绑定
 

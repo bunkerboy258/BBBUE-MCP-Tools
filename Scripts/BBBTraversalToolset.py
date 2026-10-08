@@ -1,7 +1,5 @@
 import json
 import os
-import hashlib
-import struct
 import unreal
 import toolset_registry
 from BBBMcpCapabilities import mcp_tool
@@ -30,59 +28,6 @@ def _blueprint(path):
     return result
 
 
-def _pin(node, name):
-    """/** @param node 图节点 @param name 真实引脚名 @return 唯一匹配的引脚 */"""
-    pins = [pin for pin in node.list_all_pins() if str(pin.get_pin_name()) == name]
-    if len(pins) != 1:
-        raise RuntimeError("引脚不唯一 " + name + " " + str([str(pin.get_pin_name()) for pin in node.list_all_pins()]))
-    return pins[0]
-
-
-def _connect(source, destination):
-    """/** @param source 输出引脚 @param destination 输入引脚 @return 无 */"""
-    if not source.try_create_connection(destination):
-        raise RuntimeError("引脚连接失败 " + str(source.get_pin_name()) + " -> " + str(destination.get_pin_name()))
-
-
-def _create(graph, exact_tail, x, y):
-    """/** @param graph 目标图 @param exact_tail 精确类型尾名 @param x 横坐标 @param y 纵坐标 @return 新节点 */"""
-    types = [name for name in BlueprintTools.find_node_types(graph, exact_tail) if name.rsplit("|", 1)[-1] == exact_tail]
-    if len(types) != 1:
-        raise RuntimeError("节点类型不唯一 " + exact_tail + " " + str(types))
-    return BlueprintTools.create_node(graph, types[0], unreal.IntPoint(x, y))
-
-
-def _animation_signature(animation):
-    """/** @param animation 动画序列 @return 骨骼轨道及必须保留的数据指纹 */"""
-    digest = hashlib.sha256()
-    model = animation.data_model_interface
-    for name in model.get_bone_track_names():
-        digest.update(str(name).encode("utf-8"))
-        transforms = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, name)
-        for transform in transforms:
-            position = transform.translation
-            rotation = transform.rotation
-            scale = transform.scale3d
-            digest.update(struct.pack("<10d", position.x, position.y, position.z,
-                                      rotation.x, rotation.y, rotation.z, rotation.w, scale.x, scale.y, scale.z))
-    excluded = {"DisableLHandIK", "DisableAimIK"}
-    curves = {}
-    library = unreal.AnimationLibrary
-    for name in library.get_animation_curve_names(animation, unreal.RawCurveTrackTypes.RCT_FLOAT):
-        if str(name) not in excluded:
-            times, values = library.get_float_keys(animation, name)
-            curves[str(name)] = [list(times), list(values)]
-    return {"boneHash": digest.hexdigest(), "keys": model.get_number_of_keys(),
-            "length": animation.get_play_length(), "skeleton": animation.get_skeleton().get_path_name(),
-            "rootMotion": animation.get_editor_property("enable_root_motion"),
-            "rootLock": animation.get_editor_property("force_root_lock"),
-            "rootLockMode": str(animation.get_editor_property("root_motion_root_lock")),
-            "additive": str(animation.get_editor_property("additive_anim_type")),
-            "notifies": [str(event) for event in library.get_animation_notify_events(animation)],
-            "syncMarkers": [str(marker) for marker in library.get_animation_sync_markers(animation)],
-            "otherFloatCurves": curves}
-
-
 def _ik_sample(animation, layer_class, montage):
     """/** @param animation 主动画实例 @param layer_class 链接层类 @param montage 当前动作 @return 运行时曲线和按现有图公式计算的输入权重 */"""
     result = {"montagePosition": animation.montage_get_position(montage) if montage else None,
@@ -108,144 +53,125 @@ class BBBTraversalToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def configure_traversal_ik_transition(sequence_paths: list[str], base_path: str,
-                                         expected_graph_signature: str, disable_seconds: float = 0.15,
-                                         restore_seconds: float = 0.25, dry_run: bool = True,
-                                         allow_dirty_sequences: bool = False) -> str:
+    def configure_character_movement_input(main_path: str) -> str:
         """
         /**
-         * 为指定自有翻越序列配置平滑禁用曲线 并将整层旁路缩小为腿部旁路
-         * @param sequence_paths            自有翻越动画序列
-         * @param base_path                 基础链接动画蓝图
-         * @param expected_graph_signature  调用前只读核对的骨骼控制图逻辑指纹
-         * @param disable_seconds           开头退出握持和瞄准的秒数
-         * @param restore_seconds           结尾恢复握持和瞄准的秒数
-         * @param dry_run                   仅检查参数 签出和图结构
-         * @param allow_dirty_sequences     明确允许保留并继续编辑目标动画的未保存改动
-         * @return 曲线关键帧 编译保存结果和保留数据指纹
+         * 将持续移动状态判断与真实急转加速度分离 不重建移动状态机
+         * @param main_path\t独占持有的角色主动画蓝图
+         * @return 编译保存结果与事实语义
          */
         """
-        if not sequence_paths or len(sequence_paths) > 16 or len(set(sequence_paths)) != len(sequence_paths):
-            raise RuntimeError("需要一至十六条不重复动画")
-        if not 0 < disable_seconds <= 1 or not 0 < restore_seconds <= 1:
-            raise RuntimeError("平滑时间必须在零到一秒之间")
-        paths = list(sequence_paths) + [base_path]
-        if any(not path.startswith("/Game/_Project/") for path in paths):
-            raise RuntimeError("仅允许修改自有资产")
-        animations = [unreal.load_asset(path) for path in sequence_paths]
-        if any(not isinstance(animation, unreal.AnimSequence) for animation in animations):
-            raise RuntimeError("目标必须是动画序列")
-        base = _blueprint(base_path)
-        require_asset_write(animations + [base])
-        dirty = {package.get_path_name() for package in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
-        if dirty.intersection(sequence_paths) and not allow_dirty_sequences:
-            raise RuntimeError("目标动画存在未保存改动 请先协调该资产的编辑会话")
-        before = [_animation_signature(animation) for animation in animations]
-        report = {"dryRun": dry_run, "baseWasDirty": base_path in dirty, "sequences": []}
-        for animation, signature in zip(animations, before):
-            length = animation.get_play_length()
-            if length <= disable_seconds + restore_seconds:
-                raise RuntimeError("动画过短 无法容纳两段平滑过渡")
-            keys = []
-            for index in range(7):
-                fraction = index / 6
-                keys.append({"time": disable_seconds * fraction,
-                             "value": fraction * fraction * (3 - 2 * fraction)})
-            for index in range(7):
-                fraction = index / 6
-                keys.append({"time": length - restore_seconds + restore_seconds * fraction,
-                             "value": 1 - fraction * fraction * (3 - 2 * fraction)})
-            report["sequences"].append({"path": animation.get_path_name(), "length": length,
-                                        "keys": keys, "preserved": signature})
-        with toolset_registry.tool_raising_exceptions():
-            graph = BlueprintTools.get_graph(base, "FullBody_SkeletalControls")
-            snapshot = json.loads(unreal.BBBBlueprintEditorLibrary.inspect_blueprint_graph_logical_snapshot(graph))
-            if snapshot["logicSignature"] != expected_graph_signature:
-                raise RuntimeError("骨骼控制图已经改变 必须重新只读核对")
-            nodes = list(BlueprintTools.find_nodes(graph))
-            def unique(node_class):
-                found = [node for node in nodes if isinstance(node, node_class)]
-                if len(found) != 1:
-                    raise RuntimeError("图结构不唯一 " + str(node_class))
-                return found[0]
-            blend = unique(unreal.AnimGraphNode_BlendListByBool)
-            fabrik = unique(unreal.AnimGraphNode_Fabrik)
-            leg = unique(unreal.AnimGraphNode_LegIK)
-            pose_input = unique(unreal.AnimGraphNode_LinkedInputPose)
-            true_pin = _pin(blend, "BlendPose_0")
-            existing = list(true_pin.list_connected_pins())
-            if len(existing) != 1:
-                raise RuntimeError("翻越分支姿势来源不唯一")
-            source = existing[0].get_owning_node()
-            already = isinstance(source, unreal.AnimGraphNode_ComponentToLocalSpace)
-            if already:
-                connected = list(_pin(source, "ComponentPose").list_connected_pins())
-                if len(connected) != 1 or connected[0].get_owning_node() != fabrik:
-                    raise RuntimeError("既有翻越分支并非左手 IK 后的腿部旁路")
-            if not already and source != pose_input:
-                raise RuntimeError("既有翻越分支不是原始输入 不自动覆盖未知结构")
-            incoming = list(_pin(leg, "ComponentPose").list_connected_pins())
-            if len(incoming) != 1 or incoming[0].get_owning_node() != fabrik:
-                raise RuntimeError("腿部 IK 没有直接连接左手 IK")
-            types = [name for name in BlueprintTools.find_node_types(graph, "从组件空间到本地")
-                     if name.rsplit("|", 1)[-1] == "从组件空间到本地"]
-            if not already and len(types) != 1:
-                raise RuntimeError("组件空间转换节点类型不唯一 " + str(types))
-            report["legBypassAlreadyConfigured"] = already
-            if dry_run:
-                return json.dumps(report, ensure_ascii=False)
-            with unreal.ScopedEditorTransaction("翻越握持和瞄准曲线平滑过渡"):
-                library = unreal.AnimationLibrary
-                curve_type = unreal.RawCurveTrackTypes.RCT_FLOAT
-                for animation, info, original in zip(animations, report["sequences"], before):
-                    animation.modify()
-                    for curve_name in ("DisableLHandIK", "DisableAimIK"):
-                        name = unreal.Name(curve_name)
-                        if name in library.get_animation_curve_names(animation, curve_type):
-                            library.remove_curve(animation, name, False)
-                        library.add_curve(animation, name, curve_type, False)
-                        for key in info["keys"]:
-                            library.add_float_curve_key(animation, name, key["time"], key["value"])
-                        times, values = library.get_float_keys(animation, name)
-                        if len(times) != len(info["keys"]) or any(abs(t - key["time"]) > 0.0001 or abs(v - key["value"]) > 0.0001
-                                                                  for t, v, key in zip(times, values, info["keys"])):
-                            raise RuntimeError("曲线写入结果与请求不一致 " + curve_name)
-                    after = _animation_signature(animation)
-                    changed = [name for name in original if original[name] != after[name]]
-                    if changed:
-                        raise RuntimeError("添加曲线改变了必须保留的数据 尚未保存 " + json.dumps(changed, ensure_ascii=False))
-                if not already:
-                    base.modify()
-                    converter = BlueprintTools.create_node(graph, types[0], unreal.IntPoint(-244, -160))
-                    _connect(_pin(fabrik, "Pose"), _pin(converter, "ComponentPose"))
-                    true_pin.break_single_pin_link(existing[0])
-                    _connect(_pin(converter, "Pose"), true_pin)
-                unreal.BlueprintEditorLibrary.compile_blueprint(base)
-                if base.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
-                    raise RuntimeError("动画层编译失败 尚未保存")
-                for asset in animations + [base]:
-                    if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
-                        raise RuntimeError("保存失败 " + asset.get_path_name())
-            report["saved"] = True
-            report["boneAndMetadataUnchanged"] = True
-            report["graphSignature"] = json.loads(unreal.BBBBlueprintEditorLibrary.inspect_blueprint_graph_logical_snapshot(graph))["logicSignature"]
-        return json.dumps(report, ensure_ascii=False)
+        dirty = {value.get_path_name() for value in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
+        main = _blueprint(main_path)
+        require_asset_write([main])
+        if main.get_outermost().get_path_name() in dirty:
+            raise RuntimeError("目标有未保存改动 不覆盖其它会话")
+        if not unreal.BBBAnimationGraphEditorLibrary.configure_character_movement_input(main):
+            raise RuntimeError("移动输入构图前置条件不满足或构图失败 不保存")
+        unreal.BlueprintEditorLibrary.compile_blueprint(main)
+        if main.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+            raise RuntimeError("移动输入主图编译包含错误或警告 不保存")
+        if not unreal.EditorAssetLibrary.save_loaded_asset(main, False):
+            raise RuntimeError("移动输入主图保存失败")
+        return json.dumps({"saved": main.get_path_name(), "movementFact": "SourceMovementInput",
+                           "predicate": "HasMovementInput", "pivotFact": "SourceAcceleration"}, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod
-    def remove_pie_traversal_obstacle() -> str:
+    def configure_character_traversal_state(main_path: str, interface_path: str, base_path: str,
+                                            child_paths: list[str], montage_paths: list[str]) -> str:
+        """
+        /**
+         * 将攀爬接入既有移动状态机 由 Base 提供线程安全选择与状态内姿势
+         * @param main_path\t\t角色主动画蓝图
+         * @param interface_path\t已有移动动画层接口
+         * @param base_path\t\t基础继承层
+         * @param child_paths\t\t直接继承 Base 的具体装备层
+         * @param montage_paths\t翻越 低攀爬 高攀爬三个既有蒙太奇
+         * @return 编译与保存清单 不生成备份或兼容入口
+         */
+        """
+        if len(montage_paths) != 3 or len(set(montage_paths)) != 3 or not child_paths:
+            raise RuntimeError("需要三个明确攀爬蒙太奇和具体继承层")
+        dirty = {value.get_path_name() for value in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
+        main, interface, base = [_blueprint(path) for path in [main_path, interface_path, base_path]]
+        children = [_blueprint(path) for path in child_paths]
+        montages = [unreal.load_asset(path) for path in montage_paths]
+        if any(not isinstance(value, unreal.AnimMontage) for value in montages):
+            raise RuntimeError("攀爬动画必须为实际蒙太奇")
+        skeleton = main.get_editor_property("target_skeleton")
+        if skeleton is None or base.get_editor_property("target_skeleton") != skeleton:
+            raise RuntimeError("主图和基础层必须使用同一个骨架")
+        if any(value.get_blueprint_parent_class() != base.generated_class() for value in children):
+            raise RuntimeError("具体层必须直接继承 Base")
+        if any(value.get_editor_property("skeleton") != skeleton for value in montages):
+            raise RuntimeError("攀爬蒙太奇骨架不匹配")
+        targets = [interface, main, base] + children + montages + [skeleton]
+        require_asset_write(targets)
+        if any(value.get_outermost().get_path_name() in dirty for value in targets):
+            raise RuntimeError("目标有未保存改动 不覆盖其它会话")
+        if any(len(value.get_editor_property("slot_anim_tracks")) != 1 for value in montages):
+            raise RuntimeError("攀爬蒙太奇必须只有一个姿势轨道")
+        if unreal.BBBBlueprintEditorLibrary.ensure_animation_layer_interface_function(
+                interface, "FullBody_TraversalState", "InputPose", "None") != 1:
+            raise RuntimeError("攀爬接口必须是一次新增 不重复构图")
+        unreal.BlueprintEditorLibrary.compile_blueprint(interface)
+        if not unreal.BBBAnimationGraphEditorLibrary.configure_character_traversal_state(main, base):
+            raise RuntimeError("攀爬构图失败 不保存")
+        for montage in montages:
+            montage.modify()
+            tracks = list(montage.get_editor_property("slot_anim_tracks"))
+            tracks[0].set_editor_property("slot_name", "Traversal")
+            montage.set_editor_property("slot_anim_tracks", tracks)
+            for field in ["blend_in", "blend_out"]:
+                blend = montage.get_editor_property(field)
+                blend.set_editor_property("blend_time", 0.0)
+                montage.set_editor_property(field, blend)
+            montage.set_editor_property("enable_auto_blend_out", False)
+        for value in [base] + children:
+            unreal.BlueprintEditorLibrary.compile_blueprint(value)
+            default = unreal.get_default_object(value.generated_class())
+            default.set_editor_property("use_main_instance_montage_evaluation_data", True)
+            if value == base:
+                for name, montage in zip(["TraversalVault", "TraversalClimbLow", "TraversalClimbHigh"], montages):
+                    default.set_editor_property(name, montage)
+        for value in [interface, base, main] + children:
+            unreal.BlueprintEditorLibrary.compile_blueprint(value)
+            if value.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+                raise RuntimeError("动画蓝图存在编译错误或警告 不保存 " + value.get_path_name())
+        saved = []
+        for value in targets:
+            if not unreal.EditorAssetLibrary.save_loaded_asset(value, False):
+                raise RuntimeError("攀爬资产保存失败 已保存清单 " + json.dumps(saved))
+            saved.append(value.get_path_name())
+        return json.dumps({"state": "Traversal", "layer": "FullBody_TraversalState", "saved": saved}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def remove_pie_traversal_obstacle(world_index: int = -1) -> str:
         """
         /**
          * 删除本工具创建的临时障碍 用于验收目标失效后的动作退出
+         * @param world_index 明确 PIE 世界索引 负一同时移除所有副本的障碍
          * @return 是否成功删除临时障碍
          */
         """
-        fixture = _fixtures.get(_fixture_world, [])
-        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is None or len(fixture) < 2:
+        worlds = sorted(unreal.EditorLevelLibrary.get_pie_worlds(False), key=lambda item: item.get_path_name())
+        if world_index < -1 or world_index >= len(worlds):
+            raise RuntimeError("需要有效 PIE 世界索引或负一")
+        targets = worlds if world_index == -1 else [worlds[world_index]]
+        fixtures = [(world.get_path_name(), _fixtures.get(world, [])) for world in targets]
+        fixtures = [(path, fixture) for path, fixture in fixtures if len(fixture) >= 2]
+        if not fixtures or unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is None:
             raise RuntimeError("需要本工具创建的 PIE 障碍")
-        actor = fixture.pop(1)
-        actor.destroy_actor()
-        return json.dumps({"removed": not unreal.SystemLibrary.is_valid(actor)})
+        removed = []
+        for path, fixture in fixtures:
+            actor = fixture.pop(1)
+            actor.destroy_actor()
+            if unreal.SystemLibrary.is_valid(actor):
+                raise RuntimeError("临时障碍未完成销毁 " + path)
+            removed.append(path)
+        return json.dumps({"removed": True, "worlds": removed})
 
     @mcp_tool
     @staticmethod
@@ -364,7 +290,13 @@ class BBBTraversalToolset(unreal.ToolsetDefinition):
             velocity = player.get_velocity()
             sample["velocity"] = [velocity.x, velocity.y, velocity.z]
             sample["deltaSeconds"] = unreal.GameplayStatics.get_world_delta_seconds(world)
+            sample["animationState"] = json.loads(unreal.BBBAnimationGraphEditorLibrary.inspect_character_traversal_playback(mesh))
             sample["aiming"] = animation.is_aiming()
+            sample["equipmentUsable"] = player.is_equipment_usable()
+            sample["equipmentHidden"] = json.loads(unreal.ToolsetLibrary.get_object_properties(
+                equipment, ["bHidden"]))["bHidden"] if equipment else None
+            if len(worlds) > 1:
+                sample["network"] = json.loads(BBBTraversalToolset.inspect_pie_traversal_network())
             if isinstance(equipment, unreal.BBBRifleEquipment):
                 sample["rifle"] = {"ammo": equipment.get_loaded_ammo(), "reloading": equipment.is_reloading()}
             sample["hands"] = {}
@@ -418,6 +350,8 @@ class BBBTraversalToolset(unreal.ToolsetDefinition):
                            "modeChanges": changes, "ammoDuringTraversal": sorted({sample["rifle"]["ammo"] for sample in active if "rifle" in sample}),
                            "reloadDuringTraversal": any(sample.get("rifle", {}).get("reloading", False) for sample in active),
                            "equipmentDuringTraversal": list({sample["equipment"] for sample in active}),
+                           "equipmentHiddenDuringTraversal": all(sample["equipmentHidden"] for sample in active if sample["equipment"]),
+                           "equipmentUsableDuringTraversal": any(sample["equipmentUsable"] for sample in active),
                            "minDeltaSeconds": min((sample["deltaSeconds"] for sample in _samples), default=0),
                            "maxDeltaSeconds": max((sample["deltaSeconds"] for sample in _samples), default=0)}, ensure_ascii=False)
 
@@ -583,8 +517,11 @@ class BBBTraversalToolset(unreal.ToolsetDefinition):
                         "warpPointBone": str(modifier.get_editor_property("warp_point_anim_bone_name")),
                         "warpToFeet": modifier.get_editor_property("warp_to_feet_location")})
             results.append({"path": montage.get_path_name(), "length": montage.get_play_length(), "windows": windows,
-                            "blendIn": str(montage.get_editor_property("blend_in")),
-                            "blendOut": str(montage.get_editor_property("blend_out"))})
+                            "slots": [str(track.get_editor_property("slot_name")) for track in montage.get_editor_property("slot_anim_tracks")],
+                            "rateScale": montage.get_editor_property("rate_scale"),
+                            "autoBlendOut": montage.get_editor_property("enable_auto_blend_out"),
+                            "blendIn": montage.get_editor_property("blend_in").get_editor_property("blend_time"),
+                            "blendOut": montage.get_editor_property("blend_out").get_editor_property("blend_time")})
         return json.dumps({"montages": results}, ensure_ascii=False)
 
     @mcp_tool
@@ -640,111 +577,23 @@ class BBBTraversalToolset(unreal.ToolsetDefinition):
                 center = character.get_actor_location()
                 animation = character.mesh.get_anim_instance()
                 montage = animation.get_current_active_montage() if animation else None
+                equipment = character.get_active_equipment()
                 actors.append({"path": character.get_path_name(), "local": character.is_locally_controlled(),
                                "playerId": _player_id(character) if character.player_state else None,
                                "role": str(character.get_local_role()), "location": [center.x, center.y, center.z],
                                "mode": str(character.character_movement.get_editor_property("movement_mode")),
                                "traversing": animation.is_traversing() if animation else None,
                                "montage": montage.get_path_name() if montage else None,
-                               "position": animation.montage_get_position(montage) if montage else None})
+                               "position": animation.montage_get_position(montage) if montage else None,
+                               "animationState": json.loads(unreal.BBBAnimationGraphEditorLibrary.inspect_character_traversal_playback(character.mesh)),
+                               "equipmentUsable": character.is_equipment_usable(),
+                               "velocity": [character.get_velocity().x, character.get_velocity().y, character.get_velocity().z],
+                               "facts": json.loads(unreal.ToolsetLibrary.get_object_properties(animation,
+                                   ["SourceVelocity", "SourceAcceleration", "SourceMovementInput", "SourceLifePhase"])) if animation else None,
+                               "equipmentHidden": json.loads(unreal.ToolsetLibrary.get_object_properties(
+                                   equipment, ["bHidden"]))["bHidden"] if equipment else None})
             worlds.append({"world": world.get_path_name(), "time": unreal.GameplayStatics.get_time_seconds(world), "characters": actors})
         return json.dumps({"worlds": worlds}, ensure_ascii=False)
-
-    @mcp_tool
-    @staticmethod
-    def configure_traversal_blueprints(base_path: str, main_path: str, montage_paths: list[str]) -> str:
-        """
-        /**
-         * 在 Base 纯配置中保存动画并建立全身输入链 翻越时跳过握持与地面修正
-         * @param base_path 基础链接动画蓝图
-         * @param main_path 主动画蓝图
-         * @param montage_paths Vault 低攀爬 高攀爬三条蒙太奇
-         * @return 编译和保存结果
-         */
-        """
-        if len(montage_paths) != 3:
-            raise RuntimeError("必须配置三种动作蒙太奇")
-        base = _blueprint(base_path)
-        main = _blueprint(main_path)
-        require_asset_write([base, main])
-        montages = [unreal.load_asset(path) for path in montage_paths]
-        if any(not isinstance(asset, unreal.AnimMontage) for asset in montages):
-            raise RuntimeError("动作配置必须为有效蒙太奇")
-        names = ("TraversalVault", "TraversalClimbLow", "TraversalClimbHigh")
-        event_graph = unreal.BlueprintEditorLibrary.find_event_graph(base)
-        event_editor = unreal.BlueprintGraphEditor.get_graph_editor(event_graph)
-        if event_editor.find_event_node(unreal.Name("TraversalRequested")):
-            raise RuntimeError("已经存在翻越请求链 请先只读检查 防止重复构建")
-        with toolset_registry.tool_raising_exceptions():
-            for name in names:
-                if name not in unreal.BlueprintEditorLibrary.list_member_variable_names(base, False):
-                    BlueprintTools.add_object_variable(base, name, unreal.AnimMontage.static_class())
-                BlueprintTools.set_variable_category(base, name, "Traversal")
-            unreal.BlueprintEditorLibrary.compile_blueprint(base)
-            default = unreal.get_default_object(base.generated_class())
-            for name, asset in zip(names, montages):
-                default.set_editor_property(name, asset)
-            event = BlueprintTools.add_event(base, "TraversalRequested", unreal.IntPoint(0, 2200))
-            owner = _create(event_graph, "GetOwningActor", 0, 2440)
-            cast = _create(event_graph, "CastToBBBCharacter", 320, 2200)
-            switch = _create(event_graph, "SwitchonEBBBTraversalAction", 600, 2200)
-            _connect(_pin(event, "then"), _pin(cast, "execute"))
-            _connect(_pin(owner, "ReturnValue"), _pin(cast, "Object"))
-            _connect(_pin(cast, "then"), _pin(switch, "execute"))
-            _connect(_pin(event, "Action"), _pin(switch, "Selection"))
-            for index, (action, variable) in enumerate(zip(("Vault", "ClimbLow", "ClimbHigh"), names)):
-                y = 2200 + index * 260
-                make = _create(event_graph, "MakeBBBFullBodyMontageLocalControlPacket", 980, y + 80)
-                submit = _create(event_graph, "SubmitInput", 1260, y)
-                get_types = [name for name in BlueprintTools.find_node_types(event_graph, variable) if "获取" in name or "Get" in name.rsplit("|", 1)[-1]]
-                if len(get_types) != 1:
-                    raise RuntimeError("配置读取节点不唯一 " + variable + " " + str(get_types))
-                getter = BlueprintTools.create_node(event_graph, get_types[0], unreal.IntPoint(740, y + 100))
-                _connect(_pin(getter, variable), _pin(make, "Montage"))
-                _connect(_pin(make, "BBBFullBodyMontageLocalControlPacket"), _pin(submit, "Packet"))
-                _connect(_pin(cast, "AsBBBCharacter"), _pin(submit, "self"))
-                _connect(_pin(switch, action), _pin(submit, "execute"))
-            layer = BlueprintTools.get_graph(base, "FullBody_SkeletalControls")
-            nodes = list(BlueprintTools.find_nodes(layer))
-            outputs = [node for node in nodes if isinstance(node, unreal.AnimGraphNode_Root)]
-            inputs = [node for node in nodes if isinstance(node, unreal.AnimGraphNode_LinkedInputPose)]
-            if len(outputs) != 1 or len(inputs) != 1:
-                raise RuntimeError("骨骼控制层输入输出不唯一")
-            result = _pin(outputs[0], "Result")
-            previous = list(result.list_connected_pins())
-            if len(previous) != 1:
-                raise RuntimeError("原骨骼控制层输出没有唯一姿势")
-            blend = _create(layer, "按布尔混合姿势", 80, 40)
-            traversing = _create(layer, "IsTraversing", -180, 300)
-            result.break_single_pin_link(previous[0])
-            _connect(_pin(inputs[0], "Pose"), _pin(blend, "BlendPose_0"))
-            _connect(previous[0], _pin(blend, "BlendPose_1"))
-            _connect(_pin(traversing, "ReturnValue"), _pin(blend, "bActiveValue"))
-            _connect(_pin(blend, "Pose"), result)
-            outputs[0].set_node_pos(unreal.IntPoint(440, 40))
-            foot = BlueprintTools.get_graph(main, "ShouldEnableControlRig")
-            foot_result = [node for node in BlueprintTools.find_nodes(foot) if isinstance(node, unreal.K2Node_FunctionResult)]
-            if len(foot_result) != 1:
-                raise RuntimeError("脚部开关函数返回不唯一")
-            value = _pin(foot_result[0], "ReturnValue")
-            old = list(value.list_connected_pins())
-            if len(old) != 1:
-                raise RuntimeError("脚部原开关没有唯一来源")
-            active = _create(foot, "IsTraversing", 0, 500)
-            negate = _create(foot, "NOTBoolean", 260, 500)
-            both = _create(foot, "ANDBoolean", 500, 220)
-            _connect(_pin(active, "ReturnValue"), _pin(negate, "A"))
-            _connect(_pin(negate, "ReturnValue"), _pin(both, "B"))
-            _connect(old[0], _pin(both, "A"))
-            value.break_single_pin_link(old[0])
-            _connect(_pin(both, "ReturnValue"), value)
-            for blueprint in (base, main):
-                unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
-                if blueprint.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
-                    raise RuntimeError("翻越动画蓝图编译失败 " + blueprint.get_path_name())
-                if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
-                    raise RuntimeError("翻越动画蓝图保存失败 " + blueprint.get_path_name())
-        return json.dumps({"base": base_path, "main": main_path, "montages": list(montage_paths), "saved": True}, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod
@@ -821,9 +670,14 @@ class BBBTraversalToolset(unreal.ToolsetDefinition):
                 raise RuntimeError("创建蒙太奇失败 " + path)
             tracks = list(montage.get_editor_property("slot_anim_tracks"))
             if len(tracks) != 1:
-                raise RuntimeError("翻越蒙太奇必须只有一个 FullBody 轨道")
-            tracks[0].set_editor_property("slot_name", unreal.Name("FullBody"))
+                raise RuntimeError("翻越蒙太奇必须只有一个 Traversal 轨道")
+            tracks[0].set_editor_property("slot_name", unreal.Name("Traversal"))
             montage.set_editor_property("slot_anim_tracks", tracks)
+            for field in ["blend_in", "blend_out"]:
+                blend = montage.get_editor_property(field)
+                blend.set_editor_property("blend_time", 0.0)
+                montage.set_editor_property(field, blend)
+            montage.set_editor_property("enable_auto_blend_out", False)
             library = unreal.AnimationLibrary
             track = "TraversalWarp"
             if library.is_valid_anim_notify_track_name(montage, track):
@@ -842,7 +696,7 @@ class BBBTraversalToolset(unreal.ToolsetDefinition):
             if not unreal.EditorAssetLibrary.save_loaded_asset(montage, False):
                 raise RuntimeError("蒙太奇保存失败 " + path)
             if path in new and not unreal.SourceControl.mark_file_for_add(path, silent=True):
-                raise RuntimeError("新蒙太奇未能加入 Perforce " + path)
+                unreal.log_warning("新蒙太奇已保存但尚未纳入版本控制 " + path)
             report.append({"montage": path, "sequence": sequence.get_path_name(), "windows": definitions})
         return json.dumps(report, ensure_ascii=False)
 

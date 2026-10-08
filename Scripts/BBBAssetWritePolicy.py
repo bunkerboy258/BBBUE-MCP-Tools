@@ -1,3 +1,5 @@
+import os
+
 import unreal
 
 
@@ -39,15 +41,27 @@ def require_asset_write(assets, destinations=()):
     if not commandlet and unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
         raise RuntimeError("PIE 期间禁止写入项目资产")
     control = unreal.SourceControl
-    if not control.is_enabled() or not control.is_available() or control.current_provider() != "Perforce":
-        raise RuntimeError("写入前必须启用并连接 Perforce")
     paths = sources + targets
+    if not control.is_enabled() or not control.is_available() or control.current_provider() != "Perforce":
+        unreal.log_warning("源控不可用 本次资产写入不受版本控制保护")
+        return dict.fromkeys(paths)
     states = list(control.query_file_states(paths, silent=True, use_source_control_state_cache=False))
     if len(states) != len(paths):
         raise RuntimeError("无法获得完整 Perforce 状态 不执行写入")
     report = dict(zip(paths, states))
     for path, state in report.items():
-        if not state.is_valid or state.is_unknown or state.is_checked_out_other or state.is_conflicted or state.is_deleted:
+        if state.is_checked_out_other or state.is_conflicted or state.is_deleted:
+            raise RuntimeError("Perforce 存在冲突或他人占用: " + path)
+        if not state.is_source_controlled and not state.is_added:
+            content = unreal.Paths.project_content_dir()
+            filename = os.path.join(content, path[len("/Game/"):])
+            for extension in [".uasset", ".umap"]:
+                existing = filename + extension
+                if os.path.isfile(existing) and not os.access(existing, os.W_OK):
+                    raise RuntimeError("未受控资产文件只读: " + path)
+            unreal.log_warning("资产未受版本控制保护: " + path)
+            continue
+        if not state.is_valid or state.is_unknown:
             raise RuntimeError("Perforce 状态无效或存在冲突: " + path)
         if path in targets:
             if state.is_source_controlled or state.is_added or not state.can_add:

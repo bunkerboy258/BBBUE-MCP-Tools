@@ -377,6 +377,50 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
     @mcp_tool
     @staticmethod
     @_annotation_documentation
+    def set_blueprint_node_positions(graph_path: str, expected_snapshot: str, positions_json: str) -> str:
+        """
+        /**
+         * 按当前快照精确移动指定节点 支持状态机 不改变逻辑或保存资产
+         * @param graph_path	项目图表完整路径
+         * @param expected_snapshot	当前只读逻辑快照身份
+         * @param positions_json	含 nodeGuid x y 的明确节点数组
+         * @return 回读通过的节点坐标 尚未编译保存
+         */
+        """
+        before = json.loads(BBBBlueprintGraphToolset.inspect_blueprint_graph_logic(graph_path))
+        if before["snapshot"] != expected_snapshot:
+            raise RuntimeError("图表快照已变化 请重新读取")
+        requests = json.loads(positions_json)
+        if not isinstance(requests, list) or not 1 <= len(requests) <= 512:
+            raise RuntimeError("需要一至五百一十二个明确节点")
+        existing = {node["guid"]: node for node in before["nodes"]}
+        seen = set()
+        for item in requests:
+            if not isinstance(item, dict) or set(item) != {"nodeGuid", "x", "y"}:
+                raise RuntimeError("节点移动字段不符")
+            key = item["nodeGuid"]
+            if not isinstance(key, str) or key not in existing or key in seen:
+                raise RuntimeError("节点不存在或重复")
+            if any(type(item[name]) is not int or abs(item[name]) > 100000 for name in ["x", "y"]):
+                raise RuntimeError("节点坐标必须是范围内的整数")
+            seen.add(key)
+        graph = unreal.load_object(None, graph_path)
+        nodes = [unreal.load_object(None, existing[item["nodeGuid"]]["path"]) for item in requests]
+        positions = [unreal.IntPoint(item["x"], item["y"]) for item in requests]
+        require_write_access(graph)
+        if not unreal.BBBBlueprintEditorLibrary.set_blueprint_graph_node_positions(graph, nodes, positions):
+            raise RuntimeError("原生节点移动失败 不保存")
+        after = json.loads(BBBBlueprintGraphToolset.inspect_blueprint_graph_logic(graph_path))
+        if before["logicSignature"] != after["logicSignature"]:
+            raise RuntimeError("移动后逻辑发生变化 不保存")
+        current = {node["guid"]: node for node in after["nodes"]}
+        if any((current[item["nodeGuid"]]["x"], current[item["nodeGuid"]]["y"]) != (item["x"], item["y"]) for item in requests):
+            raise RuntimeError("移动坐标回读不符 不保存")
+        return json.dumps({"graph": graph_path, "moved": requests, "saved": False}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    @_annotation_documentation
     def inspect_blueprint_graph_logic(graph_path: str) -> str:
         """
         /**

@@ -71,4 +71,4 @@ MCP 宿主与编辑器生命周期规则：
 - 游戏项目外层仓库及其 Content Config Docs Scripts 等外部文件只做本地版本控制 不默认远程推送 MCP 仓库自身的 Scripts Docs 与规则文件属于 MCP 仓库正常源码范围
 - `UnrealCopilotPlugin` 属于待清理历史遗留 不属于任何默认提交或推送目标 不向 `atgoldberg/UnrealCopilot` 推送
 - 推送前必须核对 Git 根目录、分支、远程地址和上游分支
-- UE 二进制资产继续使用 Perforce 独占签出，未经用户要求不执行 Get Latest、Submit 或 Revert
+- Perforce 管理版本而不限制正常资产编辑 未受控资产允许编辑并明确报告版本保护缺口 受控资产保留他人占用与冲突保护 未经用户要求不执行 Get Latest Submit 或 Revert
