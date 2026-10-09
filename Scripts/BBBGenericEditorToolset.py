@@ -163,6 +163,21 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def export_textures_png(asset_paths: list[str], export_name: str) -> str:
+        """
+        /**
+         * 将明确纹理列表交付为原始尺寸 PNG 不修改源资产
+         * @param asset_paths\tTexture2D 包路径 每批最多 256 项
+         * @param export_name\tSaved/Exports 下的新目录名称 禁止覆盖
+         * @return\tJSON 导出目录 数量和清单路径
+         */
+        """
+        from BBBTextureExport import export_textures
+
+        return export_textures(asset_paths, export_name)
+
+    @mcp_tool
+    @staticmethod
     def start_pie_audio_recording(file_prefix: str) -> str:
         """
         /**
