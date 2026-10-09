@@ -113,5 +113,65 @@ class ControlRigCurveAlphaTests(unittest.TestCase):
             self.configure(*self.args)
 
 
+class FootPlacementRuntimeReadTests(unittest.TestCase):
+    """/** 贴地验收只读取已求值的动画事实 不修改实例或主动更新姿势 */"""
+
+    def extract(self, name, namespace):
+        """/** @param name 被测入口 @param namespace 隔离依赖 @return 实际脚本中的函数 */"""
+        tree = ast.parse((ROOT / "Scripts/BBBTraversalToolset.py").read_text(encoding="utf-8-sig"))
+        method = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == name)
+        method.decorator_list = []
+        exec(compile(ast.Module(body=[method], type_ignores=[]), "runtime_read_test", "exec"), namespace)
+        return namespace[name]
+
+    def test_main_weight_is_available_without_linked_layer(self):
+        """/** @return 链接层尚未出现时仍读取主实例权重与禁用曲线 */"""
+        sample = self.extract("_ik_sample", {"json": json})
+        animation = Mock()
+        animation.get_curve_value.side_effect = lambda name: 0.75 if name == "DisableLegIK" else 0.0
+        animation.call_method.return_value = 0.25
+        animation.get_editor_property.return_value = True
+        animation.get_linked_anim_layer_instance_by_class.return_value = None
+        result = sample(animation, Mock(), None)
+        self.assertEqual(result["footPlacementAlpha"], 0.25)
+        self.assertEqual(result["mainCurves"]["DisableLegIK"], 0.75)
+        self.assertTrue(result["useFootPlacement"])
+        animation.call_method.assert_called_once_with("GetFootPlacementAlpha", ())
+        animation.set_editor_property.assert_not_called()
+        animation.tick_animation.assert_not_called()
+
+    def test_network_probe_reports_each_character_weight_without_writes(self):
+        """/** @return 网络探针读取当前各端结果而不是沿用本地角色权重 */"""
+        engine = Mock()
+        world = Mock()
+        world.get_path_name.return_value = "/Game/PIE"
+        engine.EditorLevelLibrary.get_pie_worlds.return_value = [world]
+        actor = Mock()
+        actor.get_path_name.return_value = "/Game/PIE.Character"
+        actor.get_actor_location.return_value = types.SimpleNamespace(x=0, y=0, z=0)
+        actor.get_velocity.return_value = types.SimpleNamespace(x=0, y=0, z=0)
+        actor.is_locally_controlled.return_value = False
+        actor.get_local_role.return_value = "Mirror"
+        actor.is_equipment_usable.return_value = True
+        actor.get_active_equipment.return_value = None
+        actor.character_movement.get_editor_property.return_value = "Walking"
+        animation = actor.mesh.get_anim_instance.return_value
+        animation.get_current_active_montage.return_value = None
+        animation.is_traversing.return_value = False
+        animation.call_method.return_value = 0.4
+        animation.get_curve_value.return_value = 0.6
+        engine.GameplayStatics.get_all_actors_of_class.return_value = [actor]
+        engine.GameplayStatics.get_time_seconds.return_value = 10.0
+        engine.BBBAnimationGraphEditorLibrary.inspect_character_traversal_playback.return_value = '{}'
+        engine.ToolsetLibrary.get_object_properties.return_value = '{}'
+        probe = self.extract("inspect_pie_traversal_network", {"json": json, "unreal": engine, "_player_id": lambda actor: 42})
+        result = json.loads(probe())["worlds"][0]["characters"][0]
+        self.assertEqual(result["footPlacementAlpha"], 0.4)
+        self.assertEqual(result["disableLegIK"], 0.6)
+        animation.call_method.assert_called_once_with("GetFootPlacementAlpha", ())
+        engine.ToolsetLibrary.set_object_properties.assert_not_called()
+        animation.tick_animation.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

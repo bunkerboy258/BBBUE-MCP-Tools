@@ -615,6 +615,8 @@ class BBBTraversalToolset(unreal.ToolsetDefinition):
                                "role": str(character.get_local_role()), "location": [center.x, center.y, center.z],
                                "mode": str(character.character_movement.get_editor_property("movement_mode")),
                                "traversing": animation.is_traversing() if animation else None,
+                               "footPlacementAlpha": animation.call_method("GetFootPlacementAlpha", ()) if animation else None,
+                               "disableLegIK": animation.get_curve_value("DisableLegIK") if animation else None,
                                "montage": montage.get_path_name() if montage else None,
                                "position": animation.montage_get_position(montage) if montage else None,
                                "animationState": json.loads(unreal.BBBAnimationGraphEditorLibrary.inspect_character_traversal_playback(character.mesh)),
@@ -647,7 +649,7 @@ class BBBTraversalToolset(unreal.ToolsetDefinition):
                 report["nodeTypes"][query] = list(BlueprintTools.find_node_types(event, query))
             for blueprint in (base, main):
                 for graph in BlueprintTools.list_graphs(blueprint):
-                    if graph.get_name() in ("FullBody_SkeletalControls", "ShouldEnableControlRig", "EventGraph"):
+                    if graph.get_name() in ("FullBody_SkeletalControls", "GetFootPlacementAlpha", "EventGraph"):
                         report["graphs"].append(json.loads(unreal.BBBBlueprintEditorLibrary.inspect_blueprint_graph_logical_snapshot(graph)))
         report["motionWarpingProperties"] = unreal.RootMotionModifier_SkewWarp.__doc__
         report["notifyMethods"] = [name for name in dir(unreal.AnimationLibrary) if "notify" in name]

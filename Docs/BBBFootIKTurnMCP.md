@@ -47,3 +47,5 @@ BBBBlueprintGraphToolset.configure_control_rig_curve_alpha 将唯一布尔开关
 提前退出暂停源蒙太奇后恢复权重仍由状态混合带动 不依赖暂停之后的源动画曲线关键帧
 
 BBBTraversalToolset.sample_pie_traversal 的 include_ik_curves 为 true 时额外采样主实例 DisableLegIK 曲线 真实 GetFootPlacementAlpha 返回值 总开关与骨盆 脚 脚球骨世界位置 不主动推进动画 不保存采样文件
+
+BBBTraversalToolset.inspect_pie_traversal_network 同时读取各端角色的 footPlacementAlpha 与 disableLegIK 以核对远端退出混合 这些字段是函数和曲线的只读结果 不是主动推进动画得到的节点内部缓存
