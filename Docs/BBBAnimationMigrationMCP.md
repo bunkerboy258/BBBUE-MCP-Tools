@@ -241,6 +241,8 @@ IK 重建通过网格查询真实父骨名，使用 FK 脚组件变换相对于�
 
 ## 最大受力后坐力与原有全身加法层
 
+`configure_weapon_recoil_animation_source` 将已有 `UpdateWeaponHandling` 中的步枪动画类型检查接入 `GetRecoilAnimation` 快照 getter 并通过 `WeaponRecoilAnimation` 属性访问驱动 `FullBodyAdditives` 的 Sequence 输入 无装备或装备类型不符时清空序列引用 原时间与权重链保持不变 调用前必须独占签出目标蓝图 结构不匹配或已配置时拒绝执行 编译无警告后仅保存目标资产
+
 `inspect_backward_recoil_context` 从装备挂接变换、真实枪口插槽和持枪基准推导受力轴。`rebuild_backward_recoil_animation` 原位重做已签出的序列，Alpha 为 1 时默认后退 8 厘米，肩部承担四分之一位移，双臂保持长度并恢复双手朝向。动作不制作枪口上抬、左右偏转或下半身运动。峰值约在 0.021 秒，按装备射击间隔的九成恢复到零，序列尾段保持零差值。
 
 `merge_recoil_into_full_body_additives` 一次性将旧独立层并入原有 `FullBodyAdditives`，保留落地恢复状态机，将原来的 0.65 落地恢复权重移入层内，主图接收权重改为 1。后坐力通过 `WeaponRecoilTime` 的显式时间播放器和 `WeaponBackwardRecoilAlpha` 合成。结构不符合预期或重复合并会拒绝执行。旧的 `configure_recoil_animation_graphs` 公共入口已删除，禁止重新创建独立后坐力层。

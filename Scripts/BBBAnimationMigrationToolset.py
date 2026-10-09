@@ -525,6 +525,71 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def configure_weapon_recoil_animation_source(blueprint_path: str) -> str:
+        """
+        /**
+         * 将现有持枪更新图的后坐力序列改为当前步枪的只读动画快照
+         * @param blueprint_path	已独占签出的角色动画层
+         * @return 编译保存结果 不重建其它持枪逻辑
+         */
+        """
+        if unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+            raise RuntimeError("PIE 期间禁止修改后坐力序列来源")
+        from BBBAssetWritePolicy import require_asset_write
+        from BBBWeaponHandlingTools import _Graph
+        blueprint = unreal.load_asset(blueprint_path)
+        if not isinstance(blueprint, unreal.AnimBlueprint):
+            raise RuntimeError("目标必须是动画蓝图")
+        if not hasattr(unreal.BBBRifleAnimInstance, "get_recoil_animation"):
+            raise RuntimeError("宿主尚未加载专属后坐力快照接口 必须先编译并重启")
+        update = unreal.BlueprintEditorLibrary.find_graph(blueprint, "UpdateWeaponHandling")
+        additives = unreal.BlueprintEditorLibrary.find_graph(blueprint, "FullBodyAdditives")
+        if update is None or additives is None:
+            raise RuntimeError("现有持枪更新图或全身加法层不存在")
+        graph = _Graph(update)
+        casts = [node for node in graph.editor.list_all_nodes() if node.get_class().get_name() == "K2Node_DynamicCast" and any(str(pin.get_pin_name()).replace(" ", "") == "AsBBBRifleAnimInstance" for pin in node.list_output_pins())]
+        evaluators = [node for node in unreal.BlueprintGraphEditor.get_graph_editor(additives).list_all_nodes() if node.get_class().get_name() == "AnimGraphNode_SequenceEvaluator"]
+        if len(casts) != 1 or len(evaluators) != 1:
+            raise RuntimeError("步枪类型检查或后坐力播放器不唯一")
+        variables = [str(name) for name in unreal.BlueprintEditorLibrary.list_member_variable_names(blueprint, False)]
+        if "WeaponRecoilAnimation" in variables:
+            raise RuntimeError("序列来源已配置 拒绝重复插入节点")
+        cast = casts[0]
+        before = list(cast.find_execute_pin().list_connected_pins())
+        after = list(cast.find_then_pin().list_connected_pins())
+        if len(before) != 1 or not after:
+            raise RuntimeError("现有持枪执行链不完整")
+        require_asset_write([blueprint])
+        BlueprintTools.add_object_variable(blueprint, "WeaponRecoilAnimation", unreal.AnimSequence.static_class())
+        BlueprintTools.set_variable_category(blueprint, "WeaponRecoilAnimation", "持枪表现")
+        reset = graph.place(graph.editor.add_set_member_variable_node("WeaponRecoilAnimation"))
+        selected = graph.place(graph.editor.add_set_member_variable_node("WeaponRecoilAnimation"))
+        getter = graph.call("/Script/ABBB_Evac.BBBRifleAnimInstance.GetRecoilAnimation", graph.out(cast, "AsBBBRifleAnimInstance"))
+        position = cast.get_node_pos()
+        reset.set_node_pos(unreal.IntPoint(position.x - 320, position.y - 240))
+        getter.set_node_pos(unreal.IntPoint(position.x + 300, position.y - 320))
+        selected.set_node_pos(unreal.IntPoint(position.x + 600, position.y - 120))
+        cast.find_execute_pin().break_pin_links()
+        cast.find_then_pin().break_pin_links()
+        graph.link(before[0], reset.find_execute_pin())
+        graph.link(reset.find_then_pin(), cast.find_execute_pin())
+        graph.link(cast.find_then_pin(), selected.find_execute_pin())
+        graph.link(graph.out(getter), selected.find_input_pin("WeaponRecoilAnimation"))
+        for destination in after:
+            graph.link(selected.find_then_pin(), destination)
+        evaluator = evaluators[0]
+        data = evaluator.get_editor_property("node")
+        data.set_editor_property("sequence", None)
+        evaluator.set_editor_property("node", data)
+        if not unreal.BBBBlueprintEditorLibrary.bind_animation_node_input(evaluator, "Sequence", ["WeaponRecoilAnimation"]):
+            raise RuntimeError("专属后坐力序列属性访问绑定失败")
+        BlueprintTools.compile_blueprint(blueprint, warnings_as_errors=True)
+        if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
+            raise RuntimeError("专属后坐力序列来源保存失败")
+        return json.dumps({"saved": True, "variable": "WeaponRecoilAnimation", "status": str(blueprint.get_editor_property("status"))}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def sample_backward_recoil_runtime(action: str, seconds: float, file_prefix: str) -> str:
         """
         /**

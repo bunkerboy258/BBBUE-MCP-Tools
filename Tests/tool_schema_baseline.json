@@ -2895,6 +2895,32 @@
         ]
       }
     },
+    "configure_weapon_recoil_animation_source": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_path": {
+            "type": "string",
+            "description": "已独占签出的角色动画层 *"
+          }
+        },
+        "required": [
+          "blueprint_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "编译保存结果 不重建其它持枪逻辑 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
     "capture_backward_recoil_alpha_samples": {
       "inputSchema": {
         "type": "object",
