@@ -5928,6 +5928,67 @@
     }
   },
   "BBBBlueprintGraphToolset": {
+    "configure_control_rig_curve_alpha": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_path": {
+            "type": "string",
+            "description": "独占持有且没有未保存改动的主动画蓝图"
+          },
+          "node_path": {
+            "type": "string",
+            "description": "现有 Control Rig 节点对象路径"
+          },
+          "previous_function": {
+            "type": "string",
+            "description": "只供该节点使用的旧布尔函数"
+          },
+          "alpha_function": {
+            "type": "string",
+            "description": "替换后的浮点函数名称 不保留旧入口"
+          },
+          "enable_variable": {
+            "type": "string",
+            "description": "既有布尔总开关变量"
+          },
+          "curve_name": {
+            "type": "string",
+            "description": "一表示禁用的既有动画曲线"
+          },
+          "expected_snapshot": {
+            "type": "string",
+            "description": "旧函数逻辑快照的 snapshot"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "仅核对结构与占用 不修改资产",
+            "default": true
+          }
+        },
+        "required": [
+          "blueprint_path",
+          "node_path",
+          "previous_function",
+          "alpha_function",
+          "enable_variable",
+          "curve_name",
+          "expected_snapshot"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "前置核对或严格编译保存结果"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
     "write_graph": {
       "inputSchema": {
         "type": "object",

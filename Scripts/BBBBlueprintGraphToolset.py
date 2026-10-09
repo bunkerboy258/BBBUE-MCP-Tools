@@ -158,6 +158,168 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    @_annotation_documentation
+    def configure_control_rig_curve_alpha(blueprint_path: str, node_path: str, previous_function: str,
+                                          alpha_function: str, enable_variable: str, curve_name: str,
+                                          expected_snapshot: str, dry_run: bool = True) -> str:
+        """
+        /**
+         * 将唯一布尔曲线开关原位替换为线程安全连续权重 保留主图姿态链与其它函数
+         * @param blueprint_path\t独占持有且没有未保存改动的主动画蓝图
+         * @param node_path\t现有 Control Rig 节点对象路径
+         * @param previous_function\t只供该节点使用的旧布尔函数
+         * @param alpha_function\t替换后的浮点函数名称 不保留旧入口
+         * @param enable_variable\t既有布尔总开关变量
+         * @param curve_name\t一表示禁用的既有动画曲线
+         * @param expected_snapshot\t旧函数逻辑快照的 snapshot
+         * @param dry_run\t仅核对结构与占用 不修改资产
+         * @return 前置核对或严格编译保存结果
+         */
+        """
+        if type(dry_run) is not bool or previous_function == alpha_function:
+            raise RuntimeError("需要明确的预览标记与不同的新旧函数名称")
+
+        blueprint = unreal.load_asset(blueprint_path)
+        node = unreal.load_object(None, node_path)
+        if not isinstance(blueprint, unreal.AnimBlueprint) or not isinstance(node, unreal.AnimGraphNode_ControlRig):
+            raise RuntimeError("主动画蓝图或 Control Rig 节点不存在")
+
+        graph = unreal.BlueprintEditorLibrary.find_graph(blueprint, previous_function)
+        main_graph = node.get_outer()
+        if graph is None or main_graph.get_outer() != blueprint:
+            raise RuntimeError("旧函数不存在或节点不属于目标蓝图")
+
+        require_write_access(blueprint)
+        dirty = {str(value.get_path_name()) for value in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
+        if blueprint.get_outermost().get_path_name() in dirty:
+            raise RuntimeError("目标已有未保存改动 不混入本次更新")
+
+        if unreal.BlueprintEditorLibrary.find_graph(blueprint, alpha_function) is not None:
+            raise RuntimeError("新权重函数已存在 不重复迁移")
+
+        before = json.loads(BBBBlueprintGraphToolset.inspect_blueprint_graph_logic(graph.get_path_name()))
+        main_before = json.loads(BBBBlueprintGraphToolset.inspect_blueprint_graph_logic(main_graph.get_path_name()))
+        if not expected_snapshot or before["snapshot"] != expected_snapshot:
+            raise RuntimeError("函数快照已变化 请重新读取")
+
+        entries = [item for item in before["nodes"] if item["nodeClass"].endswith(".K2Node_FunctionEntry")]
+        results = [item for item in before["nodes"] if item["nodeClass"].endswith(".K2Node_FunctionResult")]
+        curves = [item for item in before["nodes"] if item.get("function", {}).get("name") == "GetCurveValue"]
+        switches = [item for item in before["nodes"] if item.get("variable", {}).get("name") == enable_variable]
+        operators = [item for item in before["nodes"] if item.get("function", {}).get("name") in {"BooleanAND", "LessEqual_DoubleDouble"}]
+        comments = [item for item in before["nodes"] if item["isComment"]]
+        callers = [item for item in main_before["nodes"] if item.get("function", {}).get("name") == previous_function]
+        if [len(values) for values in (entries, results, curves, switches, operators, comments, callers)] != [1, 1, 1, 1, 2, 2, 1]:
+            raise RuntimeError("旧开关结构与预期不符 不推测其它实现")
+
+        if len(before["nodes"]) != 8 or not any(pin["name"] == "CurveName" and pin["defaultValue"] == curve_name for pin in curves[0]["pins"]):
+            raise RuntimeError("旧函数存在额外逻辑或使用其它曲线")
+
+        rig = next(item for item in main_before["nodes"] if item["path"] == node_path)
+        bool_pin = next(pin for pin in rig["pins"] if pin["name"] == "bAlphaBoolEnabled")
+        output = next(pin for pin in callers[0]["pins"] if pin["name"] == "ReturnValue")
+        if rig["animNodeProperties"]["alphaInputType"] != "Bool" or len(output["links"]) != 1 or len(bool_pin["links"]) != 1:
+            raise RuntimeError("旧开关必须只连接该节点的布尔输入")
+
+        if bool_pin["links"][0]["nodeGuid"] != callers[0]["guid"] or output["links"][0]["nodeGuid"] != rig["guid"]:
+            raise RuntimeError("布尔开关消费者不匹配")
+
+        report = {"blueprint": blueprint_path, "node": node_path, "previousFunction": previous_function,
+                  "alphaFunction": alpha_function, "curve": curve_name, "dryRun": dry_run, "saved": False}
+        if dry_run:
+            return json.dumps(report, ensure_ascii=False)
+
+        editor = unreal.BlueprintGraphEditor.get_graph_editor(graph)
+        main_editor = unreal.BlueprintGraphEditor.get_graph_editor(main_graph)
+        instances = {value.get_path_name(): value for value in editor.list_all_nodes()}
+        entry = instances[entries[0]["path"]]
+        result = instances[results[0]["path"]]
+        curve = instances[curves[0]["path"]]
+        switch = instances[switches[0]["path"]]
+        caller = unreal.load_object(None, callers[0]["path"])
+        comment_nodes = {value.get_path_name(): value for value in editor.list_comment_nodes()}
+
+        def connect(source, target):
+            """/** @param source 输出引脚 @param target 输入引脚 @return 连接失败时明确中止 */"""
+            if not source.try_create_connection(target):
+                raise RuntimeError("连续权重图表连接失败")
+
+        with toolset_registry.tool_raising_exceptions(), unreal.ScopedEditorTransaction("连续曲线驱动 Control Rig 权重"):
+            blueprint.modify()
+            graph.modify()
+            main_graph.modify()
+            main_editor.remove_nodes([caller])
+            editor.remove_nodes([instances[item["path"]] for item in operators])
+            unreal.log("[BBBControlRigAlpha] 替换返回参数")
+            if not editor.remove_graph_output_parameter("ReturnValue"):
+                raise RuntimeError("旧布尔返回参数移除失败")
+            BlueprintTools.add_function_param(graph, "ReturnValue", "float", False)
+            unreal.BlueprintEditorLibrary.rename_graph(graph, alpha_function)
+            editor.set_is_pure_function(True)
+            editor.set_is_thread_safe_function(True)
+            unreal.log("[BBBControlRigAlpha] 创建连续权重逻辑")
+
+            subtract = editor.add_call_function_node("/Script/Engine.KismetMathLibrary.Subtract_DoubleDouble")
+            clamp = editor.add_call_function_node("/Script/Engine.KismetMathLibrary.FClamp")
+            select = editor.add_call_function_node("/Script/Engine.KismetMathLibrary.SelectFloat")
+            for value, position in ((curve, (3073, -466)), (subtract, (3373, -466)), (clamp, (3673, -466)),
+                                    (switch, (3673, -590)), (select, (3973, -466)), (result, (4035, -590))):
+                value.set_node_pos(unreal.IntPoint(*position))
+            connect(curve.find_output_pin("ReturnValue"), subtract.find_input_pin("B"))
+            connect(subtract.find_output_pin("ReturnValue"), clamp.find_input_pin("Value"))
+            connect(clamp.find_output_pin("ReturnValue"), select.find_input_pin("A"))
+            connect(switch.find_output_pin(enable_variable), select.find_input_pin("bPickA"))
+            connect(select.find_output_pin("ReturnValue"), result.find_input_pin("ReturnValue"))
+            connect(entry.find_then_pin(), result.find_execute_pin())
+            if not subtract.find_input_pin("A").set_pin_value("1") or not clamp.find_input_pin("Min").set_pin_value("0") or not clamp.find_input_pin("Max").set_pin_value("1") or not select.find_input_pin("B").set_pin_value("0"):
+                raise RuntimeError("连续权重常量写入失败")
+
+            summary = next(item for item in comments if item["height"] < 200)
+            body = next(item for item in comments if item != summary)
+            unreal.BlueprintEditorLibrary.set_comment_text(comment_nodes[summary["path"]],
+                "脚部 Control Rig 连续权重 | " + alpha_function + "\n总开关关闭时返回 0\n总开关开启时返回 Clamp(1 - " + curve_name + " 0 1)\n跟随动画曲线和状态混合恢复 不等待曲线归零再启用")
+            unreal.BlueprintEditorLibrary.set_comment_text(comment_nodes[body["path"]],
+                "动画禁用曲线连续反转为贴地权重\n只计算本帧表现权重 不生成玩法事实 不延迟 CMC 交接")
+            unreal.log("[BBBControlRigAlpha] 配置浮点输入并严格编译")
+            if not unreal.ToolsetLibrary.set_object_properties(node, json.dumps({"node": {
+                    "alphaInputType": "Float", "alphaScaleBias": {"scale": 1.0, "bias": 0.0},
+                    "alphaScaleBiasClamp": {"scale": 1.0, "bias": 0.0, "bInterpResult": False}}})):
+                raise RuntimeError("Control Rig 浮点权重模式配置失败")
+
+            BlueprintTools.compile_blueprint(blueprint, True)
+            unreal.log("[BBBControlRigAlpha] 连接新权重函数")
+            new_caller = main_editor.add_call_function_node(blueprint.generated_class().get_path_name() + "." + alpha_function)
+            new_caller.set_node_pos(unreal.IntPoint(callers[0]["x"], callers[0]["y"]))
+            connect(new_caller.find_output_pin("ReturnValue"), node.find_input_pin("Alpha"))
+            BlueprintTools.compile_blueprint(blueprint, True)
+
+        after = json.loads(BBBBlueprintGraphToolset.inspect_blueprint_graph_logic(main_graph.get_path_name()))
+        preserved_before = {item["guid"]: item for item in main_before["nodes"] if item["guid"] not in {rig["guid"], callers[0]["guid"]}}
+        preserved_after = {item["guid"]: item for item in after["nodes"] if item["guid"] in preserved_before}
+        if preserved_before != preserved_after or len(after["nodes"]) != len(main_before["nodes"]):
+            raise RuntimeError("主图其它节点或布局发生变化 不保存")
+
+        rig_after = next(item for item in after["nodes"] if item["guid"] == rig["guid"])
+        protected_pins = {"Source", "Pose", "isCrouching", "isMoving2D"}
+        if [pin for pin in rig["pins"] if pin["name"] in protected_pins] != [pin for pin in rig_after["pins"] if pin["name"] in protected_pins]:
+            raise RuntimeError("Control Rig 姿态或表现事实连线发生变化 不保存")
+
+        for key in ("controlRigAssetReference", "defaultControlRigAssetReference", "bTransferInputPose", "bTransferInputCurves", "inputBonesToTransfer", "outputBonesToTransfer"):
+            if rig["animNodeProperties"][key] != rig_after["animNodeProperties"][key]:
+                raise RuntimeError("Control Rig 资产或姿势传递设置发生变化 不保存")
+
+        if rig_after["animNodeProperties"]["alphaInputType"] != "Float":
+            raise RuntimeError("Control Rig 权重模式回读失败 不保存")
+
+        if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
+            raise RuntimeError("连续权重蓝图保存失败")
+
+        report.update({"saved": True, "threadSafe": True, "mainPoseChainUnchanged": True,
+                       "status": str(blueprint.get_editor_property("status"))})
+        return json.dumps(report, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def configure_blueprint_function_thread_safety(blueprint_path: str, function_name: str, thread_safe: bool, dry_run: bool = True) -> str:
         """检查或设置蓝图函数线程安全声明 编译失败时不保存"""
         if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:

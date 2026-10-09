@@ -31,7 +31,9 @@ def _blueprint(path):
 def _ik_sample(animation, layer_class, montage):
     """/** @param animation 主动画实例 @param layer_class 链接层类 @param montage 当前动作 @return 运行时曲线和按现有图公式计算的输入权重 */"""
     result = {"montagePosition": animation.montage_get_position(montage) if montage else None,
-              "mainCurves": {name: animation.get_curve_value(name) for name in ("DisableLHandIK", "DisableAimIK")}}
+              "mainCurves": {name: animation.get_curve_value(name) for name in ("DisableLHandIK", "DisableAimIK", "DisableLegIK")},
+              "footPlacementAlpha": animation.call_method("GetFootPlacementAlpha", ()),
+              "useFootPlacement": animation.get_editor_property("UseFootPlacement")}
     layer = animation.get_linked_anim_layer_instance_by_class(layer_class)
     if layer is None:
         result["linkedLayer"] = None
@@ -328,6 +330,11 @@ class BBBTraversalToolset(unreal.ToolsetDefinition):
             for bone in ("hand_l", "hand_r"):
                 position = mesh.get_socket_location(bone)
                 sample["hands"][bone] = [position.x, position.y, position.z]
+            sample["legs"] = {}
+            if include_ik_curves:
+                for bone in ("pelvis", "foot_l", "foot_r", "ball_l", "ball_r"):
+                    position = mesh.get_socket_location(bone)
+                    sample["legs"][bone] = [position.x, position.y, position.z]
             if include_ik_curves:
                 try:
                     for layer_class in layer_classes:
