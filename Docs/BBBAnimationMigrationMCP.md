@@ -93,7 +93,7 @@
 - `rename_animation_blueprint_variables`：重命名动画蓝图成员变量并同步修正全部节点引用。
 - `probe_animation_assets`：读取 AnimSequence 的骨架、长度、根运动、曲线、通知与同步标记。
 - `probe_animation_bone_trajectories`：按归一化时间读取 AnimSequence 的根轨迹与指定骨骼轨迹，用于比较重定向前后的步幅和落脚位置。
-- `probe_animation_component_poses`：必须指定与动画骨架一致的 `mesh_path`，按实际网格采样指定 `bone_names` 的组件空间姿势、四元数和左右 FK/IK 脚位置及旋转误差；`incorporate_root_motion` 控制是否保留根轨迹。缺少骨骼或骨架不一致会报错，报告写入 `Saved/Diagnostics/BBBAnimationComponentPoses.json`。
+- `probe_animation_component_poses`：必须指定与动画骨架一致的 `mesh_path` 按实际网格采样指定 `bone_names` 的组件空间姿势 四元数和左右 FK/IK 脚位置及旋转误差 `incorporate_root_motion` 控制是否保留根轨迹 缺少骨骼或骨架不一致会报错 结果仅通过 MCP 返回 不自动生成或覆盖报告文件。
 - `audit_animation_dependencies`：汇总动画目录对指定路径前缀的直接资产依赖，用于清理迁移源目录前确认正式资产是否仍有残留引用。
 - `audit_animation_migration_metadata`：汇总正式 AnimSequence 携带的动画修改器、曲线压缩设置、加法基准动画与实际通知引用。
 - `finalize_animation_runtime_assets`：将正式动画真正使用的通知资产迁入共享目录，并重建仍携带迁移孤儿对象的动画包。

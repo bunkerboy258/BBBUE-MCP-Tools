@@ -2087,7 +2087,6 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             results.append({"asset": asset_path, "keys": key_count, "samples": samples})
 
         report = {"mesh": mesh_path, "incorporateRootMotion": incorporate_root_motion, "assets": results}
-        report["reportPath"] = _write_diagnostic_report("BBBAnimationComponentPoses.json", report)
         return json.dumps(report, ensure_ascii=False)
 
     @mcp_tool
