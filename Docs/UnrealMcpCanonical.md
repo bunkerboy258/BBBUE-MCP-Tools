@@ -32,7 +32,7 @@ AI 只需要节点 引脚 连接 引用和已有注释时优先调用 `BBBBluepr
 
 本节为迁移后的权威入口 下方历史内容原文保留 其中项目内源码路径和 Game.Scripts 注册名称不再作为调用依据 必须实际发现新工具名称
 
-源码与全部 MCP 专用文档位于 `E:\UE5.8\BBBUE-MCP-Tools` 项目只保留 `Content/Python/init_unreal.py` 加载入口 不复制源码 不使用链接兼容 仓库目录与游戏项目目录是两个不同边界
+源码与全部 MCP 专用文档位于本仓库 项目只保留 `Content/Python/init_unreal.py` 加载入口 不复制源码 不使用链接兼容 仓库目录与游戏项目目录是两个不同边界
 
 新会话先核对目标项目唯一宿主 调用 `list_toolsets` 在返回列表寻找唯一类名为 `BBBMcpRuntimeToolset` 或 `BBBMcpRuntimeToolset_0x` 加八位十六进制哈希的工具集 使用实际返回的完整名称 描述后依次调用 `get_mcp_usage_guide` 和 `inspect_mcp_dependencies` 不猜测命名空间
 
@@ -43,7 +43,12 @@ AI 只需要节点 引脚 连接 引用和已有注释时优先调用 `BBBBluepr
 启动命令现在要求显式项目与引擎路径
 
 ```powershell
-& E:\UE5.8\BBBUE-MCP-Tools\Scripts\MCP\Start-UE58OfficialMcpEditor.ps1 -ProjectPath E:\BBB_Evac\ABBB_Evac.uproject -EnginePath E:\UE5.8\UE_5.8 -PerformanceProfile GamingBackground
+$projectFile = (Resolve-Path -LiteralPath (Read-Host '输入项目 .uproject 文件的完整路径')).Path
+$engineRoot = (Resolve-Path -LiteralPath (Read-Host '输入 UE5.8 安装根目录')).Path
+$publicPort = [int](Read-Host '输入为该宿主选择的本机 MCP 端口')
+$hostInfo = & .\Scripts\MCP\Start-UE58OfficialMcpEditor.ps1 -ProjectPath $projectFile -EnginePath $engineRoot -Port $publicPort -PerformanceProfile GamingBackground
+$hostInfo = $hostInfo | ConvertFrom-Json
+$env:BBB_MCP_URL = $hostInfo.Endpoint
 ```
 
 性能档位与单宿主约束保持原设计 `BBBMcpBootstrap.register_mcp_toolsets` 注册或迁移加载位置 `BBBMcpBootstrap.reload_mcp_toolsets` 先注销原生工具类 再重载 Python 模块并通过官方注册表重新注册 保留实际宿主性能设置 更新后重新发现并回读
@@ -52,7 +57,7 @@ AI 只需要节点 引脚 连接 引用和已有注释时优先调用 `BBBBluepr
 
 原生扩展继续保留在项目 详细边界见 [项目依赖](ProjectDependencies.md) 本轮不重构游戏 C++ 不删除或改名原有公共工具 不因迁移自动启用原来可选的资产维护工具
 
-专用推送目标为 `bunkerboy258/BBBUE-MCP-Tools` 的 `main` 正常快进 不强推 不清空历史 游戏项目接入修改只做外层本地提交 其它任务维持 UBBBNexus 默认规则
+推送目标和分支以接入项目的版本控制规则及实际远端配置为准 正常快进 不强推 不清空历史 游戏项目接入修改遵守所属项目规则
 
 # 项目 UE MCP 唯一调用说明
 
@@ -63,19 +68,19 @@ AI 只需要节点 引脚 连接 引用和已有注释时优先调用 `BBBBluepr
 - Unreal Engine：UE5.8
 - 服务插件：官方 `ModelContextProtocol`
 - 工具注册：官方 `ToolsetRegistry`
-- 标准地址：`http://127.0.0.1:8000/mcp`
+- 客户端地址: 使用启动器返回的 `Endpoint`
 - 启动脚本：`Scripts/MCP/Start-UE58OfficialMcpEditor.ps1`
-- 启动参数：`-ModelContextProtocolStartServer -ModelContextProtocolPort=8000 -AutoDeclinePackageRecovery -NullRHI`
+- 启动参数: 由启动器依据明确的项目 引擎 端口和渲染配置生成
 
 MCP 宿主必须使用 `-AutoDeclinePackageRecovery` 跳过包恢复模态窗口，避免隐藏编辑器已监听端口却无法处理请求。该参数不删除 `Saved/Autosaves` 中已有的自动保存资产。
 
-项目只允许一个 UE MCP 服务实例。`127.0.0.1:8011` 等其它端口只允许在 8000 被占用且明确指定时用于临时排障，不是项目标准入口。
+同一项目只允许一个可写 UE MCP 宿主. 端口由启动配置指定 客户端使用实际返回的地址. 端口冲突先核对进程归属 不擅自连接其他宿主或创建第二实例.
 
 ## 唯一调用顺序
 
 使用官方 MCP 客户端工具，固定按以下顺序：
 
-1. 检查 `http://127.0.0.1:8000/mcp` 是否可用
+1. 检查启动器返回的 `Endpoint` 是否可用并核对项目身份
 2. 调用 `list_toolsets`
 3. 调用 `describe_toolset` 获取目标工具集的精确工具名和参数结构
 4. 调用 `call_tool` 执行具体工具
@@ -97,7 +102,7 @@ MCP 宿主必须使用 `-AutoDeclinePackageRecovery` 跳过包恢复模态窗口
 
 ### 单动作 FBX 覆盖导入
 
-`Game.Scripts.BBBGenericEditorToolset.BBBGenericEditorToolset.import_animation_fbx(source_file, asset_path, skeleton_path)`
+`BBBGenericEditorToolset.import_animation_fbx(source_file, asset_path, skeleton_path)`
 
 将单动作 FBX 导入已有 AnimSequence 的原路径 只保存指定动画 不导入网格 材质或纹理
 调用前必须备份目标并完成 Perforce 独占签出 工具拒绝骨骼不匹配 未签出或存在未保存修改的目标
@@ -106,10 +111,10 @@ MCP 宿主必须使用 `-AutoDeclinePackageRecovery` 跳过包恢复模态窗口
 
 | 用途 | 工具集名称 |
 | --- | --- |
-| 动画迁移、动画诊断和动画资产操作 | `Game.Scripts.BBBAnimationMigrationToolset.BBBAnimationMigrationToolset` |
-| 外部移植的动画、Control Rig、重定向、关卡、编辑器和视口工具 | `Game.Scripts.BBBExternalToolset.BBBExternalToolset` |
-| 通用资产属性读取 | `Game.Scripts.BBBGenericEditorToolset.BBBGenericEditorToolset` |
-| 项目级关卡操作 | `Game.Scripts.BBBLevelEditingToolset.BBBLevelEditingToolset` |
+| 动画迁移 动画诊断和动画资产操作 | 实际发现的 `BBBAnimationMigrationToolset` 完整名称 |
+| 外部移植的动画 Control Rig 重定向 关卡 编辑器和视口工具 | 实际发现的 `BBBExternalToolset` 完整名称 |
+| 通用资产属性读取 | 实际发现的 `BBBGenericEditorToolset` 完整名称 |
+| 项目级关卡操作 | 实际发现的 `BBBLevelEditingToolset` 完整名称 |
 
 `BBBLevelEditingToolset.spawn_pie_mass_display(spawner_path, config_paths, center, radius)` 仅配置当前 PIE 世界的 `MassSpawner` 与其 `BBBMonsterSpawnGenerator`，按不重复的 Mass 实体配置各生成一只；`center` 是三个厘米坐标，`radius` 是零至二千厘米。调用前应通过 `invoke_pie_actor_function` 对该 PIE 生成器执行 `DoDespawning`，并读回表现 Actor 数量为零。调用后使用 `inspect_pie_actor_properties` 核对 PIE 世界的生成器配置和每种表现 Actor 数量，不以请求数量代替实际生成数量。此工具不修改或保存编辑器关卡。更新 `Scripts/BBBLevelEditingToolset.py` 后，可用已注册的 `run_editor_script` 执行该文件以仅注销、重载并注册此工具集，再重新发现准确工具名称及参数；不要重载其它并行会话正在修改的工具集。
 
@@ -212,7 +217,7 @@ GenOrca 动作只能通过 `BBBExternalToolset` 的白名单和官方 Toolset Re
 
 ## 宿主退出检查
 
-`BBBGenericEditorToolset.inspect_dirty_packages()` 只读返回未保存的内容包和关卡包。停止宿主或编译 C++ 前先检查结果；有脏包时不得直接丢弃。确认没有待保存内容后，可通过 `BBBExternalToolset.util` 的 `execute_console_command` 执行 `QUIT_EDITOR`，随后检查对应 `UnrealEditor.exe` 已退出。一次任务只保留一个编辑器宿主，任务完成后关闭隐藏宿主。
+`BBBGenericEditorToolset.inspect_dirty_packages()` 只读返回未保存的内容包和关卡包. 停止宿主或编译 C++ 前先检查结果 有脏包时不得直接丢弃. 共享宿主先结束本任务活动并释放占用 全部任务和活动结束后调用 `shutdown_editor_host` 随后核实对应编辑器及网关进程已退出. 详细条件见 [共享宿主任务保护](BBBMcpTaskProtection.md).
 
 ## MCP 速度优先规范
 
@@ -235,17 +240,17 @@ AI 默认直接使用已连接的 `ue58_official` MCP 工具 不为每个动作�
 `Start-UE58OfficialMcpEditor.ps1` 使用 `-PerformanceProfile` 选择档位 使用 `-MaxFPS` 指定零至二百四十的帧率上限 零表示不限制 负一使用档位默认值 不限制帧率或低于三十时报警
 
 ```powershell
-& E:\BBB_Evac\Scripts\MCP\Start-UE58OfficialMcpEditor.ps1 -PerformanceProfile Speed
-& E:\BBB_Evac\Scripts\MCP\Start-UE58OfficialMcpEditor.ps1 -PerformanceProfile Balanced
-& E:\BBB_Evac\Scripts\MCP\Start-UE58OfficialMcpEditor.ps1 -PerformanceProfile Economy
-& E:\BBB_Evac\Scripts\MCP\Start-UE58OfficialMcpEditor.ps1 -PerformanceProfile Speed -MaxFPS 0
+& .\Scripts\MCP\Start-UE58OfficialMcpEditor.ps1 -ProjectPath $projectFile -EnginePath $engineRoot -Port $publicPort -PerformanceProfile Speed
+& .\Scripts\MCP\Start-UE58OfficialMcpEditor.ps1 -ProjectPath $projectFile -EnginePath $engineRoot -Port $publicPort -PerformanceProfile Balanced
+& .\Scripts\MCP\Start-UE58OfficialMcpEditor.ps1 -ProjectPath $projectFile -EnginePath $engineRoot -Port $publicPort -PerformanceProfile Economy
+& .\Scripts\MCP\Start-UE58OfficialMcpEditor.ps1 -ProjectPath $projectFile -EnginePath $engineRoot -Port $publicPort -PerformanceProfile Speed -MaxFPS 0
 ```
 
 默认宿主使用隐藏 `-NullRHI -Unattended` 离屏渲染使用 `-EnableRendering` 与 `-RenderOffscreen -Unattended` 不再默认限为五帧 现有离屏低成本渲染参数保留
 
 启动器通过互斥锁防止同时启动 发现不匹配的编辑器或端口时明确失败 不创建第二实例 就绪必须完成 MCP 协议握手并确认性能工具返回正确的进程与档位 不把端口监听当作工具就绪 失败时只关闭本次启动器自己创建的宿主
 
-运行时工具集为 `Game.Scripts.BBBMcpRuntimeToolset.BBBMcpRuntimeToolset`
+运行时工具集使用实际发现的 `BBBMcpRuntimeToolset` 完整名称
 
 ```text
 inspect_mcp_performance()
@@ -262,8 +267,10 @@ configure_mcp_performance(profile="Speed", max_fps=-1)
 
 `mcp_call.py` 保留单次调用入口 新增 `batch` 接收请求数组 在同一 Python 进程与 MCP 会话内顺序执行 减少重复启动与握手 这不是服务端批处理 每项仍是独立 MCP 请求
 
+先在仓库根目录完成启动配置并设置 `BBB_MCP_URL` 再执行下面的工具发现命令. 批量调用中的工具集名称使用本次实际发现结果.
+
 ```powershell
-python -B E:\BBB_Evac\Scripts\MCP\mcp_call.py batch '[{"name":"list_toolsets","arguments":{}},{"name":"describe_toolset","arguments":{"toolset_name":"Game.Scripts.BBBMcpRuntimeToolset.BBBMcpRuntimeToolset"}}]'
+python -B .\Scripts\MCP\mcp_call.py call list_toolsets
 ```
 
 程序调用使用 `with McpSession(URL) as session` 配合 `call_many` 复用连接 会话退出只释放本客户端的 MCP 会话与 HTTP 连接 不关闭编辑器
@@ -282,24 +289,26 @@ python -B E:\BBB_Evac\Scripts\MCP\mcp_call.py batch '[{"name":"list_toolsets","a
 
 按以下顺序调用 原生 MCP 工具的参数为 JSON 对象
 
+下面的 `<实际发现的性能工具集完整名称>` 必须替换为本次 `list_toolsets` 返回的唯一对应名称.
+
 ```text
 list_toolsets({})
-describe_toolset({"toolset_name":"Game.Scripts.BBBMcpRuntimeToolset.BBBMcpRuntimeToolset"})
-call_tool({"toolset_name":"Game.Scripts.BBBMcpRuntimeToolset.BBBMcpRuntimeToolset","tool_name":"get_mcp_usage_guide","arguments":{}})
+describe_toolset({"toolset_name":"<实际发现的性能工具集完整名称>"})
+call_tool({"toolset_name":"<实际发现的性能工具集完整名称>","tool_name":"get_mcp_usage_guide","arguments":{}})
 ```
 
-`get_mcp_usage_guide` 返回当前可选档位 精确的性能工具集名称 文档绝对路径 和按领域选择工具集的路由 先核对 `document_path` 属于 `E:\BBB_Evac` 再描述实际目标工具集 不为一个属性查询加载所有动画和 Control Rig 工具描述
+`get_mcp_usage_guide` 返回当前可选档位 精确的性能工具集名称 文档绝对路径 和按领域选择工具集的路由 先核对 `document_path` 属于当前仓库并确认项目身份 再描述实际目标工具集 不为一个属性查询加载所有动画和 Control Rig 工具描述
 
 指南不是目标工具的完整参数结构 仍须通过官方 `describe_toolset` 核对目标 API 同一宿主会话复用已确认结构 宿主重启或工具重新注册后重新发现 未列出的工具集不能仅凭文件名猜测或擅自加载
 
 ### 显式性能切换
 
-性能工具集为 `Game.Scripts.BBBMcpRuntimeToolset.BBBMcpRuntimeToolset`
+性能工具集使用实际发现的 `BBBMcpRuntimeToolset` 完整名称
 
 进入后台游戏档
 
 ```json
-{"toolset_name":"Game.Scripts.BBBMcpRuntimeToolset.BBBMcpRuntimeToolset","tool_name":"configure_mcp_performance","arguments":{"profile":"GamingBackground","max_fps":-1}}
+{"toolset_name":"<实际发现的性能工具集完整名称>","tool_name":"configure_mcp_performance","arguments":{"profile":"GamingBackground","max_fps":-1}}
 ```
 
 更低持续调度预算可显式使用 `max_fps` 为 10 不需要再增加一个常驻服务或独立控制系统
@@ -307,13 +316,13 @@ call_tool({"toolset_name":"Game.Scripts.BBBMcpRuntimeToolset.BBBMcpRuntimeToolse
 回到速度优先
 
 ```json
-{"toolset_name":"Game.Scripts.BBBMcpRuntimeToolset.BBBMcpRuntimeToolset","tool_name":"configure_mcp_performance","arguments":{"profile":"Speed","max_fps":-1}}
+{"toolset_name":"<实际发现的性能工具集完整名称>","tool_name":"configure_mcp_performance","arguments":{"profile":"Speed","max_fps":-1}}
 ```
 
 切换后必须回读
 
 ```json
-{"toolset_name":"Game.Scripts.BBBMcpRuntimeToolset.BBBMcpRuntimeToolset","tool_name":"inspect_mcp_performance","arguments":{}}
+{"toolset_name":"<实际发现的性能工具集完整名称>","tool_name":"inspect_mcp_performance","arguments":{}}
 ```
 
 核对 `process_id` 与目标宿主一致 核对 `profile` `max_fps` `priority` 以及 `matches_configured_settings` 为 true 该字段为 false 时表示最近应用档位与实际设置不一致 可能被旧工具或其他会话改变 先协调再配置 不连续抢写
@@ -332,8 +341,8 @@ call_tool({"toolset_name":"Game.Scripts.BBBMcpRuntimeToolset.BBBMcpRuntimeToolse
 启动专用隐藏宿主仍须先确认没有其他编辑器 与现有有窗口宿主不可并行
 
 ```powershell
-& E:\BBB_Evac\Scripts\MCP\Start-UE58OfficialMcpEditor.ps1 -PerformanceProfile GamingBackground
-& E:\BBB_Evac\Scripts\MCP\Start-UE58OfficialMcpEditor.ps1 -PerformanceProfile GamingBackground -MaxFPS 10
+& .\Scripts\MCP\Start-UE58OfficialMcpEditor.ps1 -ProjectPath $projectFile -EnginePath $engineRoot -Port $publicPort -PerformanceProfile GamingBackground
+& .\Scripts\MCP\Start-UE58OfficialMcpEditor.ps1 -ProjectPath $projectFile -EnginePath $engineRoot -Port $publicPort -PerformanceProfile GamingBackground -MaxFPS 10
 ```
 
 不需要渲染的任务优先 NullRHI 需要渲染时选择 `-EnableRendering` 必须接受 GPU 与显存开销 不能在有脏资产或并行任务时为了省电擅自重启宿主

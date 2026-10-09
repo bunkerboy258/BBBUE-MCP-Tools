@@ -1,4 +1,23 @@
 {
+  "BBBMcpTaskToolset": {
+    "inspect_editor_activity": {
+      "inputSchema": {
+        "type": "object"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "实际活动 JSON */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    }
+  },
   "BBBHudAssetToolset": {
     "set_input_action_keys": {
       "inputSchema": {

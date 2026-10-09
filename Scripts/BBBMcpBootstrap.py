@@ -96,6 +96,9 @@ def _require_reload_idle():
     """
     if unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
         raise RuntimeError("PIE 期间禁止重载 MCP 工具")
+    task = sys.modules.get("BBBMcpTaskToolset")
+    if task is not None and callable(getattr(task, "_activities", None)) and task._activities():
+        raise RuntimeError("共享宿主后台活动尚未结束 禁止重载 MCP 工具")
     motion = sys.modules.get("BBBAnimationMotionTools")
     generic = sys.modules.get("BBBGenericEditorToolset")
     if generic is not None and getattr(generic, "_pie_audio_capture", None) is not None:
@@ -172,6 +175,8 @@ def _load_toolsets(force_reload):
                 if needs_reload:
                     for definition in registered_classes.get(module_name, ()):
                         unreal.ToolsetRegistry.unregister_toolset_class(definition)
+                    if module_name == "BBBMcpTaskToolset" and hasattr(module, "_observer_handle"):
+                        unreal.unregister_slate_post_tick_callback(module._observer_handle)
                     importlib.reload(module)
             if module is None:
                 module = importlib.import_module(module_name)

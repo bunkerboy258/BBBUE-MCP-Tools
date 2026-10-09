@@ -1,0 +1,188 @@
+# BBB MCP 共享宿主任务保护
+
+## 入口和适用范围
+
+通过 `Scripts/MCP/Start-UE58OfficialMcpEditor.ps1` 启动或复用一个可写项目宿主.
+客户端使用启动器返回的 `Endpoint` 可通过 `BBB_MCP_URL` 配置地址.
+官方 UE MCP 后端使用独立本机端口和每次启动生成的私有路径.
+
+启动器核对项目 进程 渲染模式 性能设置和网关身份.
+同一项目的旧式直连宿主须在原任务结束后退出才能切换.
+有活动任务时不重启网关 不丢弃已有凭证.
+公开入口检查项目工具 官方工具和直接工具名称调用.
+
+私有路径用于防止误连后端.
+具有本机进程访问权限的程序仍可发现后端地址 手动操作 UE 或终止进程.
+本机制不提供操作系统权限隔离.
+
+## 任务登记和写权限是两个阶段
+
+任务登记表示该任务仍需要宿主 不自动取得写权限.
+多个 `read` `editor` 和 `pie` 任务可以同时登记.
+
+- `read` 任务只能执行已审核的只读查询.
+- `editor` 和 `pie` 任务可以申请编辑阶段.
+- 同一宿主同时只允许一个编辑阶段.
+- 一组连续编辑操作及结果回读完成后结束阶段.
+- 分析 等待回复和准备下一组操作期间保留登记并让出写权限.
+- PIE 录制和采样期间保留所属任务的编辑阶段.
+
+完整流程:
+
+```text
+登记任务
+    -> 分析和准备
+    -> 申请编辑阶段
+    -> 执行连续操作并核实实际结果
+    -> 结束 PIE 和采样 处理本阶段未保存内容
+    -> 结束编辑阶段
+    -> 继续分析或释放任务登记
+```
+
+多步骤编辑中需要保持连续性的操作放在同一个阶段.
+结束阶段会要求宿主没有实际活动和未保存内容.
+当前按整个宿主检查这些条件.
+
+## 八个网关工具
+
+通过 `list_toolsets` 找到 `bbb_task` 然后描述该工具集.
+也可以通过 `tools/list` 发现这些工具.
+只提供固定发现接口的客户端可用 `call_tool` 且不填写 `toolset_name` 调用它们.
+
+| 工具 | 参数 | 行为 |
+| --- | --- | --- |
+| `acquire_editor_task` | `task_id` `description` `mode` 可选 `ttl_seconds=300` | 登记任务 返回 `task_token` |
+| `renew_editor_task` | `task_token` 可选 `resume=False` | 续期任务登记 |
+| `begin_editor_write` | `task_token` 可选 `ttl_seconds=120` `wait_seconds=0` | 申请编辑阶段 返回 `write_token` |
+| `renew_editor_write` | `task_token` `write_token` 可选 `resume=False` | 续期或显式恢复原阶段 |
+| `end_editor_write` | `task_token` `write_token` | 让出写权限 保留登记 |
+| `release_editor_task` | `task_token` | 结束没有编辑阶段的任务登记 |
+| `inspect_editor_tasks` | 无 | 查询任务 阶段 等待顺序和实际活动 不返回凭证 |
+| `shutdown_editor_host` | 无 | 所有任务 请求 活动和脏包清零后请求退出 |
+
+任务有效期为三十至三千六百秒.
+编辑阶段有效期为三十至九百秒.
+单次申请最多等待六十秒.
+等待超时返回失败并移除本申请的队列位置 任务登记仍保留.
+等待者按申请顺序取得阶段 后来的申请不能越过已有队列.
+同一任务同时只允许一个编辑申请.
+
+`inspect_editor_tasks` 中 `writer_task_id` 表示当前写入者.
+`write_queue` 表示等待顺序.
+每个任务的 `write` 为当前阶段状态或空值.
+`last_write_state` 表示阶段完成 超时回收或预检失败.
+
+## 两份凭证
+
+`task_token` 证明任务身份.
+`write_token` 证明当前编辑阶段的权限.
+写操作必须同时携带两份凭证.
+
+`call_tool` 最外层参数示例:
+
+```json
+{
+  "toolset_name": "<实际发现的工具集完整名称>",
+  "tool_name": "<目标工具名称>",
+  "arguments": {},
+  "task_token": "<任务凭证>",
+  "write_token": "<当前编辑阶段凭证>"
+}
+```
+
+协议客户端也可通过 `params._meta` 中的 `bbb/task_token` 和 `bbb/write_token` 传入.
+网关检查后剥离凭证 再将业务参数发给 UE.
+
+凭证不写入公开文档 仓库 日志或其他任务.
+被结束或回收的阶段凭证不能控制后续阶段.
+
+## Python 和命令行客户端
+
+从仓库 `Scripts` 目录导入客户端 并先配置 `BBB_MCP_URL`.
+
+```python
+import os
+from MCP.mcp_call import McpSession
+
+with McpSession(os.environ["BBB_MCP_URL"]) as session:
+    task = session.acquire_task("editing-task", "编辑与分析", "editor", 900)
+    stage = session.begin_write(ttl_seconds=120, wait_seconds=30)
+    session.renew_write()
+    session.end_write()
+    session.renew_task()
+    session.release_task()
+```
+
+示例只演示生命周期.
+目标编辑操作放在 `begin_write` 和 `end_write` 之间.
+结束前核实实际结果并处理本阶段的未保存内容.
+较长阶段主动调用 `renew_write`.
+没有编辑阶段的长时间分析主动调用 `renew_task`.
+
+`close()` 只关闭 HTTP 会话.
+重连时创建 `McpSession(url, task_token=task["task_token"], write_token=stage["write_token"])`.
+分析阶段重连只需要任务凭证.
+
+命令行通过 `BBB_MCP_TASK_TOKEN` 和 `BBB_MCP_WRITE_TOKEN` 携带凭证.
+批量操作使用 `call_many` 或 `batch` 每个实际操作都经过网关检查.
+批量调用不回滚已完成的操作.
+
+## 超时和安全回收
+
+有实际请求在执行时保留编辑阶段.
+请求完成后刷新阶段有效期.
+
+编辑阶段超时后仅在以下条件全部成立时回收:
+
+- 没有该任务的实际请求.
+- 没有 PIE 世界 开始或结束的未确认请求.
+- 没有后台采样或其他已跟踪活动.
+- 没有未保存内容.
+- 没有执行结果不确定或宿主身份变化.
+
+回收只撤销写权限 不停止 PIE 不保存资产.
+仍有效的任务登记可重新申请阶段.
+没有请求 编辑阶段或不确定结果的失联登记也会被回收.
+任务凭证已失效时重新登记.
+
+存在活动或不确定结果的阶段标记为 `orphaned` 并保留权限归属.
+原任务先读取实际状态 再凭两份原凭证调用 `renew_editor_write(resume=True)`.
+未生效的 PIE 请求不能通过续期清除.
+不确定的资产写入不自动重试.
+
+客户端收到明确的凭证失效错误后清除对应本地凭证.
+传输失败和活动未结束时保留凭证.
+
+## 实际活动和重载
+
+`BBBMcpTaskToolset.inspect_editor_activity` 返回宿主身份 PIE 世界代次 暂停世界 后台活动和脏包.
+当前活动包括动画运动采样 音频录制 动画截图 群体基准 受击采样 后坐力采样和原生输入序列.
+原生输入释放失败也保留活动保护.
+
+宿主身份和世界代次保存在同一 UE Python 进程中.
+正常工具重载不会重新生成宿主身份或重置代次.
+真正的宿主身份变化仍阻断旧凭证.
+重载后重新发现工具参数和实际注册名称.
+
+已有活动或未保存内容没有当前阶段归属时不自动接管.
+未知工具默认需要编辑阶段.
+已审核的只读清单位于 `mcp_task_gateway.py`.
+`inspect_mass_inspection_population(pause_game=True)` 需要编辑阶段.
+任意 Python 脚本和控制台执行被拒绝.
+PCG 异步生成尚无活动状态探针 共享入口拒绝 `generate=True`.
+新增异步工具必须同时提供完成状态的实际回读.
+
+## 宿主退出和验证
+
+按用户批准的共享生命周期规则 单个任务结束后释放自己的登记.
+有效任务 编辑阶段 等待申请和实际请求都会阻止宿主退出.
+全部清零后调用 `shutdown_editor_host`.
+返回 `shutdown_requested` 后仍需核实对应编辑器和网关进程已退出.
+宿主退出后本网关自行退出 不终止其他进程或删除其他任务文件.
+项目 `Law.md` 保持只读.
+
+隔离验证入口为 `Tests/test_mcp_task_gateway.py`.
+真实宿主验证入口为 `Tests/verify_mcp_task_protection.py`.
+真实验证检查两个任务交替编辑 等待交接 旧凭证失效和 PIE 保护.
+真实验证不修改或保存项目资产.
+独立游戏或服务器进程属于后续运行测试隔离阶段.

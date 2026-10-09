@@ -22,7 +22,7 @@ from urllib.parse import urlparse
 import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from MCP.mcp_result import decode_tool_result
+from MCP.mcp_result import McpBusinessError, decode_tool_result
 
 URL = os.environ.get("BBB_MCP_URL", "http://127.0.0.1:8000/mcp")
 HEADERS = {
@@ -82,8 +82,10 @@ def _parse_response(response, request_id, on_tools_changed):
 
 
 class McpSession:
-    def __init__(self, url, timeout_seconds=600):
+    def __init__(self, url, timeout_seconds=600, task_token=None, write_token=None):
         self.url = url
+        self.task_token = task_token
+        self.write_token = write_token
         self.session_id = None
         self._next_id = 0
         self._protocol_version = None
@@ -135,6 +137,20 @@ class McpSession:
         if result.get("error"):
             raise RuntimeError("MCP 协议错误: {}".format(json.dumps(result["error"], ensure_ascii=False)))
         if result.get("result", {}).get("isError"):
+            try:
+                decode_tool_result(result)
+            except McpBusinessError as error:
+                arguments = params.get("arguments", {})
+                metadata = params.get("_meta", {})
+                supplied_task = arguments.get("task_token", metadata.get("bbb/task_token"))
+                supplied_write = arguments.get("write_token", metadata.get("bbb/write_token"))
+                if supplied_task == self.task_token:
+                    if error.value.get("code") == "TASK_TOKEN_INVALID":
+                        self.task_token = None
+                        self.write_token = None
+                    if error.value.get("code") in {"WRITE_TOKEN_INVALID", "EDITOR_WRITE_REQUIRED"} and supplied_write == self.write_token:
+                        self.write_token = None
+                raise
             raise RuntimeError("MCP 工具失败: {}".format(json.dumps(result["result"], ensure_ascii=False)))
         if method == "tools/call":
             decode_tool_result(result)
@@ -162,10 +178,94 @@ class McpSession:
             if cache_key in self._discovery_cache:
                 return json.loads(self._discovery_cache[cache_key])
 
-        result = self._post("tools/call", {"name": name, "arguments": arguments})
+        params = {"name": name, "arguments": arguments}
+        if self.task_token:
+            params["_meta"] = {"bbb/task_token": self.task_token}
+        if self.write_token:
+            params.setdefault("_meta", {})["bbb/write_token"] = self.write_token
+        result = self._post("tools/call", params)
         if cache_key is not None:
             self._discovery_cache[cache_key] = json.dumps(result)
         return result
+
+    def acquire_task(self, task_id, description, mode="editor", ttl_seconds=300):
+        """
+        /**
+         * @param task_id	任务标识
+         * @param description	可读说明
+         * @param mode	read editor 或 pie
+         * @param ttl_seconds	心跳有效期
+         * @return 服务端任务凭证 不随 HTTP 关闭释放
+         */
+        """
+        if self.task_token:
+            raise RuntimeError("当前客户端已持有凭证 先释放原任务")
+        value = decode_tool_result(self.call_tool("acquire_editor_task", {
+            "task_id": task_id, "description": description, "mode": mode, "ttl_seconds": ttl_seconds,
+        }))
+        self.task_token = value["task_token"]
+        return value
+
+    def renew_task(self, resume=False):
+        """
+        /**
+         * @param resume	显式恢复失联或不确定任务
+         * @return 原任务续期状态
+         */
+        """
+        return decode_tool_result(self.call_tool("renew_editor_task", {"task_token": self.task_token, "resume": resume}))
+
+    def release_task(self):
+        """
+        /**
+         * @return 任务实际释放结果 活动未结束时保留凭证
+         */
+        """
+        value = decode_tool_result(self.call_tool("release_editor_task", {"task_token": self.task_token}))
+        self.task_token = None
+        return value
+
+    def begin_write(self, ttl_seconds=120, wait_seconds=0):
+        """
+        /**
+         * 申请一组连续编辑操作的短期写权限
+         * @param ttl_seconds	编辑阶段有效期
+         * @param wait_seconds	本次等待秒数
+         * @return 编辑阶段凭证
+         */
+        """
+        if self.write_token:
+            raise RuntimeError("当前客户端仍持有编辑阶段凭证 先结束或核实该阶段")
+        value = decode_tool_result(self.call_tool("begin_editor_write", {
+            "task_token": self.task_token, "ttl_seconds": ttl_seconds, "wait_seconds": wait_seconds,
+        }))
+        self.write_token = value["write_token"]
+        return value
+
+    def renew_write(self, resume=False):
+        """
+        /**
+         * 续期或凭两份原凭证显式恢复编辑阶段
+         * @param resume	是否已经核实实际结果并确认恢复
+         * @return 续期状态
+         */
+        """
+        return decode_tool_result(self.call_tool("renew_editor_write", {
+            "task_token": self.task_token, "write_token": self.write_token, "resume": resume,
+        }))
+
+    def end_write(self):
+        """
+        /**
+         * 完成实际活动后让出写权限 保留任务登记
+         * @return 编辑阶段结束结果
+         */
+        """
+        value = decode_tool_result(self.call_tool("end_editor_write", {
+            "task_token": self.task_token, "write_token": self.write_token,
+        }))
+        self.write_token = None
+        return value
 
     def list_tools(self):
         return self._post("tools/list", {})
@@ -220,8 +320,8 @@ class McpSession:
                 with self._http.delete(self.url, headers=self._headers(), timeout=(5, 5)) as response:
                     if response.status_code not in {200, 202, 204, 404, 405}:
                         print("MCP 会话释放失败 HTTP {}".format(response.status_code), file=sys.stderr)
-        except requests.RequestException as error:
-            print("MCP 会话释放失败: {}".format(error), file=sys.stderr)
+        except requests.RequestException:
+            print("MCP 会话释放失败 连接已失效", file=sys.stderr)
         finally:
             self._closed = True
             self._http.close()
@@ -264,7 +364,7 @@ def main():
     if command == "batch":
         calls = json.loads(sys.argv[2])
 
-    with McpSession(URL) as session:
+    with McpSession(URL, task_token=os.environ.get("BBB_MCP_TASK_TOKEN"), write_token=os.environ.get("BBB_MCP_WRITE_TOKEN")) as session:
         if command == "list":
             _print_result(session.list_tools())
             return

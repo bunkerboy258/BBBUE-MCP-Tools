@@ -18,6 +18,7 @@ TOOLSET_ROUTES = {
     "BBBRigidPartToolset": "刚性部件流程",
     "BBBControlRigAuthoringToolset": "ControlRig 项目流程",
     "BBBMcpRuntimeToolset": "MCP 宿主诊断",
+    "BBBMcpTaskToolset": "共享宿主活动检查",
     "BBBAssetMaintenanceToolset": "资产维护与修复",
     "BBBAnimationPreviewToolset": "动画与群体预览",
     "BBBAnimationGraphToolset": "动画构图与校验",

@@ -6,6 +6,8 @@ $testEnginePath = [System.IO.Path]::GetFullPath((Join-Path $env:TEMP 'BBBMcpStar
 $testEditorPath = Join-Path $testEnginePath 'Engine\Binaries\Win64\UnrealEditor.exe'
 $global:bbbStartupProjectPath = $testProjectPath
 $global:bbbStartupEditorPath = $testEditorPath
+$global:bbbStartupPythonPath = (Get-Command python).Source
+$global:bbbStartupGatewayPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\Scripts\MCP\mcp_task_gateway.py'))
 $global:bbbStartupTest = $null
 
 <#
@@ -37,7 +39,7 @@ function global:Test-Path
 {
     param([string]$LiteralPath)
 
-    return $LiteralPath -eq $global:bbbStartupProjectPath -or $LiteralPath -eq $global:bbbStartupEditorPath
+    return $LiteralPath -eq $global:bbbStartupProjectPath -or $LiteralPath -eq $global:bbbStartupEditorPath -or $LiteralPath -eq $global:bbbStartupPythonPath -or $LiteralPath -eq $global:bbbStartupGatewayPath
 }
 
 <#
@@ -51,6 +53,11 @@ function global:Test-Path
 function global:Get-CimInstance
 {
     param($ClassName, $Filter)
+
+    if ($Filter -like 'ProcessId = *')
+    {
+        return [pscustomobject]@{ ProcessId = 987655; ExecutablePath = $global:bbbStartupPythonPath; CommandLine = ($global:bbbStartupTest.GatewayArguments -join ' ') }
+    }
 
     return $global:bbbStartupTest.Editors
 }
@@ -68,6 +75,15 @@ function global:Get-CimInstance
 function global:Get-NetTCPConnection
 {
     param($LocalAddress, $LocalPort, $State, $ErrorAction)
+
+    if ($LocalPort -eq 8000)
+    {
+        if ($global:bbbStartupTest.GatewayStarted)
+        {
+            return [pscustomobject]@{ OwningProcess = 987655 }
+        }
+        return
+    }
 
     if ($global:bbbStartupTest.Started -or $global:bbbStartupTest.Editors.Count -gt 0)
     {
@@ -93,6 +109,17 @@ function global:Get-NetTCPConnection
 function global:Start-Process
 {
     param($FilePath, $ArgumentList, $WindowStyle, [switch]$PassThru)
+
+    if ($FilePath -eq $global:bbbStartupPythonPath)
+    {
+        Assert-StartupTest ($WindowStyle -eq 'Hidden') '启动网关必须隐藏'
+        Assert-StartupTest ($ArgumentList.Count -eq 10) '网关参数被 PowerShell 表达式拆开'
+        Assert-StartupTest ($ArgumentList[1] -eq ('"' + $global:bbbStartupGatewayPath + '"')) '网关脚本必须作为一个完整参数'
+        Assert-StartupTest ($ArgumentList[7] -eq ('"' + (Split-Path $global:bbbStartupProjectPath -Parent) + '"')) '项目目录必须作为一个完整参数'
+        $global:bbbStartupTest.GatewayStarted = $true
+        $global:bbbStartupTest.GatewayArguments = $ArgumentList
+        return $global:bbbStartupTest.GatewayProcess
+    }
 
     Assert-StartupTest ($FilePath -eq $global:bbbStartupEditorPath) '编辑器路径不匹配'
     Assert-StartupTest ($WindowStyle -eq 'Hidden') '启动宿主必须隐藏'
@@ -132,7 +159,7 @@ function global:Stop-Process
 {
     param($Id, $ErrorAction)
 
-    Assert-StartupTest ($Id -eq 987654) '不允许关闭非测试宿主'
+    Assert-StartupTest ($Id -in @(987654, 987655)) '不允许关闭非测试宿主或网关'
     $global:bbbStartupTest.Stopped = $true
 }
 
@@ -153,7 +180,7 @@ function global:Invoke-WebRequest
 {
     param($Uri, $Method, $ContentType, $Headers, $Body, $TimeoutSec, $ErrorAction)
 
-    Assert-StartupTest ($Uri -eq 'http://127.0.0.1:8000/mcp') '协议地址不匹配'
+    Assert-StartupTest ($Uri -eq 'http://127.0.0.1:8000/mcp' -or $Uri -like 'http://127.0.0.1:18000/bbb-mcp-*') '协议地址不匹配'
     if ($Method -eq 'Delete')
     {
         $global:bbbStartupTest.DeletedSessions += 1
@@ -212,6 +239,30 @@ function global:Invoke-WebRequest
 
 <#
 /**
+ * 验证公开网关活动回读 不访问实际网络
+ * @param Uri\t公开入口
+ * @param Method\tHTTP 方法
+ * @param ContentType\t内容类型
+ * @param Headers\t会话头
+ * @param Body\t请求
+ * @param TimeoutSec\t超时
+ * @param ErrorAction\t错误处理
+ * @return 网关活动报告
+ */
+#>
+function global:Invoke-RestMethod
+{
+    param($Uri, $Method, $ContentType, $Headers, $Body, $TimeoutSec, $ErrorAction)
+
+    Assert-StartupTest ($Uri -eq 'http://127.0.0.1:8000/mcp') '网关公开地址不匹配'
+    $request = $Body | ConvertFrom-Json
+    Assert-StartupTest ($request.params.name -eq 'inspect_editor_tasks') '未回读任务保护'
+    $state = @{ activity = @{ process_id = 987654 }; host_changed = $false; draining = $false }
+    return [pscustomobject]@{ result = @{ isError = $false; content = @(@{ text = ($state | ConvertTo-Json -Depth 5 -Compress) }) } }
+}
+
+<#
+/**
  * 重置隔离测试状态
  * @param Profile	性能档位
  * @param FPS	帧率上限
@@ -225,12 +276,17 @@ function New-StartupTestState
 
     $process = [pscustomobject]@{ Id = 987654; PriorityClass = ''; HasExited = $false }
     $process | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value { param($Milliseconds) return $true }
+    $gateway = [pscustomobject]@{ Id = 987655; HasExited = $false }
+    $gateway | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value { param($Milliseconds) return $true }
     $global:bbbStartupTest = [pscustomobject]@{
         Profile = $Profile
         FPS = $FPS
         Priority = $Priority
         Editors = @()
         Process = $process
+        GatewayProcess = $gateway
+        GatewayStarted = $false
+        GatewayArguments = @()
         Started = $false
         Stopped = $false
         EarlyExit = $false
@@ -254,7 +310,7 @@ function Invoke-StartupFailureTest
     $failed = $false
     try
     {
-        $null = & $startupScript -ProjectPath $testProjectPath -EnginePath $testEnginePath -TimeoutSeconds 1
+        $null = & $startupScript -ProjectPath $testProjectPath -EnginePath $testEnginePath -BackendPort 18000 -TimeoutSeconds 3
     }
     catch
     {
@@ -281,12 +337,16 @@ foreach ($case in $cases)
 {
     New-StartupTestState $case.Profile $case.FPS $case.Priority
     $extra = $case.Extra
-    $result = & $startupScript -ProjectPath $testProjectPath -EnginePath $testEnginePath -PerformanceProfile $case.Input -TimeoutSeconds 1 @extra | ConvertFrom-Json
+    $result = & $startupScript -ProjectPath $testProjectPath -EnginePath $testEnginePath -BackendPort 18000 -PerformanceProfile $case.Input -TimeoutSeconds 3 @extra | ConvertFrom-Json
     Assert-StartupTest ($result.Status -eq 'Ready') '启动未报告就绪'
     Assert-StartupTest ($global:bbbStartupTest.Process.PriorityClass -eq $case.Priority) '启动优先级不匹配'
     Assert-StartupTest ($global:bbbStartupTest.Arguments -contains ('"' + $testProjectPath + '"')) '项目参数不匹配'
     Assert-StartupTest ($global:bbbStartupTest.Arguments -contains "-BBBMcpMaxFPS=$($case.FPS)") '帧率参数不匹配'
-    Assert-StartupTest ($global:bbbStartupTest.DeletedSessions -eq 1) '协议测试会话未释放'
+    Assert-StartupTest ($global:bbbStartupTest.DeletedSessions -ge 2) '协议测试会话未释放'
+    Assert-StartupTest ($result.TaskProtection -eq 'Required' -and $result.GatewayProcessId -eq 987655) '共享任务保护未启用'
+    Assert-StartupTest ($global:bbbStartupTest.Arguments -contains '-ModelContextProtocolPort=18000') '官方后端没有隔离端口'
+    Assert-StartupTest ($global:bbbStartupTest.Arguments -contains '-Multiprocess') '资产宿主缺少构建锁隔离参数'
+    Assert-StartupTest (($global:bbbStartupTest.Arguments -join ' ') -match 'ServerUrlPath=/bbb-mcp-[a-f0-9]{32}') '官方后端缺少私有路径'
     Assert-StartupTest (-not $global:bbbStartupTest.Stopped) '就绪宿主被错误关闭'
     Assert-StartupTest ($global:bbbStartupTest.Arguments -contains '-RenderOffscreen') '渲染模式不匹配'
     Assert-StartupTest (($global:bbbStartupTest.Arguments -contains '-NullRHI') -ne [bool]$extra['EnableRendering']) '无渲染模式不匹配'
@@ -294,11 +354,11 @@ foreach ($case in $cases)
 
 New-StartupTestState 'Speed' 120 'Normal'
 $global:bbbStartupTest.Editors = @([pscustomobject]@{ ProcessId = 987654; ExecutablePath = $testEditorPath; CommandLine = "$testProjectPath -ModelContextProtocolStartServer" })
-Invoke-StartupFailureTest '与请求宿主不匹配'
+Invoke-StartupFailureTest '未使用共享保护入口'
 Assert-StartupTest (-not $global:bbbStartupTest.Started -and -not $global:bbbStartupTest.Stopped) '不匹配宿主不得启动或终止'
 
 New-StartupTestState 'GamingBackground' 15 'BelowNormal'
-$global:bbbStartupTest.Editors = @([pscustomobject]@{ ProcessId = 987654; ExecutablePath = $testEditorPath; CommandLine = "$testProjectPath -ModelContextProtocolStartServer -NullRHI -RenderOffscreen" })
+$global:bbbStartupTest.Editors = @([pscustomobject]@{ ProcessId = 987654; ExecutablePath = $testEditorPath; CommandLine = "$testProjectPath -ModelContextProtocolStartServer -NullRHI -RenderOffscreen -ModelContextProtocolPort=18000 -BBBProtectedMcpPort=8000 -BBBProtectedMcpKey=12345678901234567890123456789012" })
 Invoke-StartupFailureTest '宿主性能档位与请求不一致'
 Assert-StartupTest (-not $global:bbbStartupTest.Started -and -not $global:bbbStartupTest.Stopped) '已有宿主的档位不匹配不得启动或终止'
 Assert-StartupTest ($global:bbbStartupTest.DeletedSessions -eq 1) '失败测试会话未释放'

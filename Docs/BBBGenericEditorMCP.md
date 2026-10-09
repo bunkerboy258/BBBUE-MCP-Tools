@@ -38,7 +38,7 @@
 
 本项目验证资产：`/Game/_Project/PCG/AssetLibrary/PCG_BBBAssetLibraryValidation` 与 `L_BBBAssetLibraryValidation`；首次 CPU 生成核验为桶炉四个、塑料箱六个、水桶六个，共十六个实例。资产库索引见项目 `Docs/PCG/AssetLibraryManifest.md`。
 
-工具集名称：`Game.Scripts.BBBGenericEditorToolset.BBBGenericEditorToolset`
+工具集名称: 使用本次实际发现的 `BBBGenericEditorToolset` 完整注册名称
 
 ## bind_niagara_channel_reader
 
@@ -226,7 +226,7 @@ UE5.8 以 `DefaultKeyMappings` 为实际映射来源 工具调用引擎的 `unma
 
 ## 蓝图图表语言映射
 
-工具集 `Game.Scripts.BBBBlueprintGraphToolset.BBBBlueprintGraphToolset` 的 `write_graph` 复用官方蓝图 DSL 写入器，解决本地化节点名称和执行引脚类型与英文 DSL 不一致的问题。参数为 `graph_path`、`code`、`node_aliases_json`、`pin_aliases_json`。
+实际发现的 `BBBBlueprintGraphToolset` 中 `write_graph` 复用官方蓝图 DSL 写入器 解决本地化节点名称和执行引脚类型与英文 DSL 不一致的问题. 参数为 `graph_path` `code` `node_aliases_json` `pin_aliases_json`.
 
 节点映射为英文 DSL 类型到当前编辑器实际类型的 JSON 字符串对象。引脚映射为当前编辑器类型到 DSL 类型的对象，例如 `{"执行":"Exec"}`。先使用官方 `find_node_types` 和 `get_node_type_pins` 验证实际名称，不猜测名称。工具只接受 `/Game/` 蓝图直属图表，拒绝 PIE 期间编辑，不修改引擎或编辑器语言。写入会修改目标图表并编译，但不自动保存。失败会明确报警且可能留下部分图表，须检查或撤销，禁止在失败后保存。调用前完成资产独占签出。
 
@@ -270,7 +270,7 @@ UE5.8 以 `DefaultKeyMappings` 为实际映射来源 工具调用引擎的 `unma
 
 使用已有 `generate_and_inspect_pcg` 在目标关卡的 PCG Actor 生成并回读实际实例数。输入点应提前完成地形贴合与道路/建筑避让；本工具不自行推断落点，不把点数当作视觉或性能验收。修改图后不得盲目重复生成，先检查生成状态。
 
-点集较大时，`points_json` 可传入 `{"file":"E:/BBB_Evac/Docs/Design/Camp01/布局.json","group":"Trees"}`，读取该文件的 `pcg_groups.Trees`。文件必须是实际项目目录内的 JSON，不接受外部路径。旋转数组始终按 Pitch、Yaw、Roll 解释，内部显式使用命名参数，禁止依赖 Unreal Python 构造器的位置参数顺序。场景布置后应通过官方 ActorTools 回读至少一个非零角度对象，避免静态输入正确但实际轴错误。
+点集较大时 `points_json` 可传入 `{"file":"<项目内布局 JSON 的绝对路径>","group":"<分组名>"}` 读取该文件的 `pcg_groups` 中对应分组. 尖括号内容需替换为本任务的实际输入. 文件必须是实际项目目录内的 JSON 不接受外部路径. 旋转数组始终按 Pitch Yaw Roll 解释 内部显式使用命名参数 禁止依赖 Unreal Python 构造器的位置参数顺序. 场景布置后应通过官方 ActorTools 回读至少一个非零角度对象 避免静态输入正确但实际轴错误.
 
 `remove_empty_animation_notify_track(asset_path, track_name)` 支持动画序列和蒙太奇 只删除已清空的指定通知轨道
 工具拒绝 PIE 未独占签出 非动画资产 不存在的轨道和仍含事件的轨道 成功后保存并返回完整通知列表
@@ -296,7 +296,7 @@ UE5.8 以 `DefaultKeyMappings` 为实际映射来源 工具调用引擎的 `unma
 
 `configure_projectile_impact_system(channel_path, system_path, material_path)` 将命中通道配置为空间岛 创建或重建三个 CPU 发射器分别按 `Surface` 的 0 1 2 筛选硬表面 金属 血肉 表面事实仅含 `Position` `Normal` `Surface` 读取上一帧完整批次 后续粒子独立运动淡出 不持有命中历史
 
-以上写入入口拒绝 PIE 新资产须处于 Perforce 可添加映射 已有资产须提前独占签出 原生图表构建位于项目 `ABBB_EvacEditor/BBBNiagaraEditorLibrary` 写入后须通过 `inspect_niagara_graphs` 核对所有脚本编译状态
+以上写入入口拒绝 PIE 新资产须处于 Perforce 可添加映射 已有资产须提前独占签出 原生图表构建由接入项目编辑器模块的 `BBBNiagaraEditorLibrary` 提供 写入后须通过 `inspect_niagara_graphs` 核对所有脚本编译状态
 
 # 角色输入与自动化验证
 

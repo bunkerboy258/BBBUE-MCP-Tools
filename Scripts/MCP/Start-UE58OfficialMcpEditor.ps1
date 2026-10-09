@@ -6,6 +6,9 @@ param(
     [string]$EnginePath,
     [ValidateRange(1, 65535)]
     [int]$Port = 8000,
+    [ValidateRange(0, 65535)]
+    [int]$BackendPort = 0,
+    [string]$PythonPath = '',
     [ValidateRange(1, 600)]
     [int]$TimeoutSeconds = 90,
     [switch]$EnableRendering,
@@ -21,8 +24,23 @@ param(
 $projectPath = [System.IO.Path]::GetFullPath($ProjectPath)
 $engineRoot = [System.IO.Path]::GetFullPath($EnginePath)
 $editorPath = Join-Path $engineRoot 'Engine\Binaries\Win64\UnrealEditor.exe'
+$projectArgumentPattern = '(?i)(?:^|\s)"?' + [Regex]::Escape($projectPath) + '"?(?=\s|$)'
 $endpoint = "http://127.0.0.1:$Port/mcp"
-$portArgumentPattern = "(?i)-ModelContextProtocolPort=$Port(\s|$)"
+$publicEndpoint = $endpoint
+$gatewayScript = Join-Path $PSScriptRoot 'mcp_task_gateway.py'
+$gatewayKey = [Guid]::NewGuid().ToString('N')
+$createdGateway = $null
+
+if (-not $PythonPath)
+{
+    $PythonPath = (Get-Command python -ErrorAction Stop).Source
+}
+
+$PythonPath = [System.IO.Path]::GetFullPath($PythonPath)
+if (-not (Test-Path -LiteralPath $PythonPath) -or -not (Test-Path -LiteralPath $gatewayScript))
+{
+    throw '共享宿主网关或 Python 运行时不存在'
+}
 
 if (-not (Test-Path -LiteralPath $projectPath))
 {
@@ -84,7 +102,17 @@ if ($PerformanceProfile -eq 'GamingBackground')
     }
 }
 
-$hostMutex = [System.Threading.Mutex]::new($false, 'Local\BBBUEOfficialMcpHost')
+$projectHash = [System.Security.Cryptography.SHA256]::Create()
+try
+{
+    $mutexSuffix = [BitConverter]::ToString($projectHash.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($projectPath.ToLowerInvariant()))).Replace('-', '')
+}
+finally
+{
+    $projectHash.Dispose()
+}
+
+$hostMutex = [System.Threading.Mutex]::new($false, ('Local\BBBUEOfficialMcpHost_' + $mutexSuffix))
 $ownsMutex = $false
 $createdProcess = $null
 $ready = $false
@@ -92,7 +120,7 @@ try
 {
     try
     {
-        $ownsMutex = $hostMutex.WaitOne(10000)
+        $ownsMutex = $hostMutex.WaitOne([Math]::Min($TimeoutSeconds * 1000, 60000))
     }
     catch [System.Threading.AbandonedMutexException]
     {
@@ -104,10 +132,10 @@ try
         throw '其他会话正在启动 MCP 宿主 请等待其启动结束'
     }
 
-    $editors = @(Get-CimInstance Win32_Process -Filter "Name = 'UnrealEditor.exe'")
+    $editors = @(Get-CimInstance Win32_Process -Filter "Name = 'UnrealEditor.exe'" | Where-Object { $_.CommandLine.Replace('/', '\') -match $projectArgumentPattern })
     if ($editors.Count -gt 1)
     {
-        throw '检测到多个 Unreal Editor 进程 必须先协调为单宿主 本脚本不终止其他会话'
+        throw '检测到同一项目的多个 Unreal Editor 进程 必须先协调为单宿主 本脚本不终止其他会话'
     }
 
     $processId = $null
@@ -115,7 +143,7 @@ try
     {
         $existingEditor = $editors[0]
         $commandLine = $existingEditor.CommandLine
-        $matchesProject = $commandLine -like "*$projectPath*" -and $existingEditor.ExecutablePath -eq $editorPath
+        $matchesProject = $commandLine.Replace('/', '\') -match $projectArgumentPattern -and $existingEditor.ExecutablePath -eq $editorPath
         $matchesMode = -not $EnableRendering -and $commandLine -match '(?i)-NullRHI(\s|$)' -and $commandLine -match '(?i)-RenderOffscreen(\s|$)'
         if ($EnableRendering)
         {
@@ -127,12 +155,18 @@ try
             $matchesMode = $false
         }
 
-        $matchesPort = $commandLine -match $portArgumentPattern
-        if ($Port -eq 8000 -and $commandLine -notmatch '(?i)-ModelContextProtocolPort=')
+        $matchesPort = $commandLine -match ("(?i)-BBBProtectedMcpPort=$Port(\s|$)")
+        if ($matchesPort -and $commandLine -match '(?i)-BBBProtectedMcpKey=([a-f0-9]{32})(\s|$)')
         {
-            $matchesPort = $true
+            $gatewayKey = $Matches[1]
         }
 
+        if (-not $matchesPort -or $commandLine -notmatch '(?i)-ModelContextProtocolPort=(\d+)(\s|$)')
+        {
+            throw '已有宿主未使用共享保护入口 不热迁移或终止其他任务 请在原任务结束后关闭旧宿主再启动'
+        }
+
+        $BackendPort = [int]$Matches[1]
         if (-not $matchesProject -or -not $matchesMode -or -not $matchesPort -or $commandLine -notmatch '(?i)-ModelContextProtocolStartServer(\s|$)')
         {
             throw "已有编辑器 PID $($existingEditor.ProcessId) 与请求宿主不匹配 不启动第二实例 请协调现有会话"
@@ -141,26 +175,41 @@ try
         $processId = $existingEditor.ProcessId
     }
 
-    $listeners = @(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+    if ($BackendPort -eq 0)
+    {
+        $portProbe = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+        $portProbe.Start()
+        $BackendPort = $portProbe.LocalEndpoint.Port
+        $portProbe.Stop()
+    }
+
+    if ($BackendPort -eq $Port)
+    {
+        throw '网关与官方后端不能使用同一端口'
+    }
+
+    $endpoint = "http://127.0.0.1:$BackendPort/bbb-mcp-$gatewayKey"
+    $listeners = @(Get-NetTCPConnection -LocalPort $BackendPort -State Listen -ErrorAction SilentlyContinue)
     if ($listeners.Count -gt 0 -and ($null -eq $processId -or $listeners.OwningProcess -notcontains $processId))
     {
-        throw "端口 $Port 被其他进程占用 不启动 MCP 宿主"
+        throw "后端端口 $BackendPort 被其他进程占用 不启动 MCP 宿主"
     }
 
     if ($null -eq $processId)
     {
         $arguments = @('"' + $projectPath + '"')
-        if ($EnableRendering)
-        {
-            $arguments += '/Engine/Maps/Entry'
-        }
+        $arguments += '/Engine/Maps/Entry'
 
         $arguments += @(
             '-ModelContextProtocolStartServer',
-            "-ModelContextProtocolPort=$Port",
+            "-ModelContextProtocolPort=$BackendPort",
+            "-BBBProtectedMcpPort=$Port",
+            "-BBBProtectedMcpKey=$gatewayKey",
+            "-ini:EditorPerProjectUserSettings:[/Script/ModelContextProtocolEngine.ModelContextProtocolSettings]:ServerUrlPath=/bbb-mcp-$gatewayKey",
             "-BBBMcpPerformanceProfile=$PerformanceProfile",
             "-BBBMcpMaxFPS=$frameLimit",
             '-Unattended',
+            '-Multiprocess',
             '-NoSplash',
             '-NoSound',
             '-AutoDeclinePackageRecovery',
@@ -205,10 +254,10 @@ try
             throw "MCP 宿主 PID $processId 在就绪前退出"
         }
 
-        $listeners = @(Get-NetTCPConnection -LocalAddress '127.0.0.1' -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+        $listeners = @(Get-NetTCPConnection -LocalPort $BackendPort -State Listen -ErrorAction SilentlyContinue)
         if ($listeners.Count -gt 0 -and $listeners.OwningProcess -notcontains $processId)
         {
-            throw "端口 $Port 已被其他进程占用 未连接到请求的 UE MCP 实例"
+            throw "后端端口 $BackendPort 已被其他进程占用 未连接到请求的 UE MCP 实例"
         }
 
         if ($listeners.OwningProcess -contains $processId)
@@ -282,10 +331,65 @@ try
                     throw '宿主性能档位与请求不一致 不修改其他会话的运行时配置'
                 }
 
+                $gatewayListeners = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+                $gatewayProcessId = $null
+                if ($gatewayListeners.Count -gt 0)
+                {
+                    $gatewayProcessId = $gatewayListeners[0].OwningProcess
+                    $gatewayProcess = Get-CimInstance Win32_Process -Filter "ProcessId = $gatewayProcessId"
+                    if ($gatewayProcess.ExecutablePath -ne $PythonPath -or $gatewayProcess.CommandLine -notlike "*$gatewayScript*" -or $gatewayProcess.CommandLine -notlike "*--host-pid $processId*" -or $gatewayProcess.CommandLine -notlike "*$endpoint*")
+                    {
+                        throw '公开端口不属于此宿主的任务网关 不接管其他进程'
+                    }
+                }
+
+                if ($null -eq $gatewayProcessId)
+                {
+                    if ($null -eq $createdGateway)
+                    {
+                        $gatewayArguments = @('-B', ('"' + $gatewayScript + '"'), '--backend-url', $endpoint, '--port', $Port, '--project-root', ('"' + (Split-Path $projectPath -Parent) + '"'), '--host-pid', $processId)
+                        $createdGateway = Start-Process -FilePath $PythonPath -ArgumentList $gatewayArguments -WindowStyle Hidden -PassThru
+                    }
+
+                    if ($createdGateway.HasExited)
+                    {
+                        throw '共享宿主网关启动失败 活动检查未通过'
+                    }
+
+                    $lastReadinessError = '网关尚未监听'
+                    Start-Sleep -Milliseconds 100
+                    continue
+                }
+
+                $gatewayInitialize = Invoke-WebRequest -Uri $publicEndpoint -Method Post -ContentType 'application/json' -Headers @{ Accept = 'application/json' } -Body $initializeBody -TimeoutSec 5 -ErrorAction Stop
+                $gatewaySession = $gatewayInitialize.Headers['Mcp-Session-Id'] | Select-Object -First 1
+                $gatewayHeaders = @{ Accept = 'application/json'; 'Mcp-Session-Id' = $gatewaySession; 'MCP-Protocol-Version' = $initializeResult.result.protocolVersion }
+                try
+                {
+                    $gatewayProbe = @{ jsonrpc = '2.0'; id = 4; method = 'tools/call'; params = @{ name = 'inspect_editor_tasks'; arguments = @{} } } | ConvertTo-Json -Depth 8 -Compress
+                    $gatewayResponse = Invoke-RestMethod -Uri $publicEndpoint -Method Post -ContentType 'application/json' -Headers $gatewayHeaders -Body $gatewayProbe -TimeoutSec 15 -ErrorAction Stop
+                    if ($gatewayResponse.error -or $gatewayResponse.result.isError)
+                    {
+                        throw '共享宿主网关活动检查失败'
+                    }
+
+                    $taskState = $gatewayResponse.result.content[0].text | ConvertFrom-Json
+                    if ($taskState.activity.process_id -ne $processId -or $taskState.host_changed -or $taskState.draining)
+                    {
+                        throw '共享宿主网关身份或生命周期不匹配'
+                    }
+                }
+                finally
+                {
+                    $null = Invoke-WebRequest -Uri $publicEndpoint -Method Delete -Headers $gatewayHeaders -TimeoutSec 5 -ErrorAction Stop
+                }
+
                 $ready = $true
                 [pscustomobject]@{
                     EditorProcessId = $processId
-                    Endpoint = $endpoint
+                    Endpoint = $publicEndpoint
+                    GatewayProcessId = $gatewayProcessId
+                    TaskProtection = 'Required'
                     Project = $projectPath
                     Status = 'Ready'
                     Performance = $performance
@@ -326,7 +430,13 @@ finally
 {
     try
     {
-        if (-not $ready -and $null -ne $createdProcess -and -not $createdProcess.HasExited)
+        $preserveSharedHost = -not $ready -and $null -ne $createdGateway
+        if ($preserveSharedHost)
+        {
+            Write-Warning "网关已创建 就绪检查失败时不能证明没有并行占用 保留宿主 PID $processId 和网关 PID $($createdGateway.Id) 请通过公开入口检查并在全部任务结束后关闭"
+        }
+
+        if (-not $ready -and -not $preserveSharedHost -and $null -ne $createdProcess -and -not $createdProcess.HasExited)
         {
             Stop-Process -Id $createdProcess.Id -ErrorAction Stop
             if (-not $createdProcess.WaitForExit(10000))
