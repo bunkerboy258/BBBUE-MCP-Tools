@@ -3457,6 +3457,52 @@
     }
   },
   "BBBGenericEditorToolset": {
+    "create_primitive_texture_blend_material": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_path": {
+            "type": "string",
+            "description": "源主材质包 *"
+          },
+          "material_path": {
+            "type": "string",
+            "description": "不存在的项目主材质包 *"
+          },
+          "texture_parameter": {
+            "type": "string",
+            "description": "原颜色纹理参数 *"
+          },
+          "alternate_parameter": {
+            "type": "string",
+            "description": "新轻度纹理参数 *"
+          },
+          "primitive_index": {
+            "type": "integer",
+            "description": "图元数据索引 零为轻度 一为原纹理 *",
+            "default": 0
+          }
+        },
+        "required": [
+          "source_path",
+          "material_path",
+          "texture_parameter",
+          "alternate_parameter"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "已保存主材质和新增纹理采样数 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
     "start_pie_audio_recording": {
       "inputSchema": {
         "type": "object",
@@ -9852,6 +9898,87 @@
     }
   },
   "BBBAnimationGraphToolset": {
+    "inspect_mass_variation_network": {
+      "inputSchema": {"type": "object"},
+      "outputSchema": {
+        "type": "object",
+        "properties": {"returnValue": {"type": "string", "description": "各世界实体身份 个体属性和表现诊断 不生成或修改实体 */"}},
+        "required": ["returnValue"]
+      }
+    },
+    "configure_fact_movement_styles": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "独占持有的事实动画蓝图 *"
+          },
+          "style_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "三个同骨架一维实际速度混合资产 *"
+          },
+          "blend_duration": {
+            "type": "number",
+            "description": "姿势过渡秒数 *",
+            "default": 0.18
+          }
+        },
+        "required": [
+          "asset_path",
+          "style_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "无警告编译与保存结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "prepare_in_place_cycles": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "已独占持有的项目循环动画 *"
+          },
+          "compression_reference_path": {
+            "type": "string",
+            "description": "同骨架已验证压缩配置来源 *"
+          }
+        },
+        "required": [
+          "asset_paths",
+          "compression_reference_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "保存与根轨道接缝复核结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
     "inspect_mass_scene_population": {
       "inputSchema": {
         "type": "object"

@@ -12,6 +12,10 @@
 
 ## 循环与动作变体
 
+出生变化使用 `BBBMonsterVariationDefinition` 与实体 `Variation` Fragment。`configure_fact_movement_styles(asset_path, style_paths, blend_duration=0.18)` 要求三个不同的同骨架一维速度混合，干净重建 Patrol 和 Locomotion 图。固定 `LocomotionStyleFact` 只激活一个分支；`AnimationSpeedFact` 为实际水平速度除以出生速度倍率；`LoopPhaseFact` 为 Mass 持续维护的归一化相位。表现 Actor 重建不重新抽取风格或起点。拒绝 PIE、脏包、无效类型、非独占写入及编译警告。
+
+待机与警觉现在也显式采样连续实体相位；动作和循环变体的选择读取 `VariationSeedFact`，不再使用 Actor 的临时编号。既有僵尸图必须重新配置循环与动作变体，不保留旧属性别名。循环入口结果返回 `continuousEntityPhase=true`，不返回旧起点桶数。按需组合素材风格，不新增玩法状态、逐实例动画计时 Tick 或动态材质实例。
+
 `configure_fact_locomotion_variants` 参数为 asset_path idle_paths alert_paths stationary_speed blend_duration。它重建独立 Idle 与 Alert 姿势图。循环序列按稳定表现身份选择并错开播放起点。警觉只有一条序列时不复制相同样本。Patrol 与 Locomotion 保持实际速度混合 不写 Mass 事实。
 
 `configure_fact_action_variants` 只接受攻击 死亡两个非空组。variant_paths 按组展开 counts 提供两个数量。progress_pivots sample_pivots progress_ends 必须与序列一一对应。逻辑进度 0 pivot end 映射到动画采样 0 sample pivot 1 然后保持末帧。满足 0 < pivot < end <= 1 及 0 < sample pivot < 1。
@@ -21,6 +25,12 @@
 持续爬行构图与只读场景诊断见 [BBBFactCrawlMCP.md](BBBFactCrawlMCP.md)。爬行是姿态事实 复用相同六种行为。
 
 ## 资产与检查入口
+
+`prepare_in_place_cycles(asset_paths, compression_reference_path)` 接收最多十六条明确的项目循环动画。先检查全部资产的独占写入状态和脏包 再将根轨道归零并对骨盆尾段做平滑接缝修正。压缩配置取自同骨架正式样本。拒绝错误骨架 缺失轨道 PIE 和保存失败。各资产逐项保存并回读根位移 批量不是事务 不自动回滚或重试。
+
+移动循环时长由共享 `BBBMonsterVariationDefinition` 配置保存。三个向量依次对应三个固定风格 每个向量的 X Y Z 为走 跑 冲刺的真实循环秒数。待机三时长和警觉时长也从正式片段读取。变体选择和相位不在 Actor 中重新生成。
+
+`inspect_mass_variation_network()` 只读查询全部同进程 PIE 世界。按稳定 instanceId 比较 variationSeed infection locomotionStyle speedScale phaseOffset 和速度配置。迟加入必须实际看到新增世界及相同属性后才算通过。loopPhase 是本地连续表现相位 不作为需要逐帧同步的网络事实。
 
 `create_speed_blend_space` 创建不存在的一维速度混合资产。样本同骨架 速度严格递增且首项为零。调用前检查循环根轨道与接缝。已有资产不覆盖。
 

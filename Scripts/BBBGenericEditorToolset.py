@@ -108,6 +108,79 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def create_primitive_texture_blend_material(source_path: str, material_path: str, texture_parameter: str,
+                                               alternate_parameter: str, primitive_index: int = 0) -> str:
+        """
+        /**
+         * 基于原材质创建图元纹理混合 保留原后处理链 不修改来源
+         * @param source_path		源主材质包
+         * @param material_path	不存在的项目主材质包
+         * @param texture_parameter	原颜色纹理参数
+         * @param alternate_parameter	新轻度纹理参数
+         * @param primitive_index	图元数据索引 零为轻度 一为原纹理
+         * @return 已保存主材质和新增纹理采样数
+         */
+        """
+        from BBBAssetWritePolicy import require_asset_write
+        if not material_path.startswith("/Game/_Project/") or not texture_parameter or not alternate_parameter or texture_parameter == alternate_parameter or not 0 <= primitive_index < 32:
+            raise RuntimeError("图元纹理混合目标 参数或索引无效")
+        if unreal.EditorAssetLibrary.does_asset_exist(material_path):
+            raise RuntimeError("拒绝覆盖既有材质")
+        require_asset_write([], destinations=[material_path])
+        source = unreal.load_asset(source_path)
+        if not isinstance(source, unreal.Material):
+            raise RuntimeError("源必须是主材质")
+        editing = unreal.MaterialEditingLibrary
+        expressions = list(editing.get_material_expressions(source))
+        textures = [value for value in expressions if isinstance(value, unreal.MaterialExpressionTextureSampleParameter2D)
+                    and str(value.get_editor_property("parameter_name")) == texture_parameter]
+        if len(textures) != 1:
+            raise RuntimeError("原颜色纹理参数必须唯一")
+        for value in expressions:
+            if isinstance(value, (unreal.MaterialExpressionScalarParameter, unreal.MaterialExpressionVectorParameter)) and value.get_editor_property("use_custom_primitive_data"):
+                start = int(value.get_editor_property("primitive_data_index"))
+                width = 4 if isinstance(value, unreal.MaterialExpressionVectorParameter) else 1
+                if start <= primitive_index < start + width:
+                    raise RuntimeError("图元索引已有占用")
+        source_texture = textures[0]
+        consumers = []
+        for value in expressions:
+            for name, input_node in zip(editing.get_material_expression_input_names(value), editing.get_inputs_for_material_expression(source, value)):
+                if input_node == source_texture:
+                    consumers.append((value.get_name(), str(name)))
+        if not consumers:
+            raise RuntimeError("颜色纹理没有表达式消费者")
+        material = unreal.EditorAssetLibrary.duplicate_asset(source_path, material_path)
+        if not isinstance(material, unreal.Material):
+            raise RuntimeError("主材质创建失败")
+        nodes = {value.get_name(): value for value in editing.get_material_expressions(material)}
+        original = nodes[source_texture.get_name()]
+        alternate = editing.create_material_expression(material, unreal.MaterialExpressionTextureSampleParameter2D, -1600, 300)
+        alternate.set_editor_property("parameter_name", alternate_parameter)
+        alternate.set_editor_property("texture", original.get_editor_property("texture"))
+        alternate.set_editor_property("sampler_type", original.get_editor_property("sampler_type"))
+        alternate.set_editor_property("sampler_source", original.get_editor_property("sampler_source"))
+        alpha = editing.create_material_expression(material, unreal.MaterialExpressionScalarParameter, -1600, 600)
+        alpha.set_editor_property("parameter_name", "PrimitiveTextureBlend")
+        alpha.set_editor_property("default_value", 1.0)
+        alpha.set_editor_property("use_custom_primitive_data", True)
+        alpha.set_editor_property("primitive_data_index", primitive_index)
+        blend = editing.create_material_expression(material, unreal.MaterialExpressionLinearInterpolate, -1300, 300)
+        for output, pin in [(alternate, "A"), (original, "B"), (alpha, "Alpha")]:
+            if not editing.connect_material_expressions(output, "", blend, pin):
+                raise RuntimeError("图元纹理混合连接失败 不保存")
+        for name, pin in consumers:
+            if not editing.connect_material_expressions(blend, "", nodes[name], pin):
+                raise RuntimeError("颜色后处理链重连失败 不保存")
+        editing.layout_material_expressions(material)
+        editing.recompile_material(material)
+        if not unreal.EditorAssetLibrary.save_loaded_asset(material, False):
+            raise RuntimeError("图元纹理混合材质保存失败")
+        return json.dumps({"material": material_path, "source": source_path, "primitiveIndex": primitive_index,
+                           "alternateParameter": alternate_parameter, "additionalTextureSamples": 1, "saved": True})
+
+    @mcp_tool
+    @staticmethod
     def migrate_actor_blueprint(source_path: str, destination_path: str, parent_class_path: str,
                                 defaults_json: str, level_paths: list[str], dry_run: bool = True) -> str:
         """

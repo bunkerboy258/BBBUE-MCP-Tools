@@ -200,6 +200,26 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def inspect_mass_variation_network() -> str:
+        """
+        /**
+         * 同时只读检查全部 PIE 世界的当前小怪出生属性
+         * @return 各世界实体身份 个体属性和表现诊断 不生成或修改实体
+         */
+        """
+        worlds = list(unreal.EditorLevelLibrary.get_pie_worlds(False))
+        if not worlds:
+            raise RuntimeError("跨端个体检查必须位于 PIE")
+        results = []
+        for world in worlds:
+            population = json.loads(unreal.BBBMassValidationLibrary.inspect_population(world, []))
+            if population.get("error"):
+                raise RuntimeError(population["error"])
+            results.append({"world": world.get_path_name(), "population": population})
+        return json.dumps({"worlds": results, "readOnly": True}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def configure_fact_stagger_state(asset_path: str, sequence_paths: list[str], blend_duration: float = 0.12) -> str:
         """
         /**
@@ -465,6 +485,66 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def prepare_in_place_cycles(asset_paths: list[str], compression_reference_path: str) -> str:
+        """
+        /**
+         * 将明确循环序列根轨道归零 并平滑骨盆尾段接缝
+         * @param asset_paths		已独占持有的项目循环动画
+         * @param compression_reference_path	同骨架已验证压缩配置来源
+         * @return 保存与根轨道接缝复核结果
+         */
+        """
+        if not asset_paths or len(asset_paths) > 16 or len(set(asset_paths)) != len(asset_paths) or any(not path.startswith("/Game/_Project/") for path in asset_paths):
+            raise RuntimeError("循环动画清单无效")
+        sequences = [unreal.load_asset(path) for path in asset_paths]
+        reference = unreal.load_asset(compression_reference_path)
+        if not isinstance(reference, unreal.AnimSequence) or any(not isinstance(value, unreal.AnimSequence) or value.get_editor_property("skeleton") != reference.get_editor_property("skeleton") for value in sequences):
+            raise RuntimeError("循环动画与压缩来源类型或骨架不一致")
+        require_asset_write(sequences)
+        dirty = {value.get_path_name() for value in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
+        if any(value.get_outermost().get_path_name() in dirty for value in sequences):
+            raise RuntimeError("循环动画有未保存编辑")
+        results = []
+        for sequence in sequences:
+            root = list(unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(sequence, "root"))
+            pelvis = list(unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(sequence, "pelvis"))
+            if len(root) < 2 or len(pelvis) < 4:
+                raise RuntimeError("循环根轨道或骨盆轨道不完整")
+            controller = sequence.controller
+            controller.open_bracket("Prepare project in-place cycle", False)
+            if not controller.set_bone_track_keys("root", [unreal.Vector(0, 0, 0)] * len(root), [unreal.Quat(0, 0, 0, 1)] * len(root), [unreal.Vector(1, 1, 1)] * len(root), False):
+                controller.close_bracket(False)
+                raise RuntimeError("根轨道写入失败 不保存")
+            positions = [key.translation for key in pelvis]
+            rotations = [key.rotation for key in pelvis]
+            scales = [key.scale3d for key in pelvis]
+            correction = positions[0] - positions[-1]
+            tail = max(2, min(8, len(pelvis) // 4))
+            for offset in range(tail):
+                fraction = float(offset + 1) / tail
+                weight = fraction * fraction * (3.0 - 2.0 * fraction)
+                index = len(positions) - tail + offset
+                positions[index] = positions[index] + correction * weight
+            rotations[-1] = rotations[0]
+            scales[-1] = scales[0]
+            success = controller.set_bone_track_keys("pelvis", positions, rotations, scales, False)
+            controller.close_bracket(False)
+            if not success:
+                raise RuntimeError("骨盆循环写入失败 不保存")
+            sequence.set_editor_property("enable_root_motion", False)
+            sequence.set_editor_property("force_root_lock", True)
+            for name in ["bone_compression_settings", "curve_compression_settings"]:
+                sequence.set_editor_property(name, reference.get_editor_property(name))
+            if not unreal.EditorAssetLibrary.save_loaded_asset(sequence, False):
+                raise RuntimeError("循环动画保存失败 " + sequence.get_path_name())
+            keys = list(unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(sequence, "root"))
+            if any(key.translation.length() > 0.001 for key in keys):
+                raise RuntimeError("归零根轨道回读失败")
+            results.append({"asset": sequence.get_path_name(), "pelvisCorrectionCm": correction.length(), "keys": len(keys)})
+        return json.dumps({"saved": results}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def create_mass_presentation_variant(source_actor_path: str, source_definition_path: str, source_config_path: str, mesh_path: str, destination_root: str, variant_name: str) -> str:
         """
         /**
@@ -647,7 +727,40 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
         if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
             raise RuntimeError("静止搜索动画蓝图保存失败")
 
-        return json.dumps({"asset": asset_path, "idle": list(idle_paths), "alert": list(alert_paths), "phaseBuckets": 29, "saved": True}, ensure_ascii=False)
+        return json.dumps({"asset": asset_path, "idle": list(idle_paths), "alert": list(alert_paths), "continuousEntityPhase": True, "saved": True}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def configure_fact_movement_styles(asset_path: str, style_paths: list[str], blend_duration: float = 0.18) -> str:
+        """
+        /**
+         * 以实体固定风格与连续相位重建巡逻追击 只采样一个移动分支
+         * @param asset_path		独占持有的事实动画蓝图
+         * @param style_paths		三个同骨架一维实际速度混合资产
+         * @param blend_duration	姿势过渡秒数
+         * @return 无警告编译与保存结果
+         */
+        """
+        if len(style_paths) != 3 or len(set(style_paths)) != 3 or not math.isfinite(blend_duration) or not 0.0 < blend_duration <= 0.3:
+            raise RuntimeError("移动风格必须是三个不同资产且过渡时间有效")
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止配置移动风格")
+        blueprint = unreal.load_asset(asset_path)
+        styles = [unreal.load_asset(path) for path in style_paths]
+        if not isinstance(blueprint, unreal.AnimBlueprint) or any(not isinstance(value, unreal.BlendSpace1D) for value in styles):
+            raise RuntimeError("动画蓝图或一维移动混合类型无效")
+        require_write_access(blueprint)
+        dirty = {value.get_path_name() for value in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
+        if blueprint.get_outermost().get_path_name() in dirty:
+            raise RuntimeError("目标有未保存编辑 拒绝混入")
+        if not unreal.BBBAnimationGraphEditorLibrary.configure_fact_movement_styles(blueprint, styles, blend_duration):
+            raise RuntimeError("移动风格构图失败 不保存")
+        unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
+        if blueprint.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+            raise RuntimeError("移动风格图未无警告编译通过 不保存")
+        if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
+            raise RuntimeError("移动风格动画蓝图保存失败")
+        return json.dumps({"asset": asset_path, "styles": list(style_paths), "continuousEntityPhase": True, "saved": True}, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod
