@@ -1029,6 +1029,37 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def import_skeletal_animation_set(source_files_json: str, destination_path: str, mesh_name: str) -> str:
+        """
+        /**
+         * 导入共享同一源骨架的 FBX 动画集合 拒绝覆盖
+         * @param source_files_json\t明确的 FBX 路径数组
+         * @param destination_path\t新目标目录
+         * @param mesh_name\t源网格名称
+         * @return\t已保存网格 骨架及动画
+         */
+        """
+        from BBBAnimationSetImport import import_skeletal_animation_set
+        return import_skeletal_animation_set(source_files_json, destination_path, mesh_name)
+
+    @mcp_tool
+    @staticmethod
+    def create_animation_set_retargeter(source_mesh_path: str, target_rig_path: str, source_rig_path: str, retargeter_path: str) -> str:
+        """
+        /**
+         * 建立标准骨架识别 自动对齐和辅助 IK 骨映射的新重定向器
+         * @param source_mesh_path\t源网格
+         * @param target_rig_path\t已有目标 Rig 不修改
+         * @param source_rig_path\t新的源 Rig
+         * @param retargeter_path\t新的重定向器
+         * @return\t实际链映射与辅助骨映射
+         */
+        """
+        from BBBAnimationSetImport import create_animation_set_retargeter
+        return create_animation_set_retargeter(source_mesh_path, target_rig_path, source_rig_path, retargeter_path)
+
+    @mcp_tool
+    @staticmethod
     def import_animation_fbx(source_file: str, asset_path: str, skeleton_path: str) -> str:
         """从单动作 FBX 精确覆盖已签出的动画 保持骨骼和资产路径不变"""
         from BBBAssetWritePolicy import require_write_access

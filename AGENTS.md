@@ -16,6 +16,10 @@ Law 规则是代码更新的最高铁律：
 
 MCP 工具扩展规则
 
+- `BBBGenericEditorToolset.import_skeletal_animation_set` 接收明确的 FBX 路径数组、新目标目录与源网格名称，只建立一份骨架并导入共享骨架的动画；保留源关键帧，拒绝覆盖已有目标目录。
+- `BBBGenericEditorToolset.create_animation_set_retargeter` 使用引擎骨架模板识别建立源 Rig，与已有目标 Rig 自动映射并对齐；新建独立重定向器，以目标手脚骨生成七个辅助 IK 骨，拒绝遗漏必要身体链，不修改已有目标 Rig。
+- `BBBAnimationMigrationToolset.start_pie_montage_motion_capture` 的截图与采样报告写入 `Saved/temp/<file_prefix>/`，完成交付后仅清理本任务的目录。
+
 - `BBBGenericEditorToolset.request_pie_late_join` 通过项目编辑器库请求当前监听主机 PIE 增加一个迟加入客机；须在现有 PIE 中调用，随后用角色与 Mass 只读探针验证实际加入和状态，不将请求成功当作同步验收通过。
 
 - 若现有 MCP 工具无法完成某项编辑器操作，优先扩展通用 MCP 工具集/拓展已有工具而不是使用py临时脚本。

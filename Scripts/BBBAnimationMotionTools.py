@@ -70,7 +70,7 @@ def start_capture(montage_path, times, prefix, interrupt_time=-1.0, capture_imag
     pawn = unreal.GameplayStatics.get_player_pawn(world, 0) if world else None
     if pawn is None or not isinstance(montage, unreal.AnimMontage):
         raise RuntimeError("需要有效本地角色和蒙太奇")
-    directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "Diagnostics", "AnimationMotion", prefix))
+    directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "temp", prefix))
     os.makedirs(directory, exist_ok=False)
     _capture = {"state": "waiting", "directory": directory, "times": times, "next": 0,
                 "rows": [], "images": [], "started": time.monotonic(), "error": None}
