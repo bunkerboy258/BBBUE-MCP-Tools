@@ -4,7 +4,9 @@
 
 - `inspect_melee_sources` 只读检查候选网格边界及双手姿势。
 - `create_rigid_equipment_mesh` 调用引擎原生 `FStaticToSkeletalMeshConverter` 创建独立单根骨骼装备 保留第三方源模型 材质和几何。
-- `create_melee_attack` 创建独立完整姿势序列及 FullBody 蒙太奇 保留所有原始骨骼轨道 配置平滑屏蔽握持与瞄准 IK 的曲线 添加角色装备生命周期及伤害窗口通知。
+- `create_melee_attack` 创建独立完整姿势序列及 UpperBody 蒙太奇 保留所有原始骨骼轨道 配置平滑屏蔽握持与瞄准 IK 的曲线 添加角色装备生命周期及伤害窗口通知。
+- `inspect_upper_body_mask(blueprint_path)` 只读检查角色主图 UpperBody 直接连接的 BlendMask 全部骨骼权重或 BranchFilter 配置 不修改第三方骨架。
+- `stage_upper_body_blend` 在独立项目将唯一上半身混合节点改为 spine_01 深度5与 ik_hand_root 深度1的分支过滤 根骨 骨盆与腿部保留基础姿势 严格编译后仅暂存自有蓝图 正式文件须独占签出且预检摘要一致 合并前必须再核对摘要。
 - `create_melee_equipment` 创建近战动画实例子蓝图 参考姿势图 定义资产及演员蓝图 并登记到已签出的装备目录。
 - `validate_melee_equipment` 只读核验原始骨骼轨道摘要 两条 IK 渐变曲线 两个通知及装备默认网格动画类 从父类到子类严格编译角色装备动画层及装备蓝图 并执行真实装备的通知窗口 镜像隔离与枪口查询测试 不保存资产。
 - `register_melee_equipment` 将已验证的近战蓝图追加到已独占签出的装备目录 拒绝重复装备标识。

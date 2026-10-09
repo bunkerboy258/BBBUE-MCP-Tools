@@ -65,6 +65,117 @@ class BBBMeleeToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def inspect_upper_body_mask(blueprint_path: str) -> str:
+        """
+        /**
+         * 只读核验 UpperBody 插槽直接连接的骨骼遮罩
+         * @param blueprint_path 角色主动画蓝图
+         * @return 遮罩模式及实际骨骼权重 不修改骨架
+         */
+        """
+        blueprint = unreal.load_asset(blueprint_path)
+        if not isinstance(blueprint, unreal.AnimBlueprint):
+            raise RuntimeError("目标不是动画蓝图")
+        snapshot = json.loads(unreal.BBBBlueprintEditorLibrary.export_animation_blueprint_graphs(blueprint))
+        matches = []
+        for graph in snapshot["graphs"]:
+            for slot in graph["nodes"]:
+                if slot.get("animNodeProperties", {}).get("slotName") != "UpperBody":
+                    continue
+                for pin in slot["pins"]:
+                    if pin["name"] != "Pose":
+                        continue
+                    for link in pin["linkedTo"]:
+                        target = next((node for node in graph["nodes"] if node["guid"] == link["nodeGuid"]), None)
+                        if target and target["nodeClass"].endswith("AnimGraphNode_LayeredBoneBlend"):
+                            index = int(link["pinName"].removeprefix("BlendPoses_"))
+                            properties = target["animNodeProperties"]
+                            if properties["blendMode"] == "BranchFilter":
+                                return json.dumps({"blueprint": blueprint_path, "mode": "BranchFilter",
+                                    "layerSetup": properties["layerSetup"]}, ensure_ascii=False)
+                            if properties["blendMode"] != "BlendMask":
+                                raise RuntimeError("UpperBody 混合模式无效")
+                            path = properties["blendMasks"][index].split("'", 2)[1]
+                            matches.append(path)
+        if len(matches) != 1:
+            raise RuntimeError("UpperBody 遮罩连接不唯一")
+        profile = unreal.load_object(None, matches[0])
+        if profile is None:
+            raise RuntimeError("UpperBody 遮罩不存在")
+        weights = unreal.BBBEquipmentAuthoringEditorLibrary.inspect_blend_mask(profile)
+        if not weights:
+            raise RuntimeError("UpperBody 骨骼遮罩权重不可读取")
+        scales = {str(bone): value for bone, value in weights.items()}
+        return json.dumps({"blueprint": blueprint_path, "mask": matches[0],
+            "mode": "BlendMask", "boneWeights": scales}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def stage_upper_body_blend(blueprint_path: str, task_directory: str,
+                              source_project_directory: str, expected_source_sha256: str) -> str:
+        """
+        /**
+         * 在独立项目暂存排除骨盆与腿部的上半身分支混合
+         * @param blueprint_path 自有角色主动画蓝图
+         * @param task_directory 独立项目 Saved/temp 下的暂存目录
+         * @param source_project_directory 正式项目根目录
+         * @param expected_source_sha256 正式资产预检摘要
+         * @return 严格编译后的暂存文件与摘要 不保存正式资产
+         */
+        """
+        project = Path(unreal.Paths.project_dir()).resolve()
+        source_project = Path(source_project_directory).resolve()
+        task = Path(task_directory).resolve()
+        package = blueprint_path.split(".", 1)[0]
+        if project == source_project or not package.startswith("/Game/_Project/") \
+                or any(part in {"", ".", ".."} for part in package[1:].split("/")) \
+                or (project / "Saved/temp").resolve() not in task.parents:
+            raise RuntimeError("上半身暂存必须使用独立项目任务目录与自有资产")
+        source_file = source_project / "Content" / (package.removeprefix("/Game/") + ".uasset")
+        if hashlib.sha256(source_file.read_bytes()).hexdigest() != expected_source_sha256.lower():
+            raise RuntimeError("正式动画蓝图已变化 禁止覆盖并行修改")
+        states = list(unreal.SourceControl.query_file_states([str(source_file)], silent=True,
+            use_source_control_state_cache=False))
+        if len(states) != 1 or not states[0].is_valid or states[0].is_unknown \
+                or states[0].is_checked_out_other or states[0].is_conflicted \
+                or not (states[0].is_checked_out or states[0].is_added):
+            raise RuntimeError("正式动画蓝图必须已独占签出")
+        blueprint = unreal.load_asset(blueprint_path)
+        before = json.loads(BBBMeleeToolset.inspect_upper_body_mask(blueprint_path=blueprint_path))
+        if before["mode"] != "BlendMask":
+            raise RuntimeError("仅允许将已核验的遮罩切换为上半身分支")
+        graph = unreal.load_object(None, blueprint.get_path_name() + ":AnimGraph")
+        editor = unreal.BlueprintGraphEditor.get_graph_editor(graph=graph)
+        nodes = [node for node in editor.list_all_nodes()
+                 if node.get_class().get_name() == "AnimGraphNode_LayeredBoneBlend"]
+        if len(nodes) != 1:
+            raise RuntimeError("主图上半身混合节点不唯一")
+        node = nodes[0]
+        settings = node.get_editor_property("node")
+        if len(settings.get_editor_property("blend_poses")) != 1:
+            raise RuntimeError("上半身混合输入不唯一")
+        filters = []
+        for bone, depth in [("spine_01", 5), ("ik_hand_root", 1)]:
+            branch = unreal.BranchFilter()
+            branch.set_editor_properties({"bone_name": bone, "blend_depth": depth})
+            filters.append(branch)
+        layer = unreal.InputBlendPose()
+        layer.set_editor_property("branch_filters", filters)
+        settings.set_editor_properties({"blend_mode": unreal.LayeredBoneBlendMode.BRANCH_FILTER,
+            "blend_masks": [], "layer_setup": [layer]})
+        node.set_editor_property("node", settings)
+        unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
+        if blueprint.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+            raise RuntimeError("上半身混合编译存在错误或警告")
+        saved = unreal.BBBEquipmentAuthoringEditorLibrary.save_staged_asset(blueprint, str(task))
+        if not saved:
+            raise RuntimeError("上半身混合暂存失败")
+        return json.dumps({"compiled": True, "stagedFile": saved,
+            "stagedSha256": hashlib.sha256(Path(saved).read_bytes()).hexdigest(),
+            "blend": json.loads(BBBMeleeToolset.inspect_upper_body_mask(blueprint_path=blueprint_path))}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def stage_character_aim_gate(blueprint_path: str, node_path: str, task_directory: str,
                                 source_project_directory: str, expected_source_sha256: str) -> str:
         """
@@ -218,7 +329,7 @@ class BBBMeleeToolset(unreal.ToolsetDefinition):
          * @param montage_path 不存在的自有攻击蒙太奇
          * @param contact_start 伤害窗口开始秒数
          * @param contact_end 伤害窗口结束秒数
-         * @return FullBody 蒙太奇及骨骼关键帧保真核验
+         * @return UpperBody 蒙太奇及骨骼关键帧保真核验
          */
         """
         _new_targets([sequence_path, montage_path])
@@ -249,8 +360,8 @@ class BBBMeleeToolset(unreal.ToolsetDefinition):
         montage = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, folder, unreal.AnimMontage, factory)
         tracks = list(montage.get_editor_property("slot_anim_tracks"))
         if len(tracks) != 1:
-            raise RuntimeError("攻击蒙太奇必须为单 FullBody 轨道")
-        tracks[0].set_editor_property("slot_name", unreal.Name("FullBody"))
+            raise RuntimeError("攻击蒙太奇必须为单 UpperBody 轨道")
+        tracks[0].set_editor_property("slot_name", unreal.Name("UpperBody"))
         montage.set_editor_property("slot_anim_tracks", tracks)
         for prop in ("blend_in", "blend_out"):
             blend = montage.get_editor_property(prop)
@@ -368,6 +479,9 @@ class BBBMeleeToolset(unreal.ToolsetDefinition):
         definition = unreal.load_asset(definition_path)
         blueprint = unreal.load_asset(blueprint_path)
         montage = definition.get_editor_property("attack_montage")
+        tracks = list(montage.get_editor_property("slot_anim_tracks"))
+        if len(tracks) != 1 or str(tracks[0].get_editor_property("slot_name")) != "UpperBody":
+            raise RuntimeError("近战攻击必须使用唯一 UpperBody 轨道")
         sequence = montage.get_editor_property("slot_anim_tracks")[0].get_editor_property("anim_track").get_editor_property("anim_segments")[0].get_editor_property("anim_reference")
         source = unreal.load_asset(source_animation_path)
         mesh = definition.get_editor_property("equipment_mesh")
