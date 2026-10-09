@@ -201,22 +201,27 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
             output.flush()
 
         def cleanup():
+            if state["handle"] is not None:
+                unreal.unregister_slate_post_tick_callback(state["handle"])
+                state["handle"] = None
             try:
                 if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() == world and state["entities"]:
                     mass.destroy_population(world, state["entities"])
             finally:
                 state["entities"] = []
-                for name, value in saved.items():
-                    unreal.SystemLibrary.execute_console_command(world, name + " " + str(value))
-                output.close()
-                if state["handle"] is not None:
-                    unreal.unregister_slate_post_tick_callback(state["handle"])
+                try:
+                    for name, value in saved.items():
+                        unreal.SystemLibrary.execute_console_command(None, name + " " + str(value))
+                finally:
+                    output.close()
 
         def summarize(rows, column):
             values = sorted(row[column] for row in rows)
             return {"mean": sum(values) / len(values), "p50": values[int((len(values) - 1) * 0.5)], "p95": values[int((len(values) - 1) * 0.95)], "max": values[-1]}
 
         def tick(delta_seconds):
+            if report["status"] != "running":
+                return
             try:
                 if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() != world:
                     raise RuntimeError("验收 PIE 被外部停止")

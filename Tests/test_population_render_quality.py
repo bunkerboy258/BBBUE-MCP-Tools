@@ -94,6 +94,36 @@ class PopulationRenderQualityTests(unittest.TestCase):
         self.engine.SystemLibrary.execute_console_command.assert_not_called()
         self.assertEqual(self.values["t.MaxFPS"], 30.0)
 
+    def test_collected_pie_world_is_never_used_for_console_restore(self):
+        """/** @return 已销毁世界不再传入原生接口且终止回调只执行一次 */"""
+        self.start(["/Game/Config"], [1], [0.0, 0.0, 90.0], 200.0, "ValidationWorld", "QualityProbe")
+        callback = self.engine.register_slate_post_tick_callback.call_args.args[0]
+        self.engine.get_editor_subsystem.return_value.get_game_world.return_value = None
+        original = self.engine.SystemLibrary.execute_console_command.side_effect
+        def reject_collected_world(world, command):
+            if world is self.world:
+                raise TypeError("ObjectInstance is null")
+            original(world, command)
+        self.engine.SystemLibrary.execute_console_command.side_effect = reject_collected_world
+        callback(1.0 / 60.0)
+        callback(1.0 / 60.0)
+        self.assertEqual(next(iter(self.runs.values()))["status"], "failed")
+        self.assertEqual(self.values["t.MaxFPS"], 30.0)
+        self.engine.unregister_slate_post_tick_callback.assert_called_once()
+        self.open.return_value.close.assert_called_once()
+
+    def test_console_restore_failure_still_closes_output_and_callback(self):
+        """/** @return 恢复设置失败不能遗留帧回调与文件占用 */"""
+        self.start(["/Game/Config"], [1], [0.0, 0.0, 90.0], 200.0, "ValidationWorld", "QualityProbe")
+        callback = self.engine.register_slate_post_tick_callback.call_args.args[0]
+        self.engine.get_editor_subsystem.return_value.get_game_world.return_value = None
+        self.engine.SystemLibrary.execute_console_command.side_effect = RuntimeError("恢复失败")
+        with self.assertRaisesRegex(RuntimeError, "恢复失败"):
+            callback(1.0 / 60.0)
+        callback(1.0 / 60.0)
+        self.engine.unregister_slate_post_tick_callback.assert_called_once()
+        self.open.return_value.close.assert_called_once()
+
     def test_callback_registration_failure_restores_quality(self):
         """/** @return 帧回调登记失败也关闭文件并恢复宿主设置 */"""
         self.engine.register_slate_post_tick_callback.side_effect = RuntimeError("回调不可用")
