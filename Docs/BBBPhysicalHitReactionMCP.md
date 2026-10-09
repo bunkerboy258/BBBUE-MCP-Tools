@@ -21,6 +21,7 @@
 - `create_zombie_sealed_part_meshes(source_mesh_path root_bone output_folder rebuild_existing=False)` 只读源网格 根据断开骨骼的权重提取部件 验证切口闭环 生成封闭掉落部件和身体断口封盖 默认拒绝已有输出 显式重建要求同名部件与封口完整存在且已独占签出 原地重建不备份旧版本 不自动保存
 - `configure_monster_severing_parts(definition_path parts_json)` 要求正式配置独占签出 五个部位完整对应头部 左右上臂和左右大腿 每项包含 `region bone part cap` 不自动保存
 
+- `BBBAnimationPreviewToolset.capture_monster_hit_scene` 可显式传入 `damage` 与 `sample_seconds` 使用真实 Mass 碰撞和公开伤害输入检查断口 爬行与尸体落地 零伤害默认模式不变 正伤害不是直接改写 Fragment 采样时间必须为 0.12 至 3 秒 图像写入本任务 Saved/temp 完成后清理
 - 运行时断肢仅还原 Mass 损毁位图 掉落部件全局最多二十四个 八秒回收 不新增逐实例逻辑更新 池化复用时恢复骨骼并清除自有部件 身体断口和衣物接缝必须用实际画面验收
 
 - `inspect_physics_asset_constraints(asset_path)` 回读刚体质量 阻尼 约束两端 摆动与扭转限制和软约束开关 不修改资产

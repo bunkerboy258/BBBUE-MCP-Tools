@@ -26,6 +26,153 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def submit_monster_hit_ray(start: list[float], end: list[float], damage: float) -> str:
+        """
+        /**
+         * 在当前 PIE 通过真实逻辑碰撞与输入槽位验证受击 零伤害验证镜像表现
+         * @param start	射线起点 三个厘米坐标
+         * @param end	射线终点 三个厘米坐标
+         * @param damage	零至一万的伤害
+         * @return 实际部位与输入提交结果
+         */
+        """
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if world is None or len(start) != 3 or len(end) != 3 or not all(math.isfinite(value) for value in list(start) + list(end)) or not 0.0 <= damage <= 10000.0:
+            raise RuntimeError("PIE 或射线参数无效")
+        result = unreal.BBBAnimationGraphEditorLibrary.submit_monster_hit_ray(world, unreal.Vector(*start), unreal.Vector(*end), damage)
+        if str(result).startswith("失败"):
+            raise RuntimeError(str(result))
+        return str(result)
+
+    @mcp_tool
+    @staticmethod
+    def capture_monster_hit_scene(start: list[float], end: list[float], view_location: list[float], view_target: list[float], file_prefix: str, damage: float = 0.0, sample_seconds: float = 0.12) -> str:
+        """
+        /**
+         * 在真实 Mass 实体上提交零伤害命中 跨帧截图验证血效与地面贴花
+         * @param start 射线起点 三个厘米坐标
+         * @param end 射线终点 三个厘米坐标
+         * @param view_location 截图相机位置 三个厘米坐标
+         * @param view_target 明确的画面中心 三个厘米坐标 不使用长射线中点猜测构图
+         * @param file_prefix 唯一临时截图前缀
+         * @param damage	有效伤害 零仅产生表现 正值经公开伤害输入验证损毁
+         * @param sample_seconds	命中到截图的实际游戏秒数 零点一二至三秒
+         * @return 截图编号 使用 inspect_animation_transition_capture 查询结果
+         */
+        """
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        coordinates = list(start) + list(end) + list(view_location) + list(view_target)
+        if world is None or "-nullrhi" in unreal.SystemLibrary.get_command_line().lower():
+            raise RuntimeError("命中截图需要渲染 PIE 世界")
+        if any(len(value) != 3 for value in (start, end, view_location, view_target)) or not all(math.isfinite(value) for value in coordinates):
+            raise RuntimeError("命中截图坐标无效")
+        if not math.isfinite(damage) or not 0.0 <= damage <= 10000.0 or not math.isfinite(sample_seconds) or not 0.12 <= sample_seconds <= 3.0:
+            raise RuntimeError("命中截图伤害或采样时间无效")
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", file_prefix):
+            raise RuntimeError("命中截图前缀无效")
+        if any(item["status"] == "pending" for item in _transition_captures.values()):
+            raise RuntimeError("已有跨帧截图尚未完成")
+        directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "temp", file_prefix))
+        filename = file_prefix + ".png"
+        image_path = os.path.join(directory, filename)
+        if os.path.exists(image_path):
+            raise RuntimeError("命中截图已存在 禁止覆盖")
+        os.makedirs(directory, exist_ok=True)
+        capture_id = str(uuid.uuid4())
+        record = {"status": "pending", "captureId": capture_id}
+        _transition_captures[capture_id] = record
+
+        def capture_frames():
+            """/** @return 跨引擎帧命中截图迭代器 完成或失败均销毁临时演员 */"""
+            actors = []
+            spawn = unreal.BBBBlueprintEditorLibrary.spawn_transient_pie_actor
+            try:
+                location = unreal.Vector(*view_location)
+                focus = unreal.Vector(*view_target)
+                rotation = unreal.MathLibrary.find_look_at_rotation(location, focus)
+                light = spawn(world, unreal.PointLight, unreal.Transform(location=location + unreal.Vector(0, 0, 80)))
+                if light is None:
+                    raise RuntimeError("命中截图补光创建失败")
+                actors.append(light)
+                light_component = light.get_component_by_class(unreal.PointLightComponent)
+                light_component.set_intensity(50000.0)
+                light_component.set_attenuation_radius(1600.0)
+                camera = spawn(world, unreal.SceneCapture2D, unreal.Transform(location=location, rotation=rotation))
+                if camera is None:
+                    raise RuntimeError("命中截图相机创建失败")
+                actors.append(camera)
+                target = unreal.RenderingLibrary.create_render_target2d(world, 960, 540, unreal.TextureRenderTargetFormat.RTF_RGBA8)
+                capture = camera.capture_component2d
+                capture.set_editor_property("texture_target", target)
+                capture.set_editor_property("capture_source", unreal.SceneCaptureSource.SCS_FINAL_COLOR_LDR)
+                capture.set_editor_property("fov_angle", 55.0)
+                capture.set_editor_property("capture_every_frame", False)
+                capture.set_editor_property("capture_on_movement", False)
+                settings = unreal.PostProcessSettings()
+                settings.set_editor_property("override_auto_exposure_method", True)
+                settings.set_editor_property("auto_exposure_method", unreal.AutoExposureMethod.AEM_MANUAL)
+                settings.set_editor_property("override_auto_exposure_apply_physical_camera_exposure", True)
+                settings.set_editor_property("auto_exposure_apply_physical_camera_exposure", False)
+                capture.set_editor_property("post_process_settings", settings)
+                capture.set_editor_property("post_process_blend_weight", 1.0)
+                result = json.loads(BBBAnimationPreviewToolset.submit_monster_hit_ray(start, end, damage))
+                if not result.get("hit"):
+                    raise RuntimeError("截图射线未命中 Mass 实体")
+                started_at = unreal.GameplayStatics.get_time_seconds(world)
+                elapsed = 0.0
+                while elapsed < sample_seconds:
+                    yield
+                    elapsed = unreal.GameplayStatics.get_time_seconds(world) - started_at
+                capture.capture_scene()
+                unreal.RenderingLibrary.export_render_target(world, target, directory, filename)
+                if not os.path.isfile(image_path) or os.path.getsize(image_path) < 1024:
+                    raise RuntimeError("命中截图导出失败")
+                return {"imagePath": image_path, "hit": result, "sampleSeconds": elapsed, "previewFillLight": True, "temporaryActorsDestroyed": True}
+            finally:
+                for actor in reversed(actors):
+                    try:
+                        actor.destroy_actor()
+                    except Exception as error:
+                        unreal.log_error("[BBBMonsterHitCaptureCleanup] " + str(error))
+
+        iterator = capture_frames()
+        handle = None
+
+        def advance_frame(delta_seconds):
+            """
+            /**
+             * @param delta_seconds 当前引擎帧间隔
+             * @return 更新异步截图状态 无返回值
+             */
+            """
+            if record["status"] != "pending":
+                return
+            try:
+                if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() != world:
+                    raise RuntimeError("命中截图期间 PIE 已结束")
+                iterator.send(delta_seconds)
+            except StopIteration as completed:
+                record["status"] = "completed"
+                record["result"] = completed.value
+                unreal.unregister_slate_post_tick_callback(handle)
+            except Exception as error:
+                record["status"] = "failed"
+                record["error"] = str(error)
+                unreal.unregister_slate_post_tick_callback(handle)
+                iterator.close()
+                unreal.log_error("[BBBMonsterHitCapture] " + str(error))
+
+        try:
+            next(iterator)
+            handle = unreal.register_slate_post_tick_callback(advance_frame)
+        except Exception:
+            iterator.close()
+            _transition_captures.pop(capture_id)
+            raise
+        return json.dumps(record, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def spawn_mass_inspection_population(config_paths: list[str], center: list[float], spacing: float, expected_level: str) -> str:
         """
         /**

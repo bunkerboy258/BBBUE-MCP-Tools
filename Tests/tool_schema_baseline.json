@@ -9681,6 +9681,116 @@
     }
   },
   "BBBAnimationPreviewToolset": {
+    "submit_monster_hit_ray": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "射线起点 三个厘米坐标 *"
+          },
+          "end": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "射线终点 三个厘米坐标 *"
+          },
+          "damage": {
+            "type": "number",
+            "description": "零至一万的伤害 *"
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "damage"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "实际部位与输入提交结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "capture_monster_hit_scene": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "射线起点 三个厘米坐标 *"
+          },
+          "end": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "射线终点 三个厘米坐标 *"
+          },
+          "view_location": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "截图相机位置 三个厘米坐标 *"
+          },
+          "view_target": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "明确的画面中心 三个厘米坐标 不使用长射线中点猜测构图 *"
+          },
+          "file_prefix": {
+            "type": "string",
+            "description": "唯一临时截图前缀 *"
+          },
+          "damage": {
+            "type": "number",
+            "description": "有效伤害 零仅产生表现 正值经公开伤害输入验证损毁 *",
+            "default": 0
+          },
+          "sample_seconds": {
+            "type": "number",
+            "description": "命中到截图的实际游戏秒数 零点一二至三秒 *",
+            "default": 0.12
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "view_location",
+          "view_target",
+          "file_prefix"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "截图编号 使用 inspect_animation_transition_capture 查询结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
     "inspect_animation_transition_capture": {
       "inputSchema": {
         "type": "object",
