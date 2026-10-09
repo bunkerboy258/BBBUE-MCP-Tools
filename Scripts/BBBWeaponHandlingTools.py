@@ -204,20 +204,19 @@ def _function(blueprint, name):
     return _Graph(graph)
 
 
-def _rifle_source(g, character, execute):
+def _weapon_source(g, character, execute):
+    """/** @param g 图表编辑器 @param character 角色快照 @param execute 执行入口 @return 有效装备分支与动画实例 */"""
     weapon = g.out(g.call("/Script/ABBB_Evac.BBBAnimInstance.TryGetWeaponAnimInstance", character))
-    available = list(g.editor.list_available_nodes([weapon]))
-    matches = [name for name in available if name.rsplit("|", 1)[-1] == "CastToBBBRifleAnimInstance"]
-    if len(matches) != 1:
-        raise RuntimeError("无法创建步枪动画类型检查 " + str(matches))
-    cast = g.place(g.editor.create_node_from_name(matches[0], unreal.Vector2D(), [weapon]))
-    g.link(weapon, cast.find_input_pin("Object"))
-    g.link(execute, cast.find_execute_pin())
-    return cast, g.out(cast, "AsBBBRifleAnimInstance")
+    valid = g.out(g.call("NotEqual_ObjectObject", inputs={"A": weapon, "B": "None"}))
+    branch = g.place(g.editor.add_branch_node())
+    g.link(execute, branch.find_execute_pin())
+    g.link(valid, branch.find_input_pin("Condition"))
+    return branch, weapon
 
 
-def _rifle_get(g, rifle, name):
-    return g.out(g.call("/Script/ABBB_Evac.BBBRifleAnimInstance." + name, rifle))
+def _weapon_get(g, weapon, name):
+    """/** @param g 图表编辑器 @param weapon 当前装备动画实例 @param name 只读接口名称 @return 快照输出引脚 */"""
+    return g.out(g.call("/Script/ABBB_Evac.BBBEquipmentAnimInstance." + name, weapon))
 
 
 def _aim_air(g, character):
@@ -235,6 +234,117 @@ def _aim_air(g, character):
     return aiming, falling
 
 
+def _configure_muzzle_aim_gate(aim):
+    """
+    /**
+     * 移除现有瞄准权重门控中的步枪类型限制 保留枪口条件和动作曲线
+     * @param aim	唯一瞄准节点
+     * @return 已移除的类型门控节点数量
+     */
+    """
+    graph = aim.get_outer()
+    editor = unreal.BlueprintGraphEditor.get_graph_editor(graph)
+    snapshot = json.loads(unreal.BBBBlueprintEditorLibrary.inspect_blueprint_graph_logical_snapshot(graph))
+    if snapshot.get("error"):
+        raise RuntimeError("瞄准权重图表读取失败 " + str(snapshot["error"]))
+    functions = {item["path"]: item.get("function", {}).get("name") for item in snapshot["nodes"]}
+    weight = list(aim.find_input_pin("Alpha").list_connected_pins())
+    if len(weight) != 1:
+        raise RuntimeError("瞄准权重必须有唯一曲线门控输入")
+    select = weight[0].get_owning_node()
+    if select.get_class().get_name() != "K2Node_Select":
+        raise RuntimeError("瞄准权重缺少现有布尔选择门控")
+    index = select.find_input_pin("Index")
+    conditions = list(index.list_connected_pins())
+    if len(conditions) != 1:
+        raise RuntimeError("瞄准门控条件不是唯一输入")
+    condition = conditions[0].get_owning_node()
+    if functions.get(condition.get_path_name()) == "HasMuzzle":
+        return 0
+    if functions.get(condition.get_path_name()) != "BooleanAND":
+        raise RuntimeError("瞄准门控条件不是枪口与装备类型合取")
+    predicates = {}
+    for name in ("A", "B"):
+        inputs = list(condition.find_input_pin(name).list_connected_pins())
+        if len(inputs) != 1:
+            raise RuntimeError("瞄准合取条件缺少唯一谓词")
+        source = inputs[0].get_owning_node()
+        predicates[functions.get(source.get_path_name())] = (source, inputs[0])
+    if set(predicates) != {"IsRifle", "HasMuzzle"}:
+        raise RuntimeError("瞄准合取条件包含其它逻辑 不修改")
+    rifle, rifle_output = predicates["IsRifle"]
+    muzzle, muzzle_output = predicates["HasMuzzle"]
+    if any(len(pin.list_connected_pins()) != 1 for pin in (rifle_output, muzzle_output, conditions[0])):
+        raise RuntimeError("瞄准门控节点存在其它消费者 不删除")
+    editor.remove_nodes([rifle, condition])
+    if not muzzle_output.try_create_connection(index):
+        raise RuntimeError("通用枪口瞄准门控连接失败")
+    return 2
+
+
+def _replace_rifle_snapshot_casts(blueprint):
+    """
+    /**
+     * 将遗留步枪快照转换替换为当前装备非空分支 保留成功与空装备执行链
+     * @param blueprint	角色基础动画层
+     * @return 替换的类型转换节点数量
+     */
+    """
+    count = 0
+    for graph in unreal.BlueprintEditorLibrary.list_graphs(blueprint):
+        g = _Graph(graph)
+        casts = [node for node in g.editor.list_all_nodes() if node.get_class().get_name() == "K2Node_DynamicCast"]
+        if not casts:
+            continue
+        snapshot = json.loads(unreal.BBBBlueprintEditorLibrary.inspect_blueprint_graph_logical_snapshot(graph))
+        if snapshot.get("error"):
+            raise RuntimeError("装备快照类型转换图表读取失败")
+        rifle_casts = {item["path"] for item in snapshot["nodes"] if any(
+            pin["direction"] == "output" and pin.get("typeObject") == "/Script/ABBB_Evac.BBBRifleAnimInstance"
+            for pin in item["pins"]
+        )}
+        functions = {item["path"]: item.get("function", {}) for item in snapshot["nodes"]}
+        for node in casts:
+            if node.get_path_name() not in rifle_casts:
+                continue
+            sources = list(node.find_input_pin("Object").list_connected_pins())
+            outputs = [pin for pin in node.list_output_pins() if str(pin.get_pin_name()).startswith("As")]
+            success = node.find_output_pin("bSuccess")
+            if len(sources) != 1 or len(outputs) != 1 or success.list_connected_pins():
+                raise RuntimeError("步枪快照转换结构超出预期 不替换")
+            source = sources[0]
+            consumers = list(outputs[0].list_connected_pins())
+            predecessors = list(node.find_execute_pin().list_connected_pins())
+            valid_targets = list(node.find_then_pin().list_connected_pins())
+            null_targets = list(node.find_output_pin("CastFailed").list_connected_pins())
+            if len(predecessors) != 1:
+                raise RuntimeError("步枪快照转换必须有唯一执行前驱")
+            valid = g.out(g.call("NotEqual_ObjectObject", inputs={"A": source, "B": "None"}))
+            branch = g.place(g.editor.add_branch_node())
+            g.link(valid, branch.find_input_pin("Condition"))
+            for pin in consumers:
+                consumer = pin.get_owning_node()
+                function = functions.get(consumer.get_path_name(), {})
+                if str(pin.get_pin_name()) != "self" or function.get("name") not in ("GetTimeSinceLastFireSeconds", "IsReloading"):
+                    raise RuntimeError("步枪快照消费者不是公共只读动作接口")
+                replacement = g.call("/Script/ABBB_Evac.BBBEquipmentAnimInstance." + function["name"], source)
+                value = g.out(replacement)
+                if function["name"] == "GetTimeSinceLastFireSeconds":
+                    fired = g.binary("Greater_IntInt", _weapon_get(g, source, "GetFireSequence"), 0)
+                    value = g.select(value, 1.0e38, fired)
+                for destination in list(g.out(consumer).list_connected_pins()):
+                    g.link(value, destination)
+                g.editor.remove_nodes([consumer])
+            g.editor.remove_nodes([node])
+            g.link(predecessors[0], branch.find_execute_pin())
+            for pin in valid_targets:
+                g.link(branch.find_then_pin(), pin)
+            for pin in null_targets:
+                g.link(g.out(branch, "else"), pin)
+            count += 1
+    return count
+
+
 def configure_animation_handling(blueprint_path, animation_path):
     """
     /**
@@ -248,6 +358,9 @@ def configure_animation_handling(blueprint_path, animation_path):
     animation = unreal.load_asset(animation_path)
     require_write_access(blueprint)
     variables = {str(n) for n in unreal.BlueprintEditorLibrary.list_member_variable_names(blueprint, False)}
+    if "WeaponRecoilAnimation" not in variables:
+        BlueprintTools.add_object_variable(blueprint, "WeaponRecoilAnimation", unreal.AnimSequence.static_class())
+        BlueprintTools.set_variable_category(blueprint, "WeaponRecoilAnimation", "持枪表现")
     for name, kind in (("WeaponAimFollowSpeed", "float"), ("WeaponAimOffsetDegrees", "Vector2D"), ("WeaponRecoilTime", "float"), ("WeaponBackwardRecoilAlpha", "float")):
         if name not in variables:
             BlueprintTools.add_variable(blueprint, name, kind)
@@ -261,11 +374,12 @@ def configure_animation_handling(blueprint_path, animation_path):
     execute = g.set("WeaponAimOffsetDegrees", impulse, execute)
     execute = g.set("WeaponRecoilTime", 1, execute)
     execute = g.set("WeaponBackwardRecoilAlpha", 0, execute)
-    cast, rifle = _rifle_source(g, character, execute)
-    execute = cast.find_then_pin()
+    execute = g.set("WeaponRecoilAnimation", "None", execute)
+    valid, weapon = _weapon_source(g, character, execute)
+    execute = valid.find_then_pin()
     aiming, falling = _aim_air(g, character)
     def snapshot(name):
-        return g.get(name, rifle, "/Script/ABBB_Evac.BBBRifleAnimInstance")
+        return _weapon_get(g, weapon, "Get" + name)
 
     def field(name):
         return g.select(snapshot("AimFire" + name), snapshot("HipFire" + name), aiming)
@@ -276,12 +390,12 @@ def configure_animation_handling(blueprint_path, animation_path):
     follow = g.binary("Multiply_DoubleDouble", field("AimFollowSpeed"), scale("AimFollowScale"))
     recoil = g.binary("Multiply_DoubleDouble", field("BackwardRecoilAlpha"), scale("BackwardRecoilScale"))
     recoil = g.out(g.call("FClamp", inputs={"Value": recoil, "Min": 0, "Max": 1}))
-    sequence = _rifle_get(g, rifle, "GetFireSequence")
+    sequence = _weapon_get(g, weapon, "GetFireSequence")
     fired = g.binary("Greater_IntInt", sequence, 0)
-    reloading = _rifle_get(g, rifle, "IsReloading")
+    reloading = _weapon_get(g, weapon, "IsReloading")
     recoil = g.select(0, g.select(recoil, 0, fired), reloading)
-    elapsed = _rifle_get(g, rifle, "GetTimeSinceLastFireSeconds")
-    time = _rifle_get(g, rifle, "GetSnapshotTimeSeconds")
+    elapsed = _weapon_get(g, weapon, "GetTimeSinceLastFireSeconds")
+    time = _weapon_get(g, weapon, "GetSnapshotTimeSeconds")
     sway_parts = []
     hip_amplitude = g.call("BreakVector2D", inputs={"InVec": snapshot("HipFireSwayAmplitudeDegrees")})
     ads_amplitude = g.call("BreakVector2D", inputs={"InVec": snapshot("AimFireSwayAmplitudeDegrees")})
@@ -299,7 +413,8 @@ def configure_animation_handling(blueprint_path, animation_path):
     execute = g.set("WeaponAimFollowSpeed", follow, execute)
     execute = g.set("WeaponAimOffsetDegrees", offset, execute)
     execute = g.set("WeaponRecoilTime", elapsed, execute)
-    g.set("WeaponBackwardRecoilAlpha", recoil, execute)
+    execute = g.set("WeaponBackwardRecoilAlpha", recoil, execute)
+    g.set("WeaponRecoilAnimation", _weapon_get(g, weapon, "GetRecoilAnimation"), execute)
 
     event_graph = BlueprintTools.add_function_graph(blueprint, "BlueprintThreadSafeUpdateAnimation")
     event_editor = unreal.BlueprintGraphEditor.get_graph_editor(event_graph)
@@ -333,6 +448,7 @@ def configure_animation_handling(blueprint_path, animation_path):
         aim_nodes.extend(node for node in editor.list_all_nodes() if node.get_class().get_name() == "AnimGraphNode_AimIK")
     if len(aim_nodes) != 1:
         raise RuntimeError("AimIK 节点数量不为一 " + str(len(aim_nodes)))
+    _configure_muzzle_aim_gate(aim_nodes[0])
     library = unreal.BBBBlueprintEditorLibrary
     if not library.bind_animation_node_input(aim_nodes[0], "AimFollowSpeed", ["WeaponAimFollowSpeed"]):
         raise RuntimeError("枪口跟随速度连接失败")
@@ -340,8 +456,20 @@ def configure_animation_handling(blueprint_path, animation_path):
         raise RuntimeError("枪口角度与摇摆连接失败")
     from BBBRecoilAnimationTools import bind_recoil_additive_inputs
     bind_recoil_additive_inputs(blueprint, animation)
+    additive_graph = unreal.BlueprintEditorLibrary.find_graph(blueprint, "FullBodyAdditives")
+    additive_editor = unreal.BlueprintGraphEditor.get_graph_editor(additive_graph)
+    evaluators = [node for node in additive_editor.list_all_nodes() if node.get_class().get_name() == "AnimGraphNode_SequenceEvaluator"]
+    if len(evaluators) != 1:
+        raise RuntimeError("后坐力序列播放器数量不为一")
+    evaluator = evaluators[0]
+    data = evaluator.get_editor_property("node")
+    data.set_editor_property("sequence", None)
+    evaluator.set_editor_property("node", data)
+    if not library.bind_animation_node_input(evaluator, "Sequence", ["WeaponRecoilAnimation"]):
+        raise RuntimeError("装备专属后坐力序列绑定失败")
     if "RecoilAdditiveAnimation" in variables:
         BlueprintTools.remove_variable(blueprint, "RecoilAdditiveAnimation")
+    _replace_rifle_snapshot_casts(blueprint)
     for graph in unreal.BlueprintEditorLibrary.list_graphs(blueprint):
         editor = unreal.BlueprintGraphEditor.get_graph_editor(graph)
         for node in list(editor.list_all_nodes()):
@@ -368,13 +496,13 @@ def configure_camera_recoil(blueprint_path):
     g = _function(blueprint, "ReadRecoilSource")
     entry = next(node for node in g.editor.list_all_nodes() if isinstance(node, unreal.K2Node_FunctionEntry))
     character = g.out(entry, "CharacterAnimation")
-    cast, rifle = _rifle_source(g, character, entry.find_then_pin())
+    branch, weapon = _weapon_source(g, character, entry.find_then_pin())
     aiming, falling = _aim_air(g, character)
-    hip = g.break_struct(_rifle_get(g, rifle, "GetHipFireCameraSettings"), "BBBPlayerCameraRecoilSettings")
-    ads = g.break_struct(_rifle_get(g, rifle, "GetAimFireCameraSettings"), "BBBPlayerCameraRecoilSettings")
+    hip = g.break_struct(_weapon_get(g, weapon, "GetHipFireCameraSettings"), "BBBPlayerCameraRecoilSettings")
+    ads = g.break_struct(_weapon_get(g, weapon, "GetAimFireCameraSettings"), "BBBPlayerCameraRecoilSettings")
     source_settings = {}
-    impulse_scale = g.select(_rifle_get(g, rifle, "GetAirborneCameraImpulseScale"), 1, falling)
-    recovery_scale = g.select(_rifle_get(g, rifle, "GetAirborneCameraRecoveryScale"), 1, falling)
+    impulse_scale = g.select(_weapon_get(g, weapon, "GetAirborneCameraImpulseScale"), 1, falling)
+    recovery_scale = g.select(_weapon_get(g, weapon, "GetAirborneCameraRecoveryScale"), 1, falling)
     for name in ("ImpulseDegrees", "RandomDegrees", "LimitDegrees"):
         value = g.out(g.call("SelectVector", inputs={"A": g.out(ads, name), "B": g.out(hip, name), "bPickA": aiming}))
         if name != "LimitDegrees":
@@ -390,13 +518,13 @@ def configure_camera_recoil(blueprint_path):
         g.link(value, make.find_input_pin(name))
     returns = [node for node in g.editor.list_all_nodes() if isinstance(node, unreal.K2Node_FunctionResult)]
     result = returns[0] if returns else g.editor.add_return_node()
-    g.link(cast.find_then_pin(), result.find_execute_pin())
-    g.link(rifle, result.find_input_pin("Source"))
-    g.link(_rifle_get(g, rifle, "GetFireSequence"), result.find_input_pin("FireSequence"))
+    g.link(branch.find_then_pin(), result.find_execute_pin())
+    g.link(weapon, result.find_input_pin("Source"))
+    g.link(_weapon_get(g, weapon, "GetFireSequence"), result.find_input_pin("FireSequence"))
     g.link(g.out(make, "BBBPlayerCameraRecoilSettings"), result.find_input_pin("Settings"))
     result.find_input_pin("ReturnValue").set_pin_value("true")
     fallback = g.editor.add_return_node()
-    g.link(g.out(cast, "CastFailed"), fallback.find_execute_pin())
+    g.link(g.out(branch, "else"), fallback.find_execute_pin())
     fallback.find_input_pin("ReturnValue").set_pin_value("false")
     BlueprintTools.compile_blueprint(blueprint)
     return {"blueprint": blueprint_path, "nodes": len(g.nodes), "saved": False}

@@ -1,5 +1,23 @@
 # BBB 动画迁移 MCP
 
+## 通用持枪动画快照接入
+
+`configure_weapon_handling_graphs(camera=false)` 从 `TryGetWeaponAnimInstance` 取得当前装备的 `BBBEquipmentAnimInstance` 接口 通过有效对象分支读取本装备快照 不转换为 Rifle 类型 不在角色动画实例转存开火或换弹语义
+
+公共接口包含 `GetRecoilAnimation` `GetFireSequence` `IsReloading` `GetTimeSinceLastFireSeconds` `GetSnapshotTimeSeconds` 以及 `GetHipFireAimFollowSpeed` `GetAimFireAimFollowSpeed` `GetHipFireBackwardRecoilAlpha` `GetAimFireBackwardRecoilAlpha` `GetHipFireSwayAmplitudeDegrees` `GetAimFireSwayAmplitudeDegrees` `GetHipFireSwayFrequency` `GetAimFireSwayFrequency` `GetAirborneAimFollowScale` `GetAirborneBackwardRecoilScale` `GetAirborneSwayAmplitudeScale` `GetAirborneSwayFrequencyScale`
+
+公共 C++ 基类仅声明线程安全虚函数并返回中性值 不保存枪械动作快照 具体装备动画实例重写 getter 读取自身 Animation 系统发布的快照 继承的反射函数无需重复声明 `UFUNCTION`
+
+工具核对现有 AimIK 权重选择节点 将独占的 `IsRifle AND HasMuzzle` 条件收敛为 `HasMuzzle` 保留选择节点原有曲线权重输入 类型谓词或合取存在其它消费者时明确中止 不删除其它逻辑
+
+现有角色基础层中的步枪快照转换一并替换为当前装备非空分支 保留原有有效装备与空装备执行链 通过线程安全对象比较核对快照指针 不在线程安全更新图调用 `KismetSystemLibrary.IsValid`
+
+`configure_weapon_handling_graphs(camera=true)` 同样读取通用装备接口 使用 `GetHipFireCameraSettings` `GetAimFireCameraSettings` `GetAirborneCameraImpulseScale` `GetAirborneCameraRecoveryScale` 取得当前装备的相机贡献 保留原有无装备返回路径 相机模式仍须传入 `animation_path` 可传空字符串
+
+工具同时维护 `WeaponRecoilAnimation` 序列输入 每次更新先清空引用与后坐力权重 再读取有效装备的专属序列 用于换枪和卸下时释放旧装备引用 `FullBodyAdditives` 中的落地状态机保持原结构 `camera=true` 的相机配置入口仍使用独立相机图逻辑
+
+持枪近战使用 `UpperBody` 槽位 下半身沿用移动状态机 专属动作中的 `DisableAimIK` 与 `DisableLHandIK` 使用零到一再回零的平滑曲线 分别释放瞄准和左手握持动作 曲线回零时恢复当前装备约束 曲线作者资源属于各武器型号 本工具不创建跨型号共用专属动作
+
 ## 动画恢复与蒙太奇引用
 
 `restore_animation_from_source(source_path, destination_path)` 删除目标动画并从源动画原位复制 使骨骼轨道 曲线 通知与全部动画设置与源一致 目标不存在时直接复制 禁止 PIE 中执行 目标存在时要求独占签出 保存后回读骨架与时长校验
