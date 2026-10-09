@@ -108,6 +108,25 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def migrate_actor_blueprint(source_path: str, destination_path: str, parent_class_path: str,
+                                defaults_json: str, level_paths: list[str], dry_run: bool = True) -> str:
+        """
+        /**
+         * 在明确关卡范围迁移演员蓝图父类和身份 清理旧跳转
+         * @param source_path\t原蓝图包路径
+         * @param destination_path\t不存在的新蓝图包路径
+         * @param parent_class_path\t已编译目标演员类
+         * @param defaults_json\t明确默认值 对象引用使用 refPath
+         * @param level_paths\t全部引用关卡 不支持分区关卡
+         * @param dry_run\t默认只预检
+         * @return 保存关卡与旧路径清理结果
+         */
+        """
+        from BBBBlueprintMigration import migrate_blueprint
+        return migrate_blueprint(source_path, destination_path, parent_class_path, defaults_json, level_paths, dry_run)
+
+    @mcp_tool
+    @staticmethod
     def request_pie_late_join() -> str:
         """
         /**
