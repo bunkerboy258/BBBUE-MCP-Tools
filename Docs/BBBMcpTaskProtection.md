@@ -6,6 +6,10 @@
 客户端使用启动器返回的 `Endpoint` 可通过 `BBB_MCP_URL` 配置地址.
 官方 UE MCP 后端使用独立本机端口和每次启动生成的私有路径.
 
+声音验收使用启动器的 `EnableAudio` 开关 新宿主启用音频混音器 并仅通过进程参数将后台音量系数设为一 避免隐藏窗口录到静音 不修改项目配置 参数须使用 UE 配置节语法 `-ini:Engine:[Audio]:UnfocusedVolumeMultiplier=1.0` 缺少方括号不会覆盖 Audio 配置节 默认宿主仍禁用音频 复用时必须匹配原宿主音频模式及后台声音参数 活动任务期间不切换模式 音频录制和实际输出必须回读 不将发声请求视为已经听到声音
+
+隐藏编辑器还有独立的后台声音门控 启动器仅为音频模式增加 `-ini:EditorPerProjectUserSettings:[/Script/UnrealEd.LevelEditorMiscSettings]:bAllowBackgroundAudio=True` 不保存用户设置 不能只检查系统后台音量系数 实际 PIE 的应用音量与设备主音量也必须非零.
+
 启动器核对项目 进程 渲染模式 性能设置和网关身份.
 同一项目的旧式直连宿主须在原任务结束后退出才能切换.
 有活动任务时不重启网关 不丢弃已有凭证.

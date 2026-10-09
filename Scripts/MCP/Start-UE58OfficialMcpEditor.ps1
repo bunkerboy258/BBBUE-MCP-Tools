@@ -12,6 +12,7 @@ param(
     [ValidateRange(1, 600)]
     [int]$TimeoutSeconds = 90,
     [switch]$EnableRendering,
+    [switch]$EnableAudio,
     [switch]$EnableSlateInspector,
     [ValidateSet('Speed', 'Balanced', 'Economy', 'GamingBackground')]
     [string]$PerformanceProfile = 'Speed',
@@ -150,6 +151,20 @@ try
             $matchesMode = $commandLine -match '(?i)-RenderOffscreen(\s|$)' -and $commandLine -notmatch '(?i)-NullRHI(\s|$)'
         }
 
+        $hasNoSound = $commandLine -match '(?i)-NoSound(\s|$)'
+        if (($EnableAudio -and $hasNoSound) -or (-not $EnableAudio -and -not $hasNoSound))
+        {
+            $matchesMode = $false
+        }
+        if ($EnableAudio -and $commandLine -notmatch '(?i)-ini:Engine:\[Audio\]:UnfocusedVolumeMultiplier=1(?:\.0)?(\s|$)')
+        {
+            $matchesMode = $false
+        }
+        if ($EnableAudio -and $commandLine -notmatch '(?i)-ini:EditorPerProjectUserSettings:\[/Script/UnrealEd.LevelEditorMiscSettings\]:bAllowBackgroundAudio=True(\s|$)')
+        {
+            $matchesMode = $false
+        }
+
         if ($Culture -and $commandLine -notmatch ('(?i)-culture=' + [Regex]::Escape($Culture) + '(\s|$)'))
         {
             $matchesMode = $false
@@ -211,11 +226,20 @@ try
             '-Unattended',
             '-Multiprocess',
             '-NoSplash',
-            '-NoSound',
             '-AutoDeclinePackageRecovery',
             '-stdout',
             '-FullStdOutLogOutput'
         )
+        if (-not $EnableAudio)
+        {
+            $arguments += '-NoSound'
+        }
+        if ($EnableAudio)
+        {
+            $arguments += '-AudioMixer'
+            $arguments += '-ini:Engine:[Audio]:UnfocusedVolumeMultiplier=1.0'
+            $arguments += '-ini:EditorPerProjectUserSettings:[/Script/UnrealEd.LevelEditorMiscSettings]:bAllowBackgroundAudio=True'
+        }
         $consoleCommands = "t.MaxFPS $frameLimit,t.IdleWhenNotForeground 0"
         if ($EnableSlateInspector)
         {

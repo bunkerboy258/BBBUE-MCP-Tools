@@ -20,6 +20,101 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def inspect_pie_audio_device() -> str:
+        """
+        /**
+         * @return 当前 PIE 音频设备 静音 总音量与非实时混音状态 不修改配置
+         */
+        """
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if world is None:
+            raise RuntimeError("音频设备诊断需要当前 PIE 世界")
+        return str(unreal.BBBHitReactionEditorLibrary.inspect_audio_device(world))
+
+    @mcp_tool
+    @staticmethod
+    def create_zombie_sealed_part_meshes(source_mesh_path: str, root_bone: str, output_folder: str, rebuild_existing: bool = False) -> str:
+        """
+        /**
+         * @param source_mesh_path	只读使用的完整僵尸网格
+         * @param root_bone	断开处骨骼名称
+         * @param output_folder	新增封闭部件的自有目录
+         * @param rebuild_existing	显式重建完整的同名自有部件 必须独占签出 不保留旧版本
+         * @return 部件和封口路径及闭环诊断 不自动保存
+         */
+        """
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止创建断肢资产")
+        if not output_folder.startswith("/Game/_Project/") or not re.fullmatch(r"/Game/_Project/[A-Za-z0-9_/]+", output_folder):
+            raise RuntimeError("新增断肢必须使用明确的自有目录")
+        if root_bone not in {"head", "upperarm_l", "upperarm_r", "thigh_l", "thigh_r"}:
+            raise RuntimeError("仅支持本轮五个已批准的断开部位")
+        source = unreal.load_asset(source_mesh_path)
+        if not isinstance(source, unreal.SkeletalMesh):
+            raise RuntimeError("源资产不是完整骨骼网格")
+        prefix = output_folder + "/SM_" + str(source.get_name()) + "_" + root_bone
+        destinations = [prefix + "_Part", prefix + "_Cap"]
+        if not isinstance(rebuild_existing, bool):
+            raise RuntimeError("重建选项必须为布尔值")
+        existing = [path for path in destinations if unreal.EditorAssetLibrary.does_asset_exist(path)]
+        if existing and not rebuild_existing:
+            raise RuntimeError("部件资产已经存在 拒绝覆盖")
+        if rebuild_existing and len(existing) != 2:
+            raise RuntimeError("显式重建必须有完整的同名部件和封口")
+        material_path = "/Game/_Project/System/Mass/Monster/Zombie/Shared/Severing/M_BBBZombieCutSurface"
+        if not unreal.EditorAssetLibrary.does_asset_exist(material_path):
+            destinations.append(material_path)
+        require_asset_write(existing, [path for path in destinations if path not in existing])
+        result = str(unreal.BBBZombieSeveringEditorLibrary.create_sealed_part_meshes(source, root_bone, output_folder, rebuild_existing))
+        if result.startswith("失败"):
+            raise RuntimeError(result)
+        return result
+
+    @mcp_tool
+    @staticmethod
+    def configure_monster_severing_parts(definition_path: str, parts_json: str) -> str:
+        """
+        /**
+         * @param definition_path	已独占签出的正式僵尸配置
+         * @param parts_json	五个部位的 region bone part cap 数组
+         * @return 读取回来的资源对应表 不自动保存
+         */
+        """
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止修改断肢配置")
+        if not definition_path.startswith("/Game/_Project/"):
+            raise RuntimeError("只修改自有僵尸配置")
+        rows = json.loads(parts_json)
+        expected = {1: (unreal.BBBMonsterHitRegion.HEAD, "head"),
+            2: (unreal.BBBMonsterHitRegion.LEFT_ARM, "upperarm_l"),
+            3: (unreal.BBBMonsterHitRegion.RIGHT_ARM, "upperarm_r"),
+            4: (unreal.BBBMonsterHitRegion.LEFT_LEG, "thigh_l"),
+            5: (unreal.BBBMonsterHitRegion.RIGHT_LEG, "thigh_r")}
+        if not isinstance(rows, list) or len(rows) != 5 or {row.get("region") for row in rows} != set(expected):
+            raise RuntimeError("五个损毁部位必须完整且不重复")
+        settings = unreal.load_asset(definition_path)
+        if not isinstance(settings, unreal.BBBMonsterDefinition):
+            raise RuntimeError("僵尸配置无效")
+        parts = []
+        for row in rows:
+            region, bone = expected[row["region"]]
+            if row.get("bone") != bone:
+                raise RuntimeError("损毁部位与断开骨骼不匹配")
+            meshes = [unreal.load_asset(row.get(key, "")) for key in ("part", "cap")]
+            if any(not isinstance(mesh, unreal.StaticMesh) or not str(mesh.get_path_name()).startswith("/Game/_Project/") for mesh in meshes):
+                raise RuntimeError("缺少自有的封闭部件或身体封口")
+            part = unreal.BBBMonsterSeveredPartDefinition()
+            part.set_editor_property("region", region)
+            part.set_editor_property("bone", bone)
+            part.set_editor_property("detached_mesh", meshes[0])
+            part.set_editor_property("cap_mesh", meshes[1])
+            parts.append(part)
+        require_write_access(settings)
+        settings.set_editor_property("severed_parts", parts)
+        return json.dumps({"definition": definition_path, "parts": rows, "saved": False}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def create_blood_residue_material(material_path: str, mask_path: str, noise_path: str) -> str:
         """
         /**
@@ -283,7 +378,12 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
             raise RuntimeError("需要当前 PIE 和明确的正式实体配置")
         if len(center) != 3 or not all(math.isfinite(value) for value in center) or not math.isfinite(spacing) or spacing < 200.0:
             raise RuntimeError("验收出生位置或间距无效")
-        if _acceptance_population.get("worldIdentity") == hash(world):
+        previous_world = _acceptance_population.get("worldObject")
+        try:
+            same_world = previous_world is not None and unreal.SystemLibrary.is_valid(previous_world) and previous_world == world
+        except (TypeError, ReferenceError):
+            same_world = False
+        if same_world:
             raise RuntimeError("本 PIE 已创建正式受击验收群体")
         configs = [unreal.load_asset(path) for path in config_paths]
         if any(not isinstance(config, unreal.MassEntityConfigAsset) for config in configs):
@@ -300,7 +400,7 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
             unreal.BBBMassValidationLibrary.destroy_population(world, entities)
             raise
         _acceptance_population.clear()
-        _acceptance_population.update({"worldIdentity": hash(world), "configs": configs, "entities": entities})
+        _acceptance_population.update({"worldObject": world, "configs": configs, "entities": entities})
         return str(unreal.BBBMassValidationLibrary.inspect_population(world, entities))
 
     @mcp_tool
@@ -544,6 +644,45 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
         if asset is None or not unreal.EditorAssetLibrary.save_loaded_asset(asset, only_if_is_dirty=False):
             raise RuntimeError("物理受击配置创建或保存失败")
         return json.dumps({"asset": asset.get_path_name(), "saved": True}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def configure_corpse_physics_asset(asset_path: str, total_mass_kg: float = 75.0) -> str:
+        """
+        /**
+         * @param asset_path	已独占签出的自有物理资产
+         * @param total_mass_kg	完整身体质量 三十五至一百五十千克
+         * @return 当前刚体质量和 BBBCorpse 约束 不自动保存
+         */
+        """
+        if not math.isfinite(total_mass_kg) or not 35.0 <= total_mass_kg <= 150.0:
+            raise RuntimeError("尸体质量无效")
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止修改物理资产")
+        if not asset_path.startswith("/Game/_Project/"):
+            raise RuntimeError("只修改自有物理资产")
+        asset = unreal.load_asset(asset_path)
+        if not isinstance(asset, unreal.PhysicsAsset):
+            raise RuntimeError("物理资产不存在")
+        require_write_access(asset)
+        result = str(unreal.BBBHitReactionEditorLibrary.configure_corpse_physics(asset, total_mass_kg))
+        if result.startswith("失败"):
+            raise RuntimeError(result)
+        return result
+
+    @mcp_tool
+    @staticmethod
+    def inspect_physics_asset_constraints(asset_path: str) -> str:
+        """
+        /**
+         * @param asset_path	明确的物理资产
+         * @return 刚体质量和全部约束的当前值 不修改资产
+         */
+        """
+        asset = unreal.load_asset(asset_path)
+        if not isinstance(asset, unreal.PhysicsAsset):
+            raise RuntimeError("物理资产不存在")
+        return str(unreal.BBBHitReactionEditorLibrary.inspect_physics_asset(asset))
 
     @mcp_tool
     @staticmethod

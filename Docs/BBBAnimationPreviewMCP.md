@@ -16,7 +16,9 @@
 
 原生 `BBBMassValidationLibrary` 通过引擎模板与出生位置处理器创建真实实体，并回读有效数量、实际移动速度、表现 Actor、预算网格和最近渲染数量。`ReadPerformanceFrameMetrics` 返回实际帧编号及游戏线程、渲染线程、GPU 和引擎间隔；GPU 零值表示不可用。CSV 每帧落盘，JSON 每组保存快照和均值、p50、p95、最大值，不把创建数量当成可见数量，不把编辑器测试当作打包性能承诺。
 
-测量临时取消 FPS 上限和垂直同步，固定动画预算两毫秒，结束恢复四个控制台变量。`inspect_mass_population_benchmark` 查询当前运行标识；不可在测量期间重新加载该模块或关闭 PIE。测量输出保存在 Saved/Diagnostics/PopulationBenchmarks，调用方必须另行检查画面、移动、配置、数量与测量条件才判定验收通过。
+测量临时取消 FPS 上限和垂直同步 固定动画预算两毫秒。`quality_level` 接受零至三的画质档 默认为二即高档 所有测量使用百分之一百渲染比例 不沿用隐藏宿主的百分之三十五降档。报告保存实际 `renderSettings` 不保存含宿主私有路径的命令行。正常完成或 PIE 被中断时均恢复画质 渲染比例 帧率与预算的原始值。
+
+`inspect_mass_population_benchmark` 查询当前运行标识 测量期间不可重新加载该模块或关闭 PIE。测量输出保存在 Saved/temp/<file_prefix>/ 调用方必须另行检查画面 移动 配置 数量与测量条件才判定验收通过。边界与恢复测试位于 `Tests/test_population_render_quality.py`。
 
 通过 `list_toolsets` 找到 `BBBAnimationPreviewToolset` 并描述参数后调用 `capture_animation_samples`。
 

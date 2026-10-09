@@ -3502,6 +3502,137 @@
     }
   },
   "BBBGenericEditorToolset": {
+    "import_skeletal_animation_set": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_files_json": {
+            "type": "string",
+            "description": "明确的 FBX 路径数组 *"
+          },
+          "destination_path": {
+            "type": "string",
+            "description": "新目标目录 *"
+          },
+          "mesh_name": {
+            "type": "string",
+            "description": "源网格名称 *"
+          }
+        },
+        "required": [
+          "source_files_json",
+          "destination_path",
+          "mesh_name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "已保存网格 骨架及动画 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_animation_set_retargeter": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_mesh_path": {
+            "type": "string",
+            "description": "源网格 *"
+          },
+          "target_rig_path": {
+            "type": "string",
+            "description": "已有目标 Rig 不修改 *"
+          },
+          "source_rig_path": {
+            "type": "string",
+            "description": "新的源 Rig *"
+          },
+          "retargeter_path": {
+            "type": "string",
+            "description": "新的重定向器 *"
+          }
+        },
+        "required": [
+          "source_mesh_path",
+          "target_rig_path",
+          "source_rig_path",
+          "retargeter_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "实际链映射与辅助骨映射 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "migrate_actor_blueprint": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_path": {
+            "type": "string",
+            "description": "原蓝图包路径 *"
+          },
+          "destination_path": {
+            "type": "string",
+            "description": "不存在的新蓝图包路径 *"
+          },
+          "parent_class_path": {
+            "type": "string",
+            "description": "已编译目标演员类 *"
+          },
+          "defaults_json": {
+            "type": "string",
+            "description": "明确默认值 对象引用使用 refPath *"
+          },
+          "level_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "全部引用关卡 不支持分区关卡 *"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "默认只预检 *",
+            "default": true
+          }
+        },
+        "required": [
+          "source_path",
+          "destination_path",
+          "parent_class_path",
+          "defaults_json",
+          "level_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "保存关卡与旧路径清理结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
     "create_primitive_texture_blend_material": {
       "inputSchema": {
         "type": "object",
@@ -9811,6 +9942,11 @@
             "type": "boolean",
             "description": "使用临时全骨骼压力配置 不改正式模板 *",
             "default": false
+          },
+          "quality_level": {
+            "type": "integer",
+            "description": "测量画质档 零至三 使用百分之一百渲染比例 不沿用隐藏宿主降档 *",
+            "default": 2
           }
         },
         "required": [
@@ -9962,6 +10098,27 @@
     }
   },
   "BBBAnimationGraphToolset": {
+    "configure_fact_combat_transition_blends": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {"type": "string", "description": "独占持有的项目僵尸动画蓝图 *"},
+          "movement_duration": {"type": "number", "description": "普通移动转换秒数 *", "default": 0.22},
+          "attack_enter_duration": {"type": "number", "description": "攻击入场秒数 *", "default": 0.08},
+          "attack_exit_duration": {"type": "number", "description": "攻击退出秒数 *", "default": 0.16},
+          "hit_enter_duration": {"type": "number", "description": "踉跄入场秒数 *", "default": 0.07},
+          "hit_exit_duration": {"type": "number", "description": "踉跄恢复秒数 *", "default": 0.18},
+          "crawl_duration": {"type": "number", "description": "持续爬行姿态入场秒数 *", "default": 0.28},
+          "death_duration": {"type": "number", "description": "死亡入场秒数 *", "default": 0.04}
+        },
+        "required": ["asset_path"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {"returnValue": {"type": "string", "description": "转换数量与无警告编译保存结果 */"}},
+        "required": ["returnValue"]
+      }
+    },
     "inspect_mass_variation_network": {
       "inputSchema": {"type": "object"},
       "outputSchema": {
@@ -10886,6 +11043,95 @@
     }
   },
   "BBBHitReactionToolset": {
+    "inspect_physics_asset_constraints": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "明确的物理资产 *"
+          }
+        },
+        "required": ["asset_path"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "刚体质量和全部约束的当前值 不修改资产 */"
+          }
+        },
+        "required": ["returnValue"]
+      }
+    },
+    "configure_corpse_physics_asset": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "已独占签出的自有物理资产 *"
+          },
+          "total_mass_kg": {
+            "type": "number",
+            "description": "完整身体质量 三十五至一百五十千克 *",
+            "default": 75.0
+          }
+        },
+        "required": ["asset_path"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "当前刚体质量和 BBBCorpse 约束 不自动保存 */"
+          }
+        },
+        "required": ["returnValue"]
+      }
+    },
+    "configure_monster_severing_parts": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "definition_path": {"type": "string", "description": "已独占签出的正式僵尸配置 *"},
+          "parts_json": {"type": "string", "description": "五个部位的 region bone part cap 数组 *"}
+        },
+        "required": ["definition_path", "parts_json"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {"returnValue": {"type": "string", "description": "读取回来的资源对应表 不自动保存 */"}},
+        "required": ["returnValue"]
+      }
+    },
+    "create_zombie_sealed_part_meshes": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_mesh_path": {"type": "string", "description": "只读使用的完整僵尸网格 *"},
+          "root_bone": {"type": "string", "description": "断开处骨骼名称 *"},
+          "output_folder": {"type": "string", "description": "新增封闭部件的自有目录 *"},
+          "rebuild_existing": {"type": "boolean", "description": "显式重建完整的同名自有部件 必须独占签出 不保留旧版本 *", "default": false}
+        },
+        "required": ["source_mesh_path", "root_bone", "output_folder"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {"returnValue": {"type": "string", "description": "部件和封口路径及闭环诊断 不自动保存 */"}},
+        "required": ["returnValue"]
+      }
+    },
+    "inspect_pie_audio_device": {
+      "inputSchema": {"type": "object"},
+      "outputSchema": {
+        "type": "object",
+        "properties": {"returnValue": {"type": "string", "description": "当前 PIE 音频设备 静音 总音量与非实时混音状态 不修改配置 */"}},
+        "required": ["returnValue"]
+      }
+    },
     "inspect_skeletal_hit_reaction_capture": {
       "inputSchema": {
         "type": "object",
@@ -11509,6 +11755,73 @@
     }
   },
   "BBBMeleeToolset": {
+    "stage_upper_body_blend": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_path": {
+            "type": "string",
+            "description": "自有角色主动画蓝图 *"
+          },
+          "task_directory": {
+            "type": "string",
+            "description": "独立项目 Saved/temp 下的暂存目录 *"
+          },
+          "source_project_directory": {
+            "type": "string",
+            "description": "正式项目根目录 *"
+          },
+          "expected_source_sha256": {
+            "type": "string",
+            "description": "正式资产预检摘要 *"
+          }
+        },
+        "required": [
+          "blueprint_path",
+          "task_directory",
+          "source_project_directory",
+          "expected_source_sha256"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "严格编译后的暂存文件与摘要 不保存正式资产 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_upper_body_mask": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_path": {
+            "type": "string",
+            "description": "角色主动画蓝图 *"
+          }
+        },
+        "required": [
+          "blueprint_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "遮罩模式及实际骨骼权重 不修改骨架 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
     "register_melee_equipment": {
       "inputSchema": {
         "type": "object",

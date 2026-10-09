@@ -260,6 +260,49 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def configure_fact_combat_transition_blends(asset_path: str, movement_duration: float = 0.22,
+                                               attack_enter_duration: float = 0.08, attack_exit_duration: float = 0.16,
+                                               hit_enter_duration: float = 0.07, hit_exit_duration: float = 0.18,
+                                               crawl_duration: float = 0.28, death_duration: float = 0.04) -> str:
+        """
+        /**
+         * 为完整站立与爬行事实图配置分类惯性混合 重击允许打断未结算攻击
+         * @param asset_path\t独占持有的项目僵尸动画蓝图
+         * @param movement_duration\t普通移动转换秒数
+         * @param attack_enter_duration\t攻击入场秒数
+         * @param attack_exit_duration\t攻击退出秒数
+         * @param hit_enter_duration\t踉跄入场秒数
+         * @param hit_exit_duration\t踉跄恢复秒数
+         * @param crawl_duration\t持续爬行姿态入场秒数
+         * @param death_duration\t死亡入场秒数
+         * @return 转换数量与无警告编译保存结果
+         */
+        """
+        durations = [movement_duration, attack_enter_duration, attack_exit_duration, hit_enter_duration,
+                     hit_exit_duration, crawl_duration, death_duration]
+        if not asset_path.startswith("/Game/_Project/") or any(not math.isfinite(value) or not 0.0 < value <= 0.5 for value in durations):
+            raise RuntimeError("战斗惯性混合需要项目蓝图及大于零不超过半秒的有限时长")
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止配置战斗惯性混合")
+        library = getattr(unreal, "BBBAnimationGraphEditorLibrary", None)
+        if library is None or not hasattr(library, "configure_fact_combat_transitions"):
+            raise RuntimeError("请先编译战斗转换构图能力")
+        blueprint = unreal.load_asset(asset_path)
+        if not isinstance(blueprint, unreal.AnimBlueprint):
+            raise RuntimeError("目标不是僵尸动画蓝图")
+        require_write_access(blueprint)
+        count = library.configure_fact_combat_transitions(blueprint, *durations)
+        if count <= 0:
+            raise RuntimeError("完整事实状态机转换配置失败 不保存")
+        unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
+        if blueprint.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+            raise RuntimeError("战斗转换图未通过无警告编译 不保存")
+        if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
+            raise RuntimeError("战斗转换图保存失败")
+        return json.dumps({"asset": asset_path, "transitions": count, "durations": durations, "saved": True}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def capture_monster_stagger_samples(actor_blueprint_paths: list[str], hit_region: int, sample_progress: list[float], file_prefix: str) -> str:
         """
         /**

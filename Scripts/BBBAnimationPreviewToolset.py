@@ -48,7 +48,12 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
         if len(center) != 3 or spacing < 200.0 or not config_paths or len(config_paths) > 16 or len(set(config_paths)) != len(config_paths):
             raise RuntimeError("出生参数无效或实体配置重复")
 
-        if _inspection_population.get("worldIdentity") == hash(world):
+        previous_world = _inspection_population.get("worldObject")
+        try:
+            same_world = previous_world is not None and unreal.SystemLibrary.is_valid(previous_world) and previous_world == world
+        except (TypeError, ReferenceError):
+            same_world = False
+        if same_world:
             raise RuntimeError("本 PIE 已创建检查群体 禁止重复生成")
 
         if any(item.get("status") == "running" for item in _population_runs.values()):
@@ -76,7 +81,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
             raise
 
         _inspection_population.clear()
-        _inspection_population.update({"world": world.get_path_name(), "worldIdentity": hash(world), "configs": configs, "entities": entities, "configPaths": list(config_paths)})
+        _inspection_population.update({"world": world.get_path_name(), "worldObject": world, "configs": configs, "entities": entities, "configPaths": list(config_paths)})
         unreal.log("Mass 检查群体已生成 数量=" + str(len(entities)) + " 关卡=" + actual_level)
         return mass.inspect_population(world, entities)
 
@@ -91,7 +96,12 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
          */
         """
         world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
-        if world is None or _inspection_population.get("worldIdentity") != hash(world):
+        previous_world = _inspection_population.get("worldObject")
+        try:
+            same_world = previous_world is not None and unreal.SystemLibrary.is_valid(previous_world) and previous_world == world
+        except (TypeError, ReferenceError):
+            same_world = False
+        if world is None or not same_world:
             raise RuntimeError("检查群体所在 PIE 已结束或尚未生成")
 
         if pause_game and not unreal.GameplayStatics.set_game_paused(world, True):
@@ -101,7 +111,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def start_mass_population_benchmark(config_paths: list[str], counts: list[int], center: list[float], spacing: float, expected_level: str, file_prefix: str, warmup_seconds: float = 5.0, measurement_seconds: float = 10.0, force_actor_representation: bool = False) -> str:
+    def start_mass_population_benchmark(config_paths: list[str], counts: list[int], center: list[float], spacing: float, expected_level: str, file_prefix: str, warmup_seconds: float = 5.0, measurement_seconds: float = 10.0, force_actor_representation: bool = False, quality_level: int = 2) -> str:
         """
         /**
          * 在明确验收关卡的真实 PIE Mass 实体上依次测量预算关闭与开启
@@ -114,9 +124,12 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
          * @param warmup_seconds		每组预热秒数 至少五秒
          * @param measurement_seconds		每组测量秒数 至少十秒
          * @param force_actor_representation		使用临时全骨骼压力配置 不改正式模板
+         * @param quality_level		测量画质档 零至三 使用百分之一百渲染比例 不沿用隐藏宿主降档
          * @return 异步运行标识 测量完成后回读结果 原始数据始终落盘
          */
         """
+        if not isinstance(quality_level, int) or isinstance(quality_level, bool) or not 0 <= quality_level <= 3:
+            raise RuntimeError("测量画质档必须为零至三的整数")
         world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
         if world is None or "Validation" not in expected_level or expected_level not in world.get_path_name():
             raise RuntimeError("必须在明确指定的验收关卡 PIE 中测量")
@@ -157,17 +170,28 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
         for spawner in unreal.GameplayStatics.get_all_actors_of_class(world, unreal.MassSpawner):
             spawner.do_despawning()
 
-        saved = {name: unreal.SystemLibrary.get_console_variable_float_value(name) for name in ("t.MaxFPS", "r.VSync", "a.Budget.Enabled", "a.Budget.BudgetMs", "r.DontLimitOnBattery")}
+        output = open(csv_path, "w", newline="", encoding="utf-8")
+        writer = csv.writer(output)
+        writer.writerow(["count", "budget", "frame", "game_thread_ms", "render_thread_ms", "gpu_ms", "engine_delta_ms", "slate_delta_ms"])
+        quality_names = ("sg.ViewDistanceQuality", "sg.AntiAliasingQuality", "sg.ShadowQuality", "sg.GlobalIlluminationQuality",
+                         "sg.ReflectionQuality", "sg.PostProcessQuality", "sg.TextureQuality", "sg.EffectsQuality", "sg.FoliageQuality", "sg.ShadingQuality")
+        render_names = ("r.ScreenPercentage", "r.Lumen.DiffuseIndirect.Allow", "r.Lumen.Reflections.Allow")
+        saved = {name: unreal.SystemLibrary.get_console_variable_float_value(name)
+                 for name in ("t.MaxFPS", "r.VSync", "a.Budget.Enabled", "a.Budget.BudgetMs", "r.DontLimitOnBattery") + quality_names + render_names}
+        for name in quality_names:
+            unreal.SystemLibrary.execute_console_command(world, name + " " + str(quality_level))
+        unreal.SystemLibrary.execute_console_command(world, "r.ScreenPercentage 100")
+        unreal.SystemLibrary.execute_console_command(world, "r.Lumen.DiffuseIndirect.Allow " + str(int(quality_level >= 2)))
+        unreal.SystemLibrary.execute_console_command(world, "r.Lumen.Reflections.Allow " + str(int(quality_level >= 2)))
         unreal.SystemLibrary.execute_console_command(world, "t.MaxFPS 0")
         unreal.SystemLibrary.execute_console_command(world, "r.VSync 0")
         unreal.SystemLibrary.execute_console_command(world, "r.DontLimitOnBattery 1")
         unreal.SystemLibrary.execute_console_command(world, "a.Budget.BudgetMs 2.0")
         run_id = str(uuid.uuid4())
-        report = {"status": "running", "runId": run_id, "world": world.get_path_name(), "engine": unreal.SystemLibrary.get_engine_version(), "commandLine": unreal.SystemLibrary.get_command_line(), "configPaths": list(config_paths), "forceActorRepresentation": force_actor_representation, "warmupSeconds": warmup_seconds, "measurementSeconds": measurement_seconds, "budgetMs": 2.0, "resultPath": result_path, "csvPath": csv_path, "cases": []}
+        report = {"status": "running", "runId": run_id, "world": world.get_path_name(), "engine": unreal.SystemLibrary.get_engine_version(), "configPaths": list(config_paths), "forceActorRepresentation": force_actor_representation, "warmupSeconds": warmup_seconds, "measurementSeconds": measurement_seconds, "budgetMs": 2.0, "qualityLevel": quality_level,
+                  "renderSettings": {name: unreal.SystemLibrary.get_console_variable_float_value(name) for name in quality_names + render_names},
+                  "resultPath": result_path, "csvPath": csv_path, "cases": []}
         _population_runs[run_id] = report
-        output = open(csv_path, "w", newline="", encoding="utf-8")
-        writer = csv.writer(output)
-        writer.writerow(["count", "budget", "frame", "game_thread_ms", "render_thread_ms", "gpu_ms", "engine_delta_ms", "slate_delta_ms"])
         state = {"case": -1, "entities": [], "phase": "next", "samples": [], "start": 0.0, "handle": None, "lastFrame": -1}
         cases = [(count, enabled) for count in counts for enabled in (False, True)]
 
@@ -270,8 +294,12 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
                 cleanup()
                 unreal.log_error("[BBBPopulationBenchmark] " + str(error))
 
-        state["handle"] = unreal.register_slate_post_tick_callback(tick)
-        save_report()
+        try:
+            state["handle"] = unreal.register_slate_post_tick_callback(tick)
+            save_report()
+        except Exception:
+            cleanup()
+            raise
         return json.dumps({"runId": run_id, "status": "running", "resultPath": result_path, "csvPath": csv_path}, ensure_ascii=False)
 
     @mcp_tool
