@@ -9722,6 +9722,25 @@
         ]
       }
     },
+    "start_mass_corpse_acceptance": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "config_paths": {"type": "array", "items": {"type": "string"}, "description": "正式模板 一至十六种 *"},
+          "count": {"type": "integer", "description": "群体数量 一至五百 *"},
+          "center": {"type": "array", "items": {"type": "number"}, "description": "出生中心 三个有限厘米坐标 *"},
+          "spacing": {"type": "number", "description": "出生间距 至少一百厘米 *"},
+          "expected_level": {"type": "string", "description": "完整关卡包路径 名称包含 Validation *"},
+          "file_prefix": {"type": "string", "description": "本任务唯一临时目录名 *"}
+        },
+        "required": ["config_paths", "count", "center", "spacing", "expected_level", "file_prefix"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {"returnValue": {"type": "string", "description": "测量编号 使用 inspect_mass_population_benchmark 查询 */"}},
+        "required": ["returnValue"]
+      }
+    },
     "start_mass_population_benchmark": {
       "inputSchema": {
         "type": "object",

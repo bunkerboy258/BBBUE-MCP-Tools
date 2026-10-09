@@ -291,6 +291,115 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def start_mass_corpse_acceptance(config_paths: list[str], count: int, center: list[float], spacing: float, expected_level: str, file_prefix: str) -> str:
+        """
+        /**
+         * 在明确验收关卡创建本工具群体并通过正式伤害输入验证尸体物理与回收
+         * @param config_paths		正式模板 一至十六种
+         * @param count		群体数量 一至五百
+         * @param center		出生中心 三个有限厘米坐标
+         * @param spacing		出生间距 至少一百厘米
+         * @param expected_level		完整关卡包路径 名称包含 Validation
+         * @param file_prefix		本任务唯一临时目录名
+         * @return 测量编号 使用 inspect_mass_population_benchmark 查询
+         */
+        """
+        if not config_paths or len(config_paths) > 16 or len(set(config_paths)) != len(config_paths):
+            raise RuntimeError("需要一至十六种不重复模板")
+        if not 1 <= count <= 500 or len(center) != 3 or not all(math.isfinite(value) for value in center) or not math.isfinite(spacing) or spacing < 100.0:
+            raise RuntimeError("群体数量或位置无效")
+        if "Validation" not in expected_level or not re.fullmatch(r"[A-Za-z0-9_-]+", file_prefix):
+            raise RuntimeError("需要明确验收关卡与安全临时目录名")
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if world is None or re.sub(r"UEDPIE_\d+_", "", world.get_path_name().split(".")[0]) != expected_level:
+            raise RuntimeError("当前 PIE 关卡不匹配")
+        if "-nullrhi" in unreal.SystemLibrary.get_command_line().lower() or any(value.get("status") == "running" for value in _population_runs.values()):
+            raise RuntimeError("需要空闲渲染宿主")
+        configs = [unreal.load_asset(path) for path in config_paths]
+        if any(not isinstance(value, unreal.MassEntityConfigAsset) for value in configs):
+            raise RuntimeError("正式模板无效")
+        mass = unreal.BBBMassValidationLibrary
+        configs = [mass.create_actor_stress_config(world, value) for value in configs]
+        if any(value is None for value in configs):
+            raise RuntimeError("临时表现模板创建失败")
+        entities = list(mass.spawn_population(world, configs, count, unreal.Vector(*center), spacing))
+        if len(entities) != count:
+            mass.destroy_population(world, entities)
+            raise RuntimeError("实际出生数量不匹配")
+        run_id = str(uuid.uuid4())
+        directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "temp", file_prefix))
+        os.makedirs(directory, exist_ok=True)
+        path = os.path.join(directory, run_id + ".json")
+        report = {"runId": run_id, "status": "running", "resultPath": path, "count": count, "cases": [], "samples": [], "submitted": 0}
+        _population_runs[run_id] = report
+        state = {"handle": None, "start": unreal.GameplayStatics.get_time_seconds(world), "last": -1.0, "configs": configs}
+
+        def finish(status, error=""):
+            report["status"] = status
+            if error:
+                report["error"] = error
+            if state["handle"] is not None:
+                unreal.unregister_slate_post_tick_callback(state["handle"])
+                state["handle"] = None
+            if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() == world:
+                mass.destroy_population(world, entities)
+            with open(path, "w", encoding="utf-8") as stream:
+                json.dump(report, stream, ensure_ascii=False, indent=2)
+
+        def tick(delta):
+            try:
+                if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() != world:
+                    raise RuntimeError("尸体验收 PIE 已结束")
+                elapsed = unreal.GameplayStatics.get_time_seconds(world) - state["start"]
+                if elapsed < 3.0:
+                    return
+                if not report["submitted"]:
+                    ready = json.loads(mass.inspect_population(world, entities))
+                    if ready.get("presentationActors") != count:
+                        if elapsed >= 60.0:
+                            raise RuntimeError("表现演员预热超时 未形成完整压力群体")
+                        return
+                    report["submitted"] = mass.damage_population(world, entities, 1000.0)
+                    if report["submitted"] != count:
+                        raise RuntimeError("正式伤害输入投递数量不匹配")
+                    report["deathRequestAt"] = elapsed
+                    return
+                age = elapsed - report["deathRequestAt"]
+                if age - state["last"] < 0.25:
+                    return
+                state["last"] = age
+                snapshot = json.loads(mass.inspect_population(world, entities))
+                if snapshot.get("error"):
+                    raise RuntimeError(snapshot["error"])
+                samples = snapshot.get("locomotion", [])
+                row = {"age": age, "valid": snapshot["validEntities"], "actors": snapshot["presentationActors"],
+                       "simulating": sum(bool(value.get("corpseSimulating")) for value in samples),
+                       "held": sum(bool(value.get("corpseActive")) for value in samples),
+                       "pelvisZ": [value.get("corpsePelvisZ") for value in samples],
+                       "physicsIndices": [index for index, value in enumerate(samples) if value.get("corpseSimulating")],
+                       "frameMetrics": [float(value) for value in unreal.BBBAnimationGraphEditorLibrary.read_performance_frame_metrics()]}
+                report["samples"].append(row)
+                if age >= 26.0:
+                    retained = [value for value in report["samples"] if 5.0 <= value["age"] <= 10.0]
+                    report["retainedAt10s"] = bool(retained) and all(value["valid"] == count for value in retained)
+                    report["physicsBudgetCorrect"] = all(value["simulating"] <= 32 for value in report["samples"])
+                    initial = report["samples"][0]
+                    settled = next((value for value in report["samples"] if 5.0 <= value["age"] <= 6.0), None)
+                    report["ragdollsCollapsed"] = bool(initial["physicsIndices"]) and settled is not None and all(
+                        initial["pelvisZ"][index] - settled["pelvisZ"][index] >= 30.0 for index in initial["physicsIndices"])
+                    report["allCorpsesCollapsed"] = settled is not None and settled["actors"] == count and settled["held"] == count and len(settled["pelvisZ"]) == count and all(
+                        value is not None and value <= center[2] - 40.0 for value in settled["pelvisZ"])
+                    report["recycled"] = row["valid"] == 0
+                    finish("completed")
+            except Exception as error:
+                finish("failed", str(error))
+                unreal.log_error("[BBBCorpseAcceptance] " + str(error))
+
+        state["handle"] = unreal.register_slate_post_tick_callback(tick)
+        return json.dumps({"runId": run_id, "status": "running", "resultPath": path}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def capture_animation_samples(mesh_path: str, animation_paths: list[str], sample_progress: list[float], file_prefix: str, view_yaw_degrees: float = 0.0, camera_distance_cm: float = 650.0, camera_height_cm: float = 95.0) -> str:
         """
         /**
