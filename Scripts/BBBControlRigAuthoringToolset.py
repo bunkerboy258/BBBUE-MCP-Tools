@@ -985,6 +985,46 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def sample_sequence_controls(sequence_path: str, frames: list[int], control_names: list[str]) -> str:
+        """
+        /**
+         * 读取序列原姿势控制器的实际关键帧值 供离线姿势修复使用
+         * @param sequence_path	编辑序列路径
+         * @param frames		明确显示帧 每次至多六百项
+         * @param control_names	原姿势欧拉变换控制器名称
+         * @return 帧号 控制器与实际组件空间变换数组
+         */
+        """
+        if not frames or len(frames) > 600 or not control_names:
+            raise RuntimeError("控制器采样须明确帧和名称 每次至多六百帧")
+
+        sequence = _asset(sequence_path, unreal.LevelSequence)
+        unreal.LevelSequenceEditorBlueprintLibrary.open_level_sequence(sequence)
+        unreal.LevelSequenceEditorBlueprintLibrary.force_update()
+        proxies = unreal.ControlRigSequencerLibrary.get_control_rigs(sequence)
+        if len(proxies) != 1:
+            raise RuntimeError("采样序列必须只有一个控制绑定轨道")
+
+        rig = proxies[0].control_rig
+        hierarchy = rig.get_hierarchy()
+        for name in control_names:
+            key = _key(name, "CONTROL")
+            if not name.startswith("source_") or not hierarchy.contains(key) or hierarchy.get_control_settings(key).control_type != unreal.RigControlType.EULER_TRANSFORM:
+                raise RuntimeError("采样仅支持明确的原姿势欧拉变换控制器 " + name)
+
+        keys = []
+        for frame in frames:
+            if frame < sequence.get_playback_start() or frame >= sequence.get_playback_end():
+                raise RuntimeError("采样帧超出序列范围 " + str(frame))
+
+            for name in control_names:
+                value = unreal.ControlRigSequencerLibrary.get_local_control_rig_euler_transform(sequence, rig, name, unreal.FrameNumber(value=frame))
+                keys.append({"frame": frame, "control": name, "value": _read_transform(unreal.Transform(location=value.location, rotation=value.rotation, scale=value.scale))})
+
+        return json.dumps(keys, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def configure_sequence_rig(sequence_path: str, rig_path: str, keys_json: str, is_layered: bool, mesh_path: str) -> str:
         """
         /**

@@ -7839,6 +7839,48 @@
           "returnValue"
         ]
       }
+    },
+    "sample_sequence_controls": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sequence_path": {
+            "type": "string",
+            "description": "编辑序列路径 *"
+          },
+          "frames": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "明确显示帧 每次至多六百项 *"
+          },
+          "control_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "原姿势欧拉变换控制器名称 *"
+          }
+        },
+        "required": [
+          "sequence_path",
+          "frames",
+          "control_names"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "帧号 控制器与实际组件空间变换数组 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBMcpRuntimeToolset": {
