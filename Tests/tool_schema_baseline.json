@@ -9719,6 +9719,60 @@
           "returnValue"
         ]
       }
+    },
+    "capture_animation_views": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mesh_path": {
+            "type": "string",
+            "description": "明确同骨架网格 *"
+          },
+          "animation_path": {
+            "type": "string",
+            "description": "明确动画 *"
+          },
+          "sample_progress": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "零至一采样进度 每次至多九项 *"
+          },
+          "views_json": {
+            "type": "string",
+            "description": "偏航与俯仰角数组 俯仰正九十为正俯视 *"
+          },
+          "file_prefix": {
+            "type": "string",
+            "description": "唯一截图目录前缀 *"
+          },
+          "exposure_bias": {
+            "type": "number",
+            "description": "固定曝光补偿 *",
+            "default": 0
+          }
+        },
+        "required": [
+          "mesh_path",
+          "animation_path",
+          "sample_progress",
+          "views_json",
+          "file_prefix"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "图像 相机 骨骼与临时对象清理结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBAnimationGraphToolset": {

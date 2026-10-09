@@ -410,6 +410,24 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def capture_animation_views(mesh_path: str, animation_path: str, sample_progress: list[float], views_json: str, file_prefix: str, exposure_bias: float = 0.0) -> str:
+        """
+        /**
+         * 在单姿势周围生成包含俯视和仰视的明亮全角度观察图
+         * @param mesh_path		明确同骨架网格
+         * @param animation_path	明确动画
+         * @param sample_progress	零至一采样进度 每次至多九项
+         * @param views_json		偏航与俯仰角数组 俯仰正九十为正俯视
+         * @param file_prefix		唯一截图目录前缀
+         * @param exposure_bias	固定曝光补偿
+         * @return 图像 相机 骨骼与临时对象清理结果
+         */
+        """
+        from BBBAnimationViewTools import capture_animation_views
+        return capture_animation_views(mesh_path, animation_path, sample_progress, views_json, file_prefix, exposure_bias, _transition_captures)
+
+    @mcp_tool
+    @staticmethod
     def capture_monster_animation_transition(actor_blueprint_path: str, initial_state: int, target_state: int, initial_progress: float, target_progress: float, initial_speed: float, target_speed: float, sample_seconds: list[float], bone_names: list[str], file_prefix: str) -> str:
         """
         /**

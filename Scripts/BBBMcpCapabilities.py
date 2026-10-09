@@ -27,6 +27,7 @@ TOOLSET_ROUTES = {
 HELPER_MODULES = (
     "BBBBlueprintLayout", "BBBBlueprintAnnotations", "BBBAnimationMotionTools",
     "BBBAnimationTrajectoryTools", "BBBArmTwistTools", "BBBWeaponHandlingTools",
+    "BBBAnimationViewTools",
     "BBBSoundAssetAudit",
 )
 OFFICIAL_ROUTES = {
