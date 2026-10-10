@@ -1802,6 +1802,15 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
             if obj is None or obj.get_path_name() != path or obj.get_class().get_name() != "ObjectRedirector":
                 raise RuntimeError("不是精确重定向对象: " + path)
             objects.append(obj)
+        package_names = set(asset_paths)
+        for obj in unreal.ObjectIterator():
+            if obj.get_outermost().get_path_name() not in package_names or isinstance(obj, unreal.Package):
+                continue
+            if obj.get_class().get_name() != "ObjectRedirector":
+                raise RuntimeError("重定向包含有普通对象 拒绝删除: " + obj.get_path_name())
+            if obj not in objects:
+                objects.append(obj)
+        report["object_count"] = len(objects)
         if _move_dirty_packages() or any(_move_referencers(registry, path) for path in asset_paths):
             raise RuntimeError("加载后出现脏包或新增引用 拒绝删除")
         native = getattr(unreal, "BBBAssetRepairEditorLibrary", None)

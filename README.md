@@ -312,6 +312,8 @@ python -B Tests/verify_mcp_task_protection.py --url $hostInfo.Endpoint --project
 
 ### 2026-10-10
 
+- `delete_asset_redirectors` 清理蓝图包内未注册为资产的骨架类重定向对象 防止主重定向器删除后留下旧文件和脏包
+
 - `inject_pie_action` 支持明确指定同一宿主内的本地 PIE 玩家控制器 用于客机输入验收 拒绝编辑器对象与远端镜像控制器
 - 占用报告显示当前阶段 工具 耗时 等待原因和本任务下一步.
 - 排队顺序在等待结束和重连后保持 支持主动取消和任务到期清理.
