@@ -67,6 +67,8 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
             raise McpExecutionError("rejected", "HIT_CAPTURE_RENDERING_REQUIRED", "命中截图需要渲染 PIE 世界")
         if any(len(value) != 3 for value in (start, end, view_location, view_target)) or not all(math.isfinite(value) for value in coordinates):
             raise McpExecutionError("rejected", "HIT_CAPTURE_COORDINATES_INVALID", "命中截图坐标需要三个有限数值")
+        if math.isclose(sample_seconds, 0.12, rel_tol=1e-7):
+            sample_seconds = 0.12
         if not math.isfinite(damage) or not 0.0 <= damage <= 10000.0 or not math.isfinite(sample_seconds) or not 0.12 <= sample_seconds <= 3.0:
             raise McpExecutionError("rejected", "HIT_CAPTURE_SAMPLE_INVALID", "命中截图伤害或采样时间需要符合范围")
         if not re.fullmatch(r"[A-Za-z0-9_-]+", file_prefix):

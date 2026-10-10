@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import re
 import sys
+import struct
 import tempfile
 import types
 import unittest
@@ -72,6 +73,20 @@ class CaptureExecutionTests(unittest.TestCase):
         for actor in self.actors:
             actor.destroy_actor.assert_called_once()
         self.assertEqual(self.records, {})
+
+    def test_engine_float_default_reaches_ray_validation(self):
+        """/** @return 引擎单精度默认采样时间通过范围检查 */"""
+        value = struct.unpack("f", struct.pack("f", 0.12))[0]
+        with self.assertRaises(McpExecutionError) as error:
+            self.capture([0, 0, 0], [100, 0, 0], [0, 10, 100], [50, 0, 0], "Capture", sample_seconds=value)
+        self.assertEqual(error.exception.value["code"], "HIT_CAPTURE_RAY_MISSED")
+
+    def test_short_sample_rejected_before_mutation(self):
+        """/** @return 实际短于采样下限时保持明确拒绝 */"""
+        with self.assertRaises(McpExecutionError) as error:
+            self.capture([0, 0, 0], [100, 0, 0], [0, 10, 100], [50, 0, 0], "Capture", sample_seconds=0.119)
+        self.assertEqual(error.exception.value["code"], "HIT_CAPTURE_SAMPLE_INVALID")
+        self.engine.BBBBlueprintEditorLibrary.spawn_transient_pie_actor.assert_not_called()
 
     def test_cleanup_failure_requires_actual_result_review(self):
         """/** @return 清理失败保留部分执行状态 */"""
