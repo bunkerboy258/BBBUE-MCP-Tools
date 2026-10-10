@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from MCP.mcp_call import McpSession, _parse_response
 from MCP.mcp_result import McpBusinessError, decode_tool_result
 from MCP import mcp_access_policy as access_policy
-from MCP.mcp_test_runner import TEST_CONTROL_SPEC, TestRunner, TestRunnerError
+from MCP.mcp_project_host import ProjectHostGuard
 
 
 _CONTROL_SPEC = {
@@ -66,7 +66,6 @@ _CONTROL_SPEC = {
     }, ["task_token", "review_id", "user_confirmation"]),
     "shutdown_editor_host": ("全部任务和活动结束后请求隐藏宿主退出", {}, []),
 }
-_CONTROL_SPEC.update(TEST_CONTROL_SPEC)
 
 
 def control_tools():
@@ -150,6 +149,7 @@ def write_execution_evidence(response):
     except McpBusinessError as error:
         failed = True
         code = error.value.get("code")
+        declared = error.value.get("execution", {}).get("state", declared)
     if declared in {"rejected", "completed", "partial"}:
         return declared, "tool_execution_evidence", code
     if failed:
@@ -298,7 +298,7 @@ class TaskCoordinator:
                 record["queued_write"] = None
                 self._signal()
             record["status"] = "orphaned"
-            if record["write"] is None and not record["uncertain"] and not record.get("test_resources", 0):
+            if record["write"] is None and not record["uncertain"]:
                 self.tasks.pop(token)
                 self._signal()
 
@@ -311,6 +311,9 @@ class TaskCoordinator:
         """
         activity = self.last_activity or {}
         blockers = []
+        project_hosts = activity.get("project_hosts")
+        if project_hosts is not None and not project_hosts.get("exclusive"):
+            blockers.append({"code": "PROJECT_HOST_CONFLICT", "message": "核对同项目全部端口的宿主并统一归属", "project_hosts": project_hosts})
         if self.host_changed:
             blockers.append({"code": "HOST_CHANGED", "message": "核对宿主身份并恢复连接"})
         if self.draining:
@@ -738,8 +741,6 @@ class TaskCoordinator:
             raise TaskConflict("RECOVERY_CLAIMANT_INVALID", "接管需要有效的空闲可写任务")
         if owner is None or owner["task_id"] != target_task_id or owner is claimant:
             raise TaskConflict("RECOVERY_TARGET_CHANGED", "目标阶段已发生变化 请重新查询")
-        if owner.get("test_resources", 0):
-            raise TaskConflict("TEST_OWNER_RECOVERY_REQUIRED", "原任务凭证恢复后先结束所属测试实例 再预览主阶段接管")
         if owner["write"]["status"] != "orphaned" or self.clock() < owner["write"]["expires_at"]:
             raise TaskConflict("RECOVERY_OWNER_ACTIVE", "原任务仍持有有效阶段 请等待所属任务交接")
         activity = self.last_activity
@@ -914,8 +915,6 @@ class TaskCoordinator:
         with self.changed:
             self._expire()
             record = self._record(task_token)
-            if record.get("test_resources", 0):
-                raise TaskConflict("TEST_RESOURCES_ACTIVE", "先结束本任务的测试实例")
             if record["inflight"] or task_token in self.queue:
                 raise TaskConflict("TASK_INFLIGHT", "请求或编辑申请尚未完成")
             if record["write"] is not None:
@@ -1038,6 +1037,7 @@ class UnrealBackend:
         self.task_toolset = None
         self.external_toolset = None
         self.inspection_session = None
+        self.project_guard = None
 
     def probe(self):
         """
@@ -1065,6 +1065,8 @@ class UnrealBackend:
                 }))
                 if activity["process_id"] != self.process_id or os.path.normcase(os.path.realpath(activity["project_root"])) != self.project:
                     raise RuntimeError("后端宿主项目或进程身份不匹配")
+                if self.project_guard is not None:
+                    activity["project_hosts"] = self.project_guard.inspect()
                 return activity
             except Exception:
                 if self.inspection_session is not None:
@@ -1122,7 +1124,7 @@ class UnrealBackend:
 class TaskGateway:
     """/** 所有客户端共享的 MCP 调用边界 */"""
 
-    def __init__(self, backend, test_runner_factory=None):
+    def __init__(self, backend):
         """
         /**
          * 初始化本对象的任务保护状态
@@ -1134,40 +1136,6 @@ class TaskGateway:
         self.coordinator = TaskCoordinator(backend.probe)
         self.sessions = set()
         self.session_lock = threading.Lock()
-        self.test_runner = test_runner_factory(self._authorize_test, self._release_test) if test_runner_factory else None
-
-    def _authorize_test(self, task_token, pin):
-        """
-        /**
-         * @param task_token	测试所属任务凭证
-         * @param pin	登记资源保护开关
-         * @return 所属任务标识
-         */
-        """
-        with self.coordinator.changed:
-            self.coordinator._expire()
-            record = self.coordinator._record(task_token)
-            if self.coordinator.draining or self.coordinator.host_changed or record["status"] != "active":
-                raise TaskConflict("TASK_RECOVERY_REQUIRED", "凭原任务凭证续期并恢复")
-            if record["mode"] == "read":
-                raise TaskConflict("TEST_TASK_REQUIRED", "测试需要 editor 或 pie 任务登记")
-            record["expires_at"] = self.coordinator.clock() + record["ttl_seconds"]
-            if pin:
-                record["test_resources"] = record.get("test_resources", 0) + 1
-            self.coordinator._signal()
-            return record["task_id"]
-
-    def _release_test(self, task_token):
-        """
-        /**
-         * @param task_token	测试所属任务凭证
-         * @return 释放资源登记保护
-         */
-        """
-        with self.coordinator.changed:
-            record = self.coordinator._record(task_token)
-            record["test_resources"] -= 1
-            self.coordinator._signal()
 
     def _control(self, name, arguments):
         """
@@ -1181,13 +1149,6 @@ class TaskGateway:
         specification = _CONTROL_SPEC[name]
         if not isinstance(arguments, dict) or set(arguments) - set(specification[1]) or set(specification[2]) - set(arguments):
             raise ValueError("任务工具参数不符合发现结构")
-        if name in TEST_CONTROL_SPEC:
-            if self.test_runner is None:
-                raise TaskConflict("TEST_RUNNER_UNCONFIGURED", "通过新版启动器配置测试引擎路径")
-            try:
-                return getattr(self.test_runner, name)(**arguments)
-            except TestRunnerError as error:
-                raise TaskConflict(error.code, "请回读 inspect_test_runs 的实例状态") from None
         if name == "acquire_editor_task":
             return self.coordinator.acquire(**arguments)
         if name == "renew_editor_task":
@@ -1203,10 +1164,7 @@ class TaskGateway:
         if name == "release_editor_task":
             return self.coordinator.release(**arguments)
         if name == "inspect_editor_tasks":
-            state = self.coordinator.inspect(**arguments)
-            if self.test_runner is not None:
-                state["test_runs"] = self.test_runner.inspect_test_runs(arguments.get("task_token"))
-            return state
+            return self.coordinator.inspect(**arguments)
         if name == "prepare_editor_recovery":
             return self.coordinator.prepare_recovery(**arguments)
         if name == "recover_editor_write":
@@ -1338,7 +1296,7 @@ class TaskGateway:
                 toolset, name, arguments = tool_identity(params)
                 token = params.get("arguments", {}).get("task_token", params.get("_meta", {}).get("bbb/task_token"))
                 if not toolset and name in _CONTROL_SPEC:
-                    if name in {"inspect_editor_tasks", "inspect_test_runs"} and token and "task_token" not in arguments:
+                    if name == "inspect_editor_tasks" and token and "task_token" not in arguments:
                         arguments["task_token"] = token
                     outgoing = self._reply(request_id, self._control(name, arguments))
                     return outgoing
@@ -1358,6 +1316,9 @@ class TaskGateway:
                     self.coordinator._observe()
                     if self.coordinator.host_changed:
                         raise TaskConflict("HOST_CHANGED", "宿主身份变化 凭证失效")
+                    hosts = self.coordinator.last_activity.get("project_hosts")
+                    if hosts is not None and hosts.get("exclusive") is not True:
+                        raise TaskConflict("PROJECT_HOST_CONFLICT", "同项目宿主需要统一归属", self.coordinator._public(token))
                 record = self.coordinator.begin(params, token, write_token)
                 counted = True
                 definition, function, business = tool_identity(params)
@@ -1428,8 +1389,6 @@ class TaskGateway:
                 payload = outgoing[2].get("result")
                 if isinstance(payload, dict):
                     state = self.coordinator._public(token, compact=True)
-                    if self.test_runner is not None:
-                        state["test_runs"] = self.test_runner.inspect_test_runs(token)
                     payload.setdefault("_meta", {})["bbb/editor_state"] = state
                     if name == "list_toolsets":
                         for item in payload.get("content", []):
@@ -1536,25 +1495,17 @@ def main():
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--project-root", required=True)
     parser.add_argument("--host-pid", type=int, required=True)
-    parser.add_argument("--engine-root", required=True)
     options = parser.parse_args()
     parsed = urlparse(options.backend_url)
     if parsed.hostname != "127.0.0.1" or parsed.scheme != "http" or parsed.path == "/mcp" or parsed.port == options.port:
         raise ValueError("后端必须使用独立本机端口和私有路径")
     backend = UnrealBackend(options.backend_url, options.project_root, options.host_pid)
+    project_guard = ProjectHostGuard(options.project_root, options.host_pid)
+    project_guard.acquire()
+    atexit.register(project_guard.close)
+    backend.project_guard = project_guard
     atexit.register(backend.close)
-    def test_runner_factory(authorize, release):
-        """
-        /**
-         * @param authorize	所属任务核对与登记保护
-         * @param release	资源保护释放
-         * @return 配置引擎路径的测试队列
-         */
-        """
-        return TestRunner(options.project_root, options.engine_root, authorize, release)
-
-    gateway = TaskGateway(backend, test_runner_factory)
-    atexit.register(gateway.test_runner.close)
+    gateway = TaskGateway(backend)
     gateway.coordinator.inspect()
     with make_server(("127.0.0.1", options.port), gateway) as server:
         if os.name == "nt":
@@ -1572,7 +1523,6 @@ def main():
                 try:
                     while kernel.WaitForSingleObject(handle, 1000) == 0x102:
                         pass
-                    gateway.test_runner.close()
                     server.shutdown()
                 finally:
                     kernel.CloseHandle(handle)

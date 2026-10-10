@@ -329,103 +329,6 @@ class McpSession:
             arguments["after_revision"] = after_revision
         return decode_tool_result(self.call_tool("inspect_editor_tasks", arguments))
 
-    def prepare_test_snapshot(self, map_path):
-        """
-        /**
-         * @param map_path	已保存的测试地图
-         * @return 副本准备状态与编号
-         */
-        """
-        value = decode_tool_result(self.call_tool("prepare_test_snapshot", {
-            "task_token": self.task_token, "map_path": map_path}))
-        self._start_test_heartbeat(value["run_id"])
-        return value
-
-    def start_test_run(self, snapshot_id, players=1, rendering=False, audio=False):
-        """
-        /**
-         * @param snapshot_id	准备完成的副本编号
-         * @param players	本组玩家数
-         * @param rendering	渲染验收开关
-         * @param audio	声音验收开关
-         * @return 测试队列状态
-         */
-        """
-        value = decode_tool_result(self.call_tool("start_test_run", {
-            "task_token": self.task_token, "snapshot_id": snapshot_id,
-            "players": players, "rendering": rendering, "audio": audio}))
-        self._start_test_heartbeat(value["run_id"])
-        return value
-
-    def call_test_tool(self, run_id, toolset_name, tool_name, arguments=None):
-        """
-        /**
-         * @param run_id	本任务测试编号
-         * @param toolset_name	测试工具集
-         * @param tool_name	测试工具
-         * @param arguments	业务参数
-         * @return 解码结果与回读状态
-         */
-        """
-        value = decode_tool_result(self.call_tool("call_test_tool", {
-            "task_token": self.task_token, "run_id": run_id,
-            "toolset_name": toolset_name, "tool_name": tool_name, "arguments": arguments or {}}))
-        value["decoded_result"] = decode_tool_result(value["tool_result"])
-        return value
-
-    def inspect_test_runs(self):
-        """/** @return 实例占用与队列状态 */"""
-        return decode_tool_result(self.call_tool("inspect_test_runs", {}))
-
-    def stop_test_run(self, run_id):
-        """
-        /**
-         * @param run_id	本任务测试编号
-         * @return 进程退出核实与输出位置
-         */
-        """
-        value = decode_tool_result(self.call_tool("stop_test_run", {
-            "task_token": self.task_token, "run_id": run_id}))
-        if value["status"] == "stopped":
-            getattr(self, "_test_run_ids", set()).discard(run_id)
-            if not getattr(self, "_test_run_ids", set()) and hasattr(self, "_test_heartbeat_stop"):
-                self._test_heartbeat_stop.set()
-        return value
-
-    def _start_test_heartbeat(self, run_id):
-        """
-        /**
-         * @param run_id	当前客户端持有的测试编号
-         * @return 为测试任务维持登记心跳
-         */
-        """
-        if not hasattr(self, "_test_run_ids"):
-            self._test_run_ids = set()
-            self._test_heartbeat_thread = None
-        self._test_run_ids.add(run_id)
-        if not self._auto_heartbeat or self._closed:
-            return
-        if self._test_heartbeat_thread is not None and self._test_heartbeat_thread.is_alive() and not self._test_heartbeat_stop.is_set():
-            return
-        task_token = self.task_token
-        stop = threading.Event()
-        self._test_heartbeat_stop = stop
-
-        def keep_test_alive():
-            """/** @return 按测试登记续期 失败后保留所属凭证 */"""
-            try:
-                with McpSession(self.url, 5, task_token=task_token, auto_heartbeat=False) as heartbeat:
-                    while not stop.wait(20):
-                        if self._closed or self.task_token != task_token or not self._test_run_ids:
-                            return
-                        heartbeat.renew_task()
-            except Exception:
-                self.heartbeat_error = "TEST_HEARTBEAT_STOPPED_CHECK_TEST_RUNS"
-                print("MCP 测试任务续期暂停 请回读实例与登记状态", file=sys.stderr)
-
-        self._test_heartbeat_thread = threading.Thread(target=keep_test_alive, daemon=True)
-        self._test_heartbeat_thread.start()
-
     def cancel_write(self):
         """
         /**
@@ -643,10 +546,6 @@ class McpSession:
         if self._closed:
             return
 
-        if hasattr(self, "_test_heartbeat_stop"):
-            self._test_heartbeat_stop.set()
-            if self._test_heartbeat_thread is not threading.current_thread():
-                self._test_heartbeat_thread.join(1)
         self._stop_heartbeat()
         try:
             if self.session_id:

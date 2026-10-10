@@ -1,9 +1,10 @@
 import ast
 from functools import lru_cache, wraps
 import inspect
+import json
 from pathlib import Path
 
-from MCP.mcp_result import require_business_success
+from MCP.mcp_result import require_business_success, McpExecutionError
 
 
 TOOLSET_ROUTES = {
@@ -211,7 +212,10 @@ def mcp_tool(method):
         status = dependency_status(requirements, unreal)
         if not status["native_dependencies_ready"]:
             raise RuntimeError("原生依赖不可用: " + str(status))
-        result = function(*args, **kwargs)
+        try:
+            result = function(*args, **kwargs)
+        except McpExecutionError as error:
+            return json.dumps(error.value, ensure_ascii=False)
         require_business_success(result)
         return result
 

@@ -210,6 +210,31 @@ class RecoveryHttpTests(unittest.TestCase):
         self.write_with_response({"result": failure})
         self.assertEqual(self.B.inspect_tasks()["tasks"][0]["uncertainty_reason"], "business_error_without_execution_evidence")
 
+    def test_official_string_execution_evidence_keeps_rejection_usable(self):
+        """/** @return 官方字符串返回值传递拒绝证据 客户端继续原阶段 */"""
+        from MCP.mcp_result import McpExecutionError
+        value = McpExecutionError("rejected", "HIT_CAPTURE_EXISTS", "使用新前缀").value
+        self.write_with_response({"result": {"content": [{"type": "text", "text": json.dumps({"returnValue": json.dumps(value)})}]}})
+        task = self.B.inspect_tasks()["tasks"][0]
+        self.assertFalse(task["uncertain"])
+        self.assertEqual(task["last_operation"]["execution_state"], "rejected")
+        self.assertEqual(task["last_operation"]["error_code"], "HIT_CAPTURE_EXISTS")
+        self.A.end_write()
+
+    def test_second_original_host_blocks_write_and_retains_reads(self):
+        """/** @return 多宿主冲突保留查询与阶段归属 并阻止实际资产写入 */"""
+        self.backend.state["project_hosts"] = {"verified": True, "exclusive": False,
+            "hosts": [{"process_id": 100, "public_port": 8010}, {"process_id": 200, "public_port": 8011}]}
+        calls = len(self.backend.calls)
+        with self.assertRaisesRegex(RuntimeError, "PROJECT_HOST_CONFLICT"):
+            self.A.call_tool("official.AssetTools.save_asset", {})
+        self.assertEqual(len(self.backend.calls), calls)
+        state = self.B.inspect_tasks()
+        self.assertIn("PROJECT_HOST_CONFLICT", [item["code"] for item in state["summary"]["blockers"]])
+        self.assertFalse(state["tasks"][0]["uncertain"])
+        self.backend.state["project_hosts"]["exclusive"] = True
+        self.A.call_tool("official.AssetTools.save_asset", {})
+
     def test_rejection_conflicting_with_actual_write_requires_review(self):
         """/** @return 拒绝声明与实际包变化冲突时保留核实要求 */"""
         self.write_with_response({"error": {"code": -32602}}, ["/Game/Test/Unexpected"])

@@ -1,4 +1,4 @@
-Set-StrictMode -Version 1.0
+﻿Set-StrictMode -Version 1.0
 $ErrorActionPreference = 'Stop'
 $startupScript = Join-Path $PSScriptRoot '..\Scripts\MCP\Start-UE58OfficialMcpEditor.ps1'
 $testProjectPath = [System.IO.Path]::GetFullPath((Join-Path $env:TEMP 'BBBMcpStartupTest\Test.uproject'))
@@ -76,7 +76,7 @@ function global:Get-NetTCPConnection
 {
     param($LocalAddress, $LocalPort, $State, $ErrorAction)
 
-    if ($LocalPort -eq 8000)
+    if ($LocalPort -eq $global:bbbStartupTest.PublicPort)
     {
         if ($global:bbbStartupTest.GatewayStarted)
         {
@@ -85,7 +85,8 @@ function global:Get-NetTCPConnection
         return
     }
 
-    if ($global:bbbStartupTest.Started -or $global:bbbStartupTest.Editors.Count -gt 0)
+    $matchingEditors = @($global:bbbStartupTest.Editors | Where-Object { $_.CommandLine -match "-ModelContextProtocolPort=$LocalPort(\s|$)" })
+    if ($global:bbbStartupTest.Started -or $matchingEditors.Count -gt 0)
     {
         return [pscustomobject]@{ OwningProcess = 987654 }
     }
@@ -113,7 +114,7 @@ function global:Start-Process
     if ($FilePath -eq $global:bbbStartupPythonPath)
     {
         Assert-StartupTest ($WindowStyle -eq 'Hidden') '启动网关必须隐藏'
-        Assert-StartupTest ($ArgumentList.Count -eq 12) '网关参数被 PowerShell 表达式拆开'
+        Assert-StartupTest ($ArgumentList.Count -eq 10) '网关参数被 PowerShell 表达式拆开'
         Assert-StartupTest ($ArgumentList[1] -eq ('"' + $global:bbbStartupGatewayPath + '"')) '网关脚本必须作为一个完整参数'
         Assert-StartupTest ($ArgumentList[7] -eq ('"' + (Split-Path $global:bbbStartupProjectPath -Parent) + '"')) '项目目录必须作为一个完整参数'
         $global:bbbStartupTest.GatewayStarted = $true
@@ -180,7 +181,7 @@ function global:Invoke-WebRequest
 {
     param($Uri, $Method, $ContentType, $Headers, $Body, $TimeoutSec, $ErrorAction)
 
-    Assert-StartupTest ($Uri -eq 'http://127.0.0.1:8000/mcp' -or $Uri -like 'http://127.0.0.1:18000/bbb-mcp-*') '协议地址不匹配'
+    Assert-StartupTest ($Uri -eq "http://127.0.0.1:$($global:bbbStartupTest.PublicPort)/mcp" -or $Uri -like 'http://127.0.0.1:18000/bbb-mcp-*') '协议地址不匹配'
     if ($Method -eq 'Delete')
     {
         $global:bbbStartupTest.DeletedSessions += 1
@@ -254,7 +255,7 @@ function global:Invoke-RestMethod
 {
     param($Uri, $Method, $ContentType, $Headers, $Body, $TimeoutSec, $ErrorAction)
 
-    Assert-StartupTest ($Uri -eq 'http://127.0.0.1:8000/mcp') '网关公开地址不匹配'
+    Assert-StartupTest ($Uri -eq "http://127.0.0.1:$($global:bbbStartupTest.PublicPort)/mcp") '网关公开地址不匹配'
     $request = $Body | ConvertFrom-Json
     Assert-StartupTest ($request.params.name -eq 'inspect_editor_tasks') '未回读任务保护'
     $state = @{ activity = @{ process_id = 987654 }; host_changed = $false; draining = $false }
@@ -283,6 +284,7 @@ function New-StartupTestState
         FPS = $FPS
         Priority = $Priority
         Editors = @()
+        PublicPort = 8000
         Process = $process
         GatewayProcess = $gateway
         GatewayStarted = $false
@@ -305,12 +307,12 @@ function New-StartupTestState
 #>
 function Invoke-StartupFailureTest
 {
-    param([string]$Expected)
+    param([string]$Expected, [hashtable]$Extra = @{})
 
     $failed = $false
     try
     {
-        $null = & $startupScript -ProjectPath $testProjectPath -EnginePath $testEnginePath -BackendPort 18000 -TimeoutSeconds 3
+        $null = & $startupScript -ProjectPath $testProjectPath -EnginePath $testEnginePath -BackendPort 18000 -Port $global:bbbStartupTest.PublicPort -TimeoutSeconds 3 @Extra
     }
     catch
     {
@@ -358,7 +360,7 @@ Invoke-StartupFailureTest '未使用共享保护入口'
 Assert-StartupTest (-not $global:bbbStartupTest.Started -and -not $global:bbbStartupTest.Stopped) '不匹配宿主不得启动或终止'
 
 New-StartupTestState 'GamingBackground' 15 'BelowNormal'
-$global:bbbStartupTest.Editors = @([pscustomobject]@{ ProcessId = 987654; ExecutablePath = $testEditorPath; CommandLine = "$testProjectPath -ModelContextProtocolStartServer -NullRHI -RenderOffscreen -ModelContextProtocolPort=18000 -BBBProtectedMcpPort=8000 -BBBProtectedMcpKey=12345678901234567890123456789012" })
+$global:bbbStartupTest.Editors = @([pscustomobject]@{ ProcessId = 987654; ExecutablePath = $testEditorPath; CommandLine = "$testProjectPath -ModelContextProtocolStartServer -NullRHI -RenderOffscreen -NoSound -ModelContextProtocolPort=18000 -BBBProtectedMcpPort=8000 -BBBProtectedMcpKey=12345678901234567890123456789012" })
 Invoke-StartupFailureTest '宿主性能档位与请求不一致'
 Assert-StartupTest (-not $global:bbbStartupTest.Started -and -not $global:bbbStartupTest.Stopped) '已有宿主的档位不匹配不得启动或终止'
 Assert-StartupTest ($global:bbbStartupTest.DeletedSessions -eq 1) '失败测试会话未释放'
@@ -373,4 +375,29 @@ $global:bbbStartupTest.PortOccupied = $true
 Invoke-StartupFailureTest '被其他进程占用'
 Assert-StartupTest (-not $global:bbbStartupTest.Started -and -not $global:bbbStartupTest.Stopped) '端口冲突不得操作进程'
 
-Write-Output 'PASS startup 6 profile cases and 4 refusal or cleanup cases no real process or HTTP calls'
+New-StartupTestState 'Speed' 120 'Normal'
+$foreignEditor = [pscustomobject]@{ ProcessId = 123456; ExecutablePath = $testEditorPath; CommandLine = "$testProjectPath -ModelContextProtocolStartServer -ModelContextProtocolPort=19000 -BBBProtectedMcpPort=8000" }
+$global:bbbStartupTest.Editors = @($foreignEditor, $foreignEditor)
+Invoke-StartupFailureTest '多个 Unreal Editor'
+Assert-StartupTest (-not $global:bbbStartupTest.Started -and -not $global:bbbStartupTest.Stopped) '默认模式仍须拒绝多个宿主'
+
+New-StartupTestState 'Economy' 30 'BelowNormal'
+$global:bbbStartupTest.PublicPort = 8010
+$global:bbbStartupTest.Editors = @($foreignEditor)
+Invoke-StartupFailureTest '请复用 http://127.0.0.1:8000/mcp'
+Assert-StartupTest (-not $global:bbbStartupTest.Started -and -not $global:bbbStartupTest.Stopped) '其他端口的原项目宿主需要复用'
+
+New-StartupTestState 'Speed' 120 'Normal'
+$global:bbbStartupTest.PublicPort = 8010
+$ownEditor = [pscustomobject]@{ ProcessId = 987654; ExecutablePath = $testEditorPath; CommandLine = "$testProjectPath -ModelContextProtocolStartServer -NullRHI -RenderOffscreen -NoSound -ModelContextProtocolPort=18000 -BBBProtectedMcpPort=8010 -BBBProtectedMcpKey=12345678901234567890123456789012" }
+$global:bbbStartupTest.Editors = @($ownEditor)
+$result = & $startupScript -ProjectPath $testProjectPath -EnginePath $testEnginePath -BackendPort 18000 -Port 8010 -TimeoutSeconds 3 | ConvertFrom-Json
+Assert-StartupTest ($result.Status -eq 'Ready' -and -not $global:bbbStartupTest.Started -and -not $global:bbbStartupTest.Stopped) '同端口独立宿主应复用而非重启'
+
+New-StartupTestState 'Speed' 120 'Normal'
+$global:bbbStartupTest.PublicPort = 8010
+$global:bbbStartupTest.Editors = @($foreignEditor, $ownEditor)
+Invoke-StartupFailureTest '多个 Unreal Editor'
+Assert-StartupTest (-not $global:bbbStartupTest.Started -and -not $global:bbbStartupTest.Stopped) '独立模式仍须拒绝同端口多个宿主'
+
+Write-Output 'PASS startup 6 profile cases 7 refusal or cleanup cases 1 reuse case no real process or HTTP calls'

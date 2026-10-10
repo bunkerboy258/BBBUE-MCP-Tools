@@ -8,6 +8,7 @@ import math
 
 import unreal
 from BBBMcpCapabilities import mcp_tool
+from MCP.mcp_result import McpExecutionError
 from toolset_registry.registration import Registration
 
 
@@ -63,20 +64,20 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
         world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
         coordinates = list(start) + list(end) + list(view_location) + list(view_target)
         if world is None or "-nullrhi" in unreal.SystemLibrary.get_command_line().lower():
-            raise RuntimeError("命中截图需要渲染 PIE 世界")
+            raise McpExecutionError("rejected", "HIT_CAPTURE_RENDERING_REQUIRED", "命中截图需要渲染 PIE 世界")
         if any(len(value) != 3 for value in (start, end, view_location, view_target)) or not all(math.isfinite(value) for value in coordinates):
-            raise RuntimeError("命中截图坐标无效")
+            raise McpExecutionError("rejected", "HIT_CAPTURE_COORDINATES_INVALID", "命中截图坐标需要三个有限数值")
         if not math.isfinite(damage) or not 0.0 <= damage <= 10000.0 or not math.isfinite(sample_seconds) or not 0.12 <= sample_seconds <= 3.0:
-            raise RuntimeError("命中截图伤害或采样时间无效")
+            raise McpExecutionError("rejected", "HIT_CAPTURE_SAMPLE_INVALID", "命中截图伤害或采样时间需要符合范围")
         if not re.fullmatch(r"[A-Za-z0-9_-]+", file_prefix):
-            raise RuntimeError("命中截图前缀无效")
+            raise McpExecutionError("rejected", "HIT_CAPTURE_PREFIX_INVALID", "命中截图前缀需要字母 数字 下划线或连接符")
         if any(item["status"] == "pending" for item in _transition_captures.values()):
-            raise RuntimeError("已有跨帧截图尚未完成")
+            raise McpExecutionError("rejected", "HIT_CAPTURE_PENDING", "等待已有跨帧截图完成")
         directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "temp", file_prefix))
         filename = file_prefix + ".png"
         image_path = os.path.join(directory, filename)
         if os.path.exists(image_path):
-            raise RuntimeError("命中截图已存在 禁止覆盖")
+            raise McpExecutionError("rejected", "HIT_CAPTURE_EXISTS", "命中截图已存在 请使用新前缀")
         os.makedirs(directory, exist_ok=True)
         capture_id = str(uuid.uuid4())
         record = {"status": "pending", "captureId": capture_id}
@@ -117,7 +118,8 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
                 capture.set_editor_property("post_process_blend_weight", 1.0)
                 result = json.loads(BBBAnimationPreviewToolset.submit_monster_hit_ray(start, end, damage))
                 if not result.get("hit"):
-                    raise RuntimeError("截图射线未命中 Mass 实体")
+                    raise McpExecutionError("rejected", "HIT_CAPTURE_RAY_MISSED", "截图射线需要命中 Mass 实体",
+                        {"hit": result, "temporary_actors_destroyed": True, "asset_write_started": False})
                 started_at = unreal.GameplayStatics.get_time_seconds(world)
                 elapsed = 0.0
                 while elapsed < sample_seconds:
@@ -129,11 +131,19 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
                     raise RuntimeError("命中截图导出失败")
                 return {"imagePath": image_path, "hit": result, "sampleSeconds": elapsed, "previewFillLight": True, "temporaryActorsDestroyed": True}
             finally:
+                cleanup_errors = []
                 for actor in reversed(actors):
                     try:
-                        actor.destroy_actor()
+                        if actor.destroy_actor() is False:
+                            cleanup_errors.append("ACTOR_DESTROY_FAILED")
+                        if unreal.SystemLibrary.is_valid(actor) and not actor.is_actor_being_destroyed():
+                            cleanup_errors.append("ACTOR_DESTROY_UNVERIFIED")
                     except Exception as error:
                         unreal.log_error("[BBBMonsterHitCaptureCleanup] " + str(error))
+                        cleanup_errors.append("ACTOR_DESTROY_EXCEPTION")
+                if cleanup_errors:
+                    raise McpExecutionError("partial", "HIT_CAPTURE_CLEANUP_FAILED", "临时演员需要核实清理",
+                        {"cleanup_errors": cleanup_errors, "asset_write_started": False})
 
         iterator = capture_frames()
         handle = None

@@ -15,6 +15,25 @@ class McpBusinessError(RuntimeError):
         super().__init__("MCP 业务失败: " + json.dumps(value, ensure_ascii=False))
 
 
+class McpExecutionError(McpBusinessError):
+    """/** 工具提供已核实的业务失败执行证据 */"""
+
+    def __init__(self, state, code, message, details=None):
+        """
+        /**
+         * @param state\t执行前拒绝或部分执行
+         * @param code\t固定业务错误码
+         * @param message\t客户端可读说明
+         * @param details\t实际执行与清理证据
+         * @return 可通过官方字符串返回值传输的业务失败
+         */
+        """
+        if state not in {"rejected", "partial"}:
+            raise ValueError("执行失败证据需要明确状态")
+        super().__init__({"success": False, "code": code, "error": message,
+            "execution": {"state": state, "details": details or {}}})
+
+
 def decode_json_value(value):
     """
     /**
