@@ -303,7 +303,7 @@ try
             try
             {
                 $initializeBody = @{ jsonrpc = '2.0'; id = 1; method = 'initialize'; params = @{ protocolVersion = '2025-11-25'; capabilities = @{}; clientInfo = @{ name = 'bbb-mcp-startup-check'; version = '1.0' } } } | ConvertTo-Json -Depth 8 -Compress
-                $initializeResponse = Invoke-WebRequest -Uri $endpoint -Method Post -ContentType 'application/json' -Headers $sessionHeaders -Body $initializeBody -TimeoutSec 5 -ErrorAction Stop
+                $initializeResponse = Invoke-WebRequest -UseBasicParsing -Uri $endpoint -Method Post -ContentType 'application/json' -Headers $sessionHeaders -Body $initializeBody -TimeoutSec 5 -ErrorAction Stop
                 $sessionId = $initializeResponse.Headers['Mcp-Session-Id'] | Select-Object -First 1
                 $initializeText = $initializeResponse.Content
                 if ($initializeResponse.Headers['Content-Type'] -match 'text/event-stream')
@@ -323,9 +323,9 @@ try
                 }
 
                 $sessionHeaders['MCP-Protocol-Version'] = $initializeResult.result.protocolVersion
-                $null = Invoke-WebRequest -Uri $endpoint -Method Post -ContentType 'application/json' -Headers $sessionHeaders -Body '{"jsonrpc":"2.0","method":"notifications/initialized"}' -TimeoutSec 5 -ErrorAction Stop
+                $null = Invoke-WebRequest -UseBasicParsing -Uri $endpoint -Method Post -ContentType 'application/json' -Headers $sessionHeaders -Body '{"jsonrpc":"2.0","method":"notifications/initialized"}' -TimeoutSec 5 -ErrorAction Stop
                 $listBody = @{ jsonrpc = '2.0'; id = 2; method = 'tools/call'; params = @{ name = 'list_toolsets'; arguments = @{} } } | ConvertTo-Json -Depth 8 -Compress
-                $listResponse = Invoke-WebRequest -Uri $endpoint -Method Post -ContentType 'application/json' -Headers $sessionHeaders -Body $listBody -TimeoutSec 5 -ErrorAction Stop
+                $listResponse = Invoke-WebRequest -UseBasicParsing -Uri $endpoint -Method Post -ContentType 'application/json' -Headers $sessionHeaders -Body $listBody -TimeoutSec 5 -ErrorAction Stop
                 $listText = $listResponse.Content
                 if ($listResponse.Headers['Content-Type'] -match 'text/event-stream')
                 {
@@ -345,7 +345,7 @@ try
                 }
 
                 $inspectBody = @{ jsonrpc = '2.0'; id = 3; method = 'tools/call'; params = @{ name = 'call_tool'; arguments = @{ toolset_name = $runtimeNames[0]; tool_name = 'inspect_mcp_performance'; arguments = @{} } } } | ConvertTo-Json -Depth 8 -Compress
-                $inspectResponse = Invoke-WebRequest -Uri $endpoint -Method Post -ContentType 'application/json' -Headers $sessionHeaders -Body $inspectBody -TimeoutSec 5 -ErrorAction Stop
+                $inspectResponse = Invoke-WebRequest -UseBasicParsing -Uri $endpoint -Method Post -ContentType 'application/json' -Headers $sessionHeaders -Body $inspectBody -TimeoutSec 5 -ErrorAction Stop
                 $inspectText = $inspectResponse.Content
                 if ($inspectResponse.Headers['Content-Type'] -match 'text/event-stream')
                 {
@@ -396,7 +396,7 @@ try
                     continue
                 }
 
-                $gatewayInitialize = Invoke-WebRequest -Uri $publicEndpoint -Method Post -ContentType 'application/json' -Headers @{ Accept = 'application/json' } -Body $initializeBody -TimeoutSec 5 -ErrorAction Stop
+                $gatewayInitialize = Invoke-WebRequest -UseBasicParsing -Uri $publicEndpoint -Method Post -ContentType 'application/json' -Headers @{ Accept = 'application/json' } -Body $initializeBody -TimeoutSec 5 -ErrorAction Stop
                 $gatewaySession = $gatewayInitialize.Headers['Mcp-Session-Id'] | Select-Object -First 1
                 $gatewayHeaders = @{ Accept = 'application/json'; 'Mcp-Session-Id' = $gatewaySession; 'MCP-Protocol-Version' = $initializeResult.result.protocolVersion }
                 try
@@ -416,7 +416,7 @@ try
                 }
                 finally
                 {
-                    $null = Invoke-WebRequest -Uri $publicEndpoint -Method Delete -Headers $gatewayHeaders -TimeoutSec 5 -ErrorAction Stop
+                    $null = Invoke-WebRequest -UseBasicParsing -Uri $publicEndpoint -Method Delete -Headers $gatewayHeaders -TimeoutSec 5 -ErrorAction Stop
                 }
 
                 $ready = $true
@@ -446,7 +446,7 @@ try
                 {
                     try
                     {
-                        $null = Invoke-WebRequest -Uri $endpoint -Method Delete -Headers $sessionHeaders -TimeoutSec 3 -ErrorAction Stop
+                        $null = Invoke-WebRequest -UseBasicParsing -Uri $endpoint -Method Delete -Headers $sessionHeaders -TimeoutSec 3 -ErrorAction Stop
                     }
                     catch
                     {

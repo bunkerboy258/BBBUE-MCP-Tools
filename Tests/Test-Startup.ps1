@@ -179,7 +179,9 @@ function global:Stop-Process
 #>
 function global:Invoke-WebRequest
 {
-    param($Uri, $Method, $ContentType, $Headers, $Body, $TimeoutSec, $ErrorAction)
+    param($Uri, $Method, $ContentType, $Headers, $Body, $TimeoutSec, $ErrorAction, [switch]$UseBasicParsing)
+
+    Assert-StartupTest $UseBasicParsing 'HTTP 就绪检查使用基础响应解析'
 
     Assert-StartupTest ($Uri -eq "http://127.0.0.1:$($global:bbbStartupTest.PublicPort)/mcp" -or $Uri -like 'http://127.0.0.1:18000/bbb-mcp-*') '协议地址不匹配'
     if ($Method -eq 'Delete')
@@ -253,7 +255,9 @@ function global:Invoke-WebRequest
 #>
 function global:Invoke-RestMethod
 {
-    param($Uri, $Method, $ContentType, $Headers, $Body, $TimeoutSec, $ErrorAction)
+    param($Uri, $Method, $ContentType, $Headers, $Body, $TimeoutSec, $ErrorAction, [switch]$UseBasicParsing)
+
+    Assert-StartupTest $UseBasicParsing 'HTTP 就绪检查使用基础响应解析'
 
     Assert-StartupTest ($Uri -eq "http://127.0.0.1:$($global:bbbStartupTest.PublicPort)/mcp") '网关公开地址不匹配'
     $request = $Body | ConvertFrom-Json

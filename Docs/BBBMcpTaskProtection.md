@@ -10,6 +10,8 @@
 
 ### 更新后的交接
 
+Windows PowerShell 就绪检查使用 `Invoke-WebRequest -UseBasicParsing` 直接读取 MCP JSON 与事件流响应.
+
 1. 当前任务通过已有入口保存并回读自己的资产 完成所属 PIE 与后台采样 释放编辑阶段和任务登记.
 2. 回读当前任务列表 PIE 后台活动与脏包清单 完成全部任务交接后由宿主所属会话执行正式退出 并核对宿主与网关进程退出.
 3. 使用新版 `Start-UE58OfficialMcpEditor.ps1` 沿用选定端口 渲染 音频和性能参数启动原项目宿主.

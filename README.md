@@ -313,6 +313,8 @@ python -B Tests/verify_mcp_task_protection.py --url $hostInfo.Endpoint --project
 
 ### 2026-10-10
 
+- Windows PowerShell 启动就绪检查统一使用基础 HTTP 响应解析 启动测试同步核验该参数.
+
 - 原项目宿主按真实目录统一网关归属 所有端口共用生命周期锁 移除 IndependentHost 例外. 占用查询展示同项目编辑器与其他网关 多宿主冲突保留任务归属并阻止资产写入. 截图预检与空射线返回明确执行证据 清理失败保留结果核实流程. 移除整项目复制模块 测试副本队列 五个公共接口 SDK 方法与测试宿主启动分支. PIE 隔离方式按实际需求另行确定.
 
 
