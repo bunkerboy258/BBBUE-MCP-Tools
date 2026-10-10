@@ -157,10 +157,11 @@ python -B .\Scripts\MCP\mcp_call.py call list_toolsets
 
 | 工具 | 什么时候用 |
 | --- | --- |
-| `inspect_editor_tasks` | 查看谁在占用以及宿主还有哪些活动 |
+| `inspect_editor_tasks` | 查看当前操作 等待原因 可执行工作 或等待状态变化 |
 | `acquire_editor_task` | 开始任务前登记 不自动取得写权限 |
 | `renew_editor_task` | 续期任务登记 |
-| `begin_editor_write` | 申请编辑阶段 可按顺序等待 |
+| `begin_editor_write` | 持续排队 按顺序领取编辑阶段 |
+| `cancel_editor_write` | 取消本任务的排队申请 |
 | `renew_editor_write` | 续期或凭原阶段凭证显式恢复 |
 | `end_editor_write` | 完成编辑阶段后让出写权限 |
 | `release_editor_task` | 结束已经让出写权限的任务登记 |
@@ -176,7 +177,14 @@ Python 客户端 `McpSession` 提供任务登记和编辑阶段的方法.
 命令行客户端通过 `BBB_MCP_TASK_TOKEN` 和 `BBB_MCP_WRITE_TOKEN` 环境变量携带凭证.
 具体参数和示例见 [共享宿主任务保护](Docs/BBBMcpTaskProtection.md).
 
-**当前验收状态:** 共享任务保护已通过隔离测试与真实 UE 双客户端 PIE 验收. 已核实任务交替编辑 排队交接 重连保护 旧凭证失效及验收后无脏资产和残留任务.
+**当前验收状态:** 共享任务保护已通过隔离测试与真实 UE 三客户端 PIE 验收. 已核实持续排队 批次交接 共享查询 重连保护和旧凭证失效 验收结束时任务 队列 后台活动与脏资产清零.
+
+等待结果为 `status=queued` 时 原排队顺序继续有效.
+AI 可继续查询和准备参数 通过 `inspect_editor_tasks` 的状态版本等待变化.
+返回的 `summary.caller` 告诉当前任务能做什么以及下一步调用.
+阶段用途 当前工具和实际耗时帮助其他任务理解占用.
+凭证有效期表示权限有效时间 完成时间以实际结果为准.
+已经准备好的一组请求可通过 `McpSession.run_write_batch` 完成排队 执行和交接.
 
 ### 共享宿主时要记住什么
 
@@ -236,7 +244,7 @@ Python 调用方可使用 `MCP.mcp_result.decode_tool_result` 解析返回包装
 | 端口已被其他进程占用 | 核对项目和进程归属 先协调现有任务 |
 | 工具列表里没有目标工具 | 重新发现并检查注册和依赖报告 |
 | 缺少项目原生类或函数 | 在接入项目补齐接口并编译后验证 |
-| 返回 `EDITOR_WRITE_BUSY` | 其他阶段正在编辑 可申请排队等待 |
+| 返回 `status=queued` | 保留顺序 继续查询与准备 按状态变化领取阶段 |
 | 返回 `EDITOR_TASK_REQUIRED` | 先登记可写任务 |
 | 返回 `EDITOR_WRITE_REQUIRED` | 登记后还需申请编辑阶段 |
 | 返回 `WRITE_RECOVERY_REQUIRED` | 核实实际状态后凭两份原凭证显式恢复 |
@@ -299,4 +307,15 @@ python -B Tests/verify_mcp_task_protection.py --url $hostInfo.Endpoint --project
 任务凭证 私有后端地址和访问密钥只供本机任务使用 不写入公开文档或版本库.
 
 第三方 GenOrca 动作的来源和许可证见 [项目依赖](Docs/ProjectDependencies.md).
+
+## 更新日志
+
+### 2026-10-10
+
+- 占用报告显示当前阶段 工具 耗时 等待原因和本任务下一步.
+- 排队顺序在等待结束和重连后保持 支持主动取消和任务到期清理.
+- 等待者共享宿主观测 按状态版本等待变化 编辑授权时核对实际状态.
+- 工具发现展示权限分类 新增共享资产搜索 对象查询 蓝图快照和动画通知查询.
+- SDK 提供 `run_write_batch` 失败时保留已完成结果及所属阶段.
+- 完成三客户端 PIE 验收 同时覆盖批次交接和共享查询.
 

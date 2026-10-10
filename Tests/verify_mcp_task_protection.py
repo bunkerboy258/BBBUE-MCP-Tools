@@ -87,11 +87,14 @@ def main():
     identifier = "task-protection-" + uuid.uuid4().hex
     owner = McpSession(options.url, 70)
     other = McpSession(options.url, 70)
+    reader = McpSession(options.url, 70)
     tokens = []
     checks = []
     second_task = None
     queue_thread = None
     queue_failure = []
+    batch_seconds = []
+    handoff_seconds = None
 
     def definition(listing, label):
         """
@@ -114,7 +117,8 @@ def main():
         listing = decode_tool_result(other.call_tool("list_toolsets", {}))
         assert "bbb_task" in listing
         controls = decode_tool_result(other.call_tool("describe_toolset", {"toolset_name": "bbb_task"}))
-        assert len(controls["tools"]) == 8
+        assert len(controls["tools"]) == 9
+        assert "cancel_editor_write" in {tool["name"] for tool in controls["tools"]}
         task_definition = definition(listing, "BBBMcpTaskToolset")
         schema = decode_tool_result(other.call_tool("describe_toolset", {"toolset_name": task_definition}))
         if isinstance(schema, str):
@@ -130,6 +134,8 @@ def main():
         first_task = owner.acquire_task(identifier + "-A", "真实双客户端阶段验收", "pie", 300)
         second_task = other.acquire_task(identifier + "-B", "持续登记和交接验收", "pie", 300)
         tokens.extend([first_task, second_task])
+        read_task = reader.acquire_task(identifier + "-C", "共享查询和参数准备验收", "read", 300)
+        tokens.append(read_task)
         first_b_stage = other.begin_write()
         second_task["write_token"] = first_b_stage["write_token"]
         performance = invoke(other, runtime, "inspect_mcp_performance")
@@ -139,6 +145,21 @@ def main():
         assert configured["matches_configured_settings"]
         other.end_write()
         checks.append("idle_registration_allows_other_editor")
+
+        for round_index in range(3):
+            for session in [owner, other]:
+                started = time.monotonic()
+                completed = session.run_write_batch([
+                    {"name": "call_tool", "arguments": {"toolset_name": runtime,
+                        "tool_name": "configure_mcp_performance", "arguments": {
+                            "profile": performance["profile"], "max_fps": int(performance["configured_max_fps"])}}},
+                    {"name": "call_tool", "arguments": {"toolset_name": runtime,
+                        "tool_name": "inspect_mcp_performance", "arguments": {}}},
+                ], "真实批次回读与交接 " + str(round_index + 1))
+                batch_seconds.append(time.monotonic() - started)
+                assert len(completed) == 2 and session.write_token is None
+                assert reader.inspect_tasks()["writer_task_id"] is None
+        checks.append("six_sdk_write_batches_and_handoffs")
 
         stage = owner.begin_write()
         first_task["write_token"] = stage["write_token"]
@@ -155,17 +176,32 @@ def main():
         external = definition(listing, "BBBExternalToolset")
         blocked(lambda: invoke(other, level, "set_pie_paused", {"paused": True}), "EDITOR_WRITE_REQUIRED")
         blocked(lambda: invoke(other, external, "util", {"action": "stop_pie", "params_json": "{}"}), "EDITOR_WRITE_REQUIRED")
-        blocked(lambda: other.begin_write(), "EDITOR_WRITE_BUSY")
+        queued = other.begin_write(stage_label="第二个客户端 PIE 验收")
+        assert queued["status"] == "queued" and other.write_token is None
+        queued_again = other.begin_write(wait_seconds=1)
+        assert queued_again["status"] == "queued"
+        assert queued_again["state"]["write_queue"] == [second_task["task_id"]]
+        assert queued_again["state"]["summary"]["caller"]["queue_position"] == 1
+        assert queued_again["state"]["summary"]["caller"]["can_read"]
+        checks.append("persistent_queue_after_wait")
         blocked(lambda: other.call_tool("shutdown_editor_host", {}), "HOST_BUSY")
         current = tasks(other)["activity"]
         assert current["worlds"] == playing["worlds"]
         assert current["pie_generation"] == playing["pie_generation"]
         assert current["paused_worlds"] == playing["paused_worlds"]
         invoke(other, editor, "IsPIERunning")
+        assets = definition(listing, "AssetTools")
+        invoke(reader, assets, "find_assets", {"folder_path": "/Engine/Maps", "name": "Entry", "recursive": False})
+        read_state = reader.inspect_tasks()
+        assert read_state["summary"]["caller"]["can_read"]
+        assert read_state["summary"]["writer"]["task_id"] == first_task["task_id"]
+        guide = invoke(reader, runtime, "get_mcp_usage_guide")
+        assert guide["editor_state"]["writer"]["task_id"] == first_task["task_id"]
+        checks.append("third_client_shared_queries_and_live_guide")
         checks.append("project_routes_and_read_queries")
 
         owner.close()
-        blocked(lambda: other.begin_write(), "EDITOR_WRITE_BUSY")
+        assert other.begin_write()["status"] == "queued"
         owner = McpSession(options.url, 70, first_task["task_token"], stage["write_token"])
         owner.renew_write()
         checks.append("reconnect_preserves_ownership")
@@ -174,6 +210,7 @@ def main():
             """/** @return 本次第二个任务等待编辑阶段 不控制其他任务 */"""
             try:
                 next_stage = other.begin_write(wait_seconds=60)
+                assert next_stage["status"] == "active"
                 second_task["write_token"] = next_stage["write_token"]
             except Exception as error:
                 queue_failure.append(error)
@@ -189,8 +226,10 @@ def main():
         assert queued["write_queue"] == [second_task["task_id"]]
         invoke(owner, editor, "StopPIE")
         wait_pie(owner, False)
+        handoff_started = time.monotonic()
         owner.end_write()
         queue_thread.join(10)
+        handoff_seconds = time.monotonic() - handoff_started
         assert not queue_thread.is_alive() and not queue_failure
         assert tasks(owner)["writer_task_id"] == second_task["task_id"]
         checks.append("queued_stage_handoff")
@@ -208,23 +247,32 @@ def main():
         wait_pie(other, False)
         other.end_write()
         other.release_task()
+        reader.release_task()
         checks.append("old_stage_and_task_tokens_cannot_control_next_pie")
         final = tasks(other)
         assert final["activity"]["dirty_packages"] == initial["activity"]["dirty_packages"]
         assert not final["tasks"] and not final["inflight"] and not final["activity"]["activities"]
         assert final["writer_task_id"] is None and not final["write_queue"]
         checks.append("no_asset_writes_or_leaked_tasks")
-        print(json.dumps({"passed": checks, "process_id": final["activity"]["process_id"], "pie_generation": final["activity"]["pie_generation"], "dirty_packages": final["activity"]["dirty_packages"]}, ensure_ascii=False))
+        print(json.dumps({"passed": checks, "clients": 3,
+            "process_id": final["activity"]["process_id"], "pie_generation": final["activity"]["pie_generation"],
+            "dirty_packages": final["activity"]["dirty_packages"],
+            "sdk_batch_mean_ms": round(sum(batch_seconds) / len(batch_seconds) * 1000, 2),
+            "queued_handoff_ms": round(handoff_seconds * 1000, 2), "metrics": final["metrics"]}, ensure_ascii=False))
     finally:
         for record in tokens:
             if record is second_task and queue_thread is not None:
                 queue_thread.join(5)
-            with McpSession(options.url, 70, record["task_token"], record.get("write_token")) as cleanup:
+            with McpSession(options.url, 70) as cleanup:
                 snapshot = tasks(cleanup)
                 owned = next((item for item in snapshot["tasks"] if item["task_id"] == record["task_id"]), None)
                 if owned is None:
                     continue
+                cleanup.task_token = record["task_token"]
+                cleanup.write_token = record.get("write_token")
                 try:
+                    if owned["queue_position"] is not None:
+                        cleanup.cancel_write()
                     if owned["write"] is not None:
                         cleanup.renew_write(resume=True)
                         if snapshot["activity"]["pie_active"]:
@@ -236,6 +284,7 @@ def main():
                     print("验收登记或阶段仍需检查 请查询 inspect_editor_tasks 不停止其他任务", file=sys.stderr)
         owner.close()
         other.close()
+        reader.close()
 
 
 if __name__ == "__main__":

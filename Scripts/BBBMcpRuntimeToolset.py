@@ -6,6 +6,7 @@ import re
 import unreal
 
 from BBBMcpCapabilities import mcp_tool, usage_routes
+from MCP.mcp_access_policy import access_catalog
 from toolset_registry.registration import Registration
 
 
@@ -230,7 +231,17 @@ class BBBMcpRuntimeToolset(unreal.ToolsetDefinition):
                 "dependency_document_path": os.path.join(BBBMcpBootstrap.get_repository_root(), "Docs", "ProjectDependencies.md"),
                 "task_protection_document_path": os.path.join(BBBMcpBootstrap.get_repository_root(), "Docs", "BBBMcpTaskProtection.md"),
                 "task_toolset": "bbb_task",
-                "task_flow": ["inspect_editor_tasks", "acquire_editor_task", "begin_editor_write", "renew_editor_write", "end_editor_write", "renew_editor_task", "release_editor_task", "shutdown_editor_host"],
+                "task_flow": ["inspect_editor_tasks", "acquire_editor_task", "begin_editor_write", "inspect_editor_tasks", "renew_editor_write", "end_editor_write", "renew_editor_task", "cancel_editor_write", "release_editor_task", "shutdown_editor_host"],
+                "task_status_metadata": "result._meta.bbb/editor_state",
+                "access_policy": access_catalog(),
+                "pipeline": {
+                    "prepare": "shared_read 与本地分析期间准备完整参数",
+                    "queue": "begin_editor_write 返回 queued 时保持顺序 按 revision 等待变化",
+                    "claim": "can_claim_write=true 时再次调用 begin_editor_write 领取阶段",
+                    "execute": "在阶段内连续操作并回读结果",
+                    "handoff": "完成所属活动和未保存资产处理后 end_editor_write",
+                    "sdk": "McpSession.run_write_batch",
+                },
                 "project_root": os.path.realpath(unreal.Paths.project_dir()),
                 "dependency_tool": "inspect_mcp_dependencies",
                 "profiles": _profile_options(),

@@ -4,7 +4,20 @@
 
 项目工具通过 `BBBMcpCapabilities.mcp_tool` 进入官方注册表，保持既有公开工具名称、参数和 UE 返回包装。业务根结果 `success=false` 或非空 `error` 进入官方工具错误通道；嵌套的资产诊断字段不代表调用本身失败。客户端共用 `MCP.mcp_result.decode_tool_result` 解码文本或结构化返回。调用失败不自动重试。
 
-`McpSession.call_many` 复用会话顺序发送请求，失败立即停止；`McpBatchError.failed_index`、`failed_call` 和 `completed_results` 保留失败位置及此前已完成的协议结果。已经保存、编译或执行的动作不会自动回滚。需要减少往返时使用已注册的官方 `ProgrammaticToolset`，先读取执行环境和目标工具结构；脚本编排同样不是原子资产事务。
+`McpSession.call_many` 复用会话顺序发送请求 每项分别检查权限和结果 失败时保留 `McpBatchError.failed_index` `failed_call` 和 `completed_results`.
+已经完成的动作继续保留 调用者据实际结果处理后续步骤.
+共享宿主使用已注册的专用工具执行操作.
+
+准备好完整参数后使用 `McpSession.run_write_batch` 完成持续排队 连续调用和阶段交接.
+`McpWriteBatchError.phase` 标明排队 执行或交接阶段 `completed_results` 保留已完成请求.
+等待结束后排队顺序保持 原任务可继续领取或调用 `cancel_editor_write` 取消申请.
+执行或交接受阻时原任务继续持有阶段 并核对实际活动和操作结果.
+
+占用信息通过 `inspect_editor_tasks` 以及 `result._meta["bbb/editor_state"]` 获取.
+工具发现文字和使用指南同时展示当前占用.
+按 `revision` 等待状态变化 根据 `summary.caller` 安排共享查询 参数准备和编辑领取.
+工具描述中的 `bbb/access` 来自唯一 `MCP.mcp_access_policy` 分类 与网关实际权限检查保持一致.
+实际编辑授权和阶段结束核对现场状态 详细参数见 [共享宿主任务保护](BBBMcpTaskProtection.md).
 
 启动注册集合与项目领域路由来自唯一 `BBBMcpCapabilities.TOOLSET_ROUTES`。指南的 `routes` 只含当前已注册入口，`unavailable_routes` 单独报告未注册的官方入口。不得通过猜测名称或临时注册替代实际发现。
 

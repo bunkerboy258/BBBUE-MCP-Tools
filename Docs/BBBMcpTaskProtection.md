@@ -47,7 +47,7 @@
 结束阶段会要求宿主没有实际活动和未保存内容.
 当前按整个宿主检查这些条件.
 
-## 八个网关工具
+## 九个网关工具
 
 通过 `list_toolsets` 找到 `bbb_task` 然后描述该工具集.
 也可以通过 `tools/list` 发现这些工具.
@@ -57,24 +57,69 @@
 | --- | --- | --- |
 | `acquire_editor_task` | `task_id` `description` `mode` 可选 `ttl_seconds=300` | 登记任务 返回 `task_token` |
 | `renew_editor_task` | `task_token` 可选 `resume=False` | 续期任务登记 |
-| `begin_editor_write` | `task_token` 可选 `ttl_seconds=120` `wait_seconds=0` | 申请编辑阶段 返回 `write_token` |
+| `begin_editor_write` | `task_token` 可选 `ttl_seconds=120` `wait_seconds=0` `stage_label` | 申请或领取编辑阶段 返回 `active` 与 `write_token` 或 `queued` 与状态 |
+| `cancel_editor_write` | `task_token` | 取消本任务排队申请 保留登记 唤醒本任务等待请求 |
 | `renew_editor_write` | `task_token` `write_token` 可选 `resume=False` | 续期或显式恢复原阶段 |
 | `end_editor_write` | `task_token` `write_token` | 让出写权限 保留登记 |
 | `release_editor_task` | `task_token` | 结束没有编辑阶段的任务登记 |
-| `inspect_editor_tasks` | 无 | 查询任务 阶段 等待顺序和实际活动 不返回凭证 |
+| `inspect_editor_tasks` | 可选 `task_token` `after_revision` `wait_seconds=0` | 查询占用 当前工具 阻塞原因和下一步 或等待状态版本变化 |
 | `shutdown_editor_host` | 无 | 所有任务 请求 活动和脏包清零后请求退出 |
 
 任务有效期为三十至三千六百秒.
 编辑阶段有效期为三十至九百秒.
 单次申请最多等待六十秒.
-等待超时返回失败并移除本申请的队列位置 任务登记仍保留.
-等待者按申请顺序取得阶段 后来的申请不能越过已有队列.
-同一任务同时只允许一个编辑申请.
+单次等待结束后返回 `status=queued` 并保留原顺序.
+队列按申请顺序排列 队首任务主动领取阶段.
+再次调用 `begin_editor_write` 复用本任务的申请与原阶段参数.
+任务每次保持一份申请 同时保持一个领取请求.
+取消申请或任务有效期结束后释放队列位置.
+长时间准备期间使用 `renew_editor_task` 保持任务与申请有效.
+编辑阶段从领取成功后开始计时.
 
 `inspect_editor_tasks` 中 `writer_task_id` 表示当前写入者.
 `write_queue` 表示等待顺序.
 每个任务的 `write` 为当前阶段状态或空值.
 `last_write_state` 表示阶段完成 超时回收或预检失败.
+
+## AI 如何理解当前占用
+
+`inspect_editor_tasks` 返回完整快照 `summary` 提供精简解释:
+
+| 字段 | 含义 |
+| --- | --- |
+| `revision` | 实际状态版本 |
+| `writer` | 当前任务说明 阶段用途与正在执行的工具 |
+| `writer.write.elapsed_seconds` | 阶段实际耗时 |
+| `writer.operations` | 执行中的工具名称 权限分类与操作耗时 |
+| `blockers` | 占用 PIE 采样 未保存资产和恢复要求 |
+| `caller` | 本任务可读 可准备 可写 可领取及下一步调用 |
+| `observation_age_seconds` | 最近实际宿主观测距今秒数 |
+
+`remaining_seconds` 表示凭证有效期.
+实际耗时由 `elapsed_seconds` 表示 完成时间以实际结果为准.
+
+标准调用响应和工具发现结果在 `result._meta["bbb/editor_state"]` 中附带精简状态.
+`list_toolsets` 的文字结果和 `get_mcp_usage_guide` 的业务结果也展示当前占用.
+SDK 将最近收到的状态保存在 `session.editor_state` 中.
+发现缓存保存工具结构 占用摘要使用最近收到的状态并累加观测年龄.
+准备写入或确认新变化时调用 `inspect_editor_tasks` 获取当前快照.
+
+传入任务凭证后 `caller` 对应本任务 SDK 自动携带登记凭证.
+`caller.can_claim_write=true` 时调用 `begin_editor_write` 领取阶段.
+等待期间可执行 `shared_read` 查询 分析结果和准备下一批完整参数.
+查询结果反映该次调用时的实际状态 连续读取时结合状态版本和当前操作理解结果.
+
+已有 `revision` 时调用 `inspect_editor_tasks(after_revision=revision, wait_seconds=30)`.
+版本变化时及时返回 达到等待上限时返回当前状态.
+状态版本属于当前网关宿主 连接到新宿主后重新获取.
+网关合并同时进行的宿主探测 等待期间共享一秒观测窗口.
+实际编辑授权与阶段结束继续执行现场状态检查.
+`metrics.probe_count` 与 `metrics.probe_seconds` 用于比较探测数量和耗时.
+
+工具描述中的 `_meta["bbb/access"]` 与附加文字标明 `shared_read` `editor_write` `pie_write` `conditional` 或 `blocked`.
+唯一权限分类来源为 `Scripts/MCP/mcp_access_policy.py`.
+`bbb_task` 描述和使用指南提供共享查询清单及参数条件.
+经过审查的资产搜索 对象属性查询 蓝图快照和动画通知查询可以与其他任务的编辑阶段并存.
 
 ## 两份凭证
 
@@ -110,9 +155,16 @@ from MCP.mcp_call import McpSession
 
 with McpSession(os.environ["BBB_MCP_URL"]) as session:
     task = session.acquire_task("editing-task", "编辑与分析", "editor", 900)
-    stage = session.begin_write(ttl_seconds=120, wait_seconds=30)
-    session.renew_write()
-    session.end_write()
+    stage = session.begin_write(ttl_seconds=120, wait_seconds=30, stage_label="已准备的编辑批次")
+    if stage["status"] == "queued":
+        state = session.inspect_tasks(stage["state"]["revision"], wait_seconds=30)
+        print(state["summary"])
+        if state["summary"]["caller"]["can_claim_write"]:
+            stage = session.begin_write()
+    if stage["status"] == "active":
+        session.renew_write()
+        session.end_write()
+    session.cancel_write()
     session.renew_task()
     session.release_task()
 ```
@@ -122,6 +174,18 @@ with McpSession(os.environ["BBB_MCP_URL"]) as session:
 结束前核实实际结果并处理本阶段的未保存内容.
 较长阶段主动调用 `renew_write`.
 没有编辑阶段的长时间分析主动调用 `renew_task`.
+
+已经准备好完整参数时使用 `session.run_write_batch(calls, stage_label, ttl_seconds=120, wait_seconds=60)`.
+`calls` 使用 `call_many` 的请求数组结构.
+该方法先检查整批结构 再排队等待领取 执行逐项检查 回读结果并交接.
+等待期间按状态版本监听 每二十秒保持任务有效.
+PIE 和采样需要阶段归属覆盖整个活动 使用手动阶段流程管理开始 结束和实际状态检查.
+
+`McpWriteBatchError.phase` 标明 `queue` `execute` 或 `handoff`.
+`completed_results` 保留已完成请求 `__cause__` 保留原始错误与失败位置.
+排队总等待结束后申请继续有效 可继续领取或显式取消.
+执行或交接受阻时保留阶段凭证 原任务核实结果和实际活动后继续处理.
+资产保存和采样停止由所属任务明确执行.
 
 `close()` 只关闭 HTTP 会话.
 重连时创建 `McpSession(url, task_token=task["task_token"], write_token=stage["write_token"])`.
@@ -170,7 +234,7 @@ with McpSession(os.environ["BBB_MCP_URL"]) as session:
 
 已有活动或未保存内容没有当前阶段归属时不自动接管.
 未知工具默认需要编辑阶段.
-已审核的只读清单位于 `mcp_task_gateway.py`.
+已审核的只读清单位于 `mcp_access_policy.py`.
 `inspect_mass_inspection_population(pause_game=True)` 需要编辑阶段.
 任意 Python 脚本和控制台执行被拒绝.
 PCG 异步生成尚无活动状态探针 共享入口拒绝 `generate=True`.
@@ -187,7 +251,7 @@ PCG 异步生成尚无活动状态探针 共享入口拒绝 `generate=True`.
 
 隔离验证入口为 `Tests/test_mcp_task_gateway.py`.
 真实宿主验证入口为 `Tests/verify_mcp_task_protection.py`.
-真实验证检查两个任务交替编辑 等待交接 旧凭证失效和 PIE 保护.
+真实验证检查三个客户端 两个任务交替编辑 第三个任务共享查询 持久排队 批次交接 旧凭证失效和 PIE 保护.
 真实验证不修改或保存项目资产.
 独立游戏或服务器进程属于后续运行测试隔离阶段.
 

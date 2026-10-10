@@ -16,6 +16,7 @@
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -48,6 +49,23 @@ class McpBatchError(RuntimeError):
         self.failed_call = call
         self.completed_results = list(completed)
         super().__init__("批量请求第 {} 项失败 前 {} 项已完成且未回滚: {}".format(index + 1, len(completed), error))
+
+
+class McpWriteBatchError(RuntimeError):
+    """/** 编辑批次失败保留阶段与已经完成的结果 */"""
+
+    def __init__(self, phase, completed, error):
+        """
+        /**
+         * @param phase	排队 执行 或交接阶段
+         * @param completed	已经完成的协议结果
+         * @param error	原始异常
+         * @return 批次异常
+         */
+        """
+        self.phase = phase
+        self.completed_results = list(completed)
+        super().__init__("编辑批次 {} 阶段需处理 已完成 {} 项: {}".format(phase, len(completed), error))
 
 
 def _iter_sse_lines(response):
@@ -110,6 +128,8 @@ class McpSession:
         self._protocol_version = None
         self._discovery_cache = {}
         self._closed = False
+        self.editor_state = None
+        self._state_received_at = None
         if timeout_seconds <= 0:
             raise ValueError("MCP 请求超时必须大于零")
 
@@ -153,6 +173,10 @@ class McpSession:
         except requests.RequestException as error:
             raise RuntimeError("MCP 传输失败 不自动重试 操作是否已执行需检查编辑器状态: {}".format(error)) from error
 
+        state = result.get("result", {}).get("_meta", {}).get("bbb/editor_state")
+        if state is not None:
+            self.editor_state = state
+            self._state_received_at = time.monotonic()
         if result.get("error"):
             raise RuntimeError("MCP 协议错误: {}".format(json.dumps(result["error"], ensure_ascii=False)))
         if result.get("result", {}).get("isError"):
@@ -195,7 +219,18 @@ class McpSession:
         if name in {"list_toolsets", "describe_toolset"}:
             cache_key = (name, json.dumps(arguments, sort_keys=True))
             if cache_key in self._discovery_cache:
-                return json.loads(self._discovery_cache[cache_key])
+                cached = json.loads(self._discovery_cache[cache_key])
+                if self.editor_state is not None:
+                    state = json.loads(json.dumps(self.editor_state))
+                    age = state.get("observation_age_seconds")
+                    if age is not None:
+                        state["observation_age_seconds"] = round(age + time.monotonic() - self._state_received_at, 3)
+                    cached["result"].setdefault("_meta", {})["bbb/editor_state"] = state
+                    if name == "list_toolsets":
+                        for item in cached["result"].get("content", []):
+                            if item.get("type") == "text":
+                                item["text"] += "\n当前占用: " + json.dumps(state, ensure_ascii=False)
+                return cached
 
         params = {"name": name, "arguments": arguments}
         if self.task_token:
@@ -204,7 +239,13 @@ class McpSession:
             params.setdefault("_meta", {})["bbb/write_token"] = self.write_token
         result = self._post("tools/call", params)
         if cache_key is not None:
-            self._discovery_cache[cache_key] = json.dumps(result)
+            structural = json.loads(json.dumps(result))
+            structural.get("result", {}).get("_meta", {}).pop("bbb/editor_state", None)
+            if name == "list_toolsets":
+                for item in structural["result"].get("content", []):
+                    if item.get("type") == "text":
+                        item["text"] = item["text"].split("\n当前占用: ", 1)[0]
+            self._discovery_cache[cache_key] = json.dumps(structural)
         return result
 
     def acquire_task(self, task_id, description, mode="editor", ttl_seconds=300):
@@ -244,7 +285,7 @@ class McpSession:
         self.task_token = None
         return value
 
-    def begin_write(self, ttl_seconds=120, wait_seconds=0):
+    def begin_write(self, ttl_seconds=120, wait_seconds=0, stage_label=""):
         """
         /**
          * 申请一组连续编辑操作的短期写权限
@@ -257,9 +298,98 @@ class McpSession:
             raise RuntimeError("当前客户端仍持有编辑阶段凭证 先结束或核实该阶段")
         value = decode_tool_result(self.call_tool("begin_editor_write", {
             "task_token": self.task_token, "ttl_seconds": ttl_seconds, "wait_seconds": wait_seconds,
+            "stage_label": stage_label,
         }))
-        self.write_token = value["write_token"]
+        if value["status"] == "active":
+            self.write_token = value["write_token"]
         return value
+
+    def inspect_tasks(self, after_revision=None, wait_seconds=0):
+        """
+        /**
+         * 查询调用者的行动建议 或等待状态版本变化
+         * @param after_revision	已知版本
+         * @param wait_seconds	本次等待上限
+         * @return 占用与实际活动
+         */
+        """
+        arguments = {"wait_seconds": wait_seconds}
+        if after_revision is not None:
+            arguments["after_revision"] = after_revision
+        return decode_tool_result(self.call_tool("inspect_editor_tasks", arguments))
+
+    def cancel_write(self):
+        """
+        /**
+         * @return 取消本任务等待申请的结果
+         */
+        """
+        return decode_tool_result(self.call_tool("cancel_editor_write", {"task_token": self.task_token}))
+
+    def run_write_batch(self, calls, stage_label, ttl_seconds=120, wait_seconds=60):
+        """
+        /**
+         * 将已经准备好的编辑批次排队 执行并交接
+         * @param calls	顺序执行的工具请求
+         * @param stage_label	本阶段用途
+         * @param ttl_seconds	阶段有效期
+         * @param wait_seconds	排队总等待上限
+         * @return 已经完成的协议结果数组
+         */
+        """
+        self._validate_calls(calls)
+        if not self.task_token or self.write_token:
+            raise ValueError("编辑批次需要已登记且处于准备阶段的任务")
+        if isinstance(wait_seconds, bool) or not isinstance(wait_seconds, int) or not 0 <= wait_seconds <= 3600:
+            raise ValueError("排队总等待秒数应为零至三千六百")
+        deadline = time.monotonic() + wait_seconds
+        heartbeat_at = time.monotonic()
+        phase = "queue"
+        completed = []
+        try:
+            stage = self.begin_write(ttl_seconds, 0, stage_label)
+            state = stage.get("state")
+            while stage["status"] == "queued":
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RuntimeError("排队申请仍有效 可继续准备并领取 或调用 cancel_editor_write")
+                state = self.inspect_tasks(state["revision"], min(20, max(1, int(remaining))))
+                if time.monotonic() - heartbeat_at >= 20:
+                    self.renew_task()
+                    heartbeat_at = time.monotonic()
+                if state["summary"]["caller"]["queue_position"] is None:
+                    raise RuntimeError("原排队申请已结束 请核对占用状态")
+                if state["summary"]["caller"]["can_claim_write"]:
+                    stage = self.begin_write(ttl_seconds, 0, stage_label)
+                    state = stage.get("state", state)
+            if stage["status"] != "active":
+                raise RuntimeError("编辑申请已取消 请核对任务安排")
+            phase = "execute"
+            completed = self.call_many(calls)
+            phase = "handoff"
+            self.end_write()
+            return completed
+        except McpBatchError as error:
+            raise McpWriteBatchError(phase, error.completed_results, error) from error
+        except Exception as error:
+            raise McpWriteBatchError(phase, completed, error) from error
+
+    @staticmethod
+    def _validate_calls(calls):
+        """
+        /**
+         * 在取得权限前检查整批请求结构
+         * @param calls	工具请求数组
+         * @return 无返回值
+         */
+        """
+        if not isinstance(calls, list) or not calls:
+            raise ValueError("批量请求必须为非空数组")
+        for call in calls:
+            if not isinstance(call, dict) or not isinstance(call.get("name"), str) or not call["name"]:
+                raise ValueError("每个批量请求必须包含非空 name")
+            if not isinstance(call.get("arguments", {}), dict):
+                raise ValueError("批量请求 arguments 必须为对象")
 
     def renew_write(self, resume=False):
         """
@@ -306,13 +436,7 @@ class McpSession:
          * @return 按请求顺序排列的协议结果数组
          */
         """
-        if not isinstance(calls, list) or not calls:
-            raise ValueError("批量请求必须为非空数组")
-        for call in calls:
-            if not isinstance(call, dict) or not isinstance(call.get("name"), str) or not call["name"]:
-                raise ValueError("每个批量请求必须包含非空 name")
-            if not isinstance(call.get("arguments", {}), dict):
-                raise ValueError("批量请求 arguments 必须为对象")
+        self._validate_calls(calls)
 
         results = []
         for index, call in enumerate(calls):

@@ -19,36 +19,9 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from MCP.mcp_call import McpSession, _parse_response
 from MCP.mcp_result import McpBusinessError, decode_tool_result
+from MCP import mcp_access_policy as access_policy
 
 
-_READ_TOOLS = {
-    "EditorAppToolset": {"IsPIERunning", "GetSelectedActors", "GetSelectedAssets", "GetCameraTransform", "GetContentBrowserPath", "GetOpenAssets"},
-    "BBBMcpTaskToolset": {"inspect_editor_activity"},
-    "BBBMcpRuntimeToolset": {"inspect_mcp_performance", "get_mcp_usage_guide", "inspect_mcp_dependencies"},
-    "BBBGenericEditorToolset": {
-        "inspect_dirty_packages", "inspect_pie_characters", "inspect_pie_player_control",
-        "inspect_pie_actor_properties", "inspect_pie_actor_skeletal_bones",
-        "inspect_pie_hand_attachments", "inspect_pie_bone_alignment",
-        "inspect_pie_static_mesh_instances", "inspect_static_mesh_bounds",
-    },
-    "BBBAnimationMigrationToolset": {
-        "get_pie_input_sequence_status", "get_pie_montage_motion_capture_status",
-        "export_animation_blueprint_graphs",
-    },
-    "BBBAnimationPreviewToolset": {
-        "inspect_animation_transition_capture", "inspect_mass_population_benchmark",
-    },
-    "BBBHitReactionToolset": {"inspect_skeletal_hit_reaction_capture"},
-    "BBBBlueprintGraphToolset": {"inspect_blueprint_graph_logic"},
-}
-_READ_ACTIONS = {
-    "is_in_pie", "get_output_log", "get_cvar", "get_project_info",
-    "list_class_properties", "list_enum_values", "get_viewport_camera",
-}
-_OPAQUE_TOOLS = {
-    "execute_tool_script", "execute_python_command", "execute_python_script",
-    "execute_editor_script", "execute_console_command", "execute_script",
-}
 _CONTROL_SPEC = {
     "acquire_editor_task": ("申请共享宿主任务占用", {
         "task_id": {"type": "string"}, "description": {"type": "string"},
@@ -62,6 +35,10 @@ _CONTROL_SPEC = {
         "task_token": {"type": "string"},
         "ttl_seconds": {"type": "integer", "minimum": 30, "maximum": 900},
         "wait_seconds": {"type": "integer", "minimum": 0, "maximum": 60},
+        "stage_label": {"type": "string", "maxLength": 160},
+    }, ["task_token"]),
+    "cancel_editor_write": ("取消本任务的排队申请 保留任务登记", {
+        "task_token": {"type": "string"},
     }, ["task_token"]),
     "renew_editor_write": ("凭原编辑阶段凭证续期或显式恢复", {
         "task_token": {"type": "string"}, "write_token": {"type": "string"},
@@ -73,7 +50,11 @@ _CONTROL_SPEC = {
     "release_editor_task": ("活动结束后释放本任务 不结束其他任务的 PIE", {
         "task_token": {"type": "string"},
     }, ["task_token"]),
-    "inspect_editor_tasks": ("只读查询占用和实际宿主活动 不返回任务凭证", {}, []),
+    "inspect_editor_tasks": ("查询当前操作 阻塞原因 可执行工作 或等待状态变化", {
+        "task_token": {"type": "string"},
+        "after_revision": {"type": "integer", "minimum": 0},
+        "wait_seconds": {"type": "integer", "minimum": 0, "maximum": 60},
+    }, []),
     "shutdown_editor_host": ("全部任务和活动结束后请求隐藏宿主退出", {}, []),
 }
 
@@ -117,16 +98,7 @@ def tool_identity(params):
      * @return 实际工具集 函数和业务参数
      */
     """
-    name = params.get("name", "")
-    arguments = params.get("arguments", {})
-    if name == "call_tool":
-        name = arguments.get("tool_name", "")
-        toolset = arguments.get("toolset_name", "")
-        return toolset, name, arguments.get("arguments", {})
-    if "." in name:
-        toolset, name = name.rsplit(".", 1)
-        return toolset, name, arguments
-    return "", name, arguments
+    return access_policy.tool_identity(params)
 
 
 def is_read_call(params):
@@ -137,17 +109,7 @@ def is_read_call(params):
      * @return 是否可与占用任务并存
      */
     """
-    toolset, name, arguments = tool_identity(params)
-    if not toolset and name in {"list_toolsets", "describe_toolset"}:
-        return True
-    definition = re.sub(r"_0x[0-9a-fA-F]{8}$", "", toolset.rsplit(".", 1)[-1])
-    if name in _READ_TOOLS.get(definition, set()):
-        return True
-    if definition == "BBBExternalToolset" and name == "util":
-        return arguments.get("action") in _READ_ACTIONS
-    if definition == "BBBAnimationPreviewToolset" and name == "inspect_mass_inspection_population":
-        return arguments.get("pause_game", False) is False
-    return False
+    return access_policy.is_read_call(params)
 
 
 class TaskCoordinator:
@@ -175,6 +137,21 @@ class TaskCoordinator:
         self.instance = None
         self.last_activity = None
         self.host_changed = False
+        self.revision = 0
+        self.observed_at = None
+        self.probe_count = 0
+        self.probe_seconds = 0.0
+        self.claims = set()
+
+    def _signal(self):
+        """
+        /**
+         * 发布一次实际状态变化并唤醒等待者
+         * @return 无返回值
+         */
+        """
+        self.revision += 1
+        self.changed.notify_all()
 
     def _safe_to_yield(self, record, activity):
         """
@@ -203,23 +180,34 @@ class TaskCoordinator:
         record["write"] = None
         record["last_write_state"] = reason
         self.writer = None
-        self.changed.notify_all()
+        self._signal()
 
-    def _observe(self):
+    def _observe(self, max_age=0):
         """
         /**
          * 回读实际宿主并核实世界变化
          * @return 操作结果或验证完成
          */
         """
+        requested_at = time.monotonic()
         with self.observation_lock:
+            if self.observed_at is not None and (self.observed_at >= requested_at or requested_at - self.observed_at < max_age):
+                with self.lock:
+                    self._expire()
+                    return self.last_activity
+            started_at = time.monotonic()
             activity = self.probe()
             with self.lock:
+                self.probe_count += 1
+                self.probe_seconds += time.monotonic() - started_at
+                self.observed_at = time.monotonic()
                 instance = (activity["process_id"], activity["host_instance"])
                 if self.instance is not None and self.instance != instance:
                     self.host_changed = True
                 self.instance = instance
-                self.last_activity = activity
+                if self.last_activity != activity:
+                    self._signal()
+                self.last_activity = copy.deepcopy(activity)
                 if self.writer in self.tasks:
                     record = self.tasks[self.writer]
                     requested = record["pie_request"]
@@ -235,9 +223,10 @@ class TaskCoordinator:
                     if self.clock() >= stage["expires_at"] and not record["inflight"] and stage["status"] != "releasing":
                         if self._safe_to_yield(record, activity):
                             self._retire_write(record, "expired")
-                        if record["write"] is not None:
+                        if record["write"] is not None and record["write"]["status"] != "orphaned":
                             record["write"]["status"] = "orphaned"
                             record["status"] = "orphaned"
+                            self._signal()
                 self._expire()
             return activity
 
@@ -249,14 +238,88 @@ class TaskCoordinator:
          */
         """
         for token, record in list(self.tasks.items()):
-            if self.clock() < record["expires_at"] or record["inflight"] or token in self.queue:
+            if self.clock() < record["expires_at"] or record["inflight"]:
                 continue
+            if token in self.queue:
+                self.queue.remove(token)
+                record["queued_write"] = None
+                self._signal()
             record["status"] = "orphaned"
             if record["write"] is None and not record["uncertain"]:
                 self.tasks.pop(token)
-                self.changed.notify_all()
+                self._signal()
 
-    def _public(self):
+    def _blockers(self):
+        """
+        /**
+         * 汇总编辑交接的实际阻塞原因
+         * @return 结构化原因数组
+         */
+        """
+        activity = self.last_activity or {}
+        blockers = []
+        if self.host_changed:
+            blockers.append({"code": "HOST_CHANGED", "message": "核对宿主身份并恢复连接"})
+        if self.draining:
+            blockers.append({"code": "HOST_DRAINING", "message": "等待宿主退出"})
+        if self.writer in self.tasks:
+            writer = self.tasks[self.writer]
+            blockers.append({"code": "EDITOR_OCCUPIED", "task_id": writer["task_id"], "message": "等待当前阶段完成并交接"})
+            if writer["uncertain"] or writer["status"] == "orphaned":
+                blockers.append({"code": "WRITE_RECOVERY_REQUIRED", "task_id": writer["task_id"], "message": "原任务回读实际结果并显式恢复"})
+            if writer["pie_request"]:
+                blockers.append({"code": "TASK_PIE_PENDING", "message": "等待 PIE 请求在实际世界中生效"})
+        if activity.get("pie_active") or activity.get("worlds"):
+            blockers.append({"code": "PIE_ACTIVE", "message": "由所属任务完成 PIE"})
+        if activity.get("activities"):
+            blockers.append({"code": "BACKGROUND_ACTIVITY", "count": len(activity["activities"]), "message": "由所属任务完成采样或录制"})
+        if activity.get("dirty_packages"):
+            blockers.append({"code": "DIRTY_PACKAGES", "count": len(activity["dirty_packages"]), "message": "由所属任务处理未保存资产"})
+        return blockers
+
+    def _guidance(self, task_token, blockers):
+        """
+        /**
+         * 根据调用者归属给出可执行工作
+         * @param task_token	调用者任务凭证
+         * @param blockers	当前交接阻塞原因
+         * @return 下一步工具和阶段能力
+         */
+        """
+        record = self.tasks.get(task_token)
+        guidance = {"can_read": not self.draining, "can_prepare": True, "can_write": False,
+            "can_claim_write": False, "next_call": "acquire_editor_task", "task_id": None}
+        if record is None:
+            return guidance
+        guidance["task_id"] = record["task_id"]
+        guidance["queue_position"] = self.queue.index(task_token) + 1 if task_token in self.queue else None
+        guidance["next_call"] = "inspect_editor_tasks"
+        if self.host_changed or self.draining:
+            return guidance
+        if record["uncertain"] or record["status"] == "orphaned":
+            guidance["next_call"] = "renew_editor_write" if record["write"] else "renew_editor_task"
+            guidance["recovery_steps"] = ["回读实际操作结果", "凭原凭证显式 resume"]
+            return guidance
+        if record["write"]:
+            guidance["can_write"] = record["write"]["status"] == "active" and not record["inflight"] and not record["pie_request"]
+            if guidance["can_write"]:
+                guidance["next_call"] = "call_tool"
+            guidance["can_end_write"] = self._safe_to_yield(record, self.last_activity)
+            return guidance
+        if record["mode"] == "read":
+            return guidance
+        first = not self.queue or self.queue[0] == task_token
+        guidance["can_claim_write"] = first and not blockers
+        guidance["next_call"] = "begin_editor_write"
+        if task_token in self.queue and not guidance["can_claim_write"]:
+            guidance["next_call"] = "inspect_editor_tasks"
+        if self.queue and not first:
+            guidance["queue_ahead_task_id"] = self.tasks[self.queue[0]]["task_id"]
+            guidance["wait_reason"] = "等待前序任务领取并完成阶段"
+        guidance["waiting_work"] = ["shared_read", "本地分析", "准备下一批参数"]
+        return guidance
+
+    def _public(self, task_token=None, compact=False):
         """
         /**
          * 生成不含凭证的任务状态
@@ -267,7 +330,10 @@ class TaskCoordinator:
             self._expire()
             tasks = []
             for token, record in self.tasks.items():
-                public = {key: value for key, value in record.items() if key not in {"token", "expires_at", "write"}}
+                public = {key: record[key] for key in (
+                    "task_id", "description", "mode", "ttl_seconds", "status", "inflight",
+                    "write_inflight", "uncertain", "pie_request", "pie_generation", "last_write_state",
+                )}
                 public["remaining_seconds"] = max(0, round(record["expires_at"] - self.clock(), 1))
                 public["write"] = None
                 if record["write"] is not None:
@@ -275,24 +341,61 @@ class TaskCoordinator:
                     public["write"] = {
                         "status": stage["status"], "ttl_seconds": stage["ttl_seconds"],
                         "remaining_seconds": max(0, round(stage["expires_at"] - self.clock(), 1)),
+                        "stage_label": stage["stage_label"],
+                        "elapsed_seconds": max(0, round(self.clock() - stage["started_at"], 1)),
                     }
                 public["queue_position"] = self.queue.index(token) + 1 if token in self.queue else None
+                public["queue_wait_seconds"] = None
+                if record["queued_write"] is not None:
+                    public["queue_wait_seconds"] = max(0, round(self.clock() - record["queued_write"]["requested_at"], 1))
+                    public["queued_stage_label"] = record["queued_write"]["stage_label"]
+                public["operations"] = [{
+                    "toolset": operation["toolset"], "tool": operation["tool"], "access": operation["access"],
+                    "elapsed_seconds": max(0, round(self.clock() - operation["started_at"], 1)),
+                } for operation in record["operations"].values()]
                 tasks.append(public)
+            blockers = self._blockers()
+            writer = next((task for task in tasks if self.writer in self.tasks and task["task_id"] == self.tasks[self.writer]["task_id"]), None)
+            summary = {"revision": self.revision,
+                "writer": {key: writer[key] for key in ("task_id", "description", "write", "operations")} if writer else None,
+                "queue_length": len(self.queue), "blockers": blockers,
+                "caller": self._guidance(task_token, blockers),
+                "observation_age_seconds": round(time.monotonic() - self.observed_at, 3) if self.observed_at is not None else None,
+            }
+            if compact:
+                return summary
             return {
                 "tasks": tasks, "inflight": self.inflight, "draining": self.draining,
-                "host_changed": self.host_changed, "activity": self.last_activity,
+                "host_changed": self.host_changed, "activity": copy.deepcopy(self.last_activity),
                 "writer_task_id": self.tasks[self.writer]["task_id"] if self.writer in self.tasks else None,
                 "write_queue": [self.tasks[token]["task_id"] for token in self.queue if token in self.tasks],
+                "revision": self.revision, "summary": summary,
+                "metrics": {"probe_count": self.probe_count, "probe_seconds": round(self.probe_seconds, 3)},
             }
 
-    def inspect(self):
+    def inspect(self, task_token=None, after_revision=None, wait_seconds=0):
         """
         /**
          * @return 不包含占用凭证的实际状态
          */
         """
-        self._observe()
-        return self._public()
+        if isinstance(wait_seconds, bool) or not isinstance(wait_seconds, int) or not 0 <= wait_seconds <= 60:
+            raise ValueError("等待秒数应为零至六十")
+        if after_revision is not None and (isinstance(after_revision, bool) or not isinstance(after_revision, int) or after_revision < 0):
+            raise ValueError("状态版本应为非负整数")
+        if wait_seconds and after_revision is None:
+            raise ValueError("等待变化需要 after_revision")
+        deadline = time.monotonic() + wait_seconds
+        while True:
+            self._observe(max_age=1 if after_revision is not None else 0)
+            with self.changed:
+                if task_token:
+                    self._record(task_token)
+                if after_revision is not None and after_revision > self.revision:
+                    raise ValueError("状态版本超出当前宿主版本")
+                if after_revision is None or self.revision > after_revision or time.monotonic() >= deadline:
+                    return self._public(task_token)
+                self.changed.wait(min(1, max(0, deadline - time.monotonic())))
 
     def _record(self, token):
         """
@@ -318,7 +421,7 @@ class TaskCoordinator:
         """
         record = self._record(task_token)
         if self.writer != task_token or record["write"] is None:
-            raise TaskConflict("EDITOR_WRITE_REQUIRED", "先申请编辑阶段 写权限不随任务登记授予", self._public())
+            raise TaskConflict("EDITOR_WRITE_REQUIRED", "先申请编辑阶段 写权限不随任务登记授予", self._public(task_token))
         if not write_token or not secrets.compare_digest(record["write"]["token"], write_token):
             raise TaskConflict("WRITE_TOKEN_INVALID", "编辑阶段凭证不存在或已被撤销")
         return record
@@ -352,12 +455,14 @@ class TaskCoordinator:
                 "ttl_seconds": ttl_seconds, "expires_at": self.clock() + ttl_seconds,
                 "status": "active", "inflight": 0, "write_inflight": 0,
                 "uncertain": False, "pie_request": None, "pie_generation": activity["pie_generation"],
-                "write": None, "last_write_state": None,
+                "write": None, "last_write_state": None, "queued_write": None, "operations": {},
+                "write_cancel_generation": 0,
             }
+            self._signal()
             return {"task_id": task_id, "task_token": token, "mode": mode, "ttl_seconds": ttl_seconds,
                 "host_instance": activity["host_instance"], "pie_generation": activity["pie_generation"]}
 
-    def begin_write(self, task_token, ttl_seconds=120, wait_seconds=0):
+    def begin_write(self, task_token, ttl_seconds=120, wait_seconds=0, stage_label=""):
         """
         /**
          * 按申请顺序等待短期编辑阶段 分析期间不持有写权限
@@ -371,58 +476,72 @@ class TaskCoordinator:
             raise ValueError("编辑阶段有效期必须为三十至九百秒")
         if isinstance(wait_seconds, bool) or not isinstance(wait_seconds, int) or not 0 <= wait_seconds <= 60:
             raise ValueError("本次等待必须为零至六十秒")
-        deadline = self.clock() + wait_seconds
+        if not isinstance(stage_label, str) or len(stage_label) > 160:
+            raise ValueError("阶段说明应为一百六十字以内的字符串")
+        deadline = time.monotonic() + wait_seconds
         reserved = False
-        queued = False
         record = None
+        with self.changed:
+            self._expire()
+            record = self._record(task_token)
+            if task_token in self.claims:
+                raise TaskConflict("WRITE_APPLICATION_PENDING", "本任务已有领取请求正在执行")
+            self.claims.add(task_token)
+            cancellation_generation = record["write_cancel_generation"]
         try:
             while True:
-                activity = self._observe()
+                activity = self._observe(max_age=1)
                 with self.changed:
+                    self._expire()
                     record = self._record(task_token)
+                    if record["write_cancel_generation"] != cancellation_generation:
+                        return {"status": "cancelled", "state": self._public(task_token)}
                     if self.draining or self.host_changed:
-                        raise TaskConflict("HOST_UNAVAILABLE", "宿主正在退出或身份已变化", self._public())
+                        raise TaskConflict("HOST_UNAVAILABLE", "宿主正在退出或身份已变化", self._public(task_token))
                     if record["mode"] == "read":
                         raise TaskConflict("EDITOR_TASK_REQUIRED", "只读任务不能申请写权限")
                     if record["status"] != "active" or record["uncertain"]:
                         raise TaskConflict("TASK_RECOVERY_REQUIRED", "先检查实际状态并恢复原任务")
                     if record["write"] is not None:
                         raise TaskConflict("WRITE_ALREADY_HELD", "本任务已经持有编辑阶段")
-                    if not queued and task_token in self.queue:
-                        raise TaskConflict("WRITE_APPLICATION_PENDING", "本任务已有编辑申请正在等待")
+                    if record["queued_write"] is None:
+                        record["queued_write"] = {"requested_at": self.clock(), "ttl_seconds": ttl_seconds,
+                            "stage_label": stage_label or record["description"][:160]}
+                        self.queue.append(task_token)
+                        record["expires_at"] = self.clock() + record["ttl_seconds"]
+                        self._signal()
                     first = not self.queue or self.queue[0] == task_token
                     if self.writer is None and first:
                         if activity["pie_active"] or activity["worlds"] or activity["activities"] or activity.get("dirty_packages"):
-                            raise TaskConflict("EXTERNAL_ACTIVITY", "现有活动或未保存资产没有当前编辑阶段归属 不自动接管", self._public())
-                        if task_token in self.queue:
-                            self.queue.remove(task_token)
-                        record["write"] = {
-                            "token": secrets.token_urlsafe(32), "ttl_seconds": ttl_seconds,
-                            "expires_at": self.clock() + ttl_seconds, "status": "checking",
-                        }
+                            return {"status": "queued", "state": self._public(task_token)}
+                        queued_stage = record["queued_write"]
+                        record["write"] = {"token": secrets.token_urlsafe(32),
+                            "ttl_seconds": queued_stage["ttl_seconds"],
+                            "expires_at": self.clock() + queued_stage["ttl_seconds"], "status": "checking",
+                            "stage_label": queued_stage["stage_label"], "started_at": self.clock()}
                         self.writer = task_token
                         record["pie_generation"] = activity["pie_generation"]
                         record["inflight"] += 1
                         self.inflight += 1
                         reserved = True
+                        self._signal()
                         break
-                    if self.clock() >= deadline:
-                        code = "EDITOR_WRITE_BUSY" if wait_seconds == 0 else "EDITOR_WRITE_WAIT_TIMEOUT"
-                        raise TaskConflict(code, "其他编辑阶段仍在进行 可按状态等待 不占用分析任务的写权限", self._public())
-                    if task_token not in self.queue:
-                        self.queue.append(task_token)
-                        queued = True
-                    self.changed.wait(min(0.25, max(0, deadline - self.clock())))
+                    if time.monotonic() >= deadline:
+                        return {"status": "queued", "state": self._public(task_token)}
+                    self.changed.wait(min(1, max(0, deadline - time.monotonic())))
             activity = self._observe()
             with self.changed:
                 if self.host_changed or record["uncertain"] or activity["pie_active"] or activity["worlds"] or activity["activities"] or activity.get("dirty_packages"):
                     self._retire_write(record, "preflight_failed")
-                    raise TaskConflict("EXTERNAL_ACTIVITY", "申请期间宿主状态变化 不开始编辑", self._public())
+                    raise TaskConflict("EXTERNAL_ACTIVITY", "申请期间宿主状态变化 请核对实际活动", self._public(task_token))
                 stage = record["write"]
                 stage["status"] = "active"
+                self.queue.remove(task_token)
+                record["queued_write"] = None
                 record["expires_at"] = self.clock() + record["ttl_seconds"]
+                self._signal()
                 return {"task_id": record["task_id"], "write_token": stage["token"],
-                    "ttl_seconds": stage["ttl_seconds"], "mode": record["mode"]}
+                    "ttl_seconds": stage["ttl_seconds"], "mode": record["mode"], "status": "active"}
         except Exception:
             with self.changed:
                 if reserved and record["write"] is not None:
@@ -430,12 +549,33 @@ class TaskCoordinator:
             raise
         finally:
             with self.changed:
-                if queued and task_token in self.queue:
-                    self.queue.remove(task_token)
-                    self.changed.notify_all()
+                self.claims.discard(task_token)
                 if reserved:
                     record["inflight"] -= 1
                     self.inflight -= 1
+                    self._signal()
+
+    def cancel_write(self, task_token):
+        """
+        /**
+         * 取消本任务尚待领取的申请
+         * @param task_token	任务凭证
+         * @return 取消状态与当前队列
+         */
+        """
+        with self.changed:
+            self._expire()
+            record = self._record(task_token)
+            if record["write"] is not None:
+                raise TaskConflict("WRITE_STAGE_ACTIVE", "编辑阶段已取得权限 请调用 end_editor_write")
+            cancelled = task_token in self.queue or task_token in self.claims
+            if cancelled:
+                if task_token in self.queue:
+                    self.queue.remove(task_token)
+                record["queued_write"] = None
+                record["write_cancel_generation"] += 1
+                self._signal()
+            return {"cancelled": cancelled, "task_registered": True, "state": self._public(task_token)}
 
     def renew(self, task_token, resume=False):
         """
@@ -455,7 +595,7 @@ class TaskCoordinator:
             if record["write"] is not None and (record["uncertain"] or record["write"]["status"] == "orphaned"):
                 raise TaskConflict("WRITE_RECOVERY_REQUIRED", "凭原编辑阶段凭证调用 renew_editor_write 显式恢复")
             if (record["status"] == "orphaned" or record["uncertain"]) and resume is not True:
-                raise TaskConflict("TASK_RECOVERY_REQUIRED", "先检查实际状态 再凭原凭证显式 resume", self._public())
+                raise TaskConflict("TASK_RECOVERY_REQUIRED", "先检查实际状态 再凭原凭证显式 resume", self._public(task_token))
             if record["inflight"] and resume:
                 raise TaskConflict("TASK_INFLIGHT", "请求仍在执行 不能确认恢复")
             if resume:
@@ -463,6 +603,7 @@ class TaskCoordinator:
                 record["pie_generation"] = activity["pie_generation"]
             record["status"] = "active"
             record["expires_at"] = self.clock() + record["ttl_seconds"]
+            self._signal()
             return {"task_id": record["task_id"], "status": "active", "ttl_seconds": record["ttl_seconds"]}
 
     def renew_write(self, task_token, write_token, resume=False):
@@ -498,6 +639,7 @@ class TaskCoordinator:
             stage["expires_at"] = self.clock() + stage["ttl_seconds"]
             record["status"] = "active"
             record["expires_at"] = self.clock() + record["ttl_seconds"]
+            self._signal()
             return {"task_id": record["task_id"], "status": "active", "ttl_seconds": stage["ttl_seconds"]}
 
     def end_write(self, task_token, write_token):
@@ -515,17 +657,19 @@ class TaskCoordinator:
                 raise TaskConflict("TASK_INFLIGHT", "实际请求仍在执行")
             previous_status = record["write"]["status"]
             record["write"]["status"] = "releasing"
+            self._signal()
         try:
             activity = self._observe()
             with self.changed:
                 if not self._safe_to_yield(record, activity):
-                    raise TaskConflict("TASK_ACTIVITY_PENDING", "先结束本任务活动 核实不确定结果并处理未保存资产", self._public())
+                    raise TaskConflict("TASK_ACTIVITY_PENDING", "先结束本任务活动 核实不确定结果并处理未保存资产", self._public(task_token))
                 self._retire_write(record, "completed")
                 return {"ended": record["task_id"], "task_registered": True}
         except Exception:
             with self.lock:
                 if record["write"] is not None:
                     record["write"]["status"] = previous_status
+                    self._signal()
             raise
 
     def release(self, task_token):
@@ -543,7 +687,7 @@ class TaskCoordinator:
             if record["write"] is not None:
                 raise TaskConflict("WRITE_STAGE_ACTIVE", "先结束编辑阶段 再结束任务登记")
             self.tasks.pop(task_token)
-            self.changed.notify_all()
+            self._signal()
             return {"released": record["task_id"], "remaining_tasks": len(self.tasks),
                 "shutdown_allowed": not self.tasks and not self.inflight}
 
@@ -559,7 +703,7 @@ class TaskCoordinator:
         readonly = is_read_call(params)
         toolset, name, business = tool_identity(params)
         definition = re.sub(r"_0x[0-9a-fA-F]{8}$", "", toolset.rsplit(".", 1)[-1])
-        opaque = {value.replace("_", "").lower() for value in _OPAQUE_TOOLS}
+        opaque = {value.replace("_", "").lower() for value in access_policy.OPAQUE_TOOLS}
         if name.replace("_", "").lower() in opaque or (definition == "BBBExternalToolset" and name == "util" and business.get("action") == "execute_console_command"):
             raise TaskConflict("OPAQUE_EXECUTION_BLOCKED", "共享入口禁止任意脚本和控制台执行 批量使用逐项检查的 call_many 专用操作使用注册工具")
         if definition == "BBBGenericEditorToolset" and name == "generate_and_inspect_pcg" and business.get("generate", False):
@@ -573,10 +717,10 @@ class TaskCoordinator:
                 if self.host_changed:
                     raise TaskConflict("HOST_CHANGED", "宿主身份变化 凭证失效")
                 if record is None or record["mode"] == "read":
-                    raise TaskConflict("EDITOR_TASK_REQUIRED", "本操作需要 editor 或 pie 任务登记", self._public())
+                    raise TaskConflict("EDITOR_TASK_REQUIRED", "本操作需要 editor 或 pie 任务登记", self._public(token))
                 record = self._write_record(token, write_token)
                 if record["status"] != "active" or record["uncertain"] or record["write"]["status"] != "active":
-                    raise TaskConflict("WRITE_RECOVERY_REQUIRED", "编辑阶段尚未就绪或需要显式恢复", self._public())
+                    raise TaskConflict("WRITE_RECOVERY_REQUIRED", "编辑阶段尚未就绪或需要显式恢复", self._public(token))
                 if record["inflight"]:
                     raise TaskConflict("TASK_INFLIGHT", "本编辑阶段的上一请求尚未完成")
                 if record["pie_request"]:
@@ -587,6 +731,9 @@ class TaskCoordinator:
                 if not readonly:
                     record["write_inflight"] += 1
                 record["expires_at"] = self.clock() + record["ttl_seconds"]
+                record["operations"][threading.get_ident()] = {"toolset": definition, "tool": name,
+                    "access": access_policy.tool_access(toolset, name, business), "started_at": self.clock()}
+            self._signal()
             return record
 
     def finish(self, record, uncertain=False, readonly=False):
@@ -601,6 +748,7 @@ class TaskCoordinator:
         with self.changed:
             self.inflight -= 1
             if record is not None:
+                record["operations"].pop(threading.get_ident(), None)
                 record["inflight"] -= 1
                 if not readonly:
                     record["write_inflight"] -= 1
@@ -608,7 +756,7 @@ class TaskCoordinator:
                     if record["write"] is not None:
                         record["write"]["expires_at"] = self.clock() + record["write"]["ttl_seconds"]
                 record["expires_at"] = self.clock() + record["ttl_seconds"]
-            self.changed.notify_all()
+            self._signal()
 
     def prepare_shutdown(self):
         """
@@ -621,6 +769,7 @@ class TaskCoordinator:
             if self.tasks or self.inflight or self.draining or self.queue or self.writer is not None:
                 raise TaskConflict("HOST_BUSY", "尚有任务 编辑阶段或请求 不关闭共享宿主", self._public())
             self.draining = True
+            self._signal()
         try:
             activity = self._observe()
             if self.host_changed or activity["pie_active"] or activity["worlds"] or activity["activities"] or activity.get("dirty_packages"):
@@ -629,6 +778,7 @@ class TaskCoordinator:
         except Exception:
             with self.lock:
                 self.draining = False
+                self._signal()
             raise
 
 
@@ -767,6 +917,8 @@ class TaskGateway:
             return self.coordinator.renew(**arguments)
         if name == "begin_editor_write":
             return self.coordinator.begin_write(**arguments)
+        if name == "cancel_editor_write":
+            return self.coordinator.cancel_write(**arguments)
         if name == "renew_editor_write":
             return self.coordinator.renew_write(**arguments)
         if name == "end_editor_write":
@@ -774,7 +926,7 @@ class TaskGateway:
         if name == "release_editor_task":
             return self.coordinator.release(**arguments)
         if name == "inspect_editor_tasks":
-            return self.coordinator.inspect()
+            return self.coordinator.inspect(**arguments)
         self.coordinator.prepare_shutdown()
         try:
             self.backend.shutdown()
@@ -795,6 +947,72 @@ class TaskGateway:
         return 200, {}, {"jsonrpc": "2.0", "id": request_id, "result": {
             "content": [{"type": "text", "text": json.dumps(value, ensure_ascii=False)}], "isError": error,
         }}
+
+    def _annotate_discovery(self, payload, toolset=""):
+        """
+        /**
+         * 将统一权限分类写入实际发现结果
+         * @param payload	协议结果或描述对象
+         * @param toolset	描述目标工具集
+         * @return 无返回值
+         */
+        """
+        if not isinstance(payload, dict):
+            return
+        for tool in payload.get("tools", []):
+            name = tool.get("name", "")
+            if name in _CONTROL_SPEC:
+                continue
+            definition = toolset
+            if "." in name:
+                definition, name = name.rsplit(".", 1)
+            access = access_policy.tool_access(definition, name)
+            if name == "call_tool":
+                access = "conditional"
+            label = {"shared_read": "共享查询 可在其他任务编辑期间读取",
+                "editor_write": "编辑操作 取得编辑阶段后执行",
+                "pie_write": "PIE 操作 由持有阶段的任务控制",
+                "conditional": "按实际参数检查权限 参照 bbb_task 权限清单",
+                "blocked": "共享入口使用已注册的专用工具"}[access]
+            tool.setdefault("_meta", {})["bbb/access"] = access
+            tool["description"] = tool.get("description", "") + "\n" + label
+        for key, value in list(payload.items()):
+            if key == "tools":
+                continue
+            if isinstance(value, dict):
+                self._annotate_discovery(value, toolset)
+            if isinstance(value, list):
+                for child in value:
+                    self._annotate_discovery(child, toolset)
+            if key in {"text", "returnValue"} and isinstance(value, str):
+                try:
+                    parsed = json.loads(value)
+                except (ValueError, TypeError):
+                    continue
+                self._annotate_discovery(parsed, toolset)
+                payload[key] = json.dumps(parsed, ensure_ascii=False)
+
+    def _guide_state(self, value, state):
+        """
+        /**
+         * 将实时占用附加到 AI 使用指南的业务内容
+         * @param value	指南结果包装
+         * @param state	精简占用信息
+         * @return 保持原包装类型的结果
+         */
+        """
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except ValueError:
+                return value
+            return json.dumps(self._guide_state(parsed, state), ensure_ascii=False)
+        if isinstance(value, dict) and "returnValue" in value:
+            value["returnValue"] = self._guide_state(value["returnValue"], state)
+            return value
+        if isinstance(value, dict):
+            value["editor_state"] = state
+        return value
 
     def handle(self, body, headers, method="POST"):
         """
@@ -824,6 +1042,9 @@ class TaskGateway:
         request_id = body.get("id")
         record = None
         counted = False
+        token = None
+        outgoing = None
+        name = None
         forwarded = copy.deepcopy(body)
         try:
             if rpc_method == "tools/call":
@@ -831,10 +1052,15 @@ class TaskGateway:
                 if not isinstance(params, dict) or not isinstance(params.get("arguments", {}), dict):
                     raise ValueError("工具参数必须为对象")
                 toolset, name, arguments = tool_identity(params)
+                token = params.get("arguments", {}).get("task_token", params.get("_meta", {}).get("bbb/task_token"))
                 if not toolset and name in _CONTROL_SPEC:
-                    return self._reply(request_id, self._control(name, arguments))
+                    if name == "inspect_editor_tasks" and token and "task_token" not in arguments:
+                        arguments["task_token"] = token
+                    outgoing = self._reply(request_id, self._control(name, arguments))
+                    return outgoing
                 if not toolset and name == "describe_toolset" and arguments.get("toolset_name") == "bbb_task":
-                    return self._reply(request_id, {"tools": control_tools()})
+                    outgoing = self._reply(request_id, {"tools": control_tools(), "access_policy": access_policy.access_catalog()})
+                    return outgoing
                 token = params.get("arguments", {}).pop("task_token", None)
                 write_token = params.get("arguments", {}).pop("write_token", None)
                 metadata = params.get("_meta", {})
@@ -857,23 +1083,25 @@ class TaskGateway:
                 if normalized_definition == "EditorAppToolset" and function in {"StartPIE", "StopPIE"}:
                     record["pie_request"] = {"StartPIE": "start_pie", "StopPIE": "stop_pie"}[function]
                 result = self.backend.relay(forwarded, headers)
-                if record is not None:
+                if record is not None and not is_read_call(params):
                     self.coordinator._observe()
-                    if not is_read_call(params):
-                        failed = result[0] >= 400
-                        if isinstance(result[2], dict):
-                            failed = failed or bool(result[2].get("error") or result[2].get("result", {}).get("isError"))
-                            if not failed:
-                                try:
-                                    decode_tool_result(result[2])
-                                except McpBusinessError:
-                                    failed = True
-                        if failed:
-                            with self.coordinator.lock:
-                                record["uncertain"] = True
+                    failed = result[0] >= 400
+                    if isinstance(result[2], dict):
+                        failed = failed or bool(result[2].get("error") or result[2].get("result", {}).get("isError"))
+                        if not failed:
+                            try:
+                                decode_tool_result(result[2])
+                            except McpBusinessError:
+                                failed = True
+                    if failed:
+                        with self.coordinator.lock:
+                            record["uncertain"] = True
                 if not toolset and name == "list_toolsets" and isinstance(result[2], dict):
-                    result[2]["result"]["content"][0]["text"] += "\n- bbb_task: 共享宿主任务占用 调用前先申请凭证\n"
-                return result
+                    result[2]["result"]["content"][0]["text"] += "\n- bbb_task: 当前占用 可执行工作 持续排队与编辑交接\n"
+                if not toolset and name == "describe_toolset" and isinstance(result[2], dict):
+                    self._annotate_discovery(result[2], arguments.get("toolset_name", ""))
+                outgoing = result
+                return outgoing
             if rpc_method not in {"initialize", "notifications/initialized", "ping", "tools/list", "notifications/cancelled"}:
                 raise TaskConflict("PROTOCOL_OPERATION_BLOCKED", "未审查的协议操作不转发")
             if rpc_method == "notifications/cancelled":
@@ -890,21 +1118,41 @@ class TaskGateway:
                     if tool["name"] not in _CONTROL_SPEC:
                         tool["inputSchema"].setdefault("properties", {})["task_token"] = {"type": "string", "description": "共享宿主任务占用凭证"}
                         tool["inputSchema"]["properties"]["write_token"] = {"type": "string", "description": "当前编辑阶段凭证"}
-            return result
+                self._annotate_discovery(result[2])
+            outgoing = result
+            return outgoing
         except TaskConflict as error:
             logging.warning("[BBBMcpTask] %s", error.value["code"])
-            return self._reply(request_id, error.value, True)
+            outgoing = self._reply(request_id, error.value, True)
+            return outgoing
         except (ValueError, TypeError, KeyError) as error:
-            return self._reply(request_id, {"success": False, "code": "INVALID_ARGUMENTS", "message": str(error)}, True)
+            outgoing = self._reply(request_id, {"success": False, "code": "INVALID_ARGUMENTS", "message": str(error)}, True)
+            return outgoing
         except Exception:
             if counted and record is not None and not is_read_call(forwarded["params"]):
                 with self.coordinator.lock:
                     record["uncertain"] = True
             logging.error("[BBBMcpTask] 后端请求失败 执行状态需回读")
-            return self._reply(request_id, {"success": False, "code": "BACKEND_UNCERTAIN", "message": "后端状态不确定 先检查宿主 再凭原凭证恢复 不自动重试"}, True)
+            outgoing = self._reply(request_id, {"success": False, "code": "BACKEND_UNCERTAIN", "message": "后端状态不确定 先检查宿主 再凭原凭证恢复 不自动重试"}, True)
+            return outgoing
         finally:
             if counted:
                 self.coordinator.finish(record, readonly=is_read_call(forwarded["params"]))
+            if outgoing is not None and rpc_method in {"tools/call", "tools/list"} and isinstance(outgoing[2], dict):
+                payload = outgoing[2].get("result")
+                if isinstance(payload, dict):
+                    state = self.coordinator._public(token, compact=True)
+                    payload.setdefault("_meta", {})["bbb/editor_state"] = state
+                    if name == "list_toolsets":
+                        for item in payload.get("content", []):
+                            if item.get("type") == "text":
+                                item["text"] += "\n当前占用: " + json.dumps(state, ensure_ascii=False)
+                    if name == "get_mcp_usage_guide" and not payload.get("isError"):
+                        if "structuredContent" in payload:
+                            payload["structuredContent"] = self._guide_state(payload["structuredContent"], state)
+                        for item in payload.get("content", []):
+                            if item.get("type") == "text":
+                                item["text"] = self._guide_state(item["text"], state)
 
 
 def make_server(address, gateway):

@@ -13,7 +13,7 @@ import requests
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "Scripts"))
-from MCP.mcp_call import McpSession
+from MCP.mcp_call import McpSession, McpWriteBatchError
 from MCP.mcp_result import decode_tool_result
 from MCP.mcp_task_gateway import TaskCoordinator, TaskConflict, TaskGateway, is_read_call, make_server, tool_identity
 
@@ -90,6 +90,11 @@ class FakeBackend:
         if name == "fail_after_write":
             raise RuntimeError("连接中断")
         value = {"executed": name}
+        if name == "get_mcp_usage_guide":
+            value = {"returnValue": json.dumps({"document_path": "guide"})}
+        if name == "describe_toolset":
+            value = {"returnValue": json.dumps({"tools": [{"name": name, "inputSchema": {}}
+                for name in ["find_assets", "delete"]]})}
         if name == "list_toolsets":
             value = "- project.BBBExternalToolset: 外部动作\n"
         return 200, {}, {"jsonrpc": "2.0", "id": request_id,
@@ -115,7 +120,9 @@ class CoordinatorTests(unittest.TestCase):
         """/** @param name 任务 @param mode 模式 @return 凭证 */"""
         token = self.manager.acquire(name, "测试 " + name, mode, 300)["task_token"]
         if mode != "read":
-            self.stages[token] = self.manager.begin_write(token, 30)["write_token"]
+            stage = self.manager.begin_write(token, 30)
+            if stage["status"] == "active":
+                self.stages[token] = stage["write_token"]
         return token
 
     def test_exclusive_owner_and_registered_readers(self):
@@ -128,8 +135,7 @@ class CoordinatorTests(unittest.TestCase):
         owner = self.acquire()
         reader = self.acquire("B", "read")
         contender = self.manager.acquire("C", "等待编辑", "editor")["task_token"]
-        with self.assertRaises(TaskConflict):
-            self.manager.begin_write(contender)
+        self.assertEqual(self.manager.begin_write(contender)["status"], "queued")
         with self.assertRaises(TaskConflict):
             self.manager.begin(invocation("official.AssetTools", "save_asset"), reader)
         snapshot = self.manager.inspect()
@@ -137,6 +143,7 @@ class CoordinatorTests(unittest.TestCase):
             self.assertNotIn(secret, json.dumps(snapshot))
         self.manager.end_write(owner, self.stages[owner])
         self.manager.release(owner)
+        self.manager.cancel_write(contender)
         self.manager.release(contender)
         with self.assertRaises(TaskConflict):
             self.manager.prepare_shutdown()
@@ -158,8 +165,9 @@ class CoordinatorTests(unittest.TestCase):
         self.manager.inspect()
         with self.assertRaises(TaskConflict):
             self.manager.begin(invocation("project.BBBExternalToolset", "util", {"action": "stop_pie"}), token, self.stages[token])
-        with self.assertRaises(TaskConflict):
-            self.acquire("B")
+        contender = self.acquire("B")
+        self.assertNotIn(contender, self.stages)
+        self.assertEqual(self.manager.inspect()["write_queue"], ["B"])
         with self.assertRaises(TaskConflict):
             self.manager.renew(token)
         self.manager.renew_write(token, self.stages[token], resume=True)
@@ -175,8 +183,9 @@ class CoordinatorTests(unittest.TestCase):
         """
         for activity in [{"pie_active": True}, {"worlds": ["PIE_0"]}, {"activities": ["capture"]}]:
             self.backend.state.update(activity)
-            with self.assertRaises(TaskConflict):
-                self.acquire()
+            token = self.acquire()
+            self.assertNotIn(token, self.stages)
+            self.assertEqual(self.manager.inspect()["write_queue"], ["A"])
             self.assertEqual(len(self.manager.tasks), 1)
             self.assertIsNone(self.manager.writer)
             self.backend = FakeBackend()
@@ -291,8 +300,8 @@ class CoordinatorTests(unittest.TestCase):
             """/** @param name 任务 @return 记录并发申请结果 */"""
             barrier.wait()
             try:
-                self.acquire(name)
-                outcomes.append("owner")
+                token = self.acquire(name)
+                outcomes.append("owner" if token in self.stages else "blocked")
             except TaskConflict:
                 outcomes.append("blocked")
 
@@ -406,12 +415,12 @@ class HttpGatewayTests(unittest.TestCase):
         self.B.acquire_task("B", "登记可并存", "editor")
         before = len(self.backend.calls)
         for action in ["start_pie", "stop_pie", "set_cvar", "save_all_dirty"]:
-            with self.assertRaises(RuntimeError):
+            with self.assertRaises(RuntimeError) as failure:
                 self.call(self.B, action)
+            self.assertEqual(failure.exception.value["state"]["summary"]["caller"]["task_id"], "B")
         with self.assertRaises(RuntimeError):
             self.B.call_tool("official.LevelTools.pause_pie", {})
-        with self.assertRaises(RuntimeError):
-            self.B.begin_write()
+        self.assertEqual(self.B.begin_write()["status"], "queued")
         self.assertEqual(len(self.backend.calls), before)
         self.call(self.A, "stop_pie")
         self.A.end_write()
@@ -428,8 +437,7 @@ class HttpGatewayTests(unittest.TestCase):
         stage = self.A.begin_write()
         self.A.close()
         self.B.acquire_task("B", "其他登记")
-        with self.assertRaises(RuntimeError):
-            self.B.begin_write()
+        self.assertEqual(self.B.begin_write()["status"], "queued")
         self.A = McpSession(self.url, 10, lease["task_token"], stage["write_token"])
         self.A.renew_write()
         self.call(self.A, "set_cvar")
@@ -461,8 +469,7 @@ class HttpGatewayTests(unittest.TestCase):
         self.assertTrue(self.backend.entered.wait(3))
         with self.assertRaises(RuntimeError):
             self.B.call_tool("release_editor_task", {"task_token": lease["task_token"]})
-        with self.assertRaises(RuntimeError):
-            self.B.begin_write()
+        self.assertEqual(self.B.begin_write()["status"], "queued")
         self.backend.complete.set()
         thread.join(5)
         self.assertEqual(failure, [])
@@ -482,7 +489,7 @@ class HttpGatewayTests(unittest.TestCase):
         self.assertIn("task_token", schema)
         self.assertIn("write_token", schema)
         guide = decode_tool_result(self.B.call_tool("describe_toolset", {"toolset_name": "bbb_task"}))
-        self.assertEqual(len(guide["tools"]), 8)
+        self.assertEqual(len(guide["tools"]), 9)
         state = decode_tool_result(self.B.call_tool("call_tool", {"tool_name": "inspect_editor_tasks", "arguments": {}}))
         self.assertEqual(state["activity"]["process_id"], 42)
 
@@ -645,16 +652,16 @@ class HttpGatewayTests(unittest.TestCase):
         self.assertEqual(len(snapshot["tasks"]), 2)
         self.assertIsNone(snapshot["writer_task_id"])
 
-    def test_wait_timeout_clears_only_its_queue_entry(self):
+    def test_wait_timeout_preserves_its_queue_entry(self):
         """/** @return 等待超时不会取消所属任务或占用者 */"""
         self.A.acquire_task("A", "编辑中")
         self.A.begin_write()
         self.B.acquire_task("B", "等待中")
-        with self.assertRaises(RuntimeError) as failure:
-            self.B.begin_write(wait_seconds=1)
-        self.assertIn("EDITOR_WRITE_WAIT_TIMEOUT", str(failure.exception))
+        pending = self.B.begin_write(wait_seconds=1)
+        self.assertEqual(pending["status"], "queued")
+        self.assertIsNone(self.B.write_token)
         snapshot = decode_tool_result(self.A.call_tool("inspect_editor_tasks", {}))
-        self.assertEqual(snapshot["write_queue"], [])
+        self.assertEqual(snapshot["write_queue"], ["B"])
         self.assertEqual(snapshot["writer_task_id"], "A")
         self.A.end_write()
         self.B.begin_write()
@@ -813,6 +820,311 @@ class ActivityProbeTests(unittest.TestCase):
         for name in ["ExecuteConsoleCommand", "execute_python_script", "execute_tool_script"]:
             with self.assertRaises(TaskConflict):
                 manager.begin(invocation("official.EditorTools", name), token)
+
+
+class PipelineTests(unittest.TestCase):
+    """/** 多客户端持续排队与可执行工作验收 */"""
+
+    setUp = HttpGatewayTests.setUp
+    tearDown = HttpGatewayTests.tearDown
+    call = HttpGatewayTests.call
+
+    def test_persistent_queue_reconnect_rank_and_cancel(self):
+        """/** @return 断开连接后保留顺序 取消仅影响本申请 */"""
+        self.A.acquire_task("A", "当前编辑")
+        self.A.begin_write(stage_label="第一批")
+        task = self.B.acquire_task("B", "准备第二批")
+        self.assertEqual(self.B.begin_write()["status"], "queued")
+        self.B.close()
+        with McpSession(self.url, 10) as third:
+            third.acquire_task("C", "第三批")
+            third.begin_write()
+            self.assertEqual(third.inspect_tasks()["summary"]["caller"]["queue_ahead_task_id"], "B")
+            self.B = McpSession(self.url, 10, task["task_token"])
+            pending = self.B.begin_write()
+            self.assertEqual(pending["state"]["write_queue"], ["B", "C"])
+            self.assertEqual(pending["state"]["summary"]["caller"]["queue_position"], 1)
+            third.cancel_write()
+            self.assertEqual(self.B.inspect_tasks()["write_queue"], ["B"])
+            self.A.end_write()
+            self.assertTrue(self.B.inspect_tasks()["summary"]["caller"]["can_claim_write"])
+            self.B.begin_write()
+            self.assertEqual(self.B.inspect_tasks()["writer_task_id"], "B")
+            self.B.end_write()
+            third.release_task()
+
+    def test_cancel_pending_wait_wakes_original_request(self):
+        """/** @return 原任务通过重连取消等待 请求及时返回 */"""
+        self.A.acquire_task("A", "当前编辑")
+        self.A.begin_write()
+        task = self.B.acquire_task("B", "等待编辑")
+        result = []
+        failure = []
+
+        def wait():
+            """/** @return 保存等待响应与异常 */"""
+            try:
+                result.append(self.B.begin_write(wait_seconds=5))
+            except Exception as error:
+                failure.append(error)
+
+        thread = threading.Thread(target=wait)
+        thread.start()
+        try:
+            with McpSession(self.url, 10, task["task_token"]) as reconnect:
+                deadline = time.monotonic() + 3
+                while time.monotonic() < deadline:
+                    state = reconnect.inspect_tasks()
+                    if state["write_queue"] == ["B"]:
+                        break
+                self.assertEqual(state["write_queue"], ["B"])
+                self.assertTrue(reconnect.cancel_write()["cancelled"])
+            thread.join(2)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(failure, [])
+            self.assertEqual(result[0]["status"], "cancelled")
+            self.assertEqual(self.A.inspect_tasks()["write_queue"], [])
+        finally:
+            thread.join(6)
+
+    def test_revision_wait_observes_operation_and_caller_guidance(self):
+        """/** @return 操作开始后显示工具与耗时 其他任务继续准备 */"""
+        lease = self.A.acquire_task("A", "执行测试")
+        stage = self.A.begin_write(stage_label="连续操作")
+        self.B.acquire_task("B", "参数准备")
+        initial = self.B.inspect_tasks()
+        failure = []
+
+        def work():
+            """/** @return 保存执行异常 */"""
+            try:
+                self.A.call_tool("official.EditorTools.long_operation", {})
+            except Exception as error:
+                failure.append(error)
+
+        thread = threading.Thread(target=work)
+        thread.start()
+        try:
+            self.assertTrue(self.backend.entered.wait(3))
+            state = self.B.inspect_tasks(initial["revision"], 2)
+            writer = state["summary"]["writer"]
+            self.assertEqual(writer["write"]["stage_label"], "连续操作")
+            self.assertEqual(writer["operations"][0]["tool"], "long_operation")
+            self.assertGreater(state["revision"], initial["revision"])
+            self.assertTrue(state["summary"]["caller"]["can_read"])
+            self.assertFalse(state["summary"]["caller"]["can_write"])
+            self.assertIn("EDITOR_OCCUPIED", {item["code"] for item in state["summary"]["blockers"]})
+            for token in [lease["task_token"], stage["write_token"], self.B.task_token]:
+                self.assertNotIn(token, json.dumps(state))
+        finally:
+            self.backend.complete.set()
+            thread.join(5)
+        self.assertEqual(failure, [])
+        self.assertEqual(self.B.inspect_tasks()["summary"]["writer"]["operations"], [])
+
+    def test_discovery_status_and_policy_share_actual_classification(self):
+        """/** @return 描述与执行使用同一分类 指南带当前占用 */"""
+        self.A.acquire_task("A", "占用报告")
+        self.A.begin_write(stage_label="准备验收")
+        guide = decode_tool_result(self.B.call_tool("project.BBBMcpRuntimeToolset.get_mcp_usage_guide", {}))
+        self.assertEqual(guide["editor_state"]["writer"]["task_id"], "A")
+        schema = decode_tool_result(self.B.call_tool("describe_toolset", {"toolset_name": "official.AssetTools"}))
+        listing = decode_tool_result(self.B.call_tool("list_toolsets", {}))
+        self.assertEqual(json.loads(listing.split("\n当前占用: ")[1])["writer"]["task_id"], "A")
+        self.assertEqual(schema["tools"][0]["_meta"]["bbb/access"], "shared_read")
+        self.assertEqual(schema["tools"][1]["_meta"]["bbb/access"], "editor_write")
+        result = self.B.call_tool("official.AssetTools.find_assets", {"folder_path": "/Game"})
+        self.assertEqual(result["result"]["_meta"]["bbb/editor_state"]["writer"]["task_id"], "A")
+        with self.assertRaises(RuntimeError):
+            self.B.call_tool("official.AssetTools.delete", {"path": "/Game"})
+        self.A.end_write()
+        self.B.inspect_tasks()
+        cached = self.B.call_tool("describe_toolset", {"toolset_name": "official.AssetTools"})
+        self.assertIsNone(cached["result"]["_meta"]["bbb/editor_state"]["writer"])
+        listing = decode_tool_result(self.B.call_tool("list_toolsets", {}))
+        self.assertIsNone(json.loads(listing.split("\n当前占用: ")[1])["writer"])
+
+    def test_batch_handoff_and_partial_failure_keep_evidence(self):
+        """/** @return 成功交接 失败保留已完成结果和原凭证 */"""
+        self.A.acquire_task("A", "批次测试")
+        completed = self.A.run_write_batch([{"name": "official.EditorTools.set_value"},
+            {"name": "official.AssetTools.find_assets"}], "编辑并回读")
+        self.assertEqual(len(completed), 2)
+        self.assertIsNone(self.A.write_token)
+        self.assertIsNone(self.B.inspect_tasks()["writer_task_id"])
+        with self.assertRaises(McpWriteBatchError) as failed:
+            self.A.run_write_batch([{"name": "official.EditorTools.set_value"},
+                {"name": "official.EditorTools.fail_after_write"}, {"name": "official.EditorTools.later"}], "异常证据")
+        self.assertEqual(failed.exception.phase, "execute")
+        self.assertEqual(len(failed.exception.completed_results), 1)
+        self.assertIsNotNone(self.A.write_token)
+        self.assertEqual(self.B.inspect_tasks()["writer_task_id"], "A")
+        self.assertNotIn("later", [call[1] for call in self.backend.calls])
+        self.A.renew_write(resume=True)
+        self.A.end_write()
+
+    def test_batch_waits_for_handoff_and_observes_cancellation(self):
+        """/** @return 排队批次在交接后执行 或响应原任务取消 */"""
+        self.A.acquire_task("A", "先执行")
+        self.A.begin_write()
+        task = self.B.acquire_task("B", "准备好的批次")
+        completed = []
+        failures = []
+
+        def batch():
+            """/** @return 记录排队批次结果 */"""
+            try:
+                completed.append(self.B.run_write_batch([{"name": "official.EditorTools.set_value"}], "排队批次", wait_seconds=5))
+            except Exception as error:
+                failures.append(error)
+
+        for cancel in [False, True]:
+            thread = threading.Thread(target=batch)
+            thread.start()
+            try:
+                deadline = time.monotonic() + 3
+                while time.monotonic() < deadline:
+                    state = self.A.inspect_tasks()
+                    if state["write_queue"] == ["B"]:
+                        break
+                self.assertEqual(state["write_queue"], ["B"])
+                if cancel:
+                    with McpSession(self.url, 10, task["task_token"]) as reconnect:
+                        reconnect.cancel_write()
+                if not cancel:
+                    self.A.end_write()
+                thread.join(3)
+                self.assertFalse(thread.is_alive())
+            finally:
+                thread.join(6)
+            if not cancel:
+                self.assertEqual(failures, [])
+                self.assertEqual(len(completed[0]), 1)
+                self.assertIsNone(self.B.write_token)
+                self.A.begin_write()
+        self.assertEqual(len(failures), 1)
+        self.assertIsInstance(failures[0], McpWriteBatchError)
+        self.assertEqual(failures[0].phase, "queue")
+        self.assertEqual(self.A.inspect_tasks()["write_queue"], [])
+        self.assertEqual([call[1] for call in self.backend.calls].count("set_value"), 1)
+
+    def test_batch_queue_timeout_and_handoff_failure_keep_ownership(self):
+        """/** @return 等待到期保留申请 交接受阻保留阶段 */"""
+        self.A.acquire_task("A", "先编辑")
+        self.B.acquire_task("B", "后编辑")
+        self.A.begin_write()
+        with self.assertRaises(McpWriteBatchError) as waiting:
+            self.B.run_write_batch([{"name": "official.EditorTools.set_value"}], "等待批次", wait_seconds=0)
+        self.assertEqual(waiting.exception.phase, "queue")
+        self.assertEqual(self.B.inspect_tasks()["write_queue"], ["B"])
+        self.B.cancel_write()
+        self.A.end_write()
+        self.backend.state["dirty_packages"] = ["/Game/External"]
+        with self.assertRaises(McpWriteBatchError):
+            self.A.run_write_batch([{"name": "official.EditorTools.set_value"}], "外部资产检查", wait_seconds=0)
+        self.backend.state["dirty_packages"] = []
+        self.A.cancel_write()
+        self.A.inspect_tasks()
+        original = self.backend.relay
+
+        def dirty_after_call(body, headers, method="POST"):
+            """
+            /**
+             * @param body	请求
+             * @param headers	会话
+             * @param method	HTTP 方法
+             * @return 带未保存结果的响应
+             */
+            """
+            result = original(body, headers, method)
+            if body and body.get("method") == "tools/call" and tool_identity(body["params"])[1] == "set_value":
+                self.backend.state["dirty_packages"] = ["/Game/Owned"]
+            return result
+
+        self.backend.relay = dirty_after_call
+        with self.assertRaises(McpWriteBatchError) as blocked:
+            self.A.run_write_batch([{"name": "official.EditorTools.set_value"}], "保留脏资产")
+        self.assertEqual(blocked.exception.phase, "handoff")
+        self.assertEqual(len(blocked.exception.completed_results), 1)
+        self.assertIsNotNone(self.A.write_token)
+        self.backend.state["dirty_packages"] = []
+        self.A.end_write()
+
+
+class QueueObservationTests(unittest.TestCase):
+    """/** 队列到期与宿主查询合并 */"""
+
+    def test_expired_queue_allows_next_task_and_preflight_checks_actual_state(self):
+        """/** @return 到期队列清理后保持下一任务顺序 交接核对最新状态 */"""
+        backend = FakeBackend()
+        now = [0]
+        manager = TaskCoordinator(backend.probe, lambda: now[0])
+        first = manager.acquire("A", "第一批", "editor")["task_token"]
+        stage = manager.begin_write(first)["write_token"]
+        second = manager.acquire("B", "第二批", "editor", 30)["task_token"]
+        third = manager.acquire("C", "第三批", "editor")["task_token"]
+        manager.begin_write(second)
+        manager.begin_write(third)
+        now[0] = 31
+        state = manager.inspect(third)
+        self.assertEqual(state["write_queue"], ["C"])
+        self.assertNotIn("B", [task["task_id"] for task in state["tasks"]])
+        manager.end_write(first, stage)
+        backend.state["dirty_packages"] = ["/Game/External"]
+        with self.assertRaises(TaskConflict):
+            manager.begin_write(third)
+        state = manager.inspect(third)
+        self.assertIsNone(state["writer_task_id"])
+        self.assertEqual(state["write_queue"], ["C"])
+        self.assertIn("DIRTY_PACKAGES", {item["code"] for item in state["summary"]["blockers"]})
+        backend.state["dirty_packages"] = []
+        manager.inspect()
+        self.assertEqual(manager.begin_write(third)["status"], "active")
+
+    def test_waiters_share_probe_work(self):
+        """/** @return 两个等待者共享宿主探测并保留等待顺序 */"""
+        manager = TaskCoordinator(FakeBackend().probe)
+        first = manager.acquire("A", "当前编辑", "editor")["task_token"]
+        manager.begin_write(first)
+        tokens = [manager.acquire(name, name, "editor")["task_token"] for name in ["B", "C"]]
+        results = []
+        before = manager.probe_count
+        threads = [threading.Thread(target=lambda token=token: results.append(manager.begin_write(token, wait_seconds=2))) for token in tokens]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(4)
+        self.assertEqual(len(results), 2)
+        self.assertTrue(all(result["status"] == "queued" for result in results))
+        self.assertLessEqual(manager.probe_count - before, 3)
+        self.assertEqual(len(manager.inspect()["write_queue"]), 2)
+
+    def test_overlapping_inspections_share_actual_probe(self):
+        """/** @return 同时查询共享一次实际观测 */"""
+        backend = FakeBackend()
+        barrier = threading.Barrier(9)
+        observed = []
+
+        def probe():
+            """/** @return 为并发查询提供可观察的宿主延迟 */"""
+            time.sleep(0.1)
+            return backend.probe()
+
+        manager = TaskCoordinator(probe)
+
+        def inspect():
+            """/** @return 记录同步开始的观测结果 */"""
+            barrier.wait()
+            observed.append(manager.inspect())
+
+        threads = [threading.Thread(target=inspect) for unused in range(8)]
+        for thread in threads:
+            thread.start()
+        barrier.wait()
+        for thread in threads:
+            thread.join(2)
+        self.assertEqual(len(observed), 8)
+        self.assertEqual(manager.probe_count, 1)
 
 
 if __name__ == "__main__":
