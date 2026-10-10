@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [string]$ProjectPath,
@@ -19,8 +19,71 @@ param(
     [ValidateRange(-1, 240)]
     [int]$MaxFPS = -1,
     [ValidatePattern('^[A-Za-z0-9-]*$')]
-    [string]$Culture = ''
+    [string]$Culture = '',
+    [ValidateSet('Main', 'TestWorker')]
+    [string]$HostRole = 'Main',
+    [ValidatePattern('^[a-f0-9]{24}$')]
+    [string]$TestRunId,
+    [ValidatePattern('^/Game/[A-Za-z0-9_/]+$')]
+    [string]$TestMap,
+    [ValidateRange(1, 4)]
+    [int]$TestPlayers = 1,
+    [ValidateRange(1024, 65535)]
+    [int]$TestNetworkPort = 7777
 )
+
+if ($HostRole -eq 'TestWorker')
+{
+    [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+    $workerProject = [System.IO.Path]::GetFullPath($ProjectPath)
+    $workerRoot = Split-Path (Split-Path $workerProject -Parent) -Parent
+    $manifestPath = Join-Path $workerRoot 'snapshot.json'
+    if (-not $TestRunId -or -not $TestMap -or $BackendPort -eq 0 -or (Split-Path $workerRoot -Leaf) -ne $TestRunId)
+    {
+        throw '测试宿主需要明确的副本编号 地图与私有端口'
+    }
+
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw -ErrorAction Stop | ConvertFrom-Json
+    if ($manifest.run_id -ne $TestRunId -or $manifest.map_path -ne $TestMap)
+    {
+        throw '测试副本清单与请求身份需要一致'
+    }
+
+    $workerEditor = Join-Path ([System.IO.Path]::GetFullPath($EnginePath)) 'Engine\Binaries\Win64\UnrealEditor.exe'
+    if (-not (Test-Path -LiteralPath $workerEditor -PathType Leaf) -or -not (Test-Path -LiteralPath $workerProject -PathType Leaf))
+    {
+        throw '测试编辑器与项目文件需要存在'
+    }
+
+    $workerKey = [Guid]::NewGuid().ToString('N')
+    $workerArguments = @($workerProject, $TestMap,
+        '-Unattended', '-Multiprocess', '-NoSplash', '-AutoDeclinePackageRecovery', '-NoSourceControl',
+        '-RenderOffscreen', '-ModelContextProtocolStartServer', "-ModelContextProtocolPort=$BackendPort",
+        "-ini:EditorPerProjectUserSettings:[/Script/ModelContextProtocolEngine.ModelContextProtocolSettings]:ServerUrlPath=/bbb-test-$workerKey",
+        "-ini:EditorPerProjectUserSettings:[/Script/UnrealEd.LevelEditorPlaySettings]:PlayNumberOfClients=$TestPlayers",
+        '-ini:EditorPerProjectUserSettings:[/Script/UnrealEd.LevelEditorPlaySettings]:RunUnderOneProcess=True',
+        '-ini:EditorPerProjectUserSettings:[/Script/UnrealEd.LevelEditorPlaySettings]:bLaunchSeparateServer=False',
+        '-ini:EditorPerProjectUserSettings:[/Script/UnrealEd.LevelEditorPlaySettings]:PlayNetMode=PIE_ListenServer',
+        "-ini:EditorPerProjectUserSettings:[/Script/UnrealEd.LevelEditorPlaySettings]:ServerPort=$TestNetworkPort",
+        "-port=$TestNetworkPort", '-BBBMcpPerformanceProfile=Economy', '-BBBMcpMaxFPS=30',
+        '-ExecCmds=t.MaxFPS 30,t.IdleWhenNotForeground 0')
+    if (-not $EnableRendering)
+    {
+        $workerArguments += '-NullRHI'
+    }
+    if (-not $EnableAudio)
+    {
+        $workerArguments += '-NoSound'
+    }
+    if ($EnableAudio)
+    {
+        $workerArguments += '-AudioMixer'
+        $workerArguments += '-ini:Engine:[Audio]:UnfocusedVolumeMultiplier=1.0'
+        $workerArguments += '-ini:EditorPerProjectUserSettings:[/Script/UnrealEd.LevelEditorMiscSettings]:bAllowBackgroundAudio=True'
+    }
+    [pscustomobject]@{ EditorPath = $workerEditor; Arguments = $workerArguments; BackendUrl = "http://127.0.0.1:$BackendPort/bbb-test-$workerKey" } | ConvertTo-Json -Depth 5 -Compress
+    return
+}
 
 $projectPath = [System.IO.Path]::GetFullPath($ProjectPath)
 $configuredP4Tickets = [Environment]::GetEnvironmentVariable('P4TICKETS', 'User')
@@ -378,7 +441,7 @@ try
                 {
                     if ($null -eq $createdGateway)
                     {
-                        $gatewayArguments = @('-B', ('"' + $gatewayScript + '"'), '--backend-url', $endpoint, '--port', $Port, '--project-root', ('"' + (Split-Path $projectPath -Parent) + '"'), '--host-pid', $processId)
+                        $gatewayArguments = @('-B', ('"' + $gatewayScript + '"'), '--backend-url', $endpoint, '--port', $Port, '--project-root', ('"' + (Split-Path $projectPath -Parent) + '"'), '--host-pid', $processId, '--engine-root', ('"' + $engineRoot + '"'))
                         $createdGateway = Start-Process -FilePath $PythonPath -ArgumentList $gatewayArguments -WindowStyle Hidden -PassThru
                     }
 

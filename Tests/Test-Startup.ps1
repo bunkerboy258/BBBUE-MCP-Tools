@@ -113,7 +113,7 @@ function global:Start-Process
     if ($FilePath -eq $global:bbbStartupPythonPath)
     {
         Assert-StartupTest ($WindowStyle -eq 'Hidden') '启动网关必须隐藏'
-        Assert-StartupTest ($ArgumentList.Count -eq 10) '网关参数被 PowerShell 表达式拆开'
+        Assert-StartupTest ($ArgumentList.Count -eq 12) '网关参数被 PowerShell 表达式拆开'
         Assert-StartupTest ($ArgumentList[1] -eq ('"' + $global:bbbStartupGatewayPath + '"')) '网关脚本必须作为一个完整参数'
         Assert-StartupTest ($ArgumentList[7] -eq ('"' + (Split-Path $global:bbbStartupProjectPath -Parent) + '"')) '项目目录必须作为一个完整参数'
         $global:bbbStartupTest.GatewayStarted = $true
