@@ -3518,6 +3518,24 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def configure_continuous_bone_rotation(blueprint_path: str, bone_name: str, snapshot_properties: list[str]) -> str:
+        """
+        /**
+         * 按驱动事实创建动画线程上的连续局部 Z 轴旋转 不新增玩法计算
+         * @param blueprint_path	独占持有的三节点武器蒙太奇输出图
+         * @param bone_name		目标骨骼名称
+         * @param snapshot_properties	驱动标记 加速秒数 减速秒数 度每秒四个快照属性
+         * @return 严格编译并保存的蓝图结果 失败不保存
+         */
+        """
+        import importlib
+        import BBBWeaponHandlingTools
+        importlib.reload(BBBWeaponHandlingTools)
+        return json.dumps(BBBWeaponHandlingTools.configure_continuous_bone_rotation(
+            blueprint_path, bone_name, snapshot_properties), ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def configure_weapon_handling_graphs(blueprint_path: str, animation_path: str = "", camera: bool = False) -> str:
         """
         /**

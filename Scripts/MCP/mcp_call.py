@@ -50,6 +50,25 @@ class McpBatchError(RuntimeError):
         super().__init__("批量请求第 {} 项失败 前 {} 项已完成且未回滚: {}".format(index + 1, len(completed), error))
 
 
+def _iter_sse_lines(response):
+    """/** @param response 流式 HTTP 响应 @return 按完整 UTF-8 行读取 不逐字节重复复制长消息 */"""
+    fragments = []
+    while True:
+        chunk = response.raw.read1(65536, decode_content=True)
+        if not chunk:
+            break
+        parts = chunk.split(b"\n")
+        fragments.append(parts[0])
+        if len(parts) == 1:
+            continue
+        yield b"".join(fragments).rstrip(b"\r").decode("utf-8")
+        for part in parts[1:-1]:
+            yield part.rstrip(b"\r").decode("utf-8")
+        fragments = [parts[-1]]
+    if fragments and any(fragments):
+        yield b"".join(fragments).rstrip(b"\r").decode("utf-8")
+
+
 def _parse_response(response, request_id, on_tools_changed):
     """解析 JSON 或 SSE 响应 返回最后一个 JSON 对象"""
     response.encoding = "utf-8"
@@ -61,7 +80,7 @@ def _parse_response(response, request_id, on_tools_changed):
         return result
 
     event_lines = []
-    for line in response.iter_lines(chunk_size=1, decode_unicode=True):
+    for line in _iter_sse_lines(response):
         if line.startswith("data:"):
             event_lines.append(line[5:].lstrip())
             continue

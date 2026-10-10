@@ -130,6 +130,15 @@ def capture_animation_views(mesh_path, animation_path, sample_progress, views_js
             settings.set_editor_property("dynamic_global_illumination_method", unreal.DynamicGlobalIlluminationMethod.NONE)
             settings.set_editor_property("override_reflection_method", True)
             settings.set_editor_property("reflection_method", unreal.ReflectionMethod.NONE)
+            studio_cube = unreal.load_asset("/Engine/EngineResources/GrayLightTextureCube")
+            if studio_cube is None:
+                raise RuntimeError("固定摄影棚环境纹理缺失")
+
+            settings.set_editor_property("override_ambient_cubemap_intensity", True)
+            settings.set_editor_property("ambient_cubemap_intensity", 1.0)
+            settings.set_editor_property("override_ambient_cubemap_tint", True)
+            settings.set_editor_property("ambient_cubemap_tint", unreal.LinearColor(1.0, 1.0, 1.0, 1.0))
+            settings.set_editor_property("ambient_cubemap", studio_cube)
             capture.set_editor_property("post_process_settings", settings)
             capture.set_editor_property("post_process_blend_weight", 1.0)
             for warmup_frame in range(15):
@@ -149,6 +158,14 @@ def capture_animation_views(mesh_path, animation_path, sample_progress, views_js
                 framing_bones = {name: value for name, value in bones.items() if not name.lower().startswith("ik_")}
                 minimum = [min(value[axis] for value in framing_bones.values()) for axis in range(3)]
                 maximum = [max(value[axis] for value in framing_bones.values()) for axis in range(3)]
+                bounds_origin, bounds_extent, bounds_radius = unreal.SystemLibrary.get_component_bounds(component)
+                origin = [bounds_origin.x, bounds_origin.y, bounds_origin.z - 20000.0]
+                extent = [bounds_extent.x, bounds_extent.y, bounds_extent.z]
+                if not all(math.isfinite(value) for value in origin + extent) or any(value < 0.0 for value in extent):
+                    raise RuntimeError("网格包围范围无效")
+
+                minimum = [min(minimum[axis], origin[axis] - extent[axis]) for axis in range(3)]
+                maximum = [max(maximum[axis], origin[axis] + extent[axis]) for axis in range(3)]
                 center = unreal.Vector(*[(minimum[axis] + maximum[axis]) * 0.5 for axis in range(3)]) + unreal.Vector(0.0, 0.0, 20000.0)
                 radius = math.sqrt(sum(((maximum[axis] - minimum[axis]) * 0.5) ** 2 for axis in range(3))) + 15.0
                 distance = radius / math.sin(math.radians(20.0)) * 1.12
@@ -185,7 +202,8 @@ def capture_animation_views(mesh_path, animation_path, sample_progress, views_js
             unreal.log("[BBBAnimationViews] CAPTURE " + animation_path + " count=" + str(len(captures)))
         finally:
             for actor in reversed(actors):
-                actor.destroy_actor()
+                if unreal.SystemLibrary.is_valid(actor):
+                    actor.destroy_actor()
 
         report = {"status": "completed", "mesh": mesh_path, "animation": animation_path, "exposureBias": exposure_bias, "captures": captures, "reportPath": report_path, "temporaryActorsDestroyed": True}
         save_report(report)
@@ -215,10 +233,15 @@ def capture_animation_views(mesh_path, animation_path, sample_progress, views_js
             record["result"] = json.loads(completed.value)
             unreal.unregister_slate_post_tick_callback(handle)
         except Exception as error:
-            iterator.close()
             record["status"] = "failed"
             record["error"] = str(error)
-            unreal.unregister_slate_post_tick_callback(handle)
+            try:
+                iterator.close()
+            except Exception as cleanup_error:
+                record["cleanupError"] = str(cleanup_error)
+            finally:
+                unreal.unregister_slate_post_tick_callback(handle)
+
             unreal.log_error("[BBBAnimationViews] FAILED " + str(error))
 
     handle = unreal.register_slate_post_tick_callback(advance_frame)

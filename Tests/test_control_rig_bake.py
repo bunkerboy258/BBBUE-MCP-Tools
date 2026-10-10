@@ -33,7 +33,7 @@ class ControlRigBakeTests(unittest.TestCase):
         self.engine.EditorAssetLibrary.does_asset_exist.return_value = True
         self.engine.EditorAssetLibrary.save_loaded_asset.return_value = True
         self.engine.SequencerTools.export_anim_sequence.return_value = True
-        self.binding.find_tracks_by_type.return_value = [Mock()]
+        self.binding.find_tracks_by_type.side_effect = lambda kind: [Mock()] if kind is self.engine.MovieSceneControlRigParameterTrack else []
         self.namespace = {"json": json, "math": math, "unreal": self.engine,
                           "require_write_access": self.access, "_asset": self.assets,
                           "_mesh_binding": Mock(return_value=self.binding)}
@@ -69,7 +69,7 @@ class ControlRigBakeTests(unittest.TestCase):
 
     def test_missing_rig_is_rejected_before_asset_creation(self):
         """/** @return 缺少控制绑定不能创建无效结果 */"""
-        self.binding.find_tracks_by_type.return_value = []
+        self.binding.find_tracks_by_type.side_effect = lambda kind: []
         with self.assertRaises(RuntimeError):
             self.bake("/Game/Sequence", "/Game/Target", "/Game/Mesh")
         self.engine.EditorAssetLibrary.does_asset_exist.assert_not_called()
@@ -81,6 +81,37 @@ class ControlRigBakeTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 create("/Game/Sequence", "/Game/Mesh", duration, rate)
         self.assets.assert_not_called()
+
+    def test_inactive_source_track_curves_are_copied_before_save(self):
+        """/** @return 原姿势轨道停用后仍保留源动作控制曲线 */"""
+        source_type = type("SourceAnimation", (Mock,), {})
+        self.engine.AnimSequence = source_type
+        source = source_type()
+        section = Mock()
+        section.get_editor_property.return_value.animation = source
+        track = Mock()
+        track.get_sections.return_value = [section]
+        self.binding.find_tracks_by_type.side_effect = lambda kind: [track]
+        copy = self.engine.BBBBlueprintEditorLibrary.copy_animation_float_curves
+        copy.return_value = 2
+        result = json.loads(self.bake("/Game/Sequence", "/Game/Target", "/Game/Mesh"))
+        copy.assert_called_once_with(source, self.animation)
+        self.assertEqual(result["copiedFloatCurves"], 2)
+        self.engine.EditorAssetLibrary.save_loaded_asset.assert_called_once_with(self.animation, False)
+
+    def test_curve_copy_failure_prevents_saving_baked_result(self):
+        """/** @return 控制曲线复制失败不保存不完整动作 */"""
+        source_type = type("SourceAnimation", (Mock,), {})
+        self.engine.AnimSequence = source_type
+        section = Mock()
+        section.get_editor_property.return_value.animation = source_type()
+        track = Mock()
+        track.get_sections.return_value = [section]
+        self.binding.find_tracks_by_type.side_effect = lambda kind: [track]
+        self.engine.BBBBlueprintEditorLibrary.copy_animation_float_curves.return_value = -1
+        with self.assertRaises(RuntimeError):
+            self.bake("/Game/Sequence", "/Game/Target", "/Game/Mesh")
+        self.engine.EditorAssetLibrary.save_loaded_asset.assert_not_called()
 
 
 if __name__ == "__main__":

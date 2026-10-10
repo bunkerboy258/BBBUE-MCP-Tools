@@ -128,10 +128,14 @@ class _Graph:
         if target is not None:
             self.link(target, node.find_input_pin("self"))
         for key, value in (inputs or {}).items():
-            pin = node.find_input_pin(key)
-            if isinstance(value, unreal.BlueprintGraphPin):
-                self.link(value, pin)
+            if not isinstance(value, unreal.BlueprintGraphPin):
                 continue
+            pin = node.find_input_pin(key)
+            self.link(value, pin)
+        for key, value in (inputs or {}).items():
+            if isinstance(value, unreal.BlueprintGraphPin):
+                continue
+            pin = node.find_input_pin(key)
             if not pin.set_pin_value(str(value)):
                 raise RuntimeError("引脚默认值写入失败 " + name + "." + key)
         return node
@@ -343,6 +347,93 @@ def _replace_rifle_snapshot_casts(blueprint):
                 g.link(g.out(branch, "else"), pin)
             count += 1
     return count
+
+
+def configure_continuous_bone_rotation(blueprint_path, bone_name, snapshot_properties):
+    """
+    /**
+     * 在已有蒙太奇输出后添加连续骨骼旋转 平滑逻辑只在动画图运行
+     * @param blueprint_path	独占持有的武器动画蓝图
+     * @param bone_name		围绕自身局部 Z 轴旋转的骨骼
+     * @param snapshot_properties	驱动标记 加速秒数 减速秒数 度每秒四个只读属性
+     * @return 无警告编译与保存结果 不读取装备实例或配置对象
+     */
+    """
+    if len(snapshot_properties) != 4 or len(set(snapshot_properties)) != 4 or not bone_name:
+        raise RuntimeError("连续旋转需要四个不同的事实属性和明确骨骼")
+    if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+        raise RuntimeError("PIE 期间禁止修改连续旋转图")
+    blueprint = unreal.load_asset(blueprint_path)
+    if not isinstance(blueprint, unreal.AnimBlueprint):
+        raise RuntimeError("目标必须是动画蓝图")
+    require_write_access(blueprint)
+    dirty = {value.get_path_name() for value in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
+    if blueprint.get_outermost().get_path_name() in dirty:
+        raise RuntimeError("目标存在未保存编辑 拒绝操作可能已失效的生成类")
+    defaults = unreal.get_default_object(blueprint.generated_class())
+    for name in snapshot_properties:
+        defaults.get_editor_property(name)
+    skeleton = blueprint.get_editor_property("target_skeleton")
+    reference = skeleton.get_reference_pose()
+    if bone_name not in [str(value) for value in reference.get_bone_names()]:
+        raise RuntimeError("目标旋转骨骼不属于蓝图骨架")
+    graph = unreal.BlueprintEditorLibrary.find_graph(blueprint, "AnimGraph")
+    editor = unreal.BlueprintGraphEditor.get_graph_editor(graph)
+    nodes = list(editor.list_all_nodes())
+    roots = [value for value in nodes if value.get_class().get_name() == "AnimGraphNode_Root"]
+    slots = [value for value in nodes if value.get_class().get_name() == "AnimGraphNode_Slot"]
+    if len(nodes) != 3 or len(roots) != 1 or len(slots) != 1:
+        raise RuntimeError("只允许在参考姿势 蒙太奇槽 输出三节点图上添加旋转")
+    variables = {str(value) for value in unreal.BlueprintEditorLibrary.list_member_variable_names(blueprint, False)}
+    if variables.intersection({"BarrelVisualSpeed", "BarrelVisualAngle", "BarrelVisualRotation"}):
+        raise RuntimeError("连续旋转变量已存在 拒绝覆盖")
+    for name, kind in [("BarrelVisualSpeed", "float"), ("BarrelVisualAngle", "float"), ("BarrelVisualRotation", "Rotator")]:
+        BlueprintTools.add_variable(blueprint, name, kind)
+        BlueprintTools.set_variable_category(blueprint, name, "枪管旋转表现")
+    g = _function(blueprint, "BlueprintThreadSafeUpdateAnimation")
+    g.editor.set_is_thread_safe_function(True)
+    entry = next(value for value in g.editor.list_all_nodes() if isinstance(value, unreal.K2Node_FunctionEntry))
+    delta = g.out(entry, "DeltaTime")
+    driving = g.get(snapshot_properties[0])
+    duration = g.select(g.get(snapshot_properties[1]), g.get(snapshot_properties[2]), driving)
+    duration = g.out(g.call("FMax", inputs={"A": duration, "B": 0.0001}))
+    speed = g.out(g.call("FInterpTo_Constant", inputs={"Current": g.get("BarrelVisualSpeed"),
+        "Target": g.select(1, 0, driving), "DeltaTime": delta,
+        "InterpSpeed": g.binary("Divide_DoubleDouble", 1, duration)}))
+    increment = g.binary("Multiply_DoubleDouble", delta, g.binary("Multiply_DoubleDouble", g.get("BarrelVisualSpeed"), g.get(snapshot_properties[3])))
+    angle = g.out(g.call("FMod", inputs={"Dividend": g.binary("Add_DoubleDouble", g.get("BarrelVisualAngle"), increment), "Divisor": 360}), "Remainder")
+    execute = g.set("BarrelVisualSpeed", speed, g.editor.find_graph_entry_pin())
+    execute = g.set("BarrelVisualAngle", angle, execute)
+    rotation = g.out(g.call("MakeRotator", inputs={"Roll": 0, "Pitch": 0, "Yaw": g.get("BarrelVisualAngle")}))
+    g.set("BarrelVisualRotation", rotation, execute)
+    create = unreal.BBBBlueprintEditorLibrary.create_native_animation_node
+    to_component = create(graph, unreal.AnimGraphNode_LocalToComponentSpace.static_class(), unreal.IntPoint(200, 0))
+    modify = create(graph, unreal.AnimGraphNode_ModifyBone.static_class(), unreal.IntPoint(500, 0))
+    to_local = create(graph, unreal.AnimGraphNode_ComponentToLocalSpace.static_class(), unreal.IntPoint(850, 0))
+    if any(value is None for value in [to_component, modify, to_local]):
+        raise RuntimeError("原生旋转节点创建失败 不保存")
+    data = modify.get_editor_property("node")
+    bone = data.get_editor_property("bone_to_modify")
+    bone.set_editor_property("bone_name", bone_name)
+    data.set_editor_property("bone_to_modify", bone)
+    data.set_editor_property("rotation_mode", unreal.BoneModificationMode.BMM_ADDITIVE)
+    data.set_editor_property("rotation_space", unreal.BoneControlSpace.BCS_BONE_SPACE)
+    modify.set_editor_property("node", data)
+    if not unreal.BBBBlueprintEditorLibrary.bind_animation_node_input(modify, "Rotation", ["BarrelVisualRotation"]):
+        raise RuntimeError("旋转输入绑定失败 不保存")
+    output = roots[0].find_input_pin("Result")
+    output.break_pin_links()
+    g.link(slots[0].find_output_pin("Pose"), to_component.find_input_pin("LocalPose"))
+    g.link(to_component.find_output_pin("ComponentPose"), modify.find_input_pin("ComponentPose"))
+    g.link(modify.find_output_pin("Pose"), to_local.find_input_pin("ComponentPose"))
+    g.link(to_local.find_output_pin("Pose"), output)
+    roots[0].set_node_pos(unreal.IntPoint(1150, 0))
+    unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
+    if blueprint.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+        raise RuntimeError("连续旋转图存在编译错误或警告 不保存")
+    if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
+        raise RuntimeError("连续旋转动画蓝图保存失败")
+    return {"asset": blueprint_path, "bone": bone_name, "snapshotProperties": snapshot_properties, "saved": True}
 
 
 def configure_animation_handling(blueprint_path, animation_path):

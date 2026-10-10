@@ -54,6 +54,7 @@ def _activities():
     for module_name, attribute in (
         ("BBBAnimationMotionTools", "_capture_handle"),
         ("BBBGenericEditorToolset", "_pie_audio_capture"),
+        ("BBBDisplayAssetCaptureTools", "_capture_handle"),
     ):
         if getattr(sys.modules.get(module_name), attribute, None) is not None:
             active.append(module_name + ":" + attribute)

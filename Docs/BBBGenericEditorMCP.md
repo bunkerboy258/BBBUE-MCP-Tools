@@ -322,5 +322,15 @@ PIE 反射调用中的 Guid 返回值按标准字符串序列化 位置参数可
 
 ### 物品详情与轮廓清晰度
 
+`spawn_configured_pie_actor(class_path, world_path, properties_json, location)` 只在明确的当前 PIE 世界中延迟生成演员 配置完成后才执行构造与 BeginPlay 不修改类默认对象或关卡资产 引用及引用数组使用 `refPath` 属性写入或完成生成失败时销毁本次演员 不会代替调用者判断后续行为是否成立。
+
+此入口使用 `BBBBlueprintEditorLibrary.BeginTransientPIEActor` 与 `FinishTransientPIEActor` 的编辑器专用原生桥接 不依赖未暴露到 UE Python 的 GameplayStatics 内部生成函数 创建对象带有 Transient 标记 不会进入关卡保存。
+
+`capture_niagara_asset(system_path, age_seconds, camera_offset, file_name)` 在带渲染的 PIE 世界中建立瞬态特效 以 120 Hz 推进到指定年龄并从明确方向拍摄 只写入 `Saved/temp/任务名/图像.png` 拒绝覆盖和目录链接 结束或失败均销毁预览演员 不修改源特效 不能代替实际开火时序验收。
+
+特效拍摄返回 `pending` 后需用 `get_niagara_capture_status()` 读取跨帧渲染结果 DesiredAge 固定模拟年龄 并等待四个渲染帧及捕获提交后再导出 工具活动结束前不得停止 PIE 或让出宿主。
+
+`configure_weapon_handling_graphs(camera=true)` 从 `BBBEquipmentAnimInstance` 的通用只读接口获取镜头贡献 不依赖 Rifle 类型 无装备时返回无贡献 每个具体装备动画实例可覆盖四个镜头参数 getter。
+
 项目原生 `render_mesh_thumbnail` 使用 1024 方形采样后按真实透明边界裁切 用于背包的大幅详情图 避免将小图放大。
 `render_mesh_silhouettes` 的线稿突出外轮廓和主要材质分界 抑制细碎折面 使用较宽描线保证普通背包格子中的可读性。

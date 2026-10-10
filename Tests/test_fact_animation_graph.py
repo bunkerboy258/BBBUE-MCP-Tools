@@ -167,6 +167,7 @@ class FactAnimationSamplingTests(unittest.TestCase):
         animation = engine.load_asset.return_value
         animation.data_model_interface.get_number_of_keys.return_value = 3
         animation.controller.set_bone_track_keys.return_value = True
+        engine.AnimationLibrary.get_animation_curve_names.return_value = []
         original = Mock()
         engine.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms.return_value = [original] * 3
         access = Mock()

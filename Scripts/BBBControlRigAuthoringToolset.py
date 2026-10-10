@@ -1,6 +1,7 @@
 import json
 import math
 import os
+import stat
 import sys
 import traceback
 
@@ -109,8 +110,19 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
          * @return 图像路径
          */
         """
-        if len(camera_offset) != 3 or os.path.basename(file_name) != file_name or not file_name.endswith(".png"):
+        output_parts = file_name.replace("\\", "/").split("/")
+        if (len(camera_offset) != 3 or len(output_parts) != 2
+                or any(not part or part in {".", ".."} or ":" in part for part in output_parts)
+                or not output_parts[1].endswith(".png")):
             raise RuntimeError("截图参数无效")
+
+        directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "temp", output_parts[0]))
+        path = os.path.join(directory, output_parts[1])
+        if os.path.lexists(directory) and (os.path.islink(directory)
+                or getattr(os.lstat(directory), "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT):
+            raise RuntimeError("截图目录不得为链接")
+        if os.path.lexists(path):
+            raise RuntimeError("截图目标已存在 禁止覆盖 " + path)
 
         world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
         if world is None:
@@ -139,11 +151,15 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
                 if isinstance(asset, unreal.SkeletalMesh):
                     prop_component.set_skeletal_mesh_asset(asset)
                     if entry.get("animation"):
-                        if not unreal.BBBBlueprintEditorLibrary.evaluate_animation_preview_pose(prop_component, _asset(entry["animation"], unreal.AnimSequence), time_seconds):
+                        if not unreal.BBBBlueprintEditorLibrary.evaluate_animation_preview_pose(prop_component, _asset(entry["animation"], unreal.AnimSequence), entry.get("animation_time_seconds", time_seconds)):
                             raise RuntimeError("附件动画求值失败")
 
                     for bone in entry.get("hidden_bones", []):
                         prop_component.hide_bone_by_name(bone, unreal.PhysBodyOp.PBO_NONE)
+
+                    if entry.get("hidden_bones"):
+                        if not entry.get("animation") or not unreal.BBBBlueprintEditorLibrary.evaluate_animation_preview_pose(prop_component, _asset(entry["animation"], unreal.AnimSequence), entry.get("animation_time_seconds", time_seconds)):
+                            raise RuntimeError("附件骨骼显隐需要明确动画并完成重新求值")
 
                 if isinstance(asset, unreal.StaticMesh):
                     prop_component.set_static_mesh(asset)
@@ -157,7 +173,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
             light = unreal.BBBBlueprintEditorLibrary.spawn_transient_pie_actor(world, unreal.PointLight, unreal.Transform(location=location))
             actors.append(light)
             light_component = light.get_component_by_class(unreal.PointLightComponent)
-            light_component.set_intensity(40000.0)
+            light_component.set_intensity(2000.0)
             light_component.set_attenuation_radius(2000.0)
             light_component.set_cast_shadows(False)
             camera = unreal.BBBBlueprintEditorLibrary.spawn_transient_pie_actor(world, unreal.SceneCapture2D, unreal.Transform(location=location, rotation=unreal.MathLibrary.find_look_at_rotation(location, target)))
@@ -179,12 +195,18 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
             settings.set_editor_property("override_auto_exposure_apply_physical_camera_exposure", True)
             settings.set_editor_property("auto_exposure_apply_physical_camera_exposure", False)
             settings.set_editor_property("auto_exposure_bias", 0.0)
+            studio_cube = unreal.load_asset("/Engine/EngineResources/GrayLightTextureCube")
+            if studio_cube is None:
+                raise RuntimeError("手部观察所需的引擎环境光纹理不存在")
+            settings.set_editor_property("ambient_cubemap", studio_cube)
+            settings.set_editor_property("override_ambient_cubemap_intensity", True)
+            settings.set_editor_property("ambient_cubemap_intensity", 1.0)
+            settings.set_editor_property("override_ambient_cubemap_tint", True)
+            settings.set_editor_property("ambient_cubemap_tint", unreal.LinearColor.WHITE)
             capture.set_editor_property("post_process_settings", settings)
             capture.capture_scene()
-            directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "Diagnostics", "ReloadControlRig", "Captures"))
             os.makedirs(directory, exist_ok=True)
-            path = os.path.join(directory, file_name)
-            unreal.RenderingLibrary.export_render_target(world, render_target, directory, file_name)
+            unreal.RenderingLibrary.export_render_target(world, render_target, directory, output_parts[1])
             if not os.path.isfile(path) or os.path.getsize(path) < 1024:
                 raise RuntimeError("离屏图像无有效内容")
 
@@ -213,6 +235,96 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         attachment.translation = unreal.Vector()
         result = {name: _read_transform(attachment.inverse().multiply(_transform(value))) for name, value in json.loads(grips_json).items()}
         return json.dumps(result)
+
+    @mcp_tool
+    @staticmethod
+    def remap_animation_bone_times(animation_path: str, mesh_path: str, duration_seconds: float, frame_rate: int, time_maps_json: str, source_animation_path: str) -> str:
+        """
+        /**
+         * 通过官方动画姿势和数据控制器重映射独立机构动画的时间轴
+         * @param animation_path\t待更新的自有无通知无曲线骨骼动画
+         * @param mesh_path\t\t实际装备网格
+         * @param duration_seconds\t目标时长 秒 必须为整数帧
+         * @param frame_rate\t\t目标帧率
+         * @param time_maps_json\t骨骼名到目标秒数与原动画秒数对应点的映射 其它骨骼等比例播放
+         * @return 保存后的时长 帧数与重映射骨骼
+         */
+        """
+        animation = _asset(animation_path, unreal.AnimSequence)
+        source_animation = _asset(source_animation_path, unreal.AnimSequence)
+        mesh = _asset(mesh_path, unreal.SkeletalMesh)
+        if animation == source_animation:
+            raise RuntimeError("机构重映射必须使用独立源动画 禁止累计重映射")
+        if frame_rate <= 0 or not math.isfinite(duration_seconds) or duration_seconds <= 0.0:
+            raise RuntimeError("动画时长与帧率无效")
+        frames = round(duration_seconds * frame_rate)
+        if frames <= 0 or frames > 600 or abs(frames / frame_rate - duration_seconds) > 0.00001:
+            raise RuntimeError("机构动画须为整数帧且不超过六百帧")
+        if unreal.AnimationLibrary.get_animation_notify_events(animation) or unreal.AnimationLibrary.get_animation_curve_names(animation, unreal.RawCurveTrackTypes.RCT_FLOAT):
+            raise RuntimeError("机构时间重映射不接受已有通知或曲线")
+
+        source_length = source_animation.get_play_length()
+        names = [str(name) for name in source_animation.data_model_interface.get_bone_track_names()]
+        target_names = {str(name).casefold() for name in animation.data_model_interface.get_bone_track_names()}
+        if {name.casefold() for name in names} != target_names:
+            raise RuntimeError("源与目标机构动画的骨骼轨道必须一致")
+        transform_curves = unreal.AnimationLibrary.get_animation_curve_names(animation, unreal.RawCurveTrackTypes.RCT_TRANSFORM)
+        mapping = json.loads(time_maps_json)
+        if not isinstance(mapping, dict) or not mapping:
+            raise RuntimeError("机构时间映射必须明确骨骼与对应点")
+        resolved = {}
+        for name, points in mapping.items():
+            matched = next((bone for bone in names if bone.casefold() == name.casefold()), None)
+            if matched is None or not isinstance(points, list) or len(points) < 2:
+                raise RuntimeError("机构骨骼或时间对应点无效 " + name)
+            if points[0][0] != 0.0 or abs(points[-1][0] - duration_seconds) > 0.00001:
+                raise RuntimeError("机构时间映射须覆盖完整目标范围")
+            previous_time = -1.0
+            for target_time, source_time in points:
+                if (not math.isfinite(target_time) or not math.isfinite(source_time)
+                        or target_time <= previous_time or source_time < 0.0 or source_time > source_length):
+                    raise RuntimeError("机构时间对应点超出范围或重复")
+                previous_time = target_time
+            resolved[matched] = points
+
+        tracks = {name: [] for name in names}
+        for frame in range(frames + 1):
+            time_seconds = frame / frame_rate
+            default_pose = _pose(source_animation, mesh, time_seconds / duration_seconds * source_length)
+            for name in names:
+                pose = default_pose
+                if name in resolved:
+                    points = resolved[name]
+                    index = next((index for index in range(len(points) - 1) if time_seconds <= points[index + 1][0]), len(points) - 2)
+                    first, last = points[index:index + 2]
+                    alpha = (time_seconds - first[0]) / (last[0] - first[0])
+                    source_time = first[1] + (last[1] - first[1]) * alpha
+                    pose = _pose(source_animation, mesh, source_time)
+                tracks[name].append(unreal.AnimPoseExtensions.get_bone_pose(pose, name, unreal.AnimPoseSpaces.LOCAL))
+
+        require_write_access(animation)
+        controller = animation.controller
+        controller.open_bracket("对齐装备机构与手持物的时间交接", False)
+        try:
+            # 源姿势已包含骨骼修正曲线 清除目标旧修正 防止播放时重复叠加
+            if transform_curves:
+                controller.remove_all_curves_of_type(unreal.RawCurveTrackTypes.RCT_TRANSFORM, False)
+                if unreal.AnimationLibrary.get_animation_curve_names(animation, unreal.RawCurveTrackTypes.RCT_TRANSFORM):
+                    raise RuntimeError("已烘焙的机构修正曲线删除失败")
+            controller.set_frame_rate(unreal.FrameRate(numerator=frame_rate, denominator=1), False)
+            controller.set_number_of_frames(unreal.FrameNumber(value=frames), False)
+            for name, values in tracks.items():
+                if not controller.set_bone_track_keys(name, [value.translation for value in values], [value.rotation for value in values], [value.scale3d for value in values], False):
+                    raise RuntimeError("机构动画轨道写入失败 " + name)
+        finally:
+            controller.close_bracket(False)
+
+        if abs(animation.get_play_length() - duration_seconds) > 0.00001:
+            raise RuntimeError("机构动画时长不一致 禁止保存")
+        if not unreal.EditorAssetLibrary.save_loaded_asset(animation, False):
+            raise RuntimeError("机构时间轴保存失败")
+
+        return json.dumps({"animation": animation_path, "source": source_animation_path, "length": animation.get_play_length(), "frames": frames, "bones": list(resolved), "bakedTransformCurves": [str(name) for name in transform_curves]})
 
     @mcp_tool
     @staticmethod
@@ -259,7 +371,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def build_pose_control_keys(animation_path: str, mesh_path: str, overrides_json: str) -> str:
+    def build_pose_control_keys(animation_path: str, mesh_path: str, overrides_json: str, first_frame: int, last_frame: int) -> str:
         """
         /**
          * 用原动画的局部姿势生成原姿势控制器关键帧 保持骨长
@@ -273,7 +385,22 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         mesh = _asset(mesh_path, unreal.SkeletalMesh)
         count = animation.data_model_interface.get_number_of_keys()
         rate = animation.data_model_interface.get_frame_rate()
+        if first_frame < 0 or last_frame < first_frame or last_frame >= count or last_frame - first_frame >= 120:
+            raise RuntimeError("原姿势采样帧区间无效 " + str(first_frame) + " 至 " + str(last_frame))
         requests = json.loads(overrides_json)
+        if not requests:
+            if count < 1 or count > 600:
+                raise RuntimeError("原姿势采样帧数超出单次范围 " + str(count))
+            unreal.log("[BBBControlRigAuthoring] 原姿势采样帧数 " + str(count))
+            keys = []
+            for frame in range(first_frame, last_frame + 1):
+                pose = _pose(animation, mesh, frame * rate.denominator / rate.numerator)
+                names = unreal.AnimPoseExtensions.get_bone_names(pose)
+                for name in names:
+                    transform = unreal.AnimPoseExtensions.get_bone_pose(pose, name, unreal.AnimPoseSpaces.WORLD)
+                    keys.append({"frame": frame, "control": "source_" + str(name), "value": _read_transform(transform)})
+            return json.dumps(keys)
+
         reference_component = unreal.SkeletalMeshComponent()
         reference_component.set_skinned_asset_and_update(mesh)
         bone_names = [str(name) for name in unreal.AnimPoseExtensions.get_bone_names(_pose(animation, mesh, 0.0))]
@@ -302,7 +429,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
             references.append({name: unreal.AnimPoseExtensions.get_bone_pose(reference, name, unreal.AnimPoseSpaces.LOCAL) for name in request["bones"]})
 
         keys = []
-        for frame in range(count):
+        for frame in range(first_frame, last_frame + 1):
             pose = _pose(animation, mesh, frame * rate.denominator / rate.numerator)
             locals_by_bone = {name: unreal.AnimPoseExtensions.get_bone_pose(pose, name, unreal.AnimPoseSpaces.LOCAL) for name in bone_names}
             for request, reference in zip(requests, references):
@@ -793,13 +920,16 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         sequence.set_playback_start(0)
         sequence.set_playback_end(end_frame)
         actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
-        actor = actors.spawn_actor_from_class(unreal.SkeletalMeshActor, unreal.Vector())
+        actor = actors.spawn_actor_from_class(unreal.SkeletalMeshActor, unreal.Vector(), transient=True)
         actor.set_actor_label("BBB_Reload_HandEdit")
         actor.skeletal_mesh_component.set_skeletal_mesh_asset(mesh)
         actor.skeletal_mesh_component.set_editor_property("disable_post_process_blueprint", True)
         binding = sequence.add_spawnable_from_instance(actor)
         actors.destroy_actor(actor)
-        spawn = binding.add_track(unreal.MovieSceneSpawnTrack).add_section()
+        spawn_tracks = binding.find_tracks_by_type(unreal.MovieSceneSpawnTrack)
+        spawn_track = spawn_tracks[0] if spawn_tracks else binding.add_track(unreal.MovieSceneSpawnTrack)
+        spawn_sections = spawn_track.get_sections()
+        spawn = spawn_sections[0] if spawn_sections else spawn_track.add_section()
         spawn.set_range(0, end_frame)
         spawn.get_all_channels()[0].set_default(True)
         spawn.get_all_channels()[0].add_key(unreal.FrameNumber(value=0), True)
@@ -848,7 +978,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         sequence.set_playback_start(0)
         sequence.set_playback_end(end_frame)
         actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
-        actor = actors.spawn_actor_from_class(unreal.SkeletalMeshActor, unreal.Vector())
+        actor = actors.spawn_actor_from_class(unreal.SkeletalMeshActor, unreal.Vector(), transient=True)
         try:
             actor.skeletal_mesh_component.set_skeletal_mesh_asset(mesh)
             actor.skeletal_mesh_component.set_editor_property("disable_post_process_blueprint", True)
@@ -888,6 +1018,15 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         if not binding.find_tracks_by_type(unreal.MovieSceneControlRigParameterTrack):
             raise RuntimeError("序列缺少控制绑定轨道")
 
+        source_animations = []
+        for track in binding.find_tracks_by_type(unreal.MovieSceneSkeletalAnimationTrack):
+            for section in track.get_sections():
+                source = section.get_editor_property("params").animation
+                if isinstance(source, unreal.AnimSequence) and source not in source_animations:
+                    source_animations.append(source)
+        if len(source_animations) > 1:
+            raise RuntimeError("序列包含多个不同源动作 无法确定控制曲线来源")
+
         if unreal.EditorAssetLibrary.does_asset_exist(animation_path):
             animation = _asset(animation_path, unreal.AnimSequence)
             require_write_access(animation)
@@ -913,11 +1052,17 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         if animation.sequence_length <= 0.0:
             raise RuntimeError("烘焙结果为空")
 
+        copied_curves = 0
+        if source_animations:
+            copied_curves = unreal.BBBBlueprintEditorLibrary.copy_animation_float_curves(source_animations[0], animation)
+            if copied_curves < 0:
+                raise RuntimeError("保留源动作浮点曲线失败 禁止保存烘焙结果")
+
         animation.set_editor_property("enable_root_motion", False)
         if not unreal.EditorAssetLibrary.save_loaded_asset(animation, False):
             raise RuntimeError("保存烘焙动画失败")
 
-        return json.dumps({"animation": animation.get_path_name(), "length": animation.sequence_length})
+        return json.dumps({"animation": animation.get_path_name(), "length": animation.sequence_length, "copiedFloatCurves": copied_curves})
 
     @mcp_tool
     @staticmethod
@@ -975,13 +1120,16 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         """
         animation = _asset(animation_path, unreal.AnimSequence)
         mesh = _asset(mesh_path, unreal.SkeletalMesh)
-        result = []
-        for time in times:
-            pose = _pose(animation, mesh, time)
-            names = bone_names or [str(name) for name in unreal.AnimPoseExtensions.get_bone_names(pose)]
-            result.append({"time": time, "bones": {name: _read_transform(unreal.AnimPoseExtensions.get_bone_pose(pose, name, unreal.AnimPoseSpaces.WORLD)) for name in names}})
-
-        return json.dumps(result, ensure_ascii=False)
+        length = animation.get_play_length()
+        if not times or len(times) > 600 or any(not math.isfinite(time) or time < 0.0 or time > length for time in times):
+            raise RuntimeError("姿势采样时间必须位于实际动画范围内 每次至多六百项")
+        result = unreal.BBBBlueprintEditorLibrary.sample_animation_component_poses(animation, mesh, times, bone_names)
+        if not result:
+            raise RuntimeError("引擎批量姿势采样失败 请检查 PoseSample 日志")
+        rows = json.loads(result)
+        if len(rows) != len(times):
+            raise RuntimeError("引擎返回的采样数量不符")
+        return result
 
     @mcp_tool
     @staticmethod
@@ -1009,8 +1157,8 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         hierarchy = rig.get_hierarchy()
         for name in control_names:
             key = _key(name, "CONTROL")
-            if not name.startswith("source_") or not hierarchy.contains(key) or hierarchy.get_control_settings(key).control_type != unreal.RigControlType.EULER_TRANSFORM:
-                raise RuntimeError("采样仅支持明确的原姿势欧拉变换控制器 " + name)
+            if not hierarchy.contains(key) or hierarchy.get_control_settings(key).control_type != unreal.RigControlType.EULER_TRANSFORM:
+                raise RuntimeError("采样仅支持明确存在的欧拉变换控制器 " + name)
 
         keys = []
         for frame in frames:
@@ -1054,30 +1202,46 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
             raise RuntimeError("绑定轨道实例数量异常")
 
         rig = rigs[0]
+        if unreal.ControlRigSequencerLibrary.is_layered_control_rig(rig) != is_layered:
+            if not unreal.ControlRigSequencerLibrary.set_control_rig_layered_mode(track, is_layered):
+                raise RuntimeError("切换控制绑定叠加模式失败")
+            unreal.LevelSequenceEditorBlueprintLibrary.force_update()
+            rigs = [value.control_rig for value in unreal.ControlRigSequencerLibrary.get_control_rigs(sequence) if value.track == track]
+            if len(rigs) != 1:
+                raise RuntimeError("切换模式后绑定实例数量异常")
+            rig = rigs[0]
+
         keys = json.loads(keys_json)
+        source_groups = {}
         for key in keys:
             frame = unreal.FrameNumber(value=key["frame"])
             value = key["value"]
             if isinstance(value, dict):
                 # 原姿势控制器无父级且无偏移 直接写入组件姿势 避免世界空间接口依赖预览角色绑定而静默漏写
                 if key["control"].startswith("source_"):
-                    transform = _transform(value)
-                    local_value = unreal.EulerTransform(location=transform.translation, rotation=transform.rotation.rotator(), scale=transform.scale3d)
-                    unreal.ControlRigSequencerLibrary.set_local_control_rig_euler_transform(sequence, rig, key["control"], frame, local_value, set_key=True)
-                    actual = unreal.ControlRigSequencerLibrary.get_local_control_rig_euler_transform(sequence, rig, key["control"], frame)
-                    difference = actual.rotation.quaternion() * transform.rotation.inversed()
-                    if (actual.location - transform.translation).length() > 0.01 or abs(difference.w) < 0.99999:
-                        raise RuntimeError("原姿势控制器写键不一致 " + key["control"] + " 帧 " + str(key["frame"])
-                                           + " 目标 " + json.dumps(value) + " 实际 "
-                                           + json.dumps({"position": list(actual.location.to_tuple()),
-                                                         "rotation": list(actual.rotation.quaternion().to_tuple())}))
-
+                    source_groups.setdefault(key["control"], []).append(key)
                     continue
 
                 unreal.ControlRigSequencerLibrary.set_control_rig_world_transform(sequence, rig, key["control"], frame, _transform(value), set_key=True)
                 continue
 
             unreal.ControlRigSequencerLibrary.set_local_control_rig_float(sequence, rig, key["control"], frame, value, set_key=True)
+
+        for control, control_keys in source_groups.items():
+            frames = [unreal.FrameNumber(value=key["frame"]) for key in control_keys]
+            transforms = [_transform(key["value"]) for key in control_keys]
+            values = [unreal.EulerTransform(location=transform.translation, rotation=transform.rotation.rotator(), scale=transform.scale3d) for transform in transforms]
+            unreal.ControlRigSequencerLibrary.set_local_control_rig_euler_transforms(sequence, rig, control, frames, values)
+            actuals = unreal.ControlRigSequencerLibrary.get_local_control_rig_euler_transforms(sequence, rig, control, frames)
+            if len(actuals) != len(control_keys):
+                raise RuntimeError("原姿势控制器批量写键数量不一致 " + control)
+            for key, transform, actual in zip(control_keys, transforms, actuals):
+                difference = actual.rotation.quaternion() * transform.rotation.inversed()
+                if (actual.location - transform.translation).length() > 0.01 or abs(difference.w) < 0.99999:
+                    raise RuntimeError("原姿势控制器写键不一致 " + control + " 帧 " + str(key["frame"])
+                                       + " 目标 " + json.dumps(key["value"]) + " 实际 "
+                                       + json.dumps({"position": list(actual.location.to_tuple()),
+                                                     "rotation": list(actual.rotation.quaternion().to_tuple())}))
 
         keyed_channels = sum(len(channel.get_keys()) for section in track.get_sections() for channel in section.get_all_channels())
         if keyed_channels < len(keys):
@@ -1144,15 +1308,22 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         if any(binding.get_name() == label for binding in sequence.get_bindings()):
             raise RuntimeError("拒绝覆盖已有展示绑定 " + label)
 
-        parent = list(sequence.get_bindings())[0]
+        parents = []
+        for candidate in sequence.get_bindings():
+            template = candidate.get_object_template()
+            if isinstance(template, unreal.SkeletalMeshActor) and template.skeletal_mesh_component.does_socket_exist(socket_name):
+                parents.append(candidate)
+        if len(parents) != 1:
+            raise RuntimeError("附件挂接骨骼必须对应唯一骨骼演员 " + socket_name)
+        parent = parents[0]
         mesh = unreal.load_asset(mesh_path)
         actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
         if isinstance(mesh, unreal.SkeletalMesh):
-            actor = actors.spawn_actor_from_class(unreal.SkeletalMeshActor, unreal.Vector())
+            actor = actors.spawn_actor_from_class(unreal.SkeletalMeshActor, unreal.Vector(), transient=True)
             actor.skeletal_mesh_component.set_skeletal_mesh_asset(mesh)
 
         if isinstance(mesh, unreal.StaticMesh):
-            actor = actors.spawn_actor_from_class(unreal.StaticMeshActor, unreal.Vector())
+            actor = actors.spawn_actor_from_class(unreal.StaticMeshActor, unreal.Vector(), transient=True)
             actor.static_mesh_component.set_static_mesh(mesh)
 
         if not isinstance(mesh, (unreal.SkeletalMesh, unreal.StaticMesh)):
@@ -1165,7 +1336,10 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         binding.set_name(label)
         actors.destroy_actor(actor)
         end = sequence.get_playback_end()
-        spawn = binding.add_track(unreal.MovieSceneSpawnTrack).add_section()
+        spawn_tracks = binding.find_tracks_by_type(unreal.MovieSceneSpawnTrack)
+        spawn_track = spawn_tracks[0] if spawn_tracks else binding.add_track(unreal.MovieSceneSpawnTrack)
+        spawn_sections = spawn_track.get_sections()
+        spawn = spawn_sections[0] if spawn_sections else spawn_track.add_section()
         spawn.set_range(0, end + 1)
         channel = spawn.get_all_channels()[0]
         channel.set_default(False)
@@ -1202,6 +1376,62 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
 
         unreal.EditorAssetLibrary.save_loaded_asset(sequence)
         return json.dumps({"binding": label, "socket": socket_name, "ranges": ranges})
+
+    @mcp_tool
+    @staticmethod
+    def configure_sequence_attachment_animation(sequence_path: str, label: str, animation_path: str, first_frame: int, end_frame: int, play_rate: float) -> str:
+        """
+        /**
+         * 设置唯一骨骼附件动画的显式时间范围与固定速度 拒绝隐式重复播放
+         * @param sequence_path\t编辑序列路径
+         * @param label\t\t附件绑定名称
+         * @param animation_path\t附件动画路径
+         * @param first_frame\t包含的起始显示帧
+         * @param end_frame\t不包含的结束显示帧
+         * @param play_rate\t源动画秒数与序列秒数之比
+         * @return 已保存的时间范围与回读速度
+         */
+        """
+        sequence = _asset(sequence_path, unreal.LevelSequence)
+        animation = _asset(animation_path, unreal.AnimSequence)
+        bindings = [binding for binding in sequence.get_bindings() if binding.get_name() == label]
+        if len(bindings) != 1:
+            raise RuntimeError("附件绑定必须唯一")
+
+        tracks = bindings[0].find_tracks_by_type(unreal.MovieSceneSkeletalAnimationTrack)
+        if len(tracks) > 1 or (tracks and len(tracks[0].get_sections()) != 1):
+            raise RuntimeError("附件动画轨道与片段必须唯一")
+
+        rate = sequence.get_display_rate()
+        duration = (end_frame - first_frame) * rate.denominator / rate.numerator
+        if (first_frame < sequence.get_playback_start() or end_frame > sequence.get_playback_end()
+                or duration <= 0.0 or not math.isfinite(play_rate) or play_rate <= 0.0
+                or duration * play_rate > animation.get_play_length() + 0.00001):
+            raise RuntimeError("附件动画时间无效或会产生重复播放")
+
+        require_write_access(sequence)
+        sequence.modify()
+        if not tracks:
+            tracks = [bindings[0].add_track(unreal.MovieSceneSkeletalAnimationTrack)]
+            tracks[0].add_section()
+        section = tracks[0].get_sections()[0]
+        section.set_range(first_frame, end_frame)
+        params = section.get_editor_property("params")
+        params.animation = animation
+        params.play_rate = unreal.MovieSceneTimeWarpExtensions.make_time_warp(play_rate)
+        params.first_loop_start_frame_offset = unreal.FrameNumber(value=0)
+        params.start_frame_offset = unreal.FrameNumber(value=0)
+        params.end_frame_offset = unreal.FrameNumber(value=0)
+        params.reverse = False
+        section.set_editor_property("params", params)
+        actual = unreal.MovieSceneTimeWarpExtensions.to_fixed_play_rate(section.get_editor_property("params").play_rate)
+        if abs(actual - play_rate) > 0.000001:
+            raise RuntimeError("附件动画速度回读不一致 禁止保存")
+
+        if not unreal.EditorAssetLibrary.save_loaded_asset(sequence, False):
+            raise RuntimeError("附件动画时间轴保存失败")
+
+        return json.dumps({"binding": label, "firstFrame": first_frame, "endFrame": end_frame, "playRate": actual})
 
     @mcp_tool
     @staticmethod
@@ -1354,7 +1584,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def add_pose_controls(asset_path: str, bone_names: list[str]) -> str:
+    def add_pose_controls(asset_path: str, bone_names: list[str], solve_node_name: str) -> str:
         """
         /**
          * 为烘焙底稿建立隐藏的原姿势控制器和官方整组骨骼赋值节点
@@ -1368,6 +1598,9 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         hierarchy = asset.hierarchy
         controller = hierarchy.get_controller()
         graph = asset.get_controller()
+        solve_pin = solve_node_name + ".ExecutePin"
+        if not solve_node_name or graph.get_graph().find_pin(solve_pin) is None:
+            raise RuntimeError("手臂求解执行入口不存在 " + solve_node_name)
         names = [str(name) for name in bone_names]
         items = []
         transforms = []
@@ -1396,11 +1629,12 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         for index in range(len(names)):
             graph.add_link("SourcePose_" + str(index) + ".Transform", "OriginalPose.Transforms." + str(index), False, False)
 
-        graph.break_link("Forward.ExecutePin", "Apply_l.ExecutePin", False, False)
+        if not graph.break_link("Forward.ExecutePin", solve_pin, False, False):
+            raise RuntimeError("原求解执行连线不存在")
         if not graph.add_link("Forward.ExecutePin", "OriginalPose.ExecutePin", False, False):
             raise RuntimeError("原姿势执行入口连接失败")
 
-        if not graph.add_link("OriginalPose.ExecutePin", "Apply_l.ExecutePin", False, False):
+        if not graph.add_link("OriginalPose.ExecutePin", solve_pin, False, False):
             raise RuntimeError("手臂求解执行入口连接失败")
         asset.recompile_vm()
         unreal.EditorAssetLibrary.save_loaded_asset(asset)

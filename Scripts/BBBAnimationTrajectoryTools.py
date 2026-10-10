@@ -80,12 +80,23 @@ def hold_tracks(animation_path, bone_names, source_frame, identity_transform):
     animation = unreal.load_asset(animation_path)
     require_write_access(animation)
     count = animation.data_model_interface.get_number_of_keys()
+    transform_curves = {str(name).casefold(): name for name in unreal.AnimationLibrary.get_animation_curve_names(animation, unreal.RawCurveTrackTypes.RCT_TRANSFORM)}
+    float_curves = {str(name).casefold() for name in unreal.AnimationLibrary.get_animation_curve_names(animation, unreal.RawCurveTrackTypes.RCT_FLOAT)}
+    if any(str(name).casefold() in transform_curves and str(name).casefold() in float_curves for name in bone_names):
+        raise RuntimeError("目标骨骼与浮点曲线重名 禁止模糊删除")
     controller = animation.controller
     controller.open_bracket("固定指定骨骼轨道", False)
     try:
         for name in bone_names:
             values = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, name)
             value = unreal.Transform() if identity_transform else values[min(source_frame, len(values) - 1)]
+            # 固定骨骼时同时清除该骨骼的旧变换修正 其它曲线和通知保持不变
+            curve = transform_curves.get(str(name).casefold())
+            if curve is not None:
+                unreal.AnimationLibrary.remove_curve(animation, curve, False)
+                remaining = {str(item).casefold() for item in unreal.AnimationLibrary.get_animation_curve_names(animation, unreal.RawCurveTrackTypes.RCT_TRANSFORM)}
+                if str(name).casefold() in remaining:
+                    raise RuntimeError("固定骨骼的变换修正删除失败 " + str(name))
             if not controller.set_bone_track_keys(name, [value.translation] * count, [value.rotation] * count, [value.scale3d] * count, False):
                 raise RuntimeError("固定骨骼轨道失败 " + name)
     finally:

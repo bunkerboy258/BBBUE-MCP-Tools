@@ -3173,6 +3173,45 @@
           "returnValue"
         ]
       }
+    },
+    "configure_continuous_bone_rotation": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_path": {
+            "type": "string",
+            "description": "独占持有的三节点武器蒙太奇输出图 *"
+          },
+          "bone_name": {
+            "type": "string",
+            "description": "目标骨骼名称 *"
+          },
+          "snapshot_properties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "驱动标记 加速秒数 减速秒数 度每秒四个快照属性 *"
+          }
+        },
+        "required": [
+          "blueprint_path",
+          "bone_name",
+          "snapshot_properties"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "严格编译并保存的蓝图结果 失败不保存 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBExternalToolset": {
@@ -6035,6 +6074,147 @@
           "returnValue"
         ]
       }
+    },
+    "retime_single_action_montage": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "动作蒙太奇路径 *"
+          },
+          "duration_seconds": {
+            "type": "number",
+            "description": "目标时长 秒 必须落在给定帧率的整数帧 *"
+          },
+          "frame_rate": {
+            "type": "integer",
+            "description": "蒙太奇数据模型帧率 *"
+          }
+        },
+        "required": [
+          "asset_path",
+          "duration_seconds",
+          "frame_rate"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "保存后的插槽片段与播放时长 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "capture_niagara_asset": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "system_path": {
+            "type": "string",
+            "description": "特效资产路径 *"
+          },
+          "age_seconds": {
+            "type": "number",
+            "description": "模拟年龄秒 *"
+          },
+          "camera_offset": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "相机偏移厘米 *"
+          },
+          "file_name": {
+            "type": "string",
+            "description": "任务目录与 PNG 名称 *"
+          }
+        },
+        "required": [
+          "system_path",
+          "age_seconds",
+          "camera_offset",
+          "file_name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "图像路径 不保存资产或关卡 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "get_niagara_capture_status": {
+      "inputSchema": {
+        "type": "object"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "最近一次特效拍摄的真实状态 不创建或重置预览 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "spawn_configured_pie_actor": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "class_path": {
+            "type": "string",
+            "description": "完整原生类或项目蓝图生成类路径 *"
+          },
+          "world_path": {
+            "type": "string",
+            "description": "当前 PIE 世界对象路径 不猜测主机或客机 *"
+          },
+          "properties_json": {
+            "type": "string",
+            "description": "演员公开配置属性 引用及引用数组使用 refPath *"
+          },
+          "location": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "世界坐标厘米 三个有限分量 *"
+          }
+        },
+        "required": [
+          "class_path",
+          "world_path",
+          "properties_json",
+          "location"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "已完成生成的演员和世界路径 失败销毁本次演员 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBLevelEditingToolset": {
@@ -6977,11 +7157,15 @@
               "type": "string"
             },
             "description": "按层级排序的源骨骼 *"
+          },
+          "solve_node_name": {
+            "type": "string"
           }
         },
         "required": [
           "asset_path",
-          "bone_names"
+          "bone_names",
+          "solve_node_name"
         ]
       },
       "outputSchema": {
@@ -7787,12 +7971,20 @@
           "overrides_json": {
             "type": "string",
             "description": "参考帧 骨骼和逐帧混合权重 *"
+          },
+          "first_frame": {
+            "type": "integer"
+          },
+          "last_frame": {
+            "type": "integer"
           }
         },
         "required": [
           "animation_path",
           "mesh_path",
-          "overrides_json"
+          "overrides_json",
+          "first_frame",
+          "last_frame"
         ]
       },
       "outputSchema": {
@@ -8131,6 +8323,107 @@
           "returnValue": {
             "type": "string",
             "description": "帧号 控制器与实际组件空间变换数组 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "remap_animation_bone_times": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "animation_path": {
+            "type": "string",
+            "description": "待更新的自有无通知无曲线骨骼动画 *"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "实际装备网格 *"
+          },
+          "duration_seconds": {
+            "type": "number",
+            "description": "目标时长 秒 必须为整数帧 *"
+          },
+          "frame_rate": {
+            "type": "integer",
+            "description": "目标帧率 *"
+          },
+          "time_maps_json": {
+            "type": "string",
+            "description": "骨骼名到目标秒数与原动画秒数对应点的映射 其它骨骼等比例播放 *"
+          },
+          "source_animation_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "animation_path",
+          "mesh_path",
+          "duration_seconds",
+          "frame_rate",
+          "time_maps_json",
+          "source_animation_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "保存后的时长 帧数与重映射骨骼 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_sequence_attachment_animation": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sequence_path": {
+            "type": "string",
+            "description": "编辑序列路径 *"
+          },
+          "label": {
+            "type": "string",
+            "description": "附件绑定名称 *"
+          },
+          "animation_path": {
+            "type": "string",
+            "description": "附件动画路径 *"
+          },
+          "first_frame": {
+            "type": "integer",
+            "description": "包含的起始显示帧 *"
+          },
+          "end_frame": {
+            "type": "integer",
+            "description": "不包含的结束显示帧 *"
+          },
+          "play_rate": {
+            "type": "number",
+            "description": "源动画秒数与序列秒数之比 *"
+          }
+        },
+        "required": [
+          "sequence_path",
+          "label",
+          "animation_path",
+          "first_frame",
+          "end_frame",
+          "play_rate"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "已保存的时间范围与回读速度 */"
           }
         },
         "required": [
@@ -9986,19 +10279,57 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "config_paths": {"type": "array", "items": {"type": "string"}, "description": "正式模板 一至十六种 *"},
-          "count": {"type": "integer", "description": "群体数量 一至五百 *"},
-          "center": {"type": "array", "items": {"type": "number"}, "description": "出生中心 三个有限厘米坐标 *"},
-          "spacing": {"type": "number", "description": "出生间距 至少一百厘米 *"},
-          "expected_level": {"type": "string", "description": "完整关卡包路径 名称包含 Validation *"},
-          "file_prefix": {"type": "string", "description": "本任务唯一临时目录名 *"}
+          "config_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "正式模板 一至十六种 *"
+          },
+          "count": {
+            "type": "integer",
+            "description": "群体数量 一至五百 *"
+          },
+          "center": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "出生中心 三个有限厘米坐标 *"
+          },
+          "spacing": {
+            "type": "number",
+            "description": "出生间距 至少一百厘米 *"
+          },
+          "expected_level": {
+            "type": "string",
+            "description": "完整关卡包路径 名称包含 Validation *"
+          },
+          "file_prefix": {
+            "type": "string",
+            "description": "本任务唯一临时目录名 *"
+          }
         },
-        "required": ["config_paths", "count", "center", "spacing", "expected_level", "file_prefix"]
+        "required": [
+          "config_paths",
+          "count",
+          "center",
+          "spacing",
+          "expected_level",
+          "file_prefix"
+        ]
       },
       "outputSchema": {
         "type": "object",
-        "properties": {"returnValue": {"type": "string", "description": "测量编号 使用 inspect_mass_population_benchmark 查询 */"}},
-        "required": ["returnValue"]
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "测量编号 使用 inspect_mass_population_benchmark 查询 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
       }
     },
     "start_mass_population_benchmark": {
@@ -10212,29 +10543,78 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "asset_path": {"type": "string", "description": "独占持有的项目僵尸动画蓝图 *"},
-          "movement_duration": {"type": "number", "description": "普通移动转换秒数 *", "default": 0.22},
-          "attack_enter_duration": {"type": "number", "description": "攻击入场秒数 *", "default": 0.08},
-          "attack_exit_duration": {"type": "number", "description": "攻击退出秒数 *", "default": 0.16},
-          "hit_enter_duration": {"type": "number", "description": "踉跄入场秒数 *", "default": 0.07},
-          "hit_exit_duration": {"type": "number", "description": "踉跄恢复秒数 *", "default": 0.18},
-          "crawl_duration": {"type": "number", "description": "持续爬行姿态入场秒数 *", "default": 0.28},
-          "death_duration": {"type": "number", "description": "死亡入场秒数 *", "default": 0.04}
+          "asset_path": {
+            "type": "string",
+            "description": "独占持有的项目僵尸动画蓝图 *"
+          },
+          "movement_duration": {
+            "type": "number",
+            "description": "普通移动转换秒数 *",
+            "default": 0.22
+          },
+          "attack_enter_duration": {
+            "type": "number",
+            "description": "攻击入场秒数 *",
+            "default": 0.08
+          },
+          "attack_exit_duration": {
+            "type": "number",
+            "description": "攻击退出秒数 *",
+            "default": 0.16
+          },
+          "hit_enter_duration": {
+            "type": "number",
+            "description": "踉跄入场秒数 *",
+            "default": 0.07
+          },
+          "hit_exit_duration": {
+            "type": "number",
+            "description": "踉跄恢复秒数 *",
+            "default": 0.18
+          },
+          "crawl_duration": {
+            "type": "number",
+            "description": "持续爬行姿态入场秒数 *",
+            "default": 0.28
+          },
+          "death_duration": {
+            "type": "number",
+            "description": "死亡入场秒数 *",
+            "default": 0.04
+          }
         },
-        "required": ["asset_path"]
+        "required": [
+          "asset_path"
+        ]
       },
       "outputSchema": {
         "type": "object",
-        "properties": {"returnValue": {"type": "string", "description": "转换数量与无警告编译保存结果 */"}},
-        "required": ["returnValue"]
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "转换数量与无警告编译保存结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
       }
     },
     "inspect_mass_variation_network": {
-      "inputSchema": {"type": "object"},
+      "inputSchema": {
+        "type": "object"
+      },
       "outputSchema": {
         "type": "object",
-        "properties": {"returnValue": {"type": "string", "description": "各世界实体身份 个体属性和表现诊断 不生成或修改实体 */"}},
-        "required": ["returnValue"]
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "各世界实体身份 个体属性和表现诊断 不生成或修改实体 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
       }
     },
     "configure_fact_movement_styles": {
@@ -11162,7 +11542,9 @@
             "description": "明确的物理资产 *"
           }
         },
-        "required": ["asset_path"]
+        "required": [
+          "asset_path"
+        ]
       },
       "outputSchema": {
         "type": "object",
@@ -11172,7 +11554,9 @@
             "description": "刚体质量和全部约束的当前值 不修改资产 */"
           }
         },
-        "required": ["returnValue"]
+        "required": [
+          "returnValue"
+        ]
       }
     },
     "configure_corpse_physics_asset": {
@@ -11189,7 +11573,9 @@
             "default": 75.0
           }
         },
-        "required": ["asset_path"]
+        "required": [
+          "asset_path"
+        ]
       },
       "outputSchema": {
         "type": "object",
@@ -11199,47 +11585,98 @@
             "description": "当前刚体质量和 BBBCorpse 约束 不自动保存 */"
           }
         },
-        "required": ["returnValue"]
+        "required": [
+          "returnValue"
+        ]
       }
     },
     "configure_monster_severing_parts": {
       "inputSchema": {
         "type": "object",
         "properties": {
-          "definition_path": {"type": "string", "description": "已独占签出的正式僵尸配置 *"},
-          "parts_json": {"type": "string", "description": "五个部位的 region bone part cap 数组 *"}
+          "definition_path": {
+            "type": "string",
+            "description": "已独占签出的正式僵尸配置 *"
+          },
+          "parts_json": {
+            "type": "string",
+            "description": "五个部位的 region bone part cap 数组 *"
+          }
         },
-        "required": ["definition_path", "parts_json"]
+        "required": [
+          "definition_path",
+          "parts_json"
+        ]
       },
       "outputSchema": {
         "type": "object",
-        "properties": {"returnValue": {"type": "string", "description": "读取回来的资源对应表 不自动保存 */"}},
-        "required": ["returnValue"]
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "读取回来的资源对应表 不自动保存 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
       }
     },
     "create_zombie_sealed_part_meshes": {
       "inputSchema": {
         "type": "object",
         "properties": {
-          "source_mesh_path": {"type": "string", "description": "只读使用的完整僵尸网格 *"},
-          "root_bone": {"type": "string", "description": "断开处骨骼名称 *"},
-          "output_folder": {"type": "string", "description": "新增封闭部件的自有目录 *"},
-          "rebuild_existing": {"type": "boolean", "description": "显式重建完整的同名自有部件 必须独占签出 不保留旧版本 *", "default": false}
+          "source_mesh_path": {
+            "type": "string",
+            "description": "只读使用的完整僵尸网格 *"
+          },
+          "root_bone": {
+            "type": "string",
+            "description": "断开处骨骼名称 *"
+          },
+          "output_folder": {
+            "type": "string",
+            "description": "新增封闭部件的自有目录 *"
+          },
+          "rebuild_existing": {
+            "type": "boolean",
+            "description": "显式重建完整的同名自有部件 必须独占签出 不保留旧版本 *",
+            "default": false
+          }
         },
-        "required": ["source_mesh_path", "root_bone", "output_folder"]
+        "required": [
+          "source_mesh_path",
+          "root_bone",
+          "output_folder"
+        ]
       },
       "outputSchema": {
         "type": "object",
-        "properties": {"returnValue": {"type": "string", "description": "部件和封口路径及闭环诊断 不自动保存 */"}},
-        "required": ["returnValue"]
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "部件和封口路径及闭环诊断 不自动保存 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
       }
     },
     "inspect_pie_audio_device": {
-      "inputSchema": {"type": "object"},
+      "inputSchema": {
+        "type": "object"
+      },
       "outputSchema": {
         "type": "object",
-        "properties": {"returnValue": {"type": "string", "description": "当前 PIE 音频设备 静音 总音量与非实时混音状态 不修改配置 */"}},
-        "required": ["returnValue"]
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "当前 PIE 音频设备 静音 总音量与非实时混音状态 不修改配置 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
       }
     },
     "inspect_skeletal_hit_reaction_capture": {

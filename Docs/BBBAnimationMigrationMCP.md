@@ -232,6 +232,8 @@ IK 重建通过网格查询真实父骨名，使用 FK 脚组件变换相对于�
 
 ## 持枪后坐力图表工具
 
+`configure_continuous_bone_rotation(blueprint_path, bone_name, snapshot_properties)` 在参考姿势 蒙太奇槽 输出组成的三节点武器图中追加原生骨骼旋转 依次读取驱动标记 加速秒数 减速秒数 度每秒四个动画快照属性 加减速和角度累积只在线程安全动画图运行 围绕目标骨骼局部 Z 轴旋转 保留已有蒙太奇表现 不枚举节点菜单 不读取玩法黑板或配置对象 工具严格编译后保存 使用前须独占目标资产 转管枪使用 `Rotator_joint` 和 `bIsSpinning` `SpinUpSeconds` `SpinDownSeconds` `BarrelRotationSpeedDegrees`。
+
 - `submit_character_diagnostic_inputs` 只在 PIE 向本地角色正式输入入口提交固定诊断包 请求为含 `name` 与三维 `value` 的数组 `Camera` 使用三轴冲量 `Unequip` 使用零向量 `AimFact` 使用 X 作为瞄准标记 `AimImpulseFact` 使用 X 腰射冲量 Y 瞄准冲量 Z 回零速度 多项在同一回调提交 可检查槽位覆盖与权威事实包读取 已由原生端限制到 PIE 游戏线程
 - 持枪运行探针额外返回逐帧样本与相机 Actor 实际角度 可对照武器开火序号检查响应时序及回零曲线 不读取相机私有状态 动画图仅读取独立的 `HipFire` `AimFire` 与 `Airborne` 表现字段 不再读取整份冲量配置
 
@@ -266,6 +268,8 @@ IK 重建通过网格查询真实父骨名，使用 FK 脚组件变换相对于�
 `merge_recoil_into_full_body_additives` 一次性将旧独立层并入原有 `FullBodyAdditives`，保留落地恢复状态机，将原来的 0.65 落地恢复权重移入层内，主图接收权重改为 1。后坐力通过 `WeaponRecoilTime` 的显式时间播放器和 `WeaponBackwardRecoilAlpha` 合成。结构不符合预期或重复合并会拒绝执行。旧的 `configure_recoil_animation_graphs` 公共入口已删除，禁止重新创建独立后坐力层。
 
 `bind_backward_recoil_additive_inputs` 维护已合并层的时间和权重绑定，不重建落地状态机。`configure_weapon_handling_graphs` 同样维护原有层，不再创建 `FullBodyRecoil`。
+
+`hold_animation_bone_tracks` 同时删除被固定骨骼同名的变换修正曲线 其它骨骼曲线与通知保留 若存在同名浮点曲线则拒绝模糊删除 调用后必须回读实际求值姿势 不能只验证原始轨道
 
 `validate_backward_recoil_animation` 审计全部关键帧、双手受力轴、朝向、握持距离、首尾恢复及下半身，并计算 Alpha 为 0、0.5、1 的实际局部旋转混合。中间权重存在微小非线性误差，容差为偏轴 0.3 厘米、朝向 0.15 度和握持距离 0.35 厘米。
 

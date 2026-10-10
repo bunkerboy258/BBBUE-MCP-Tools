@@ -108,6 +108,33 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def capture_niagara_asset(system_path: str, age_seconds: float, camera_offset: list[float], file_name: str) -> str:
+        """
+        /**
+         * 拍摄明确年龄和观察方向的瞬态 Niagara 特效
+         * @param system_path\t\t特效资产路径
+         * @param age_seconds\t\t模拟年龄秒
+         * @param camera_offset\t相机偏移厘米
+         * @param file_name\t\t任务目录与 PNG 名称
+         * @return 图像路径 不保存资产或关卡
+         */
+        """
+        import importlib
+        import BBBDisplayAssetCaptureTools
+        if getattr(BBBDisplayAssetCaptureTools, "_capture_handle", None) is not None:
+            raise RuntimeError("特效拍摄仍在运行 请先读取状态")
+        importlib.reload(BBBDisplayAssetCaptureTools)
+        return BBBDisplayAssetCaptureTools.capture_niagara_asset(system_path, age_seconds, camera_offset, file_name)
+
+    @mcp_tool
+    @staticmethod
+    def get_niagara_capture_status() -> str:
+        """/** @return 最近一次特效拍摄的真实状态 不创建或重置预览 */"""
+        import BBBDisplayAssetCaptureTools
+        return BBBDisplayAssetCaptureTools.get_niagara_capture_status()
+
+    @mcp_tool
+    @staticmethod
     def create_primitive_texture_blend_material(source_path: str, material_path: str, texture_parameter: str,
                                                alternate_parameter: str, primitive_index: int = 0) -> str:
         """
@@ -1457,6 +1484,69 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def retime_single_action_montage(asset_path: str, duration_seconds: float, frame_rate: int) -> str:
+        """
+        /**
+         * 对齐单段动作蒙太奇的播放时长 不修改源动画 不重设通知时刻
+         * @param asset_path\t动作蒙太奇路径
+         * @param duration_seconds\t目标时长 秒 必须落在给定帧率的整数帧
+         * @param frame_rate\t蒙太奇数据模型帧率
+         * @return 保存后的插槽片段与播放时长
+         */
+        """
+        from BBBAssetWritePolicy import require_write_access
+
+        montage = unreal.EditorAssetLibrary.load_asset(asset_path)
+        if not isinstance(montage, unreal.AnimMontage) or frame_rate <= 0:
+            raise RuntimeError("蒙太奇或帧率无效")
+        if not math.isfinite(duration_seconds) or duration_seconds <= 0.0:
+            raise RuntimeError("动作时长无效")
+
+        frames = round(duration_seconds * frame_rate)
+        if frames <= 0 or abs(frames / frame_rate - duration_seconds) > 0.00001:
+            raise RuntimeError("动作时长必须为整数帧")
+
+        tracks = list(montage.get_editor_property("slot_anim_tracks"))
+        if not tracks:
+            raise RuntimeError("动作蒙太奇没有插槽")
+
+        for track in tracks:
+            segments = track.get_editor_property("anim_track").get_editor_property("anim_segments")
+            if len(segments) != 1:
+                raise RuntimeError("仅支持每个插槽一段动作的蒙太奇")
+            segment = segments[0]
+            if (segment.get_editor_property("anim_reference") is None
+                    or abs(segment.get_editor_property("start_pos")) > 0.00001
+                    or segment.get_editor_property("looping_count") != 1
+                    or segment.get_editor_property("anim_play_rate") <= 0.0):
+                raise RuntimeError("动作片段必须从零开始且只正向播放一次")
+            length = segment.get_editor_property("anim_end_time") - segment.get_editor_property("anim_start_time")
+            if length <= 0.0:
+                raise RuntimeError("动作片段范围无效")
+
+        require_write_access(montage)
+        montage.modify()
+        for track in tracks:
+            animation_track = track.get_editor_property("anim_track")
+            segments = list(animation_track.get_editor_property("anim_segments"))
+            segment = segments[0]
+            length = segment.get_editor_property("anim_end_time") - segment.get_editor_property("anim_start_time")
+            segment.set_editor_property("anim_play_rate", length / duration_seconds)
+            animation_track.set_editor_property("anim_segments", segments)
+            track.set_editor_property("anim_track", animation_track)
+        montage.set_editor_property("slot_anim_tracks", tracks)
+        montage.controller.set_frame_rate(unreal.FrameRate(numerator=frame_rate, denominator=1))
+        montage.controller.set_number_of_frames(unreal.FrameNumber(value=frames))
+        if abs(montage.get_play_length() - duration_seconds) > 0.00001:
+            raise RuntimeError("蒙太奇长度更新失败 禁止保存")
+
+        if not unreal.EditorAssetLibrary.save_loaded_asset(montage, False):
+            raise RuntimeError("动作时间轴保存失败")
+
+        return BBBGenericEditorToolset.inspect_animation_montage_segments(asset_path)
+
+    @mcp_tool
+    @staticmethod
     def add_animation_notify_events(asset_path: str, track_name: str, events_json: str) -> str:
         """
         /**
@@ -1804,6 +1894,64 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
         unreal.SystemLibrary.execute_console_command(None, "Automation RunTests " + test_filter)
         return json.dumps({"filter": test_filter, "requested": True})
+
+    @mcp_tool
+    @staticmethod
+    def spawn_configured_pie_actor(class_path: str, world_path: str, properties_json: str, location: list[float]) -> str:
+        """
+        /**
+         * 在明确 PIE 世界中先配置临时演员再执行构造与 BeginPlay 不修改资产默认对象
+         * @param class_path\t\t完整原生类或项目蓝图生成类路径
+         * @param world_path\t\t当前 PIE 世界对象路径 不猜测主机或客机
+         * @param properties_json\t演员公开配置属性 引用及引用数组使用 refPath
+         * @param location\t\t世界坐标厘米 三个有限分量
+         * @return 已完成生成的演员和世界路径 失败销毁本次演员
+         */
+        """
+        properties = json.loads(properties_json)
+        if not isinstance(properties, dict) or len(location) != 3 or any(not math.isfinite(value) for value in location):
+            raise RuntimeError("临时演员配置或位置无效")
+        worlds = unreal.EditorLevelLibrary.get_pie_worlds(False)
+        world = next((value for value in worlds if value.get_path_name() == world_path), None)
+        actor_class = unreal.load_class(None, class_path)
+        if world is None or actor_class is None:
+            raise RuntimeError("必须指定当前 PIE 世界和有效演员类")
+
+        defaults = unreal.get_default_object(actor_class)
+        if not isinstance(defaults, unreal.Actor):
+            raise RuntimeError("生成类必须继承演员")
+        for name in properties:
+            defaults.get_editor_property(name)
+
+        resolved = {}
+        for name, value in properties.items():
+            if isinstance(value, list):
+                entries = []
+                for entry in value:
+                    if isinstance(entry, dict) and set(entry) == {"refPath"}:
+                        loaded = unreal.load_asset(entry["refPath"])
+                        if loaded is None:
+                            raise RuntimeError("临时演员引用资产不存在 " + entry["refPath"])
+                        entries.append(loaded)
+                        continue
+                    entries.append(entry)
+                value = entries
+            resolved[name] = value
+
+        transform = unreal.Transform(location=unreal.Vector(*location))
+        actor = unreal.BBBBlueprintEditorLibrary.begin_transient_pie_actor(world, actor_class, transform)
+        if actor is None:
+            raise RuntimeError("临时演员延迟生成失败")
+        try:
+            for name, value in resolved.items():
+                _apply_editor_property(actor, name, value)
+            completed = unreal.BBBBlueprintEditorLibrary.finish_transient_pie_actor(actor, transform)
+            if completed is None:
+                raise RuntimeError("临时演员完成生成失败")
+            return json.dumps({"actor": actor.get_path_name(), "world": world_path}, ensure_ascii=False)
+        except Exception:
+            actor.destroy_actor()
+            raise
 
     @mcp_tool
     @staticmethod
