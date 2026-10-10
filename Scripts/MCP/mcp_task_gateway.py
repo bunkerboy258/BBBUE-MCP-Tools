@@ -1,6 +1,7 @@
 import argparse
 import atexit
 import copy
+import hashlib
 import json
 import logging
 import os
@@ -55,6 +56,13 @@ _CONTROL_SPEC = {
         "after_revision": {"type": "integer", "minimum": 0},
         "wait_seconds": {"type": "integer", "minimum": 0, "maximum": 60},
     }, []),
+    "prepare_editor_recovery": ("预览失联阶段的接管证据和用户确认文本", {
+        "task_token": {"type": "string"}, "target_task_id": {"type": "string"},
+    }, ["task_token", "target_task_id"]),
+    "recover_editor_write": ("凭用户确认接管已过期阶段 保留资产并撤销旧凭证", {
+        "task_token": {"type": "string"}, "review_id": {"type": "string"},
+        "user_confirmation": {"type": "string", "description": "用户审阅接管清单后明确批准的完整确认文本"},
+    }, ["task_token", "review_id", "user_confirmation"]),
     "shutdown_editor_host": ("全部任务和活动结束后请求隐藏宿主退出", {}, []),
 }
 
@@ -112,6 +120,41 @@ def is_read_call(params):
     return access_policy.is_read_call(params)
 
 
+def write_execution_evidence(response):
+    """
+    /**
+     * 依据明确协议证据区分写操作结果
+     * @param response	实际后端响应
+     * @return 执行状态 固定原因及错误标识
+     */
+    """
+    status, headers, payload = response
+    if status >= 400 or not isinstance(payload, dict):
+        return "unknown", "backend_http_or_response_error", None
+    error = payload.get("error")
+    if isinstance(error, dict):
+        code = error.get("code")
+        if code in {-32601, -32602}:
+            return "rejected", "protocol_rejected_before_execution", code
+        return "unknown", "protocol_execution_unverified", code
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        return "unknown", "response_decode_failed", None
+    declared = result.get("_meta", {}).get("bbb/execution", {}).get("state")
+    failed = bool(result.get("isError"))
+    code = None
+    try:
+        decode_tool_result(payload)
+    except McpBusinessError as error:
+        failed = True
+        code = error.value.get("code")
+    if declared in {"rejected", "completed", "partial"}:
+        return declared, "tool_execution_evidence", code
+    if failed:
+        return "unknown", "business_error_without_execution_evidence", code
+    return "completed", "tool_returned_success", None
+
+
 class TaskCoordinator:
     """/** 服务端任务归属和完整生命周期保护 */"""
 
@@ -142,6 +185,7 @@ class TaskCoordinator:
         self.probe_count = 0
         self.probe_seconds = 0.0
         self.claims = set()
+        self.recovery_reviews = {}
 
     def _signal(self):
         """
@@ -210,6 +254,12 @@ class TaskCoordinator:
                 self.last_activity = copy.deepcopy(activity)
                 if self.writer in self.tasks:
                     record = self.tasks[self.writer]
+                    record["dirty_evidence"]["observed_packages"] = sorted(set(record["dirty_evidence"]["observed_packages"]) | set(activity.get("dirty_packages", [])))
+                    if not record["write_inflight"]:
+                        previous_dirty = set(record["dirty_evidence"]["current_packages"])
+                        added_dirty = set(activity.get("dirty_packages", [])) - previous_dirty
+                        record["dirty_evidence"]["observed_outside_write"] = sorted(set(record["dirty_evidence"]["observed_outside_write"]) | added_dirty)
+                    record["dirty_evidence"]["current_packages"] = list(activity.get("dirty_packages", []))
                     requested = record["pie_request"]
                     if requested == "start_pie" and activity["pie_active"] and activity["worlds"]:
                         record["pie_request"] = None
@@ -218,6 +268,7 @@ class TaskCoordinator:
                     if activity["pie_generation"] != record["pie_generation"]:
                         if not record["write_inflight"] and requested is None:
                             record["uncertain"] = True
+                            record["uncertainty_reason"] = "external_pie_generation_changed"
                         record["pie_generation"] = activity["pie_generation"]
                     stage = record["write"]
                     if self.clock() >= stage["expires_at"] and not record["inflight"] and stage["status"] != "releasing":
@@ -266,7 +317,7 @@ class TaskCoordinator:
             writer = self.tasks[self.writer]
             blockers.append({"code": "EDITOR_OCCUPIED", "task_id": writer["task_id"], "message": "等待当前阶段完成并交接"})
             if writer["uncertain"] or writer["status"] == "orphaned":
-                blockers.append({"code": "WRITE_RECOVERY_REQUIRED", "task_id": writer["task_id"], "message": "原任务回读实际结果并显式恢复"})
+                blockers.append({"code": "WRITE_RECOVERY_REQUIRED", "task_id": writer["task_id"], "message": "持凭证客户端核实结果并恢复 凭证遗失时预览接管并请求用户确认", "reason": writer["uncertainty_reason"]})
             if writer["pie_request"]:
                 blockers.append({"code": "TASK_PIE_PENDING", "message": "等待 PIE 请求在实际世界中生效"})
         if activity.get("pie_active") or activity.get("worlds"):
@@ -298,7 +349,7 @@ class TaskCoordinator:
             return guidance
         if record["uncertain"] or record["status"] == "orphaned":
             guidance["next_call"] = "renew_editor_write" if record["write"] else "renew_editor_task"
-            guidance["recovery_steps"] = ["回读实际操作结果", "凭原凭证显式 resume"]
+            guidance["recovery_steps"] = ["回读 last_operation 和 dirty_evidence", "持两份凭证的客户端调用 renew_editor_write 并显式 resume"]
             return guidance
         if record["write"]:
             guidance["can_write"] = record["write"]["status"] == "active" and not record["inflight"] and not record["pie_request"]
@@ -311,6 +362,14 @@ class TaskCoordinator:
         first = not self.queue or self.queue[0] == task_token
         guidance["can_claim_write"] = first and not blockers
         guidance["next_call"] = "begin_editor_write"
+        if guidance["can_claim_write"]:
+            queued = record["queued_write"]
+            guidance["next_arguments"] = {"task_token": "<本任务凭证>",
+                "ttl_seconds": queued["ttl_seconds"] if queued else 120,
+                "stage_label": queued["stage_label"] if queued else record["description"][:160], "wait_seconds": 0}
+            guidance["message"] = "编辑权限已可领取 立即调用 begin_editor_write"
+        if self.writer in self.tasks and self.tasks[self.writer]["write"]["status"] == "orphaned":
+            guidance["recovery_preview"] = {"tool": "prepare_editor_recovery", "target_task_id": self.tasks[self.writer]["task_id"]}
         if task_token in self.queue and not guidance["can_claim_write"]:
             guidance["next_call"] = "inspect_editor_tasks"
         if self.queue and not first:
@@ -333,7 +392,10 @@ class TaskCoordinator:
                 public = {key: record[key] for key in (
                     "task_id", "description", "mode", "ttl_seconds", "status", "inflight",
                     "write_inflight", "uncertain", "pie_request", "pie_generation", "last_write_state",
+                    "uncertainty_reason", "recovered_from_task_id",
                 )}
+                public["last_operation"] = copy.deepcopy(record["last_operation"])
+                public["dirty_evidence"] = copy.deepcopy(record["dirty_evidence"])
                 public["remaining_seconds"] = max(0, round(record["expires_at"] - self.clock(), 1))
                 public["write"] = None
                 if record["write"] is not None:
@@ -362,6 +424,10 @@ class TaskCoordinator:
                 "caller": self._guidance(task_token, blockers),
                 "observation_age_seconds": round(time.monotonic() - self.observed_at, 3) if self.observed_at is not None else None,
             }
+            if writer:
+                summary["writer"]["uncertainty_reason"] = writer["uncertainty_reason"]
+                summary["writer"]["last_operation"] = {key: value for key, value in (writer["last_operation"] or {}).items() if key not in {"dirty_added", "dirty_cleared"}}
+                summary["writer"]["observed_dirty_count"] = len(writer["dirty_evidence"]["observed_packages"])
             if compact:
                 return summary
             return {
@@ -457,6 +523,9 @@ class TaskCoordinator:
                 "uncertain": False, "pie_request": None, "pie_generation": activity["pie_generation"],
                 "write": None, "last_write_state": None, "queued_write": None, "operations": {},
                 "write_cancel_generation": 0,
+                "last_operation": None, "uncertainty_reason": None, "recovered_from_task_id": None,
+                "dirty_evidence": {"basis": "host_snapshot_difference", "baseline_packages": [],
+                    "observed_packages": [], "current_packages": [], "observed_outside_write": []},
             }
             self._signal()
             return {"task_id": task_id, "task_token": token, "mode": mode, "ttl_seconds": ttl_seconds,
@@ -520,6 +589,12 @@ class TaskCoordinator:
                             "expires_at": self.clock() + queued_stage["ttl_seconds"], "status": "checking",
                             "stage_label": queued_stage["stage_label"], "started_at": self.clock()}
                         self.writer = task_token
+                        record["last_operation"] = None
+                        record["uncertainty_reason"] = None
+                        record["dirty_evidence"] = {"basis": "host_snapshot_difference",
+                            "baseline_packages": list(activity.get("dirty_packages", [])),
+                            "observed_packages": [], "current_packages": list(activity.get("dirty_packages", [])),
+                            "observed_outside_write": []}
                         record["pie_generation"] = activity["pie_generation"]
                         record["inflight"] += 1
                         self.inflight += 1
@@ -600,6 +675,7 @@ class TaskCoordinator:
                 raise TaskConflict("TASK_INFLIGHT", "请求仍在执行 不能确认恢复")
             if resume:
                 record["uncertain"] = False
+                record["uncertainty_reason"] = None
                 record["pie_generation"] = activity["pie_generation"]
             record["status"] = "active"
             record["expires_at"] = self.clock() + record["ttl_seconds"]
@@ -634,6 +710,7 @@ class TaskCoordinator:
                 raise TaskConflict("TASK_PIE_PENDING", "PIE 请求尚未生效 不能通过续期清除")
             if resume:
                 record["uncertain"] = False
+                record["uncertainty_reason"] = None
                 record["pie_generation"] = activity["pie_generation"]
             stage["status"] = "active"
             stage["expires_at"] = self.clock() + stage["ttl_seconds"]
@@ -641,6 +718,157 @@ class TaskCoordinator:
             record["expires_at"] = self.clock() + record["ttl_seconds"]
             self._signal()
             return {"task_id": record["task_id"], "status": "active", "ttl_seconds": stage["ttl_seconds"]}
+
+    def _recovery_target(self, task_token, target_task_id):
+        """
+        /**
+         * 核对接管双方及已过期阶段的实际活动
+         * @param task_token	接管任务凭证
+         * @param target_task_id	失联任务标识
+         * @return 接管方和失联方记录
+         */
+        """
+        claimant = self._record(task_token)
+        owner = self.tasks.get(self.writer)
+        if self.host_changed or self.draining:
+            raise TaskConflict("HOST_UNAVAILABLE", "请核对宿主身份和退出状态")
+        if claimant["mode"] == "read" or claimant["status"] != "active" or claimant["write"] or claimant["uncertain"]:
+            raise TaskConflict("RECOVERY_CLAIMANT_INVALID", "接管需要有效的空闲可写任务")
+        if owner is None or owner["task_id"] != target_task_id or owner is claimant:
+            raise TaskConflict("RECOVERY_TARGET_CHANGED", "目标阶段已发生变化 请重新查询")
+        if owner["write"]["status"] != "orphaned" or self.clock() < owner["write"]["expires_at"]:
+            raise TaskConflict("RECOVERY_OWNER_ACTIVE", "原任务仍持有有效阶段 请等待所属任务交接")
+        activity = self.last_activity
+        if owner["inflight"] or claimant["inflight"] or task_token in self.claims or owner["pie_request"] or activity["pie_active"] or activity["worlds"] or activity["activities"]:
+            raise TaskConflict("RECOVERY_ACTIVITY_PENDING", "实际请求 PIE 或后台活动结束后可预览接管")
+        return claimant, owner
+
+    def _recovery_fingerprint(self, owner):
+        """
+        /**
+         * 将阶段身份和实际资产证据绑定到确认快照
+         * @param owner	失联阶段记录
+         * @return 快照摘要
+         */
+        """
+        evidence = {"activity": self.last_activity, "task_id": owner["task_id"],
+            "stage_token": owner["write"]["token"], "uncertain": owner["uncertain"],
+            "last_operation": owner["last_operation"], "dirty_evidence": owner["dirty_evidence"]}
+        return hashlib.sha256(json.dumps(evidence, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+    def prepare_recovery(self, task_token, target_task_id):
+        """
+        /**
+         * 为用户生成具体可审阅的接管清单
+         * @param task_token	接管任务凭证
+         * @param target_task_id	失联任务标识
+         * @return 五分钟有效的接管预览和确认文本
+         */
+        """
+        if not isinstance(target_task_id, str) or not target_task_id:
+            raise ValueError("目标任务标识应为非空字符串")
+        self._observe()
+        with self.lock:
+            claimant, owner = self._recovery_target(task_token, target_task_id)
+            self.recovery_reviews = {key: value for key, value in self.recovery_reviews.items() if value["expires_at"] > self.clock() and value["claimant"] != task_token}
+            if len(self.recovery_reviews) >= 128:
+                raise TaskConflict("RECOVERY_REVIEW_LIMIT", "请等待已有接管预览到期")
+            fingerprint = self._recovery_fingerprint(owner)
+            review_id = secrets.token_urlsafe(24)
+            dirty = list(self.last_activity.get("dirty_packages", []))
+            confirmation = "接管任务 {}；保留 {} 个未保存包；核实执行结果；快照 {}".format(target_task_id, len(dirty), fingerprint[:12])
+            self.recovery_reviews[review_id] = {"claimant": task_token, "target": target_task_id,
+                "fingerprint": fingerprint, "confirmation": confirmation, "expires_at": self.clock() + 300}
+            claimant["expires_at"] = self.clock() + claimant["ttl_seconds"]
+            return {"review_id": review_id, "target_task_id": target_task_id, "expires_in_seconds": 300,
+                "user_confirmation": confirmation, "last_operation": copy.deepcopy(owner["last_operation"]),
+                "uncertainty_reason": owner["uncertainty_reason"], "dirty_packages": dirty,
+                "dirty_evidence": copy.deepcopy(owner["dirty_evidence"]),
+                "effects": ["撤销目标任务的旧凭证", "将现有阶段交给接管任务", "保留全部未保存内容", "执行结果继续按证据核实"]}
+
+    def recover_write(self, task_token, review_id, user_confirmation):
+        """
+        /**
+         * 按用户确认的稳定快照转移失联阶段归属
+         * @param task_token	接管任务凭证
+         * @param review_id	所属任务的接管预览
+         * @param user_confirmation	用户明确批准的完整确认文本
+         * @return 新阶段凭证和恢复要求
+         */
+        """
+        if not isinstance(review_id, str) or not isinstance(user_confirmation, str):
+            raise ValueError("预览标识和用户确认应为字符串")
+        self._observe()
+        with self.changed:
+            review = self.recovery_reviews.get(review_id)
+            if review is None or review["claimant"] != task_token or review["expires_at"] <= self.clock():
+                raise TaskConflict("RECOVERY_REVIEW_INVALID", "请使用本任务当前有效的接管预览")
+            claimant, owner = self._recovery_target(task_token, review["target"])
+            if not secrets.compare_digest(user_confirmation.encode("utf-8"), review["confirmation"].encode("utf-8")):
+                raise TaskConflict("RECOVERY_CONFIRMATION_REQUIRED", "请取得用户对完整接管清单的明确确认")
+            if self._recovery_fingerprint(owner) != review["fingerprint"]:
+                raise TaskConflict("RECOVERY_EVIDENCE_CHANGED", "资产或操作证据已变化 请重新预览并确认")
+            old_token = self.writer
+            stage = copy.deepcopy(owner["write"])
+            stage["token"] = secrets.token_urlsafe(32)
+            stage["status"] = "active"
+            stage["expires_at"] = self.clock() + stage["ttl_seconds"]
+            claimant["write"] = stage
+            claimant["uncertain"] = owner["uncertain"]
+            claimant["uncertainty_reason"] = owner["uncertainty_reason"]
+            claimant["last_operation"] = copy.deepcopy(owner["last_operation"])
+            claimant["dirty_evidence"] = copy.deepcopy(owner["dirty_evidence"])
+            claimant["recovered_from_task_id"] = owner["task_id"]
+            claimant["pie_generation"] = self.last_activity["pie_generation"]
+            claimant["expires_at"] = self.clock() + claimant["ttl_seconds"]
+            if task_token in self.queue:
+                self.queue.remove(task_token)
+            claimant["queued_write"] = None
+            self.tasks.pop(old_token)
+            self.writer = task_token
+            self.recovery_reviews.pop(review_id)
+            self._signal()
+            logging.warning("[BBBMcpTask] RECOVERY_TRANSFERRED")
+            return {"task_id": claimant["task_id"], "write_token": stage["token"],
+                "ttl_seconds": stage["ttl_seconds"], "status": "active",
+                "requires_result_review": claimant["uncertain"], "recovered_from_task_id": owner["task_id"]}
+
+    def record_result(self, record, execution_state, reason, error_code=None, observation_verified=True):
+        """
+        /**
+         * 保存最近写入的执行证据及宿主包变化
+         * @param record	所属任务
+         * @param execution_state	完成 拒绝 部分完成 或待核实
+         * @param reason	固定诊断原因
+         * @param error_code	协议或业务错误标识
+         * @param observation_verified	操作后实际快照是否已经回读
+         * @return 无返回值
+         */
+        """
+        with self.lock:
+            operation = record["operations"].get(threading.get_ident())
+            if operation is None or operation["access"] == "shared_read":
+                return
+            before = set(operation["dirty_before"])
+            after = set((self.last_activity or {}).get("dirty_packages", []))
+            if execution_state == "rejected" and observation_verified and (after != before or record["pie_generation"] != operation["pie_generation_before"]):
+                execution_state = "partial"
+                reason = "rejection_conflicts_with_host_changes"
+            record["last_operation"] = {"toolset": operation["toolset"], "tool": operation["tool"],
+                "execution_state": execution_state, "reason": reason,
+                "error_code": error_code if isinstance(error_code, int) or (isinstance(error_code, str) and re.fullmatch(r"[A-Z0-9_]{1,64}", error_code)) else None,
+                "recorded_at_unix": round(time.time(), 3),
+                "elapsed_seconds": round(self.clock() - operation["started_at"], 3),
+                "observation_verified": observation_verified,
+                "dirty_before_count": len(before), "dirty_after_count": len(after) if observation_verified else None,
+                "dirty_added": sorted(after - before) if observation_verified else None,
+                "dirty_cleared": sorted(before - after) if observation_verified else None}
+            if execution_state == "rejected":
+                record["pie_request"] = None
+            if execution_state in {"partial", "unknown"}:
+                record["uncertain"] = True
+                record["uncertainty_reason"] = reason
+            self._signal()
 
     def end_write(self, task_token, write_token):
         """
@@ -732,7 +960,9 @@ class TaskCoordinator:
                     record["write_inflight"] += 1
                 record["expires_at"] = self.clock() + record["ttl_seconds"]
                 record["operations"][threading.get_ident()] = {"toolset": definition, "tool": name,
-                    "access": access_policy.tool_access(toolset, name, business), "started_at": self.clock()}
+                    "access": access_policy.tool_access(toolset, name, business), "started_at": self.clock(),
+                    "dirty_before": list((self.last_activity or {}).get("dirty_packages", [])),
+                    "pie_generation_before": record["pie_generation"]}
             self._signal()
             return record
 
@@ -927,6 +1157,10 @@ class TaskGateway:
             return self.coordinator.release(**arguments)
         if name == "inspect_editor_tasks":
             return self.coordinator.inspect(**arguments)
+        if name == "prepare_editor_recovery":
+            return self.coordinator.prepare_recovery(**arguments)
+        if name == "recover_editor_write":
+            return self.coordinator.recover_write(**arguments)
         self.coordinator.prepare_shutdown()
         try:
             self.backend.shutdown()
@@ -1085,17 +1319,7 @@ class TaskGateway:
                 result = self.backend.relay(forwarded, headers)
                 if record is not None and not is_read_call(params):
                     self.coordinator._observe()
-                    failed = result[0] >= 400
-                    if isinstance(result[2], dict):
-                        failed = failed or bool(result[2].get("error") or result[2].get("result", {}).get("isError"))
-                        if not failed:
-                            try:
-                                decode_tool_result(result[2])
-                            except McpBusinessError:
-                                failed = True
-                    if failed:
-                        with self.coordinator.lock:
-                            record["uncertain"] = True
+                    self.coordinator.record_result(record, *write_execution_evidence(result))
                 if not toolset and name == "list_toolsets" and isinstance(result[2], dict):
                     result[2]["result"]["content"][0]["text"] += "\n- bbb_task: 当前占用 可执行工作 持续排队与编辑交接\n"
                 if not toolset and name == "describe_toolset" and isinstance(result[2], dict):
@@ -1122,16 +1346,28 @@ class TaskGateway:
             outgoing = result
             return outgoing
         except TaskConflict as error:
+            if counted and record is not None and not is_read_call(forwarded["params"]):
+                self.coordinator.record_result(record, "unknown", "backend_conflict_after_dispatch", observation_verified=False)
             logging.warning("[BBBMcpTask] %s", error.value["code"])
             outgoing = self._reply(request_id, error.value, True)
             return outgoing
         except (ValueError, TypeError, KeyError) as error:
+            if counted and record is not None and not is_read_call(forwarded["params"]):
+                self.coordinator.record_result(record, "unknown", "response_decode_failed", observation_verified=False)
+                logging.error("[BBBMcpTask] RESPONSE_DECODE_FAILED")
+                outgoing = self._reply(request_id, {"success": False, "code": "BACKEND_UNCERTAIN", "message": "响应解析需核实 请回读实际结果并凭阶段凭证恢复"}, True)
+                return outgoing
             outgoing = self._reply(request_id, {"success": False, "code": "INVALID_ARGUMENTS", "message": str(error)}, True)
             return outgoing
         except Exception:
             if counted and record is not None and not is_read_call(forwarded["params"]):
-                with self.coordinator.lock:
-                    record["uncertain"] = True
+                verified = False
+                try:
+                    self.coordinator._observe()
+                    verified = True
+                except Exception:
+                    pass
+                self.coordinator.record_result(record, "unknown", "transport_or_post_observation_failed", observation_verified=verified)
             logging.error("[BBBMcpTask] 后端请求失败 执行状态需回读")
             outgoing = self._reply(request_id, {"success": False, "code": "BACKEND_UNCERTAIN", "message": "后端状态不确定 先检查宿主 再凭原凭证恢复 不自动重试"}, True)
             return outgoing

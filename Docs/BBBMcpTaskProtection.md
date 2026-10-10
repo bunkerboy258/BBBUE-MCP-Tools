@@ -63,6 +63,8 @@
 | `end_editor_write` | `task_token` `write_token` | 让出写权限 保留登记 |
 | `release_editor_task` | `task_token` | 结束没有编辑阶段的任务登记 |
 | `inspect_editor_tasks` | 可选 `task_token` `after_revision` `wait_seconds=0` | 查询占用 当前工具 阻塞原因和下一步 或等待状态版本变化 |
+| `prepare_editor_recovery` | `task_token` `target_task_id` | 预览过期阶段的操作证据 资产清单和用户确认文本 |
+| `recover_editor_write` | `task_token` `review_id` `user_confirmation` | 按用户确认转移过期阶段 撤销旧凭证 保留资产与核实要求 |
 | `shutdown_editor_host` | 无 | 所有任务 请求 活动和脏包清零后请求退出 |
 
 任务有效期为三十至三千六百秒.
@@ -172,7 +174,13 @@ with McpSession(os.environ["BBB_MCP_URL"]) as session:
 示例只演示生命周期.
 目标编辑操作放在 `begin_write` 和 `end_write` 之间.
 结束前核实实际结果并处理本阶段的未保存内容.
-较长阶段主动调用 `renew_write`.
+SDK 为持有编辑阶段的存活 `McpSession` 自动调用 `renew_write` 周期为阶段有效期的三分之一 上限二十秒.
+续期使用独立 HTTP 连接 客户端关闭或阶段结束后结束续期.
+传输异常和恢复要求会暂停续期 保留两份凭证 在回读并显式恢复后继续续期.
+`heartbeat_error` 提供续期暂停提示.
+`auto_heartbeat=False` 适用于已经由调用方维护续期的客户端.
+直接使用 ChatGPT 工具接口的客户端在持有阶段时每二十秒调用 `renew_editor_write`.
+AI 分析和用户审批期间优先完成编辑批次并交接阶段.
 没有编辑阶段的长时间分析主动调用 `renew_task`.
 
 已经准备好完整参数时使用 `session.run_write_batch(calls, stage_label, ttl_seconds=120, wait_seconds=60)`.
@@ -215,11 +223,56 @@ PIE 和采样需要阶段归属覆盖整个活动 使用手动阶段流程管理
 
 存在活动或不确定结果的阶段标记为 `orphaned` 并保留权限归属.
 原任务先读取实际状态 再凭两份原凭证调用 `renew_editor_write(resume=True)`.
+任何持有两份原凭证的客户端都可执行上述恢复流程.
 未生效的 PIE 请求不能通过续期清除.
 不确定的资产写入不自动重试.
 
 客户端收到明确的凭证失效错误后清除对应本地凭证.
 传输失败和活动未结束时保留凭证.
+
+## 执行证据与失联接管
+
+`inspect_editor_tasks` 的任务记录包含 `last_operation` 和 `dirty_evidence`.
+最近操作记录工具名称 固定原因 错误标识 记录时间 耗时 操作前后包数量及新增与清除的包路径.
+公共诊断使用结构化证据 操作参数 凭证和原始传输异常保留在调用方.
+
+| `execution_state` | 含义 | 后续操作 |
+| --- | --- | --- |
+| `completed` | 工具返回成功或提供明确完成证据 | 按领域接口回读结果并完成阶段 |
+| `rejected` | 协议明确在执行前拒绝 或工具提供拒绝证据 | 修正参数后继续使用原阶段 |
+| `partial` | 工具报告部分完成 或拒绝声明与实际宿主变化冲突 | 回读已完成部分后显式恢复 |
+| `unknown` | 传输异常 或业务失败缺少执行证据 | 根据实际资产和活动核实结果后显式恢复 |
+
+提供协议结果的工具可使用 `result._meta["bbb/execution"].state` 声明 `rejected` `completed` 或 `partial`.
+声明须由工具实现中的执行边界保证 普通错误消息仍按 `unknown` 处理.
+官方协议 `-32601` 和 `-32602` 作为调用前拒绝的证据 宿主实际变化优先于拒绝声明.
+操作后探针失败时 `observation_verified=False` 操作后的包计数和差异为 `null` 下一步重新回读.
+
+`dirty_evidence` 记录阶段开始时的 `baseline_packages` 阶段观察到的 `observed_packages` 和最新 `current_packages`.
+`observed_outside_write` 记录实际写请求以外观察到的新增包 可能来自延迟任务或编辑器外部操作.
+这些字段表达宿主快照差异 具体资产来源以领域回读和操作记录核实.
+资产收尾使用已经确认的明确清单.
+
+原凭证遗失时 接手 AI 使用以下流程:
+
+1. 登记自己的 `editor` 或 `pie` 任务.
+2. 调用 `prepare_editor_recovery` 指定失联任务.
+3. 向用户展示目标阶段 最近操作 全部未保存包及接管影响 请求用户批准完整 `user_confirmation` 文本.
+4. 用户确认后 调用 `recover_editor_write` 传入本任务凭证 `review_id` 和完整确认文本.
+5. 按 `requires_result_review` 回读实际结果 再调用 `renew_editor_write(resume=True)`.
+6. 保存或处理经过确认的资产清单 调用 `end_editor_write` 交接给队列.
+
+接管仅适用于实际已过期且标记 `orphaned` 的阶段.
+原任务和接管任务的实际请求 PIE 请求 世界及后台活动均结束后可生成预览.
+接管预览有效期五分钟 绑定接管任务 宿主 阶段身份及资产快照.
+预览后原任务恢复 宿主变化 或资产证据变化时重新预览并请求确认.
+成功接管将现有阶段交给接手任务并撤销旧任务和阶段凭证 所有内存资产继续保留 原有结果核实要求继续保留.
+`recovered_from_task_id` 保留原任务标识.
+队列首位具备领取条件时 `summary.caller` 返回 `next_call` `next_arguments` 和立即领取提示.
+`next_arguments.task_token` 使用占位符 调用时填写自己的凭证.
+
+SDK 对应方法为 `prepare_recovery(target_task_id)` 和 `recover_write(review_id, user_confirmation)`.
+接管确认属于具体阶段的用户审批 AI 将用户批准的文本传给 SDK.
 
 ## 实际活动和重载
 
@@ -250,6 +303,7 @@ PCG 异步生成尚无活动状态探针 共享入口拒绝 `generate=True`.
 项目 `Law.md` 保持只读.
 
 隔离验证入口为 `Tests/test_mcp_task_gateway.py`.
+执行证据 191 个未保存包接管和 SDK 续期验证入口为 `Tests/test_mcp_task_recovery.py`.
 真实宿主验证入口为 `Tests/verify_mcp_task_protection.py`.
 真实验证检查三个客户端 两个任务交替编辑 第三个任务共享查询 持久排队 批次交接 旧凭证失效和 PIE 保护.
 真实验证不修改或保存项目资产.

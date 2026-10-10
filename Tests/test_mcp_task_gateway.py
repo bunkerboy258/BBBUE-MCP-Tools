@@ -489,7 +489,7 @@ class HttpGatewayTests(unittest.TestCase):
         self.assertIn("task_token", schema)
         self.assertIn("write_token", schema)
         guide = decode_tool_result(self.B.call_tool("describe_toolset", {"toolset_name": "bbb_task"}))
-        self.assertEqual(len(guide["tools"]), 9)
+        self.assertEqual(len(guide["tools"]), 11)
         state = decode_tool_result(self.B.call_tool("call_tool", {"tool_name": "inspect_editor_tasks", "arguments": {}}))
         self.assertEqual(state["activity"]["process_id"], 42)
 

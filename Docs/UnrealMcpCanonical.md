@@ -10,6 +10,12 @@
 
 准备好完整参数后使用 `McpSession.run_write_batch` 完成持续排队 连续调用和阶段交接.
 `McpWriteBatchError.phase` 标明排队 执行或交接阶段 `completed_results` 保留已完成请求.
+
+存活的 SDK 会话为持有阶段自动续期 关闭客户端或完成阶段后停止续期.
+直接使用 ChatGPT 工具接口时 每二十秒调用 `renew_editor_write` 保持阶段有效.
+恢复诊断读取任务的 `last_operation` `uncertainty_reason` 和 `dirty_evidence` 按执行证据区分拒绝 完成 部分完成及待核实结果.
+持有两份原凭证的客户端可显式恢复 原凭证遗失时使用 `prepare_editor_recovery` 生成清单 用户确认后调用 `recover_editor_write` 接管已过期阶段.
+具体操作和确认边界见 [执行证据与失联接管](BBBMcpTaskProtection.md#执行证据与失联接管).
 等待结束后排队顺序保持 原任务可继续领取或调用 `cancel_editor_write` 取消申请.
 执行或交接受阻时原任务继续持有阶段 并核对实际活动和操作结果.
 

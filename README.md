@@ -286,6 +286,7 @@ Python 调用方可使用 `MCP.mcp_result.decode_tool_result` 解析返回包装
 python -B Tests/test_repository.py
 python -B -m unittest discover -s Tests -p test_mcp_contracts.py
 python -B -m unittest discover -s Tests -p test_mcp_task_gateway.py
+python -B -m unittest discover -s Tests -p test_mcp_task_recovery.py
 & .\Tests\Test-Startup.ps1
 python -B Tests/verify_mcp_task_protection.py --url $hostInfo.Endpoint --project-root ([System.IO.Path]::GetDirectoryName($projectFile))
 ```
@@ -311,6 +312,8 @@ python -B Tests/verify_mcp_task_protection.py --url $hostInfo.Endpoint --project
 ## 更新日志
 
 ### 2026-10-10
+
+- 写入诊断记录执行证据与未保存包变化 SDK 编辑阶段自动续期 失联接管通过具体清单的用户确认完成 旧凭证撤销后由接手任务核实并收尾
 
 - `delete_asset_redirectors` 清理蓝图包内未注册为资产的骨架类重定向对象 防止主重定向器删除后留下旧文件和脏包
 

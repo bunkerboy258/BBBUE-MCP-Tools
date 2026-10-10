@@ -16,6 +16,7 @@
 import json
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 from urllib.parse import urlparse
@@ -119,7 +120,7 @@ def _parse_response(response, request_id, on_tools_changed):
 
 
 class McpSession:
-    def __init__(self, url, timeout_seconds=600, task_token=None, write_token=None):
+    def __init__(self, url, timeout_seconds=600, task_token=None, write_token=None, auto_heartbeat=True):
         self.url = url
         self.task_token = task_token
         self.write_token = write_token
@@ -130,6 +131,10 @@ class McpSession:
         self._closed = False
         self.editor_state = None
         self._state_received_at = None
+        self._auto_heartbeat = auto_heartbeat
+        self._heartbeat_stop = threading.Event()
+        self._heartbeat_thread = None
+        self.heartbeat_error = None
         if timeout_seconds <= 0:
             raise ValueError("MCP 请求超时必须大于零")
 
@@ -143,6 +148,8 @@ class McpSession:
         except Exception:
             self.close()
             raise
+        if task_token and write_token:
+            self._start_heartbeat(30)
 
     def __enter__(self):
         return self
@@ -171,12 +178,15 @@ class McpSession:
                     self.session_id = response.headers.get("Mcp-Session-Id")
                 result = _parse_response(response, self._next_id, self.invalidate_discovery)
         except requests.RequestException as error:
+            self._stop_heartbeat()
             raise RuntimeError("MCP 传输失败 不自动重试 操作是否已执行需检查编辑器状态: {}".format(error)) from error
 
         state = result.get("result", {}).get("_meta", {}).get("bbb/editor_state")
         if state is not None:
             self.editor_state = state
             self._state_received_at = time.monotonic()
+            if state.get("caller", {}).get("next_call") == "renew_editor_write":
+                self._stop_heartbeat()
         if result.get("error"):
             raise RuntimeError("MCP 协议错误: {}".format(json.dumps(result["error"], ensure_ascii=False)))
         if result.get("result", {}).get("isError"):
@@ -302,6 +312,7 @@ class McpSession:
         }))
         if value["status"] == "active":
             self.write_token = value["write_token"]
+            self._start_heartbeat(value["ttl_seconds"])
         return value
 
     def inspect_tasks(self, after_revision=None, wait_seconds=0):
@@ -399,9 +410,85 @@ class McpSession:
          * @return 续期状态
          */
         """
-        return decode_tool_result(self.call_tool("renew_editor_write", {
+        value = decode_tool_result(self.call_tool("renew_editor_write", {
             "task_token": self.task_token, "write_token": self.write_token, "resume": resume,
         }))
+        self._start_heartbeat(value["ttl_seconds"])
+        return value
+
+    def _start_heartbeat(self, ttl_seconds):
+        """
+        /**
+         * 为存活客户端的当前阶段维护独立续期连接
+         * @param ttl_seconds	阶段有效期
+         * @return 无返回值
+         */
+        """
+        if not self._auto_heartbeat or self._closed or not self.task_token or not self.write_token:
+            return
+        if self._heartbeat_thread is not None and self._heartbeat_thread.is_alive() and not self._heartbeat_stop.is_set():
+            return
+        task_token = self.task_token
+        write_token = self.write_token
+        stop = threading.Event()
+        self._heartbeat_stop = stop
+        self.heartbeat_error = None
+
+        def keep_alive():
+            """/** @return 为当前阶段续期 失败后保留恢复凭证 */"""
+            interval = min(20, ttl_seconds / 3)
+            try:
+                with McpSession(self.url, 5, task_token, write_token, auto_heartbeat=False) as heartbeat:
+                    while not stop.wait(interval):
+                        if self._closed or self.task_token != task_token or self.write_token != write_token:
+                            return
+                        value = heartbeat.renew_write()
+                        interval = min(20, value["ttl_seconds"] / 3)
+            except Exception:
+                if self.task_token == task_token and self.write_token == write_token and not stop.is_set():
+                    self.heartbeat_error = "HEARTBEAT_STOPPED_CHECK_EDITOR_STATE"
+                    print("MCP 编辑阶段续期已暂停 请查询占用并核实恢复步骤", file=sys.stderr)
+
+        self._heartbeat_thread = threading.Thread(target=keep_alive, daemon=True)
+        self._heartbeat_thread.start()
+
+    def _stop_heartbeat(self):
+        """/** @return 停止本客户端的续期工作 保留阶段凭证 */"""
+        self._heartbeat_stop.set()
+        thread = self._heartbeat_thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(1)
+
+    def prepare_recovery(self, target_task_id):
+        """
+        /**
+         * 读取已过期阶段的接管清单供用户审批
+         * @param target_task_id	失联任务标识
+         * @return 接管预览
+         */
+        """
+        return decode_tool_result(self.call_tool("prepare_editor_recovery", {
+            "task_token": self.task_token, "target_task_id": target_task_id,
+        }))
+
+    def recover_write(self, review_id, user_confirmation):
+        """
+        /**
+         * 按用户已批准的清单接管失联阶段
+         * @param review_id	接管预览标识
+         * @param user_confirmation	用户批准的完整确认文本
+         * @return 接管状态及结果核实要求
+         */
+        """
+        if self.write_token:
+            raise RuntimeError("请先完成当前客户端持有的编辑阶段")
+        value = decode_tool_result(self.call_tool("recover_editor_write", {
+            "task_token": self.task_token, "review_id": review_id, "user_confirmation": user_confirmation,
+        }))
+        self.write_token = value["write_token"]
+        if not value["requires_result_review"]:
+            self._start_heartbeat(value["ttl_seconds"])
+        return value
 
     def end_write(self):
         """
@@ -414,6 +501,7 @@ class McpSession:
             "task_token": self.task_token, "write_token": self.write_token,
         }))
         self.write_token = None
+        self._stop_heartbeat()
         return value
 
     def list_tools(self):
@@ -458,6 +546,7 @@ class McpSession:
         if self._closed:
             return
 
+        self._stop_heartbeat()
         try:
             if self.session_id:
                 with self._http.delete(self.url, headers=self._headers(), timeout=(5, 5)) as response:
