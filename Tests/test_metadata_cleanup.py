@@ -108,6 +108,7 @@ class MapRedirectorDeletionTests(unittest.TestCase):
                 "_move_filename": lambda path, extension=".uasset": str(Path(directory) / ("OldWorld" + extension)),
                 "unreal": types.SimpleNamespace(
                     LevelEditorSubsystem=object,
+                    ObjectIterator=lambda: iter(()),
                     get_editor_subsystem=lambda kind: types.SimpleNamespace(is_in_play_in_editor=lambda: False),
                     load_object=lambda outer, path, **options: redirector,
                     BBBAssetRepairEditorLibrary=types.SimpleNamespace(delete_redirector_packages=lambda objects: deleted.append(True) or True),

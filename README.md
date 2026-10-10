@@ -313,6 +313,8 @@ python -B Tests/verify_mcp_task_protection.py --url $hostInfo.Endpoint --project
 
 ### 2026-10-10
 
+- 补齐地图重定向器残留文件测试的原生对象枚举测试桩 保留残留文件时拒绝成功的检查
+
 - 写入诊断记录执行证据与未保存包变化 SDK 编辑阶段自动续期 失联接管通过具体清单的用户确认完成 旧凭证撤销后由接手任务核实并收尾
 
 - `delete_asset_redirectors` 清理蓝图包内未注册为资产的骨架类重定向对象 防止主重定向器删除后留下旧文件和脏包
