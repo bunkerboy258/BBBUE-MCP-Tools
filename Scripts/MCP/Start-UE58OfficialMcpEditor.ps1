@@ -23,6 +23,13 @@ param(
 )
 
 $projectPath = [System.IO.Path]::GetFullPath($ProjectPath)
+$configuredP4Tickets = [Environment]::GetEnvironmentVariable('P4TICKETS', 'User')
+if ($configuredP4Tickets -and (Test-Path -LiteralPath $configuredP4Tickets -PathType Leaf))
+{
+    $env:P4TICKETS = $configuredP4Tickets
+    $env:P4PASSWD = $null
+}
+
 $engineRoot = [System.IO.Path]::GetFullPath($EnginePath)
 $editorPath = Join-Path $engineRoot 'Engine\Binaries\Win64\UnrealEditor.exe'
 $projectArgumentPattern = '(?i)(?:^|\s)"?' + [Regex]::Escape($projectPath) + '"?(?=\s|$)'
