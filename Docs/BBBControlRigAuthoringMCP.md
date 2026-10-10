@@ -93,4 +93,8 @@
 `create_sequence_attachment` 按挂接骨骼或插槽查找唯一的骨骼演员模板 不依赖绑定列表顺序 多个匹配或没有匹配时在创建附件之前拒绝操作
 # 烘焙曲线保留
 
+`inject_pie_action(action_path, value, controller_path="")` 注入一帧标准增强输入 留空时使用当前 PIE 的第一个本地玩家 指定时必须是 PIE 世界内的本地 PlayerController 路径 可用于明确操作监听主机或客机 不允许对镜像控制器注入 输入仍由项目既有玩家输入适配层处理
+
+MCP 调用须显式传入 `controller_path` 使用默认玩家时传空字符串
+
 `bake_control_rig_animation` 从角色绑定的原始动画轨道读取源动作 即使该轨道已停用也保留其浮点曲线来源 原生复制完整关键帧 插值和切线 烘焙位置修正不会丢失 `DisableLHandIK` 或 `DisableAimIK` 控制曲线 多个不同源动作或源与结果时长不一致时拒绝保存

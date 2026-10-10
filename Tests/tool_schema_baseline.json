@@ -7241,11 +7241,15 @@
           "value": {
             "type": "number",
             "description": "第一轴输入值 *"
+          },
+          "controller_path": {
+            "type": "string"
           }
         },
         "required": [
           "action_path",
-          "value"
+          "value",
+          "controller_path"
         ]
       },
       "outputSchema": {

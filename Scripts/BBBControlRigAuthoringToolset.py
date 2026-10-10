@@ -1468,7 +1468,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def inject_pie_action(action_path: str, value: float) -> str:
+    def inject_pie_action(action_path: str, value: float, controller_path: str = "") -> str:
         """
         /**
          * 向当前 PIE 本地玩家注入一次标准增强输入 不发送系统按键
@@ -1482,6 +1482,14 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
             raise RuntimeError("PIE 未运行")
 
         controller = unreal.GameplayStatics.get_player_controller(world, 0)
+        if controller_path:
+            controller = unreal.find_object(None, controller_path)
+            if not isinstance(controller, unreal.PlayerController):
+                raise RuntimeError("指定对象不是 PIE 玩家控制器")
+            worlds = unreal.EditorLevelLibrary.get_pie_worlds(False)
+            if controller.get_world() not in worlds or not controller.is_local_controller():
+                raise RuntimeError("指定控制器不是 PIE 世界的本地玩家")
+
         action = _asset(action_path, unreal.InputAction)
         library = unreal.get_default_object(unreal.load_class(None, "/Script/Engine.SubsystemBlueprintLibrary"))
         subsystem = library.call_method("GetLocalPlayerSubSystemFromPlayerController", (controller, unreal.EnhancedInputLocalPlayerSubsystem))
