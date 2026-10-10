@@ -19,7 +19,7 @@ READ_TOOLS = {
         "export_animation_blueprint_graphs",
     },
     "BBBAnimationPreviewToolset": {"inspect_animation_transition_capture", "inspect_mass_population_benchmark"},
-    "BBBHitReactionToolset": {"inspect_skeletal_hit_reaction_capture"},
+    "BBBHitReactionToolset": {"inspect_skeletal_hit_reaction_capture", "inspect_zombie_gib_presentation"},
     "BBBBlueprintGraphToolset": {"inspect_blueprint_graph_logic", "inspect_blueprint_graph"},
 }
 READ_ACTIONS = {

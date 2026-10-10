@@ -13,6 +13,7 @@ param(
     [int]$TimeoutSeconds = 90,
     [switch]$EnableRendering,
     [switch]$EnableAudio,
+    [switch]$MuteAudioOutput,
     [switch]$EnableSlateInspector,
     [ValidateSet('Speed', 'Balanced', 'Economy', 'GamingBackground')]
     [string]$PerformanceProfile = 'Speed',
@@ -159,6 +160,10 @@ try
         }
 
         $hasNoSound = $commandLine -match '(?i)-NoSound(\s|$)'
+        if ($MuteAudioOutput -and $commandLine -notmatch '(?i)-MuteAudio(\s|$)')
+        {
+            $matchesMode = $false
+        }
         if (($EnableAudio -and $hasNoSound) -or (-not $EnableAudio -and -not $hasNoSound))
         {
             $matchesMode = $false
@@ -252,6 +257,11 @@ try
             $arguments += '-ini:EditorPerProjectUserSettings:[/Script/UnrealEd.LevelEditorMiscSettings]:bAllowBackgroundAudio=True'
         }
         $consoleCommands = "t.MaxFPS $frameLimit,t.IdleWhenNotForeground 0"
+        if ($MuteAudioOutput)
+        {
+            $arguments += '-MuteAudio'
+            $consoleCommands += ',au.MuteAudio 1'
+        }
         if ($EnableSlateInspector)
         {
             $arguments += '-EnablePlugins=SlateInspectorToolset'

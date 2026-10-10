@@ -93,6 +93,8 @@ $env:BBB_MCP_URL = $hostInfo.Endpoint
 
 MCP 宿主必须使用 `-AutoDeclinePackageRecovery` 跳过包恢复模态窗口，避免隐藏编辑器已监听端口却无法处理请求。该参数不删除 `Saved/Autosaves` 中已有的自动保存资产。
 
+用户要求静音后台验收时 可显式传入 `-MuteAudioOutput`. 启动器从进程启动时启用 `-MuteAudio` 并设置 `au.MuteAudio=1` 只抑制 UE 最终设备输出 不改系统音量或正式资产. 可与 `-EnableAudio` 组合保留混音逻辑 录制仍需检查实际波形. 未标记静音的既有宿主不会被此请求自动复用.
+
 同一项目只允许一个可写 UE MCP 宿主. 端口由启动配置指定 客户端使用实际返回的地址. 端口冲突先核对进程归属 不擅自连接其他宿主或创建第二实例.
 
 ## 唯一调用顺序

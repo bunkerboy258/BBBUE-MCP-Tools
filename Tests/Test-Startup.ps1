@@ -255,9 +255,7 @@ function global:Invoke-WebRequest
 #>
 function global:Invoke-RestMethod
 {
-    param($Uri, $Method, $ContentType, $Headers, $Body, $TimeoutSec, $ErrorAction, [switch]$UseBasicParsing)
-
-    Assert-StartupTest $UseBasicParsing 'HTTP 就绪检查使用基础响应解析'
+    param($Uri, $Method, $ContentType, $Headers, $Body, $TimeoutSec, $ErrorAction)
 
     Assert-StartupTest ($Uri -eq "http://127.0.0.1:$($global:bbbStartupTest.PublicPort)/mcp") '网关公开地址不匹配'
     $request = $Body | ConvertFrom-Json
@@ -404,4 +402,10 @@ $global:bbbStartupTest.Editors = @($foreignEditor, $ownEditor)
 Invoke-StartupFailureTest '多个 Unreal Editor'
 Assert-StartupTest (-not $global:bbbStartupTest.Started -and -not $global:bbbStartupTest.Stopped) '独立模式仍须拒绝同端口多个宿主'
 
-Write-Output 'PASS startup 6 profile cases 7 refusal or cleanup cases 1 reuse case no real process or HTTP calls'
+New-StartupTestState 'Economy' 30 'BelowNormal'
+$result = & $startupScript -ProjectPath $testProjectPath -EnginePath $testEnginePath -BackendPort 18000 -PerformanceProfile Economy -MuteAudioOutput -TimeoutSeconds 3 | ConvertFrom-Json
+Assert-StartupTest ($result.Status -eq 'Ready') '静音宿主未报告就绪'
+Assert-StartupTest ($global:bbbStartupTest.Arguments -contains '-MuteAudio') '静音宿主缺少启动前静音参数'
+Assert-StartupTest (($global:bbbStartupTest.Arguments -join ' ') -match 'au.MuteAudio 1') '静音宿主缺少最终输出静音变量'
+
+Write-Output 'PASS startup 6 profile cases 7 refusal or cleanup cases 1 reuse case and 1 muted output case no real process or HTTP calls'

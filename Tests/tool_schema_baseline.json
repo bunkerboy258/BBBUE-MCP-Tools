@@ -10367,7 +10367,7 @@
           },
           "expected_level": {
             "type": "string",
-            "description": "明确的验收关卡短名 必须包含 Validation *"
+            "description": "明确的验收关卡完整包路径 不修改关卡资产 *"
           },
           "file_prefix": {
             "type": "string",
@@ -10392,6 +10392,11 @@
             "type": "integer",
             "description": "测量画质档 零至三 使用百分之一百渲染比例 不沿用隐藏宿主降档 *",
             "default": 2
+          },
+          "torso_damage": {
+            "type": "number",
+            "description": "每个实体经正式伤害输入增加的躯干伤害 零为完好对照 *",
+            "default": 0
           }
         },
         "required": [
@@ -11574,7 +11579,7 @@
           "total_mass_kg": {
             "type": "number",
             "description": "完整身体质量 三十五至一百五十千克 *",
-            "default": 75.0
+            "default": 75
           }
         },
         "required": [
@@ -12277,12 +12282,12 @@
           "duration_seconds": {
             "type": "number",
             "description": "四至一百三十秒实际游戏时间 *",
-            "default": 4.0
+            "default": 4
           },
           "aging_time_scale": {
             "type": "number",
             "description": "落定六秒后寿命验收时间倍率 一至二十 完成时还原 *",
-            "default": 1.0
+            "default": 1
           }
         },
         "required": [
@@ -12297,6 +12302,153 @@
           "returnValue": {
             "type": "string",
             "description": "采样编号 使用 inspect_skeletal_hit_reaction_capture 查询 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "plan_zombie_wound_presentation_set": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "body_mesh_path": {
+            "type": "string",
+            "description": "只读核验的自有身体 *"
+          },
+          "definition_path": {
+            "type": "string",
+            "description": "只读核验的正式配置 *"
+          },
+          "output_folder": {
+            "type": "string",
+            "description": "自有输出目录 *"
+          }
+        },
+        "required": [
+          "body_mesh_path",
+          "definition_path",
+          "output_folder"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "类型 骨骼 材质前置检查与精确待签出和新建清单 不改资产 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "bake_zombie_wound_presentation_set": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "body_mesh_path": {
+            "type": "string",
+            "description": "已独占签出的自有身体 *"
+          },
+          "definition_path": {
+            "type": "string",
+            "description": "已独占签出的正式配置 *"
+          },
+          "output_folder": {
+            "type": "string",
+            "description": "明确的自有输出目录 *"
+          }
+        },
+        "required": [
+          "body_mesh_path",
+          "definition_path",
+          "output_folder"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "五处立体断口 姿态部件和共享伤口结果 不保存 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "finalize_zombie_wound_material_masks": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "material_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "明确的共享伤口主材质包路径 *"
+          }
+        },
+        "required": [
+          "material_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "遮罩表达式启用结果 不保存 不重建网格 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_zombie_gib_presentation": {
+      "inputSchema": {
+        "type": "object"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "当前真实 PIE 世界碎片池的模拟 静止与分配数 不改变池状态 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "rebuild_zombie_wound_cut_geometry": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mesh_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "明确的自有断口蒙皮网格包路径 *"
+          }
+        },
+        "required": [
+          "mesh_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "保留五处封口并移除躯干穿孔的结果 不保存 */"
           }
         },
         "required": [

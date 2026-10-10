@@ -1,6 +1,7 @@
 import ast
 import itertools
 import json
+import math
 from pathlib import Path
 import re
 import unittest
@@ -41,7 +42,7 @@ class PopulationRenderQualityTests(unittest.TestCase):
         self.runs = {}
         self.open = MagicMock()
         scope = {"unreal": self.engine, "os": fake_os, "re": re, "json": json, "csv": Mock(),
-                 "uuid": Mock(), "time": Mock(perf_counter=lambda: self.clock[0]), "open": self.open, "_population_runs": self.runs}
+                 "uuid": Mock(), "time": Mock(perf_counter=lambda: self.clock[0]), "math": math, "open": self.open, "_population_runs": self.runs}
         exec(compile(ast.Module(body=[method], type_ignores=[]), "population_render_quality", "exec"), scope)
         self.start = scope[method.name]
 
@@ -49,13 +50,13 @@ class PopulationRenderQualityTests(unittest.TestCase):
         """/** @return 无效画质在世界查询和文件创建前拒绝 */"""
         for quality in (-1, 4, 1.5, True):
             with self.assertRaises(RuntimeError):
-                self.start(["/Game/Config"], [1], [0.0, 0.0, 90.0], 200.0, "ValidationWorld", "QualityProbe", quality_level=quality)
+                self.start(["/Game/Config"], [1], [0.0, 0.0, 90.0], 200.0, "/Game/ValidationWorld", "QualityProbe", quality_level=quality)
         self.engine.get_editor_subsystem.assert_not_called()
         self.engine.SystemLibrary.execute_console_command.assert_not_called()
 
     def test_full_resolution_settings_report_and_restore(self):
         """/** @return 完整分辨率测量并在正常结束恢复原始画质和三十帧 */"""
-        self.start(["/Game/Config"], [1], [0.0, 0.0, 90.0], 200.0, "ValidationWorld", "QualityProbe")
+        self.start(["/Game/Config"], [1], [0.0, 0.0, 90.0], 200.0, "/Game/ValidationWorld", "QualityProbe")
         report = next(iter(self.runs.values()))
         self.assertEqual(report["renderSettings"]["r.ScreenPercentage"], 100.0)
         self.assertEqual(report["renderSettings"]["sg.ShadowQuality"], 2.0)
@@ -76,7 +77,7 @@ class PopulationRenderQualityTests(unittest.TestCase):
 
     def test_pie_interruption_restores_quality_and_frame_limit(self):
         """/** @return 外部结束 PIE 也恢复实际画质和帧率 */"""
-        self.start(["/Game/Config"], [1], [0.0, 0.0, 90.0], 200.0, "ValidationWorld", "QualityProbe", quality_level=1)
+        self.start(["/Game/Config"], [1], [0.0, 0.0, 90.0], 200.0, "/Game/ValidationWorld", "QualityProbe", quality_level=1)
         self.engine.get_editor_subsystem.return_value.get_game_world.return_value = None
         callback = self.engine.register_slate_post_tick_callback.call_args.args[0]
         callback(1.0 / 60.0)
@@ -90,13 +91,13 @@ class PopulationRenderQualityTests(unittest.TestCase):
         """/** @return 输出文件创建失败不能留下无限帧率或改变画质 */"""
         self.open.side_effect = OSError("输出目录不可写")
         with self.assertRaises(OSError):
-            self.start(["/Game/Config"], [1], [0.0, 0.0, 90.0], 200.0, "ValidationWorld", "QualityProbe")
+            self.start(["/Game/Config"], [1], [0.0, 0.0, 90.0], 200.0, "/Game/ValidationWorld", "QualityProbe")
         self.engine.SystemLibrary.execute_console_command.assert_not_called()
         self.assertEqual(self.values["t.MaxFPS"], 30.0)
 
     def test_collected_pie_world_is_never_used_for_console_restore(self):
         """/** @return 已销毁世界不再传入原生接口且终止回调只执行一次 */"""
-        self.start(["/Game/Config"], [1], [0.0, 0.0, 90.0], 200.0, "ValidationWorld", "QualityProbe")
+        self.start(["/Game/Config"], [1], [0.0, 0.0, 90.0], 200.0, "/Game/ValidationWorld", "QualityProbe")
         callback = self.engine.register_slate_post_tick_callback.call_args.args[0]
         self.engine.get_editor_subsystem.return_value.get_game_world.return_value = None
         original = self.engine.SystemLibrary.execute_console_command.side_effect
@@ -114,7 +115,7 @@ class PopulationRenderQualityTests(unittest.TestCase):
 
     def test_console_restore_failure_still_closes_output_and_callback(self):
         """/** @return 恢复设置失败不能遗留帧回调与文件占用 */"""
-        self.start(["/Game/Config"], [1], [0.0, 0.0, 90.0], 200.0, "ValidationWorld", "QualityProbe")
+        self.start(["/Game/Config"], [1], [0.0, 0.0, 90.0], 200.0, "/Game/ValidationWorld", "QualityProbe")
         callback = self.engine.register_slate_post_tick_callback.call_args.args[0]
         self.engine.get_editor_subsystem.return_value.get_game_world.return_value = None
         self.engine.SystemLibrary.execute_console_command.side_effect = RuntimeError("恢复失败")
@@ -128,10 +129,46 @@ class PopulationRenderQualityTests(unittest.TestCase):
         """/** @return 帧回调登记失败也关闭文件并恢复宿主设置 */"""
         self.engine.register_slate_post_tick_callback.side_effect = RuntimeError("回调不可用")
         with self.assertRaises(RuntimeError):
-            self.start(["/Game/Config"], [1], [0.0, 0.0, 90.0], 200.0, "ValidationWorld", "QualityProbe")
+            self.start(["/Game/Config"], [1], [0.0, 0.0, 90.0], 200.0, "/Game/ValidationWorld", "QualityProbe")
+
         self.assertEqual(self.values["t.MaxFPS"], 30.0)
         self.assertEqual(self.values["r.ScreenPercentage"], 35.0)
         self.open.return_value.close.assert_called_once()
+
+    def test_invalid_damage_never_reads_world_or_mutates(self):
+        """/** @return 无效伤害在访问编辑器和输出文件前拒绝 */"""
+        for damage in (-1, 10001, float("nan"), float("inf"), True, "20"):
+            with self.assertRaises(RuntimeError):
+                self.start(["/Game/Config"], [1], [0.0, 0.0, 90.0], 200.0, "/Game/ValidationWorld", "WoundProbe", torso_damage=damage)
+        self.engine.get_editor_subsystem.assert_not_called()
+
+    def test_wound_measurement_uses_official_damage_input(self):
+        """/** @return 每组只经正式入口投递一次且结果记录伤害值 */"""
+        self.engine.BBBMassValidationLibrary.damage_population.return_value = 1
+        self.start(["/Game/Config"], [1], [0.0, 0.0, 90.0], 200.0, "/Game/ValidationWorld", "WoundProbe", torso_damage=20)
+        callback = self.engine.register_slate_post_tick_callback.call_args.args[0]
+        for second in range(60):
+            self.clock[0] = float(second)
+            callback(1.0 / 60.0)
+        self.assertEqual(next(iter(self.runs.values()))["status"], "completed")
+        self.assertEqual(next(iter(self.runs.values()))["torsoDamage"], 20.0)
+        self.assertEqual(self.engine.BBBMassValidationLibrary.damage_population.call_count, 2)
+        self.engine.BBBMassValidationLibrary.damage_population.assert_called_with(self.world, ["entity"], 20.0)
+
+    def test_damage_failure_restores_frame_limit_and_cleans_entities(self):
+        """/** @return 正式伤害投递不完整时明确失败并清理本轮实体 */"""
+        self.engine.BBBMassValidationLibrary.damage_population.return_value = 0
+        self.start(["/Game/Config"], [1], [0.0, 0.0, 90.0], 200.0, "/Game/ValidationWorld", "WoundProbe", torso_damage=20)
+        self.engine.register_slate_post_tick_callback.call_args.args[0](1.0 / 60.0)
+        self.assertEqual(next(iter(self.runs.values()))["status"], "failed")
+        self.assertEqual(self.values["t.MaxFPS"], 30.0)
+        self.engine.BBBMassValidationLibrary.destroy_population.assert_called_once_with(self.world, ["entity"])
+
+    def test_level_name_substring_cannot_select_another_map(self):
+        """/** @return 必须严格匹配 PIE 所属关卡的完整包路径 */"""
+        with self.assertRaises(RuntimeError):
+            self.start(["/Game/Config"], [1], [0.0, 0.0, 90.0], 200.0, "ValidationWorld", "WoundProbe")
+        self.open.assert_not_called()
 
 
 if __name__ == "__main__":

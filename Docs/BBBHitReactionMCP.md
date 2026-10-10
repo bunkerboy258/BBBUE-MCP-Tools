@@ -1,5 +1,15 @@
 # Mass 部位受击与共享血效
 
+`finalize_zombie_wound_material_masks(material_paths)` 在非 PIE 编辑阶段对一至三十二个明确的共享伤口主材质逐项检查源控权限. 只启用已连接的透明裁剪表达式并完成编译 不修改输入连接 不重建网格 不保存. 材质必须位于 Shared/Wounds 且为带表达式的 Masked 主材质. 复制不透明主材质时必须清除 OpacityMask.UseConstant 和 bCanMaskedBeAssumedOpaque 否则表达式被常量忽略或运行时仍按不透明渲染. 返回 constantsReplaced 与 opaqueAssumptionsReplaced 分别说明两类标记的处理数量. 实际画面验收须确认原部位消失 掉落部件独立存在.
+
+`inspect_zombie_gib_presentation()` 在当前真实 PIE 查询世界碎片池的模拟数 静止数与已分配槽位数 以及伤口蒙皮的分配数 可见数和对应身体 LOD 不生成碎片 不推进寿命 不改变状态. 用于实际武器链验收 32 个模拟与 128 个静止残留预算. 演员复用后再次查询可确认残留不依赖原演员生命周期. 伤口蒙皮只在身体 LOD0/LOD1 显示 更远距离保留身体血污与缺肢轮廓 未显示过近距伤口的远处演员不预分配蒙皮载体.
+
+`gibMeshes` 提供当前一次捕获蒙皮部件的组件路径 资产 物理父组件 可见性 包围范围和五处骨骼世界变换. 近距部件从最终组件空间姿态生成父骨骼相对变换 包含当前物理混合 不使用未混合的动画局部姿态. 全部骨骼只在生成时处理一次 后续由独立刚体驱动 不逐帧复制来源.
+
+`plan_zombie_wound_presentation_set(body_mesh_path, definition_path, output_folder)` 在非 PIE 的已授权编辑阶段核验自有身体 五个固定断开骨骼 封闭部件命名及原身体材质 返回精确的既有待改资产与新建目标清单 不修改资产. 它会加载资产 因此不能在另一任务占用写阶段时调用.
+
+`bake_zombie_wound_presentation_set` 使用同一份核验清单执行源控写入检查 原生烘焙身体 UV2/UV3 伤口标记 共享受损材质 五个封闭静态部件和一次姿态捕获使用的精简蒙皮部件 以及仅包含五处断口的单份蒙皮资源. 两处胸腹浅创口只改变身体表面颜色 不裁剪躯干. 保留源身体 UV0/UV1 表面和骨架 遵守 GPU 蒙皮最多四组纹理坐标的限制. 原身体已占用 UV2/UV3 时前置拒绝. 不使用运行时布尔 不压缩或隐藏身体骨骼 不新增玩法伤害事实. 输出必须尚不存在. 操作只修改内存资产并返回 `saved=false` 调用方逐项保存并回读 失败时核实已修改资源 不重复盲目调用. 正式玩法仍只消费现有六部位累计伤害推导的当前结果.
+
 `spawn_mass_hit_acceptance_population` 使用正式实体配置的 LOD、生命、动画预算与行为，每种配置生成一个实体。同一 PIE 只允许一次；与强制全骨骼的检查展示用途不同。正式玩家验收不调用 `create_actor_stress_config`。
 
 `inspect_player_weapon_hit_state` 只读返回玩家生命、镜像权限、步枪弹量及枪口和相机方向。玩家采样报告每帧保留这些事实，可区分空枪、镜像子弹、未命中与反馈链路故障。
@@ -29,6 +39,8 @@ aging_time_scale 默认一 允许一至二十。只在六秒后且飞行血滴�
 `BBBAnimationPreviewToolset.submit_monster_hit_ray` 仅在当前 PIE 用逻辑碰撞查找真实命中部位 经公开输入槽位提交命中与玩家累计伤害。`damage=0` 验证镜像表现 不直接改写实体 Fragment。`capture_monster_animation_transition` 必须明确给出 `hit_region` 和三维 `hit_direction` 在临时表现演员上写入快照 并通过真实动画蓝图采样方向与惯性过渡。
 
 `BBBAnimationPreviewToolset.capture_monster_hit_scene` 接收命中射线 相机位置和唯一文件前缀 在真实 Mass 实体上提交零伤害输入 等待约 0.12 秒后渲染命中场景。截图附加临时补光与固定曝光便于检查材质 不代表关卡最终照明。调用 `inspect_animation_transition_capture` 查询返回的截图编号。相机和补光在完成或失败时销毁 图像仅写入 `Saved/temp/<file_prefix>` 任务结束后由调用方清理。
+
+`rebuild_zombie_wound_cut_geometry(mesh_paths)` 接收一至十六个不同的自有 `SK_*_Wounds` 包路径。编辑阶段先核验全部类型和独占持有 再保留五处断口并移除胸腹穿孔几何 返回移除数量 不隐式保存 不建立备份。胸腹浅创口由正式身体表面材质还原 不裁剪胸腹表面 不分配额外蒙皮载体。
 
 `start_player_weapon_hit_capture.blood_system_path` 为可选血效路径。传空字符串关闭粒子诊断，传明确系统路径则同步读取共享 Niagara 的粒子数量。性能对照必须关闭该诊断。
 

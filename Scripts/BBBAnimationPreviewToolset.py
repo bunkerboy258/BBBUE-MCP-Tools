@@ -270,7 +270,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def start_mass_population_benchmark(config_paths: list[str], counts: list[int], center: list[float], spacing: float, expected_level: str, file_prefix: str, warmup_seconds: float = 5.0, measurement_seconds: float = 10.0, force_actor_representation: bool = False, quality_level: int = 2) -> str:
+    def start_mass_population_benchmark(config_paths: list[str], counts: list[int], center: list[float], spacing: float, expected_level: str, file_prefix: str, warmup_seconds: float = 5.0, measurement_seconds: float = 10.0, force_actor_representation: bool = False, quality_level: int = 2, torso_damage: float = 0.0) -> str:
         """
         /**
          * 在明确验收关卡的真实 PIE Mass 实体上依次测量预算关闭与开启
@@ -278,19 +278,22 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
          * @param counts		递增数量 每项至多一千
          * @param center		网格出生中心 三个厘米坐标
          * @param spacing		实体出生间距 厘米
-         * @param expected_level		明确的验收关卡短名 必须包含 Validation
+         * @param expected_level		明确的验收关卡完整包路径 不修改关卡资产
          * @param file_prefix		唯一诊断文件前缀
          * @param warmup_seconds		每组预热秒数 至少五秒
          * @param measurement_seconds		每组测量秒数 至少十秒
          * @param force_actor_representation		使用临时全骨骼压力配置 不改正式模板
          * @param quality_level		测量画质档 零至三 使用百分之一百渲染比例 不沿用隐藏宿主降档
+         * @param torso_damage		每个实体经正式伤害输入增加的躯干伤害 零为完好对照
          * @return 异步运行标识 测量完成后回读结果 原始数据始终落盘
          */
         """
         if not isinstance(quality_level, int) or isinstance(quality_level, bool) or not 0 <= quality_level <= 3:
             raise RuntimeError("测量画质档必须为零至三的整数")
+        if not isinstance(torso_damage, (float, int)) or isinstance(torso_damage, bool) or not math.isfinite(torso_damage) or not 0.0 <= torso_damage <= 10000.0:
+            raise RuntimeError("躯干伤害必须为零至一万的有限数值")
         world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
-        if world is None or "Validation" not in expected_level or expected_level not in world.get_path_name():
+        if world is None or re.sub(r"UEDPIE_\d+_", "", world.get_path_name().split(".")[0]) != expected_level:
             raise RuntimeError("必须在明确指定的验收关卡 PIE 中测量")
 
         if "-nullrhi" in unreal.SystemLibrary.get_command_line().lower():
@@ -347,7 +350,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
         unreal.SystemLibrary.execute_console_command(world, "r.DontLimitOnBattery 1")
         unreal.SystemLibrary.execute_console_command(world, "a.Budget.BudgetMs 2.0")
         run_id = str(uuid.uuid4())
-        report = {"status": "running", "runId": run_id, "world": world.get_path_name(), "engine": unreal.SystemLibrary.get_engine_version(), "configPaths": list(config_paths), "forceActorRepresentation": force_actor_representation, "warmupSeconds": warmup_seconds, "measurementSeconds": measurement_seconds, "budgetMs": 2.0, "qualityLevel": quality_level,
+        report = {"status": "running", "runId": run_id, "world": world.get_path_name(), "engine": unreal.SystemLibrary.get_engine_version(), "configPaths": list(config_paths), "forceActorRepresentation": force_actor_representation, "warmupSeconds": warmup_seconds, "measurementSeconds": measurement_seconds, "budgetMs": 2.0, "qualityLevel": quality_level, "torsoDamage": float(torso_damage),
                   "renderSettings": {name: unreal.SystemLibrary.get_console_variable_float_value(name) for name in quality_names + render_names},
                   "resultPath": result_path, "csvPath": csv_path, "cases": []}
         _population_runs[run_id] = report
@@ -406,6 +409,8 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
                     state["entities"] = mass.spawn_population(world, configs, count, unreal.Vector(*center), spacing)
                     if len(state["entities"]) != count:
                         raise RuntimeError("实际 Mass 创建数量不匹配")
+                    if torso_damage > 0.0 and mass.damage_population(world, state["entities"], float(torso_damage)) != count:
+                        raise RuntimeError("受损对照的正式躯干伤害投递数量不匹配")
 
                     state["phase"] = "warmup"
                     state["start"] = now

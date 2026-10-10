@@ -7,6 +7,7 @@ import uuid
 from pathlib import Path
 import unittest
 from unittest.mock import MagicMock, Mock
+from Scripts.MCP.mcp_result import McpExecutionError
 
 
 class MonsterDamageCaptureTests(unittest.TestCase):
@@ -19,7 +20,8 @@ class MonsterDamageCaptureTests(unittest.TestCase):
         self.engine = Mock()
         self.engine.SystemLibrary.get_command_line.return_value = ""
         self.files = Mock()
-        scope = {"unreal": self.engine, "math": math, "json": json, "os": self.files, "re": re}
+        scope = {"unreal": self.engine, "math": math, "json": json, "os": self.files, "re": re,
+                 "McpExecutionError": McpExecutionError}
         exec(compile(ast.Module(body=[self.method], type_ignores=[]), "damage_capture_test", "exec"), scope)
         self.capture = scope[self.method.name]
 
@@ -65,7 +67,8 @@ class MonsterDamageCaptureTests(unittest.TestCase):
         self.ray.submit_monster_hit_ray.return_value = json.dumps({"hit": True, "damageSubmitted": True})
         self.captures = {}
         scope = {"unreal": self.engine, "math": math, "json": json, "os": self.files, "re": re,
-                 "uuid": uuid, "_transition_captures": self.captures, "BBBAnimationPreviewToolset": self.ray}
+                 "uuid": uuid, "_transition_captures": self.captures, "BBBAnimationPreviewToolset": self.ray,
+                 "McpExecutionError": McpExecutionError}
         exec(compile(ast.Module(body=[self.method], type_ignores=[]), "running_damage_capture", "exec"), scope)
         scope[self.method.name]([0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 0, 0], "BodyDamage", damage=60.0, sample_seconds=2.0)
         return self.engine.register_slate_post_tick_callback.call_args.args[0]
@@ -102,7 +105,10 @@ class MonsterDamageCaptureTests(unittest.TestCase):
         callback = self.build_running_capture()
         self.actors[1].destroy_actor.side_effect = RuntimeError("ObjectInstance is null")
         self.engine.get_editor_subsystem.return_value.get_game_world.return_value = None
-        callback(0.1)
+        with self.assertRaises(McpExecutionError) as failed:
+            callback(0.1)
+        self.assertEqual(failed.exception.value["code"], "HIT_CAPTURE_CLEANUP_FAILED")
+        self.assertEqual(failed.exception.value["execution"]["state"], "partial")
         callback(0.1)
         self.assertEqual(next(iter(self.captures.values()))["status"], "failed")
         self.engine.unregister_slate_post_tick_callback.assert_called_once()

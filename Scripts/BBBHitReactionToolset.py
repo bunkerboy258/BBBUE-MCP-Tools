@@ -14,9 +14,97 @@ _captures = {}
 _acceptance_population = {}
 
 
+def _wound_asset_plan(body_mesh_path, definition_path, output_folder):
+    """
+    /**
+     * @param body_mesh_path	正式自有身体网格
+     * @param definition_path	正式自有外观配置
+     * @param output_folder	明确的自有伤口目录
+     * @return 已核验对象 待改路径与新建路径
+     */
+    """
+    if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+        raise RuntimeError("PIE 期间禁止制作伤口资产")
+    paths = (body_mesh_path, definition_path, output_folder)
+    if any(not isinstance(path, str) or not re.fullmatch(r"/Game/_Project/[A-Za-z0-9_/]+", path) for path in paths):
+        raise RuntimeError("身体 配置和输出必须是明确的自有包路径")
+    body = unreal.load_asset(body_mesh_path)
+    settings = unreal.load_asset(definition_path)
+    if not isinstance(body, unreal.SkeletalMesh) or not isinstance(settings, unreal.BBBMonsterDefinition):
+        raise RuntimeError("正式身体或配置类型无效")
+    parts = list(settings.get_editor_property("severed_parts"))
+    expected = {"head", "upperarm_l", "upperarm_r", "thigh_l", "thigh_r"}
+    if len(parts) != 5 or {str(part.get_editor_property("bone")) for part in parts} != expected:
+        raise RuntimeError("五个固定断开部位必须完整且不重复")
+    changed = [body_mesh_path, definition_path]
+    outputs = [output_folder + "/SK_" + body.get_name() + "_Wounds"]
+    for part in parts:
+        bone = str(part.get_editor_property("bone"))
+        part_folder = part.get_editor_property("detached_mesh").get_path_name().split(".", 1)[0].rsplit("/", 1)[0] if part.get_editor_property("detached_mesh") else ""
+        for key in ("detached_mesh", "cap_mesh"):
+            mesh = part.get_editor_property(key)
+            if not isinstance(mesh, unreal.StaticMesh) or not mesh.get_path_name().startswith("/Game/_Project/"):
+                raise RuntimeError("封闭部件必须是完整的自有资源")
+            package = mesh.get_path_name().split(".", 1)[0]
+            suffix = "_Part" if key == "detached_mesh" else "_Cap"
+            if package != part_folder + "/SM_" + body.get_name() + "_" + bone + suffix:
+                raise RuntimeError("封闭部件路径不符合精确重建命名 禁止改写未登记资产")
+            changed.append(package)
+        outputs.append(output_folder + "/SK_" + body.get_name() + "_" + bone + "_PosePart")
+    if any(unreal.EditorAssetLibrary.does_asset_exist(path) for path in outputs):
+        raise RuntimeError("伤口或姿态部件已经存在 必须核实上次结果 不重复构造")
+    shared = "/Game/_Project/System/Mass/Monster/Zombie/Shared/Wounds"
+    materials = [shared + "/M_BBBZombieTissue", shared + "/M_BBBZombieWoundSurface"]
+    for slot in body.get_editor_property("materials"):
+        source = slot.get_editor_property("material_interface")
+        if not isinstance(source, unreal.MaterialInterface):
+            raise RuntimeError("身体不能包含空材质槽")
+        parent = source
+        while isinstance(parent, unreal.MaterialInstanceConstant):
+            parent = parent.get_editor_property("parent")
+        if not isinstance(parent, unreal.Material) or parent.get_editor_property("use_material_attributes"):
+            raise RuntimeError("身体材质不支持保持原表面的独立基础色扩展")
+        materials += [shared + "/M_" + parent.get_name() + "_Wound", shared + "/MI_" + source.get_name() + "_Wound"]
+    destinations = outputs + sorted({path for path in materials if not unreal.EditorAssetLibrary.does_asset_exist(path)})
+    return body, settings, sorted(set(changed)), sorted(set(destinations))
+
+
 @unreal.uclass()
 class BBBHitReactionToolset(unreal.ToolsetDefinition):
     """/** 配置骨骼物理受击资产并移除被替换的动画偏转层 */"""
+
+    @mcp_tool
+    @staticmethod
+    def plan_zombie_wound_presentation_set(body_mesh_path: str, definition_path: str, output_folder: str) -> str:
+        """
+        /**
+         * @param body_mesh_path	只读核验的自有身体
+         * @param definition_path	只读核验的正式配置
+         * @param output_folder	自有输出目录
+         * @return 类型 骨骼 材质前置检查与精确待签出和新建清单 不改资产
+         */
+        """
+        body, settings, changed, destinations = _wound_asset_plan(body_mesh_path, definition_path, output_folder)
+        return json.dumps({"body": body.get_path_name(), "definition": settings.get_path_name(),
+            "changed": changed, "destinations": destinations, "saved": False}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def bake_zombie_wound_presentation_set(body_mesh_path: str, definition_path: str, output_folder: str) -> str:
+        """
+        /**
+         * @param body_mesh_path	已独占签出的自有身体
+         * @param definition_path	已独占签出的正式配置
+         * @param output_folder	明确的自有输出目录
+         * @return 五处立体断口 姿态部件和共享伤口结果 不保存
+         */
+        """
+        body, settings, changed, destinations = _wound_asset_plan(body_mesh_path, definition_path, output_folder)
+        require_asset_write(changed, destinations)
+        result = str(unreal.BBBZombieSeveringEditorLibrary.bake_wound_presentation_set(body, settings, output_folder))
+        if result.startswith("失败"):
+            raise RuntimeError(result)
+        return result
 
     @mcp_tool
     @staticmethod
@@ -30,6 +118,69 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
         if world is None:
             raise RuntimeError("音频设备诊断需要当前 PIE 世界")
         return str(unreal.BBBHitReactionEditorLibrary.inspect_audio_device(world))
+
+    @mcp_tool
+    @staticmethod
+    def inspect_zombie_gib_presentation() -> str:
+        """
+        /**
+         * @return 当前真实 PIE 世界碎片池的模拟 静止与分配数 不改变池状态
+         */
+        """
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if world is None:
+            raise RuntimeError("世界碎片池验收需要当前 PIE")
+        return str(unreal.BBBZombieSeveringEditorLibrary.inspect_gib_presentation(world))
+
+    @mcp_tool
+    @staticmethod
+    def finalize_zombie_wound_material_masks(material_paths: list[str]) -> str:
+        """
+        /**
+         * @param material_paths	明确的共享伤口主材质包路径
+         * @return 遮罩表达式启用结果 不保存 不重建网格
+         */
+        """
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止整理伤口材质")
+        if not material_paths or len(material_paths) > 32 or len(set(material_paths)) != len(material_paths):
+            raise RuntimeError("材质数量或唯一性无效")
+        root = "/Game/_Project/System/Mass/Monster/Zombie/Shared/Wounds/"
+        if any(not isinstance(path, str) or not re.fullmatch(re.escape(root) + r"M_[A-Za-z0-9_]+", path) for path in material_paths):
+            raise RuntimeError("只允许明确的共享伤口主材质包")
+        materials = [unreal.load_asset(path) for path in material_paths]
+        if any(not isinstance(material, unreal.Material) for material in materials):
+            raise RuntimeError("伤口主材质类型无效")
+        require_asset_write(material_paths, [])
+        result = str(unreal.BBBZombieSeveringEditorLibrary.finalize_wound_material_masks(materials))
+        if result.startswith("失败"):
+            raise RuntimeError(result)
+        return result
+
+    @mcp_tool
+    @staticmethod
+    def rebuild_zombie_wound_cut_geometry(mesh_paths: list[str]) -> str:
+        """
+        /**
+         * @param mesh_paths	明确的自有断口蒙皮网格包路径
+         * @return 保留五处封口并移除躯干穿孔的结果 不保存
+         */
+        """
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止重建断口网格")
+        if not mesh_paths or len(mesh_paths) > 16 or any(not isinstance(path, str) for path in mesh_paths):
+            raise RuntimeError("网格数量或路径类型无效")
+        root = "/Game/_Project/System/Mass/Monster/Zombie/"
+        if len(set(mesh_paths)) != len(mesh_paths) or any(not re.fullmatch(re.escape(root) + r"[A-Za-z0-9_/]+/SK_[A-Za-z0-9_]+_Wounds", path) for path in mesh_paths):
+            raise RuntimeError("只允许唯一的自有断口网格包")
+        meshes = [unreal.load_asset(path) for path in mesh_paths]
+        if any(not isinstance(mesh, unreal.SkeletalMesh) for mesh in meshes):
+            raise RuntimeError("断口蒙皮网格类型无效")
+        require_asset_write(mesh_paths, [])
+        result = str(unreal.BBBZombieSeveringEditorLibrary.rebuild_wound_cut_geometry(meshes))
+        if result.startswith("失败"):
+            raise RuntimeError(result)
+        return result
 
     @mcp_tool
     @staticmethod
@@ -61,7 +212,7 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
             raise RuntimeError("部件资产已经存在 拒绝覆盖")
         if rebuild_existing and len(existing) != 2:
             raise RuntimeError("显式重建必须有完整的同名部件和封口")
-        material_path = "/Game/_Project/System/Mass/Monster/Zombie/Shared/Severing/M_BBBZombieCutSurface"
+        material_path = "/Game/_Project/System/Mass/Monster/Zombie/Shared/Wounds/M_BBBZombieTissue"
         if not unreal.EditorAssetLibrary.does_asset_exist(material_path):
             destinations.append(material_path)
         require_asset_write(existing, [path for path in destinations if path not in existing])
