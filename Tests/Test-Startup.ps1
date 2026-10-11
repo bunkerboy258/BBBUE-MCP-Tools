@@ -1,4 +1,4 @@
-Set-StrictMode -Version 1.0
+﻿Set-StrictMode -Version 1.0
 $ErrorActionPreference = 'Stop'
 $startupScript = Join-Path $PSScriptRoot '..\Scripts\MCP\Start-UE58OfficialMcpEditor.ps1'
 $testProjectPath = [System.IO.Path]::GetFullPath((Join-Path $env:TEMP 'BBBMcpStartupTest\Test.uproject'))

@@ -104,6 +104,8 @@ python -B Tests/verify_mcp_parallel_tests.py --url $hostInfo.Endpoint --project-
 
 宿主 Law 改为共享资产编辑与按需测试。测试直接读取原项目，采用 Windows 受限令牌、独立输出、端口和资产版本核验；支持两个测试批次并行，交付关闭后清理所属输出。
 
+PowerShell 文件保留 UTF-8 BOM，Windows PowerShell 正确显示中文状态与错误。
+
 ### 领域工具
 
 - [通用编辑器](Docs/BBBGenericEditorMCP.md)：资产读取、动画通知、实例缩略图和编辑操作。
