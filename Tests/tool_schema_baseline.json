@@ -3294,6 +3294,69 @@
           "returnValue"
         ]
       }
+    },
+    "start_pie_character_motion_capture": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "camera_offset": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "file_prefix": {
+            "type": "string"
+          },
+          "sample_interval_frames": {
+            "type": "integer",
+            "default": 3
+          },
+          "sample_count": {
+            "type": "integer",
+            "default": 120
+          },
+          "width": {
+            "type": "integer",
+            "default": 512
+          },
+          "height": {
+            "type": "integer",
+            "default": 512
+          }
+        },
+        "required": [
+          "camera_offset",
+          "file_prefix"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "get_pie_character_motion_capture_status": {
+      "inputSchema": {
+        "type": "object"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBExternalToolset": {
@@ -11646,6 +11709,53 @@
           "returnValue": {
             "type": "string",
             "description": "正式蓝图运行图 骨骼位置 截图与临时对象清理结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_character_continuous_locomotion": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          },
+          "base_layer_path": {
+            "type": "string"
+          },
+          "child_layer_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "character_config_path": {
+            "type": "string"
+          },
+          "output_directory": {
+            "type": "string"
+          },
+          "minimum_pivot_speed": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "asset_path",
+          "base_layer_path",
+          "child_layer_paths",
+          "character_config_path",
+          "output_directory",
+          "minimum_pivot_speed"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
           }
         },
         "required": [

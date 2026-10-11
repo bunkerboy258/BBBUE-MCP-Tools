@@ -295,7 +295,7 @@ QUERY_TOOLS = {
         "probe_pie_character_ground_contacts",
     },
     "BBBBlueprintGraphToolset": {"inspect_blueprint_graph_logic", "inspect_blueprint_graph", "inspect_owned_objects"},
-    "BBBAnimationMigrationToolset": {"get_pie_input_sequence_status", "get_pie_montage_motion_capture_status", "export_animation_blueprint_graphs", "inspect_backward_recoil_context", "inspect_animation_bone_track_keys", "inspect_pie_arm_pose", "probe_python_api", "probe_animation_assets", "probe_animation_blueprint", "probe_animation_bone_trajectories", "probe_animation_component_poses", "probe_animation_instance_runtime", "probe_animation_property_access_paths", "probe_pie_character_animation_runtime"},
+    "BBBAnimationMigrationToolset": {"get_pie_input_sequence_status", "get_pie_montage_motion_capture_status", "get_pie_character_motion_capture_status", "export_animation_blueprint_graphs", "inspect_backward_recoil_context", "inspect_animation_bone_track_keys", "inspect_pie_arm_pose", "probe_python_api", "probe_animation_assets", "probe_animation_blueprint", "probe_animation_bone_trajectories", "probe_animation_component_poses", "probe_animation_instance_runtime", "probe_animation_property_access_paths", "probe_pie_character_animation_runtime"},
     "BBBAnimationPreviewToolset": {"inspect_animation_transition_capture", "inspect_mass_population_benchmark"},
     "BBBHitReactionToolset": {"inspect_skeletal_hit_reaction_capture", "inspect_zombie_gib_presentation", "inspect_pie_audio_device", "inspect_blood_residue", "inspect_player_weapon_hit_state", "inspect_physics_asset_constraints", "inspect_skeletal_physics_state"},
     "BBBAssetMaintenanceToolset": {"inspect_external_object_package_metadata", "inspect_external_actor_package_metadata", "inspect_external_actor_packages", "inspect_physics_asset_material_bindings", "inspect_package_objects", "inspect_pose_asset_source_guids", "inspect_animation_access_errors", "inspect_content_dependency_integrity", "inspect_loaded_package_soft_paths", "inspect_native_dependency_packages", "inspect_native_package_referencers", "inspect_asset_packages", "inspect_foliage_base_cache"},
@@ -334,6 +334,7 @@ PIE_TOOLS = {
 
 
 WRITE_TARGET_FIELDS = {
+    "animation_graph.configure_character_continuous_locomotion": ("asset_path", "base_layer_path", "child_layer_paths", "output_directory"),
     "external.game.add_input_action": ("asset_path",),
     "external.game.add_input_mapping": ("mapping_context_path",),
     "blueprint.optimize_blueprint_node_layout": ("graph_path",),

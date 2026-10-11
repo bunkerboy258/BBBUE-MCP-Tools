@@ -468,6 +468,15 @@ class ProjectJobs:
                 if record["owner"] != client:
                     raise JobConflict("BATCH_OWNERSHIP")
                 context = self.contexts[record["test_host"]]
+                if action == "cancel" and record["status"] == "queued" and "child" in record:
+                    queue = context.get("queue")
+                    if queue is None:
+                        raise JobConflict("TEST_HOST_CLOSED")
+                    view = queue.control(client, "cancel", record["child"])
+                    self._publish(record, view, context)
+                    record["finished"] = True
+                    self.condition.notify_all()
+                    return self._view(record)
                 if action == "cancel" and record["status"] == "queued" and "child" not in record:
                     record.update(status="cancelled", code=None, finished=True)
                     if batch == context["id"] and context["state"] == "queued":

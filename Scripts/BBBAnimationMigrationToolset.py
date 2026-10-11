@@ -3427,6 +3427,33 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
         import BBBAnimationMotionTools
         return BBBAnimationMotionTools.capture_status()
 
+    @mcp_tool
+    @staticmethod
+    def start_pie_character_motion_capture(camera_offset: list[float], file_prefix: str,
+            sample_interval_frames: int = 3, sample_count: int = 120, width: int = 512, height: int = 512) -> str:
+        """
+        /**
+         * 观察实际角色动画图并按游戏更新截图 不注入姿势或修改游戏时钟
+         * @param camera_offset		跟随角色朝向的取景偏移
+         * @param file_prefix		新的自有任务输出目录
+         * @param sample_interval_frames		连续游戏更新之间的采样间隔
+         * @param sample_count		截图数量 最多二百四十张
+         * @param width		截图宽度
+         * @param height		截图高度
+         * @return 异步观察状态 后续可在同一宿主注入真实输入
+         */
+        """
+        import BBBAnimationMotionTools
+        return BBBAnimationMotionTools.start_character_capture(camera_offset, file_prefix,
+            sample_interval_frames, sample_count, width, height)
+
+    @mcp_tool
+    @staticmethod
+    def get_pie_character_motion_capture_status() -> str:
+        """/** @return 角色真实运动采样状态与自有输出清单 */"""
+        import BBBAnimationMotionTools
+        return BBBAnimationMotionTools.character_capture_status()
+
 
     @mcp_tool
     @staticmethod

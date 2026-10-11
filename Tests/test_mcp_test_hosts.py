@@ -209,6 +209,22 @@ class TestHostRoutingTests(unittest.TestCase):
         self.assertTrue(self.hosts[0].closed)
         self.assertIn("edit", self.jobs.inspect(self.second)["available"])
 
+    def test_owned_attached_queued_batch_can_be_cancelled(self):
+        root = self.submit_test(self.first, [operation("StartPIE"), operation("long")])
+        self.wait_running(1)
+        follow = self.jobs.submit(self.first, [operation("read")], environment="test", test_host=root)["batch"]
+        queue = self.jobs.contexts[root]["queue"]
+        child = queue.submit(self.first, [operation("read")])["batch"]
+        self.jobs.tests[follow].update(child=child, queue=queue, input_version=copy.deepcopy(self.version))
+        with self.assertRaises(JobConflict):
+            self.jobs.control(self.second, "cancel", follow)
+        result = self.jobs.control(self.first, "cancel", follow)
+        self.assertEqual(result["status"], "cancelled")
+        self.assertEqual(queue.jobs[child]["status"], "cancelled")
+        self.assertNotIn(child, queue.queue)
+        self.assertTrue(self.hosts[0].backend.state["pie_active"])
+        self.hosts[0].backend.release.set()
+
 
 @unittest.skipUnless(os.name == "nt", "需要 Windows 受限令牌")
 class TestProcessPermissionTests(unittest.TestCase):

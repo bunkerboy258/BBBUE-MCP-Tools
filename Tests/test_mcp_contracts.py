@@ -26,6 +26,22 @@ def response(value):
 class McpContractTests(unittest.TestCase):
     """/** 公共失败边界与能力发现回归 */"""
 
+    def test_character_locomotion_authoring_and_observation_boundaries(self):
+        """/** @return 连续循环构图需要原生依赖和明确写入范围 运动状态查询保持只读 */"""
+        requirements = capabilities.native_requirements("BBBAnimationGraphToolset", "configure_character_continuous_locomotion")
+        self.assertEqual(requirements["BBBAnimationGraphEditorLibrary"], {
+            "get_character_locomotion_sequences", "configure_velocity_blend_space", "configure_character_continuous_locomotion"})
+        authoring = capabilities.tool_contract("BBBAnimationGraphToolset", "configure_character_continuous_locomotion", {"type": "object"})
+        self.assertEqual((authoring["access"], authoring["world"]), ("write", "editor"))
+        targets, scoped = capabilities.write_scope(authoring, {
+            "asset_path": "/Game/Main", "base_layer_path": "/Game/Base",
+            "child_layer_paths": ["/Game/Child"], "output_directory": "/Game/NewLocomotion",
+            "character_config_path": "/Game/ReadOnlyConfig"})
+        self.assertTrue(scoped)
+        self.assertEqual(targets, ["/Game/Main", "/Game/Base", ["/Game/Child"], "/Game/NewLocomotion"])
+        observer = capabilities.tool_contract("BBBAnimationMigrationToolset", "get_pie_character_motion_capture_status", {"type": "object"})
+        self.assertEqual((observer["access"], observer["world"]), ("read", "any"))
+
     def test_asset_copies_are_editor_operations_and_pie_tokens_remain_runtime(self):
         """/** @return 副本合并属于编辑器操作 显式 PIE 工具保留运行世界限制 */"""
         copies = capabilities.tool_contract("BBBAssetMaintenanceToolset", "consolidate_verified_asset_copies", {"type": "object"})

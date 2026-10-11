@@ -8,6 +8,79 @@ import unreal
 
 _capture = None
 _capture_handle = None
+_character_capture = None
+_character_capture_handle = None
+
+
+def start_character_capture(camera_offset, file_prefix, sample_interval_frames, sample_count, width, height):
+    """/** @param camera_offset 角色局部跟随取景偏移 @param file_prefix 自有输出目录 @param sample_interval_frames 游戏更新间隔 @param sample_count 截图数量 @param width 宽度 @param height 高度 @return 异步采样状态 */"""
+    global _character_capture, _character_capture_handle
+    if _character_capture_handle is not None or _capture_handle is not None:
+        raise RuntimeError("角色运动采样仍在运行")
+    if (len(camera_offset) != 3 or any(not math.isfinite(value) for value in camera_offset)
+            or not 1 <= sample_interval_frames <= 60 or not 1 <= sample_count <= 240
+            or not 128 <= width <= 1024 or not 128 <= height <= 1024
+            or not file_prefix or not all(value.isalnum() or value in "_-" for value in file_prefix)):
+        raise RuntimeError("角色运动采样需要有限取景 明确任务目录及有界帧数与尺寸")
+    world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+    pawn = unreal.GameplayStatics.get_player_pawn(world, 0) if world else None
+    if pawn is None or unreal.GameplayStatics.is_game_paused(world):
+        raise RuntimeError("角色运动采样需要运行中的本地玩家")
+    directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "temp", file_prefix))
+    os.makedirs(directory, exist_ok=False)
+    mesh = pawn.get_editor_property("mesh")
+    _character_capture = {"state": "recording", "directory": directory, "rows": [], "images": [], "error": None}
+    last_world_time = unreal.GameplayStatics.get_time_seconds(world)
+    game_updates = 0
+    started = time.monotonic()
+
+    def finish(state):
+        global _character_capture_handle
+        _character_capture["state"] = state
+        if _character_capture_handle is not None:
+            unreal.unregister_slate_post_tick_callback(_character_capture_handle)
+        _character_capture_handle = None
+        with open(os.path.join(directory, "motion.json"), "w", encoding="utf-8") as output:
+            json.dump(_character_capture, output, ensure_ascii=False)
+
+    def tick(delta_seconds):
+        nonlocal last_world_time, game_updates
+        try:
+            if time.monotonic() - started > 180.0 or not unreal.SystemLibrary.is_valid(world):
+                raise RuntimeError("角色运动采样世界已结束或超时")
+            world_time = unreal.GameplayStatics.get_time_seconds(world)
+            if world_time <= last_world_time:
+                return
+            last_world_time = world_time
+            game_updates += 1
+            if game_updates % sample_interval_frames:
+                return
+            snapshot = json.loads(unreal.BBBBlueprintEditorLibrary.probe_character_animation_runtime(pawn))
+            location = unreal.Vector(*camera_offset).rotate(pawn.get_actor_rotation())
+            image = os.path.join(directory, "frame_{:04d}.png".format(len(_character_capture["images"])))
+            _capture_image(world, mesh, [location.x, location.y, location.z], image, 1.0, 5000.0, "pelvis", width, height)
+            if not os.path.isfile(image):
+                raise RuntimeError("角色运动截图未生成 需要可渲染测试宿主")
+            _character_capture["rows"].append(snapshot)
+            _character_capture["images"].append(image)
+            if len(_character_capture["images"]) == sample_count:
+                finish("completed")
+        except Exception as error:
+            _character_capture["error"] = str(error)
+            unreal.log_error("角色运动采样失败 " + str(error))
+            finish("failed")
+
+    _character_capture_handle = unreal.register_slate_post_tick_callback(tick)
+    from BBBMcpCapabilities import register_activity
+    register_activity("character_motion:capture", lambda: _character_capture_handle is not None, blocking=False, wait=False)
+    return character_capture_status()
+
+
+def character_capture_status():
+    """/** @return 自有角色运动采样的状态 目录和截图清单 */"""
+    if _character_capture is None:
+        return json.dumps({"state": "idle"})
+    return json.dumps({key: value for key, value in _character_capture.items() if key != "rows"}, ensure_ascii=False)
 
 
 def _transform(value):

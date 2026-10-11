@@ -1115,4 +1115,102 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
         return json.dumps({"asset": blueprint.get_path_name(), "saved": True}, ensure_ascii=False)
 
 
+    @mcp_tool
+    @staticmethod
+    def configure_character_continuous_locomotion(asset_path: str, base_layer_path: str,
+            child_layer_paths: list[str], character_config_path: str, output_directory: str,
+            minimum_pivot_speed: float) -> str:
+        """
+        /**
+         * 基础继承层使用实际速度连续循环混合 并限制低速急转入场
+         * @param asset_path		已独占签出的主动画蓝图
+         * @param base_layer_path		已有基础装备动画层
+         * @param child_layer_paths		基础层的明确装备后代 按父层在前排列
+         * @param character_config_path		只读移动配置 用实际各方向速度建立样本
+         * @param output_directory		新的项目动画混合目录
+         * @param minimum_pivot_speed		急转最低实际速度 单位厘米每秒
+         * @return 保存与编译清单 主 AnimGraph 不改动
+         */
+        """
+        if (not child_layer_paths or len(set(child_layer_paths)) != len(child_layer_paths)
+                or not output_directory.startswith("/Game/_Project/")
+                or not math.isfinite(minimum_pivot_speed) or minimum_pivot_speed <= 0.0):
+            raise RuntimeError("连续循环需要明确装备层 新项目目录与有限正急转速度")
+        blueprint = unreal.load_asset(asset_path)
+        base = unreal.load_asset(base_layer_path)
+        children = [unreal.load_asset(path) for path in child_layer_paths]
+        config = unreal.load_asset(character_config_path)
+        if not all(isinstance(value, unreal.AnimBlueprint) for value in [blueprint, base] + children) or config is None:
+            raise RuntimeError("主图 基础层 装备层或移动配置类型无效")
+        parent_classes = [base.generated_class()]
+        for child in children:
+            if child == base or child.get_blueprint_parent_class() not in parent_classes:
+                raise RuntimeError("装备层必须来自指定基础层且按父层在前排列 包含所有中间层")
+            parent_classes.append(child.generated_class())
+        if unreal.EditorAssetLibrary.does_directory_exist(output_directory):
+            raise RuntimeError("拒绝覆盖已有连续循环目录")
+        locomotion = config.get_editor_property("locomotion")
+        modes = [("Walk", "Walk_Cardinals", "Idle_Hipfire", "WalkCycleBlendSpace", "walk_speeds"),
+                 ("Run", "Run_Cardinals", "Idle_Hipfire", "RunCycleBlendSpace", "run_speeds"),
+                 ("Crouch", "Crouch_Walk_Cardinals", "Crouch_Idle", "CrouchCycleBlendSpace", "crouch_speeds")]
+        library = unreal.BBBAnimationGraphEditorLibrary
+        plans = []
+        skeleton = blueprint.get_editor_property("target_skeleton")
+        for child in children:
+            if child.get_editor_property("target_skeleton") != skeleton:
+                raise RuntimeError("装备层骨架不一致")
+            suffix = child.get_name().replace("ABP_BBB_LocomotionLayer_", "")
+            for mode, cardinals, idle, variable, speed_name in modes:
+                sequences = list(library.get_character_locomotion_sequences(child, cardinals, idle))
+                speeds = locomotion.get_editor_property(speed_name)
+                if (len(sequences) != 5 or any(value.get_editor_property("skeleton") != skeleton for value in sequences)
+                        or any(not math.isfinite(value) or value <= 0.0 for value in (speeds.x, speeds.y, speeds.z))):
+                    raise RuntimeError("装备循环数据不完整 " + child.get_path_name() + " " + mode)
+                plans.append({"child": child, "sequences": sequences, "speeds": speeds,
+                              "variable": variable, "path": output_directory + "/BS_BBB_" + suffix + "_" + mode})
+        targets = [blueprint, base] + children
+        require_asset_write(targets, destinations=[plan["path"] for plan in plans])
+        dirty = {value.get_path_name() for value in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
+        if any(value.get_outermost().get_path_name() in dirty for value in targets):
+            raise RuntimeError("目标存在未保存编辑 拒绝混入本次更新")
+        blends = []
+        for plan in plans:
+            factory = unreal.BlendSpaceFactoryNew()
+            factory.target_skeleton = skeleton
+            directory, name = plan["path"].rsplit("/", 1)
+            blend = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, directory, unreal.BlendSpace, factory)
+            if not library.configure_velocity_blend_space(blend, plan["sequences"], plan["speeds"]):
+                raise RuntimeError("连续混合样本构建失败 尚未保存")
+            plan["blend"] = blend
+            blends.append(blend)
+        if not library.configure_character_continuous_locomotion(blueprint, base, blends[0], minimum_pivot_speed):
+            raise RuntimeError("基础循环或急转规则构图失败 尚未保存")
+        unreal.BlueprintEditorLibrary.compile_blueprint(base)
+        if base.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+            raise RuntimeError("基础层未无警告编译通过 尚未保存")
+        base_defaults = unreal.get_default_object(base.generated_class())
+        base_defaults.modify()
+        for plan in plans[:3]:
+            base_defaults.set_editor_property(plan["variable"], plan["blend"])
+        for child in children:
+            unreal.BlueprintEditorLibrary.compile_blueprint(child)
+            defaults = unreal.get_default_object(child.generated_class())
+            defaults.modify()
+            for plan in plans:
+                if plan["child"] == child:
+                    defaults.set_editor_property(plan["variable"], plan["blend"])
+            child.modify()
+        unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
+        if any(value.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE for value in targets):
+            raise RuntimeError("角色或装备继承层未无警告编译通过 尚未保存")
+        saved = []
+        for value in blends + [base] + children + [blueprint]:
+            if not unreal.EditorAssetLibrary.save_loaded_asset(value, False):
+                raise RuntimeError("连续循环资产保存失败 " + value.get_path_name())
+            saved.append(value.get_path_name())
+        return json.dumps({"saved": saved, "minimumPivotSpeed": minimum_pivot_speed,
+                           "samples": [{"asset": plan["path"], "speeds": [plan["speeds"].x, plan["speeds"].y, plan["speeds"].z]}
+                                       for plan in plans]}, ensure_ascii=False)
+
+
 _registration = Registration([BBBAnimationGraphToolset])
