@@ -4,6 +4,7 @@ import os
 import stat
 import sys
 import traceback
+import uuid
 
 import unreal
 from BBBMcpCapabilities import mcp_tool
@@ -1040,27 +1041,42 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
             animation = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
                 name, folder, unreal.AnimSequence, factory)
 
-        options = unreal.AnimSeqExportOption()
-        options.export_transforms = True
-        options.export_morph_targets = False
-        options.export_attribute_curves = True
-        options.export_material_curves = False
-        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
-        if not unreal.SequencerTools.export_anim_sequence(world, sequence, animation, options, binding, False):
-            raise RuntimeError("官方控制绑定动画烘焙失败")
+        curve_snapshot = None
+        if unreal.AnimationLibrary.get_animation_curve_names(animation, unreal.RawCurveTrackTypes.RCT_FLOAT):
+            curve_snapshot = unreal.AssetToolsHelpers.get_asset_tools().duplicate_asset(
+                "CurveSnapshot_" + uuid.uuid4().hex, "/Game/__BBBControlRigBake", animation)
+            if not isinstance(curve_snapshot, unreal.AnimSequence):
+                raise RuntimeError("无法建立目标曲线的内存快照 禁止烘焙")
 
-        if animation.sequence_length <= 0.0:
-            raise RuntimeError("烘焙结果为空")
+        try:
+            options = unreal.AnimSeqExportOption()
+            options.export_transforms = True
+            options.export_morph_targets = False
+            options.export_attribute_curves = True
+            options.export_material_curves = False
+            world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+            if not unreal.SequencerTools.export_anim_sequence(world, sequence, animation, options, binding, False):
+                raise RuntimeError("官方控制绑定动画烘焙失败")
 
-        copied_curves = 0
-        if source_animations:
-            copied_curves = unreal.BBBBlueprintEditorLibrary.copy_animation_float_curves(source_animations[0], animation)
-            if copied_curves < 0:
-                raise RuntimeError("保留源动作浮点曲线失败 禁止保存烘焙结果")
+            if animation.sequence_length <= 0.0:
+                raise RuntimeError("烘焙结果为空")
 
-        animation.set_editor_property("enable_root_motion", False)
-        if not unreal.EditorAssetLibrary.save_loaded_asset(animation, False):
-            raise RuntimeError("保存烘焙动画失败")
+            copied_curves = 0
+            curve_source = curve_snapshot
+            if curve_source is None and source_animations:
+                curve_source = source_animations[0]
+            if curve_source is not None:
+                copied_curves = unreal.BBBBlueprintEditorLibrary.copy_animation_float_curves(curve_source, animation)
+                if copied_curves < 0:
+                    raise RuntimeError("保留浮点曲线失败 禁止保存烘焙结果")
+
+            animation.set_editor_property("enable_root_motion", False)
+            if not unreal.EditorAssetLibrary.save_loaded_asset(animation, False):
+                raise RuntimeError("保存烘焙动画失败")
+        finally:
+            if curve_snapshot is not None:
+                if not unreal.EditorAssetLibrary.delete_loaded_asset(curve_snapshot):
+                    raise RuntimeError("清理曲线内存快照失败 " + curve_snapshot.get_path_name())
 
         return json.dumps({"animation": animation.get_path_name(), "length": animation.sequence_length, "copiedFloatCurves": copied_curves})
 
@@ -1085,6 +1101,26 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
                             "component": _read_transform(hierarchy.get_global_transform(key, True))}
 
         return json.dumps(result)
+
+    @mcp_tool
+    @staticmethod
+    def inspect_control_rig_graph(asset_path: str) -> str:
+        """
+        /**
+         * 只读导出控制绑定的节点 默认值和实际连接
+         * @param asset_path	控制绑定资产路径
+         * @return 官方 RigVM 图表内容 不求解或保存资产
+         */
+        """
+        asset = _asset(asset_path, unreal.ControlRigBlueprint)
+        graph = asset.get_controller().get_graph()
+        nodes = []
+        for node in graph.get_nodes():
+            nodes.append({"name": node.get_name(), "type": node.get_class().get_name(),
+                          "pins": [{"path": pin.get_pin_path(), "type": pin.get_cpp_type(),
+                                    "default": pin.get_default_value()} for pin in node.get_pins()]})
+        links = [link.get_pin_path_representation() for link in graph.get_links()]
+        return json.dumps({"asset": asset_path, "nodes": nodes, "links": links}, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod

@@ -1,5 +1,9 @@
 # Control Rig 动画编辑 MCP
 
+已有目标动画的浮点曲线由目标自身维护 `bake_control_rig_animation` 在内存中保存目标曲线并在官方烘焙后完整还原插值与切线 没有目标曲线时才从源动作复制 内存快照使用 `/Game/__BBBControlRigBake` 临时包 不保存文件 并在成功或失败后清理
+
+`inspect_control_rig_graph(asset_path)` 只读返回实际 RigVM 节点 引脚默认值与连接 用于检查制作控制器是否确实进入求解链 不执行求解 不保存资产
+
 ## 独立动作制作
 
 `sample_animation_poses` 必须提供实际动画时长内的有限非负时间 每次至多六百项 越界时在采样前拒绝 避免引擎返回参考姿势而被误认成动画内容。
