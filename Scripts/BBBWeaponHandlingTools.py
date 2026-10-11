@@ -622,6 +622,7 @@ def configure_camera_recoil(blueprint_path):
             value = g.binary("Multiply_VectorFloat", value, impulse_scale)
         source_settings[name] = value
     source_settings["RecoverySpeed"] = g.binary("Multiply_DoubleDouble", g.select(g.out(ads, "RecoverySpeed"), g.out(hip, "RecoverySpeed"), aiming), recovery_scale)
+    source_settings["RecoveryDelaySeconds"] = g.select(g.out(ads, "RecoveryDelaySeconds"), g.out(hip, "RecoveryDelaySeconds"), aiming)
     available = list(g.editor.list_available_nodes([]))
     matches = [name for name in available if name.rsplit("|", 1)[-1] == "MakeBBBPlayerCameraRecoilSettings"]
     if len(matches) != 1:
