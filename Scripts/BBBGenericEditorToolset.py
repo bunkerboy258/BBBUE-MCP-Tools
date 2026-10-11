@@ -1312,11 +1312,19 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
                 continue
 
             file_name = destination.rsplit("/", 1)[1] + ".png"
+            scalar_parameters = request.get("scalar_parameters", {})
+            if not isinstance(scalar_parameters, dict):
+                raise RuntimeError("预览材质标量参数必须是 JSON 对象")
+            material_overrides = request.get("material_overrides", {})
+            if not isinstance(material_overrides, dict):
+                raise RuntimeError("预览材质替换必须是 JSON 对象")
+
             image_path = unreal.BBBAssetThumbnailEditorLibrary.render_mesh_thumbnail(
                 source, file_name, float(request.get("yaw", 75.0)),
                 str(request.get("excluded_material_slots", "")),
                 str(request.get("output_directory", "AssetThumbnails")), bool(request.get("orthographic", False)),
-                bool(request.get("pack_sides", False)))
+                bool(request.get("pack_sides", False)), json.dumps(scalar_parameters, ensure_ascii=False),
+                json.dumps(material_overrides, ensure_ascii=False))
             if not image_path:
                 results.append({"destination": destination, "error": "网格渲染失败"})
                 continue

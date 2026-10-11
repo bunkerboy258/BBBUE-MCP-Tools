@@ -16,6 +16,10 @@ Law 规则是代码更新的最高铁律：
 
 MCP 工具扩展规则
 
+- `BBBGenericEditorToolset.render_asset_thumbnails` 的单项请求支持 `material_overrides` 字典 将实际材质槽名称映射至 Game 材质路径 原生库检查目标槽和材质并只替换临时预览组件 可用于匹配运行时隐藏旗帜贴片的材质 不修改源网格
+
+- `BBBGenericEditorToolset.render_asset_thumbnails` 的单项请求支持 `scalar_parameters` 数值字典 由项目编辑器库校验有限数值并建立临时动态材质 仅影响预览组件 适用于让物品详情图匹配实际穿戴的迷彩 污渍和磨损参数 不保存或修改源材质
+
 - `BBBGenericEditorToolset.import_skeletal_animation_set` 接收明确的 FBX 路径数组、新目标目录与源网格名称，只建立一份骨架并导入共享骨架的动画；保留源关键帧，拒绝覆盖已有目标目录。
 - `BBBGenericEditorToolset.create_animation_set_retargeter` 使用引擎骨架模板识别建立源 Rig，与已有目标 Rig 自动映射并对齐；新建独立重定向器，以目标手脚骨生成七个辅助 IK 骨，拒绝遗漏必要身体链，不修改已有目标 Rig。
 - `BBBAnimationMigrationToolset.start_pie_montage_motion_capture` 的截图与采样报告写入 `Saved/temp/<file_prefix>/`，完成交付后仅清理本任务的目录。
