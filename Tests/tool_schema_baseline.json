@@ -5357,6 +5357,10 @@
             "items": {
               "type": "string"
             }
+          },
+          "match_index": {
+            "type": "integer",
+            "default": -1
           }
         },
         "required": [

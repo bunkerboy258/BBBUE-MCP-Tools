@@ -1398,7 +1398,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def inspect_animation_notify_properties(asset_path: str, class_path: str, property_names: list[str]) -> str:
+    def inspect_animation_notify_properties(asset_path: str, class_path: str, property_names: list[str], match_index: int = -1) -> str:
         """只读返回动画中唯一通知实例的指定可编辑属性"""
         asset = unreal.EditorAssetLibrary.load_asset(asset_path)
         if not isinstance(asset, unreal.AnimSequenceBase) or not property_names:
@@ -1408,15 +1408,26 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         for event in unreal.AnimationLibrary.get_animation_notify_events(asset):
             instance = event.get_editor_property("notify") or event.get_editor_property("notify_state_class")
             if instance is not None and instance.get_class().get_path_name() == class_path:
-                matches.append(instance)
-        if len(matches) != 1:
+                matches.append((event, instance))
+        if match_index == -1 and len(matches) != 1:
             raise RuntimeError("目标通知实例必须恰好出现一次")
+
+        if match_index == -1:
+            match_index = 0
+
+        if match_index < 0 or match_index >= len(matches):
+            raise RuntimeError("通知实例索引超出同类匹配范围")
+
+        event, instance = matches[match_index]
 
         properties = {}
         for name in property_names:
-            value = matches[0].get_editor_property(name)
+            value = instance.get_editor_property(name)
             properties[name] = value.export_text() if isinstance(value, unreal.Transform) else _serialize_value(value)
         return json.dumps({"asset": asset_path, "class": class_path,
+            "matchIndex": match_index, "matchCount": len(matches), "instance": instance.get_path_name(),
+            "time": unreal.AnimationLibrary.get_anim_notify_event_trigger_time(event),
+            "duration": unreal.AnimationLibrary.get_anim_notify_event_duration(event),
             "properties": properties}, ensure_ascii=False)
 
     @mcp_tool
