@@ -1,5 +1,15 @@
 # BBB 通用编辑器 MCP
 
+## 动画通知完整性检查
+
+`inspect_animation_notifies(asset_path)` 从动画完整事件数组读取通知 同一时刻的多个通知实例均独立返回 轨道名称只在缓存中的实例身份能唯一对应时返回 缓存缺失或不唯一时 track 为 null 不猜测归属 不修改或保存资产 须在 PIE 结束后查询编辑器资产
+
+## PIE 网格实例与附着对象清理检查
+
+`inspect_pie_static_mesh_instances(mesh_path)` 只读检查全部 PIE Actor 的静态网格组件 同时覆盖独立物理弹壳和附着在角色手上的弹药或弹匣
+返回组件路径 世界位置 物理速度 附着父组件与 Socket 独立静态网格 Actor 才有剩余寿命 其它组件的寿命字段为空
+在通知生效期间先验证对应组件确实出现 再在正常结束或中断后检查数量归零 不将仅检查独立 Actor 的结果作为手持组件清理证据
+
 ## 明确字体源导入
 
 `import_font_faces(requests_json)` 每项指定项目 Content 内永久 `.ttf` 或 `.otf` 的 `source` 与新 `destination` 包路径。仅创建内联 `FontFace` 不生成额外 `Font` 不覆盖既有资源。批量一至十六项。导入前检查源文件与 Perforce 写入许可。

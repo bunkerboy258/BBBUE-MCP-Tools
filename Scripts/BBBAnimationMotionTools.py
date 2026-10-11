@@ -16,7 +16,7 @@ def _transform(value):
             "scale": [value.scale3d.x, value.scale3d.y, value.scale3d.z]}
 
 
-def _capture_image(world, mesh, offset, path, exposure_compensation, fill_light_intensity, focus_bone):
+def _capture_image(world, mesh, offset, path, exposure_compensation, fill_light_intensity, focus_bone, width=768, height=768):
     target = mesh.get_socket_location(focus_bone)
     location = target + unreal.Vector(*offset)
     rotation = unreal.MathLibrary.find_look_at_rotation(location, target)
@@ -30,7 +30,7 @@ def _capture_image(world, mesh, offset, path, exposure_compensation, fill_light_
         light.light_component.set_cast_shadows(False)
         component = camera.capture_component2d
         target_texture = unreal.RenderingLibrary.create_render_target2d(
-            world, 768, 768, unreal.TextureRenderTargetFormat.RTF_RGBA8)
+            world, max(64, min(width, 2048)), max(64, min(height, 2048)), unreal.TextureRenderTargetFormat.RTF_RGBA8)
         component.set_editor_property("texture_target", target_texture)
         component.set_editor_property("capture_source", unreal.SceneCaptureSource.SCS_FINAL_COLOR_LDR)
         component.set_editor_property("fov_angle", 45.0)
@@ -53,11 +53,71 @@ def _capture_image(world, mesh, offset, path, exposure_compensation, fill_light_
         light.destroy_actor()
 
 
+def _capture_views(views_json):
+    """/** @param views_json\t命名视角与世界空间偏移 @return\t经过校验的独立取景列表 */"""
+    if not views_json:
+        return [{"name": "front", "offset": [150, 70, 15]},
+                {"name": "side", "offset": [30, 180, 15]}]
+
+    views = json.loads(views_json)
+    if not isinstance(views, list) or not 1 <= len(views) <= 8:
+        raise RuntimeError("动作取景必须指定一到八个视角")
+
+    names = set()
+    for view in views:
+        if not isinstance(view, dict):
+            raise RuntimeError("动作取景必须使用名称和偏移对象")
+        name = view.get("name")
+        offset = view.get("offset")
+        if (not isinstance(name, str) or not name or not name.isascii()
+                or not all(character.isalnum() or character == "_" for character in name)
+                or name in names):
+            raise RuntimeError("取景名称必须唯一且只包含英文数字和下划线")
+        if (not isinstance(offset, list) or len(offset) != 3
+                or any(not isinstance(value, (int, float)) or not math.isfinite(value) for value in offset)
+                or not 1.0 <= math.hypot(*offset) <= 10000.0):
+            raise RuntimeError("取景偏移必须为有限三维向量 距离在一到一万厘米之间")
+        names.add(name)
+    return views
+
+
+def _montage_mesh(world, pawn, montage, equipment_class):
+    """/** @param world PIE 世界 @param pawn 本地角色 @param montage 被测动作 @param equipment_class 装备基类 @return 唯一匹配骨架的动画组件 */"""
+    character_mesh = pawn.get_editor_property("mesh")
+    skeleton = montage.get_editor_property("skeleton")
+    if character_mesh.get_skinned_asset().get_editor_property("skeleton") == skeleton:
+        return character_mesh
+
+    matches = []
+    for actor in unreal.GameplayStatics.get_all_actors_of_class(world, equipment_class):
+        if actor.get_owner() != pawn or actor.get_editor_property("bHidden"):
+            continue
+        for component in actor.get_components_by_class(unreal.SkeletalMeshComponent):
+            asset = component.get_skinned_asset()
+            if asset is not None and asset.get_editor_property("skeleton") == skeleton:
+                matches.append(component)
+    if len(matches) != 1:
+        raise RuntimeError("蒙太奇对应的可见装备动画组件必须唯一 实际数量 " + str(len(matches)))
+    return matches[0]
+
+
+def _segment_time(segment, montage_time):
+    """/** @param segment 动画片段 @param montage_time 蒙太奇秒数 @return 按片段速率转换的源动画秒数 */"""
+    start = float(segment.get_editor_property("anim_start_time"))
+    end = float(segment.get_editor_property("anim_end_time"))
+    rate = float(segment.get_editor_property("anim_play_rate"))
+    offset = max(0.0, montage_time - float(segment.get_editor_property("start_pos")))
+    if rate <= 0.0 or end <= start:
+        raise RuntimeError("动作采样仅接受正速率且时长有效的动画片段")
+    return min(end, start + offset * rate)
+
+
 def start_capture(montage_path, times, prefix, interrupt_time=-1.0, capture_images=True, post_roll_seconds=0.6,
-        exposure_compensation=1.0, fill_light_intensity=5000.0, focus_bone="spine_03"):
+        exposure_compensation=1.0, fill_light_intensity=5000.0, focus_bone="spine_03", views_json=""):
     global _capture, _capture_handle
     if _capture_handle is not None:
         raise RuntimeError("动画采样仍在运行")
+    views = _capture_views(views_json)
     times = [float(value) for value in times]
     if not times or sorted(times) != times or os.path.basename(prefix) != prefix:
         raise RuntimeError("采样时间或文件前缀无效")
@@ -70,26 +130,43 @@ def start_capture(montage_path, times, prefix, interrupt_time=-1.0, capture_imag
     pawn = unreal.GameplayStatics.get_player_pawn(world, 0) if world else None
     if pawn is None or not isinstance(montage, unreal.AnimMontage):
         raise RuntimeError("需要有效本地角色和蒙太奇")
+    equipment_class = unreal.load_class(None, "/Script/ABBB_Evac.BBBEquipment")
+    source_mesh = _montage_mesh(world, pawn, montage, equipment_class)
+    animation = source_mesh.get_anim_instance()
+    if animation is None:
+        raise RuntimeError("被测组件没有动画实例")
     directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "temp", prefix))
     os.makedirs(directory, exist_ok=False)
     _capture = {"state": "waiting", "directory": directory, "times": times, "next": 0,
                 "rows": [], "images": [], "started": time.monotonic(), "error": None}
     mesh = pawn.get_editor_property("mesh")
+    focus_mesh = mesh
     if mesh.get_bone_index(focus_bone) < 0:
-        raise RuntimeError("截图关注骨骼不存在 " + focus_bone)
-    animation = mesh.get_anim_instance()
+        if not source_mesh.does_socket_exist(focus_bone):
+            raise RuntimeError("截图关注骨骼或插槽不存在 " + focus_bone)
+        focus_mesh = source_mesh
     if post_roll_seconds < 0.0 or post_roll_seconds > 5.0:
         raise RuntimeError("结束后采样时长必须在零到五秒之间")
     slots = list(montage.get_editor_property("slot_anim_tracks"))
-    sequence = slots[0].get_editor_property("anim_track").get_editor_property("anim_segments")[0].get_editor_property("anim_reference")
+    segments = list(slots[0].get_editor_property("anim_track").get_editor_property("anim_segments"))
+    if len(segments) != 1:
+        raise RuntimeError("动作采样需要唯一动画片段")
+    segment = segments[0]
+    sequence = segment.get_editor_property("anim_reference")
     options = unreal.AnimPoseEvaluationOptions()
-    options.optional_skeletal_mesh = mesh.get_skinned_asset()
+    options.optional_skeletal_mesh = source_mesh.get_skinned_asset()
     options.evaluation_type = unreal.AnimDataEvalType.RAW
     options.should_retarget = True
+    compressed_options = unreal.AnimPoseEvaluationOptions()
+    compressed_options.optional_skeletal_mesh = source_mesh.get_skinned_asset()
+    compressed_options.evaluation_type = unreal.AnimDataEvalType.COMPRESSED
+    compressed_options.should_retarget = True
     _capture["animation"] = sequence.get_path_name()
+    _capture["montageComponent"] = source_mesh.get_path_name()
+    _capture["animationMeshAsset"] = source_mesh.get_skinned_asset().get_path_name()
     _capture["postRollSeconds"] = post_roll_seconds
     _capture["imageSettings"] = {"exposureCompensation": exposure_compensation,
-        "fillLightIntensity": fill_light_intensity, "focusBone": focus_bone}
+        "fillLightIntensity": fill_light_intensity, "focusBone": focus_bone, "views": views}
     performance = unreal.get_default_object(unreal.load_class(None, "/Script/UnrealEd.EditorPerformanceSettings"))
     previous_throttle = performance.get_editor_property("bThrottleCPUWhenNotForeground")
     performance.set_editor_property("bThrottleCPUWhenNotForeground", False)
@@ -102,7 +179,12 @@ def start_capture(montage_path, times, prefix, interrupt_time=-1.0, capture_imag
             "local": _transform(mesh.get_ref_pose_transform(mesh.get_bone_index(name)))}
         for name in bones
     }
-    rifle_class = unreal.load_class(None, "/Script/ABBB_Evac.BBBRifleEquipment")
+    source_bones = bones
+    if source_mesh != mesh:
+        first_pose = sequence.get_anim_pose_at_time(0.0, compressed_options)
+        source_bones = [str(name) for name in first_pose.get_bone_names()]
+        if not source_bones:
+            raise RuntimeError("武器压缩姿势没有骨骼")
     initial_mesh_actors = {
         actor.get_path_name()
         for actor in unreal.GameplayStatics.get_all_actors_of_class(world, unreal.StaticMeshActor)
@@ -115,7 +197,8 @@ def start_capture(montage_path, times, prefix, interrupt_time=-1.0, capture_imag
             unreal.unregister_slate_post_tick_callback(_capture_handle)
         _capture_handle = None
         performance.set_editor_property("bThrottleCPUWhenNotForeground", previous_throttle)
-        unreal.GameplayStatics.set_global_time_dilation(world, previous_dilation)
+        if unreal.SystemLibrary.is_valid(world):
+            unreal.GameplayStatics.set_global_time_dilation(world, previous_dilation)
         with open(os.path.join(directory, "motion.json"), "w", encoding="utf-8") as output:
             json.dump(_capture, output, ensure_ascii=False, indent=2)
 
@@ -124,6 +207,8 @@ def start_capture(montage_path, times, prefix, interrupt_time=-1.0, capture_imag
             # 离屏渲染宿主的实时帧率可能不足每秒两帧 超时需要覆盖整个慢速蒙太奇与后滚采样
             if time.monotonic() - _capture["started"] > 300.0:
                 raise RuntimeError("等待蒙太奇采样超时")
+            if not unreal.SystemLibrary.is_valid(world):
+                raise RuntimeError("PIE 世界已结束")
             active = animation.montage_is_active(montage)
             world_time = unreal.GameplayStatics.get_time_seconds(world)
             if not active and _capture["state"] == "waiting":
@@ -139,22 +224,32 @@ def start_capture(montage_path, times, prefix, interrupt_time=-1.0, capture_imag
                 return
             position = world_time - _capture["firstWorldTime"]
             montage_position = animation.montage_get_position(montage) if active else None
-            raw_pose = sequence.get_anim_pose_at_time(min(position, sequence.get_play_length()), options)
+            source_time = _segment_time(segment, montage_position if active else montage.get_play_length())
+            raw_pose = sequence.get_anim_pose_at_time(source_time, options)
+            compressed_pose = sequence.get_anim_pose_at_time(source_time, compressed_options)
+            compressed_bones = {str(name).casefold() for name in compressed_pose.get_bone_names()}
+            if not {str(name).casefold() for name in source_bones}.issubset(compressed_bones):
+                raise RuntimeError("压缩姿势缺少所需骨骼 禁止使用参考姿势代替运行证据")
             row = {"time": position, "worldTime": world_time,
                    "montagePosition": montage_position, "phase": _capture["state"],
                    "meshAsset": mesh.get_skinned_asset().get_path_name(),
                    "meshTransform": _transform(mesh.get_socket_transform("None")),
                    "bones": {name: _transform(mesh.get_socket_transform(name)) for name in bones},
-                   "rawBones": {name: _transform(raw_pose.get_bone_pose(name, unreal.AnimPoseSpaces.WORLD)) for name in bones},
+                   "animationMeshAsset": source_mesh.get_skinned_asset().get_path_name(),
+                   "animationMeshTransform": _transform(source_mesh.get_socket_transform("None")),
+                   "sourceTime": source_time,
+                   "animationBones": {name: _transform(source_mesh.get_socket_transform(name)) for name in source_bones},
+                   "rawBones": {name: _transform(raw_pose.get_bone_pose(name, unreal.AnimPoseSpaces.WORLD)) for name in source_bones},
+                   "compressedBones": {name: _transform(compressed_pose.get_bone_pose(name, unreal.AnimPoseSpaces.WORLD)) for name in source_bones},
                    "curves": {name: animation.get_curve_value(name) for name in ["DisableLHandIK", "DisableAimIK"]},
                    "equipment": [], "magazines": [], "spawnedMeshes": []}
-            for actor in unreal.GameplayStatics.get_all_actors_of_class(world, rifle_class):
+            for actor in unreal.GameplayStatics.get_all_actors_of_class(world, equipment_class):
                 if actor.get_owner() != pawn:
                     continue
                 for weapon in actor.get_components_by_class(unreal.SkeletalMeshComponent):
                     row["equipment"].append({"actor": actor.get_path_name(), "asset": weapon.get_skinned_asset().get_path_name(),
                         "transform": _transform(weapon.get_socket_transform("None")),
-                        "magazine": _transform(weapon.get_socket_transform("Magazine_joint")),
+                        "magazine": _transform(weapon.get_socket_transform("Magazine_joint")) if weapon.does_socket_exist("Magazine_joint") else None,
                         "leftHand": _transform(weapon.get_socket_transform("LeftHand")) if weapon.does_socket_exist("LeftHand") else None,
                         "relativeHandR": _transform(unreal.MathLibrary.make_relative_transform(weapon.get_socket_transform("None"), mesh.get_socket_transform("hand_r")))})
             for child in mesh.get_children_components(True):
@@ -180,11 +275,11 @@ def start_capture(montage_path, times, prefix, interrupt_time=-1.0, capture_imag
             index = _capture["next"]
             if capture_images and index < len(times) and position >= times[index]:
                 distance_scale = 0.55 if focus_bone == "hand_l" else 1.0
-                for view, offset in [("front", [150, 70, 15]), ("side", [30, 180, 15])]:
-                    offset = [value * distance_scale for value in offset]
-                    path = os.path.join(directory, "{:02d}_{:.3f}_{}.png".format(index, position, view))
-                    _capture_image(world, mesh, offset, path, exposure_compensation, fill_light_intensity, focus_bone)
-                    _capture["images"].append({"time": position, "path": path})
+                for view in views:
+                    offset = [value * distance_scale for value in view["offset"]]
+                    path = os.path.join(directory, "{:02d}_{:.3f}_{}.png".format(index, position, view["name"]))
+                    _capture_image(world, focus_mesh, offset, path, exposure_compensation, fill_light_intensity, focus_bone)
+                    _capture["images"].append({"time": position, "view": view["name"], "offset": offset, "path": path})
                 _capture["next"] += 1
         except Exception as error:
             _capture["error"] = str(error)

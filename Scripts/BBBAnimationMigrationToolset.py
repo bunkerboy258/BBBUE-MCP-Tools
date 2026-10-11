@@ -3058,10 +3058,22 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def capture_pie_character_pose(camera_offset: list[float], file_name: str, width: int = 960, height: int = 960) -> str:
+    def capture_pie_character_pose(camera_offset: list[float], file_name: str, width: int = 960, height: int = 960,
+            focus_bone: str = "spine_03", exposure_compensation: float = 1.0, fill_light_intensity: float = 5000.0) -> str:
         """在 PIE 世界临时渲染本地角色，输出带游戏帧号的姿势截图路径"""
-        if len(camera_offset) != 3 or os.path.basename(file_name) != file_name or not file_name.endswith(".png"):
-            raise RuntimeError("角色截图需要三维摄像机偏移及不含目录的 PNG 文件名")
+        output_parts = file_name.replace("\\", "/").split("/")
+        if (len(camera_offset) != 3 or len(output_parts) != 2
+                or not output_parts[0] or not all(character.isalnum() or character in "_-" for character in output_parts[0])
+                or not output_parts[1].endswith(".png") or output_parts[1] in (".png", "..png")
+                or not all(character.isalnum() or character in "_-." for character in output_parts[1])):
+            raise RuntimeError("角色截图需要三维摄像机偏移及 任务目录/文件.png")
+        directory = os.path.join(unreal.Paths.project_saved_dir(), "temp", output_parts[0])
+        output_path = os.path.abspath(os.path.join(directory, output_parts[1]))
+        if os.path.exists(output_path):
+            raise RuntimeError("角色截图目标已存在 禁止覆盖既有验收文件")
+        if (not math.isfinite(exposure_compensation) or not -4.0 <= exposure_compensation <= 4.0
+                or not math.isfinite(fill_light_intensity) or not 0.0 <= fill_light_intensity <= 50000.0):
+            raise RuntimeError("截图曝光需在负四到正四之间 补光强度需在零到五万之间")
 
         world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
         if world is None:
@@ -3072,40 +3084,17 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             raise RuntimeError("角色截图未找到本地玩家")
 
         snapshot = json.loads(unreal.BBBBlueprintEditorLibrary.probe_character_animation_runtime(pawn))
-        target = pawn.get_actor_location()
-        location = target + unreal.Vector(*camera_offset)
-        rotation = unreal.MathLibrary.find_look_at_rotation(location, target)
-        transform = unreal.Transform(location=location, rotation=rotation)
-        actor = unreal.BBBBlueprintEditorLibrary.spawn_transient_pie_actor(
-            world,
-            unreal.SceneCapture2D,
-            transform,
-        )
-        if actor is None:
-            raise RuntimeError("无法创建 PIE 姿势截图组件")
-
-        try:
-            render_target = unreal.RenderingLibrary.create_render_target2d(
-                world,
-                max(64, min(width, 2048)),
-                max(64, min(height, 2048)),
-                unreal.TextureRenderTargetFormat.RTF_RGBA8,
-            )
-            component = actor.capture_component2d
-            component.set_editor_property("texture_target", render_target)
-            component.set_editor_property("capture_source", unreal.SceneCaptureSource.SCS_FINAL_COLOR_LDR)
-            component.set_editor_property("fov_angle", 45.0)
-            component.capture_scene()
-            directory = os.path.join(unreal.Paths.project_saved_dir(), "temp", "CharacterPoseCaptures")
-            os.makedirs(directory, exist_ok=True)
-            unreal.RenderingLibrary.export_render_target(world, render_target, directory, file_name)
-            output_path = os.path.abspath(os.path.join(directory, file_name))
-            if not os.path.isfile(output_path):
-                raise RuntimeError("PIE 姿势截图未生成，需要启用渲染的编辑器")
-
-            return json.dumps({"imagePath": output_path, "pawn": pawn.get_path_name(), "frame": snapshot.get("frame"), "states": snapshot.get("mainInstance", {}).get("states", [])}, ensure_ascii=False)
-        finally:
-            actor.destroy_actor()
+        mesh = pawn.get_editor_property("mesh")
+        if mesh.get_bone_index(focus_bone) < 0:
+            raise RuntimeError("截图关注骨骼不存在 " + focus_bone)
+        import BBBAnimationMotionTools
+        os.makedirs(directory, exist_ok=True)
+        BBBAnimationMotionTools._capture_image(world, mesh, camera_offset, output_path,
+            exposure_compensation, fill_light_intensity, focus_bone, width, height)
+        if not os.path.isfile(output_path):
+            raise RuntimeError("PIE 姿势截图未生成，需要启用渲染的编辑器")
+        return json.dumps({"imagePath": output_path, "pawn": pawn.get_path_name(), "frame": snapshot.get("frame"),
+            "focusBone": focus_bone, "states": snapshot.get("mainInstance", {}).get("states", [])}, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod
@@ -3469,11 +3458,11 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def start_pie_montage_motion_capture(montage_path: str, sample_times: list[float], file_prefix: str, interrupt_time: float = -1.0, capture_images: bool = True, post_roll_seconds: float = 0.6, exposure_compensation: float = 1.0, fill_light_intensity: float = 5000.0, focus_bone: str = "spine_03") -> str:
+    def start_pie_montage_motion_capture(montage_path: str, sample_times: list[float], file_prefix: str, interrupt_time: float = -1.0, capture_images: bool = True, post_roll_seconds: float = 0.6, exposure_compensation: float = 1.0, fill_light_intensity: float = 5000.0, focus_bone: str = "spine_03", views_json: str = "") -> str:
         """在本地角色播放指定蒙太奇时记录手臂与装备运动并定时截图"""
         import BBBAnimationMotionTools
         return BBBAnimationMotionTools.start_capture(montage_path, sample_times, file_prefix, interrupt_time,
-            capture_images, post_roll_seconds, exposure_compensation, fill_light_intensity, focus_bone)
+            capture_images, post_roll_seconds, exposure_compensation, fill_light_intensity, focus_bone, views_json)
 
     @mcp_tool
     @staticmethod

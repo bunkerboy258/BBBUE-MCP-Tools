@@ -102,3 +102,25 @@
 MCP 调用须显式传入 `controller_path` 使用默认玩家时传空字符串
 
 `bake_control_rig_animation` 从角色绑定的原始动画轨道读取源动作 即使该轨道已停用也保留其浮点曲线来源 原生复制完整关键帧 插值和切线 烘焙位置修正不会丢失 `DisableLHandIK` 或 `DisableAimIK` 控制曲线 多个不同源动作或源与结果时长不一致时拒绝保存
+
+## 实际角色动作轨迹
+
+`start_pie_montage_motion_capture` 记录本地角色的实际动画姿势与全部装备基类派生实例 不再仅采样步枪 没有 `Magazine_joint` 的装备输出空弹匣变换 不用组件原点代替缺失骨骼
+
+启动采样后通过项目正常输入触发对应动作 工具不替代装备业务输入 使用 `get_pie_montage_motion_capture_status` 等待完成 完成时恢复原时间缩放和后台节流 每批使用新的任务临时目录前缀
+
+`replace_animation_float_curve` 的操作备份写入 `Saved/temp/AnimationCurveEdit_<时间标记>/` 返回原资产备份和关键帧报告的精确路径 调用任务应登记这些文件并在验收完成后清理 不再写入 `Saved/Diagnostics`
+
+轨迹记录将角色最终 `bones` 与动作自身的 `rawBones` 和 `compressedBones` 分开采样 用相同目标网格与时刻比较 原始轨道与压缩数据的位置差异不能直接归因于 IK 或重定向 骨骼缺失则采样失败 不用参考姿势填充
+
+`rawBones` 和 `compressedBones` 是角色组件空间 `bones` 是场景世界空间 使用记录中的 `meshTransform` 转换后再比较 位置单位为厘米 旋转为 `[x y z w]` 四元数 不按欧拉角读取
+
+`sample_weapon_handling_runtime` 的持枪采样使用正式公共动画层并包含其派生层 开火序号从装备动画基类读取 不把手枪 霰弹枪等实例误判为没有开火
+
+`capture_pie_character_pose` 的 `file_name` 必须填写 `任务目录/文件.png` 输出限定在 `Saved/temp/任务目录/` 已有文件拒绝覆盖 使用实际角色和帧号检查背侧及低角度 不修改正式场景
+
+姿势截图以 `focus_bone` 为画面中心 默认 `spine_03` 与动作轨迹采样共用固定曝光和临时补光 `exposure_compensation` 与 `fill_light_intensity` 可调 截图完成销毁临时相机和补光 不写入正式场景
+
+动作轨迹的 `views_json` 可指定一到八个命名取景 例如 `[{"name":"reverse","offset":[0,-130,-30]},{"name":"under","offset":[100,60,-50]}]` 偏移相对关注骨骼使用世界空间厘米 名称只允许英文数字和下划线且不得重复 留空使用正面和侧面 每个采样时刻依次通过同一截图实现输出全部取景 报告保留视角名称和实际偏移 不用原始动画的预览图代替角色最终姿势
+
+持枪探针的 `ammoEvents` 按游戏时间记录当前实际装备的弹量 容量与换弹状态变化 包含实例身份 用于验证逐发装入 满弹收束和换枪中断 `samples` 按 `sampleColumns` 读取 无弹量接口的装备输出空值 不把 MCP 查询完成时刻当作动画通知发生时刻

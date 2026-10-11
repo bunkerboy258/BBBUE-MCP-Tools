@@ -1,5 +1,15 @@
 # BBB 动画迁移 MCP
 
+## 角色与装备蒙太奇实际采样
+
+`focus_bone` 优先读取角色骨骼 角色不存在该名称时允许使用被测武器骨骼或插槽 例如 `BBBMuzzle` 便于直接检查枪口和抛壳 不改变角色或武器姿势
+
+`start_pie_montage_motion_capture` 按蒙太奇骨架选择本地角色组件或其持有且可见的唯一装备组件 武器开火不再错误监听角色动画实例 找不到或存在多个目标时明确失败
+
+报告的 `bones` 保留角色最终手臂世界姿势 `animationBones` 记录被测动画组件的最终世界姿势 `rawBones` 与 `compressedBones` 属于 `animationMeshAsset` 的组件空间 `animationMeshTransform` 提供对应世界变换 禁止将武器原始姿势当成角色手臂姿势
+
+`sourceTime` 根据蒙太奇片段起点和播放速率换算 实际开火周期缩短时仍对照正确的源动画时刻 PIE 结束会终止采样并保留失败原因 不能把没有触发的采样算作通过
+
 ## 通用持枪动画快照接入
 
 `configure_weapon_handling_graphs(camera=false)` 从 `TryGetWeaponAnimInstance` 取得当前装备的 `BBBEquipmentAnimInstance` 接口 通过有效对象分支读取本装备快照 不转换为 Rifle 类型 不在角色动画实例转存开火或换弹语义

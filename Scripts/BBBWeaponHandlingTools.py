@@ -24,8 +24,17 @@ def sample_runtime(action, seconds, equipment_class_path):
             return {"state": "idle"}
         samples = state["samples"]
         events = []
+        ammo_events = []
         modes = {}
         for index, sample in enumerate(samples):
+            ammo_state = (sample.get("equipmentActor"), sample.get("ammo"), sample.get("reloading"))
+            previous_ammo_state = None
+            if index > 0:
+                previous_sample = samples[index - 1]
+                previous_ammo_state = (previous_sample.get("equipmentActor"), previous_sample.get("ammo"), previous_sample.get("reloading"))
+            if ammo_state != previous_ammo_state and sample.get("ammo") is not None:
+                ammo_events.append({"time": sample["time"], "actor": sample["equipmentActor"],
+                    "ammo": sample["ammo"], "capacity": sample["ammoCapacity"], "reloading": sample["reloading"]})
             mode_key = str((sample["aiming"], sample["mode"], sample.get("follow"), sample.get("backwardAlpha")))
             modes[mode_key] = modes.get(mode_key, 0) + 1
             if index > 0 and sample.get("shot") != samples[index - 1].get("shot"):
@@ -33,11 +42,12 @@ def sample_runtime(action, seconds, equipment_class_path):
                     "aiming": sample["aiming"], "mode": sample["mode"],
                     "next": samples[min(index + 1, len(samples) - 1)]})
         return {"state": state["state"], "errors": state["errors"], "sampleCount": len(samples),
-            "first": samples[:1], "last": samples[-1:], "shotEvents": events, "modes": modes,
+            "first": samples[:1], "last": samples[-1:], "shotEvents": events, "ammoEvents": ammo_events, "modes": modes,
             "peakCharacter": [max((abs(s["characterOffset"][axis]) for s in samples), default=0) for axis in (0, 1)],
             "peakCamera": [max((abs(s["camera"][axis]) for s in samples), default=0) for axis in (0, 1)],
-            "sampleColumns": ["time", "shot", "pitch", "yaw", "roll", "aimPitch", "aimYaw"],
-            "samples": [[s["time"], s.get("shot"), *s.get("cameraActor", s["camera"]), *s["characterOffset"]] for s in samples]}
+            "sampleColumns": ["time", "shot", "pitch", "yaw", "roll", "aimPitch", "aimYaw", "ammo", "ammoCapacity", "reloading"],
+            "samples": [[s["time"], s.get("shot"), *s.get("cameraActor", s["camera"]), *s["characterOffset"],
+                s.get("ammo"), s.get("ammoCapacity"), s.get("reloading")] for s in samples]}
     world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
     if world is None:
         raise RuntimeError("需要已开始的 PIE")
@@ -62,7 +72,9 @@ def sample_runtime(action, seconds, equipment_class_path):
     main = mesh.get_anim_instance()
     cameras = unreal.GameplayStatics.get_all_actors_of_class(world, unreal.BBBPlayerCameraSystem)
     camera_actor = cameras[0] if len(cameras) == 1 else None
-    layer_class = unreal.load_class(None, "/Game/BBBC_UA/AnimationSystem/Layers/ABP_BBB_LocomotionLayer_Rifle.ABP_BBB_LocomotionLayer_Rifle_C")
+    layer_class = unreal.load_class(None, "/Game/_Project/Characters/BBBC_UA/AnimationSystem/Layers/ABP_BBB_LocomotionLayer_Base.ABP_BBB_LocomotionLayer_Base_C")
+    if layer_class is None:
+        raise RuntimeError("持枪采样缺少正式公共动画层")
     start = unreal.GameplayStatics.get_time_seconds(world)
     state = {"state": "running", "duration": seconds, "samples": [], "errors": []}
     setattr(builtins, key, state)
@@ -77,15 +89,25 @@ def sample_runtime(action, seconds, equipment_class_path):
             if time == previous[0]:
                 return
             previous[0] = time
-            layer = main.get_linked_anim_layer_instance_by_class(layer_class)
+            layer = main.get_linked_anim_layer_instance_by_class(layer_class, True)
             weapon = main.try_get_weapon_anim_instance()
             offset = main.get_aim_offset_degrees()
             camera = pawn.get_controller().get_control_rotation()
             sample = {"time": time, "aiming": main.is_aiming(), "mode": str(main.get_editor_property("SourceMovementMode")),
                 "characterOffset": [offset.x, offset.y], "camera": [camera.pitch, camera.yaw, camera.roll],
                 "hand": str(mesh.get_socket_location("hand_r")), "elbow": str(mesh.get_socket_location("lowerarm_r"))}
-            if isinstance(weapon, unreal.BBBRifleAnimInstance):
+            if isinstance(weapon, unreal.BBBEquipmentAnimInstance):
                 sample.update({"weapon": weapon.get_path_name(), "shot": weapon.get_fire_sequence(), "shotTime": weapon.get_time_since_last_fire_seconds()})
+                equipment = weapon.get_owning_actor()
+                if equipment is not None:
+                    sample["equipmentActor"] = equipment.get_path_name()
+                    ammo_getter = getattr(equipment, "get_loaded_ammo", None)
+                    if ammo_getter is None:
+                        ammo_getter = getattr(equipment, "get_ammo", None)
+                    if ammo_getter is not None:
+                        sample["ammo"] = ammo_getter()
+                        sample["ammoCapacity"] = equipment.get_ammo_capacity()
+                        sample["reloading"] = equipment.is_reloading()
             if camera_actor:
                 rotation = camera_actor.get_actor_rotation()
                 sample["cameraActor"] = [rotation.pitch, rotation.yaw, rotation.roll]

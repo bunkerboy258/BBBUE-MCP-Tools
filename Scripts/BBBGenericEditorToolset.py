@@ -641,9 +641,8 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         timestamp = datetime.datetime.now().strftime("%Y%m%dT%H%M%S%f")
         backup_directory = os.path.join(
             unreal.Paths.project_saved_dir(),
-            "Diagnostics",
-            "LeftHandIKCurves",
-            "Backups",
+            "temp",
+            "AnimationCurveEdit_" + timestamp,
         )
         os.makedirs(backup_directory, exist_ok=True)
 
@@ -1362,20 +1361,29 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
         library = unreal.AnimationLibrary
         tracks = list(library.get_animation_notify_track_names(asset))
+        cached_tracks = [(str(track), list(library.get_animation_notify_events_for_track(asset, track)))
+                         for track in tracks]
         results = []
-        for track in tracks:
-            for event in library.get_animation_notify_events_for_track(asset, track):
-                notify = event.get_editor_property("notify")
-                state = event.get_editor_property("notify_state_class")
-                instance = notify if notify is not None else state
-                results.append({
-                    "track": str(track),
-                    "name": str(event.get_editor_property("notify_name")),
-                    "classPath": instance.get_class().get_path_name() if instance else None,
-                    "time": library.get_anim_notify_event_trigger_time(event),
-                    "duration": library.get_anim_notify_event_duration(event),
-                    "isState": state is not None,
-                })
+        for event in library.get_animation_notify_events(asset):
+            notify = event.get_editor_property("notify")
+            state = event.get_editor_property("notify_state_class")
+            instance = notify if notify is not None else state
+            matching_tracks = []
+            for track, cached_events in cached_tracks:
+                for cached in cached_events:
+                    cached_instance = cached.get_editor_property("notify") or cached.get_editor_property("notify_state_class")
+                    if instance is not None and cached_instance == instance:
+                        matching_tracks.append(track)
+                        break
+            track_name = matching_tracks[0] if len(matching_tracks) == 1 else None
+            results.append({
+                "track": track_name,
+                "name": str(event.get_editor_property("notify_name")),
+                "classPath": instance.get_class().get_path_name() if instance else None,
+                "time": library.get_anim_notify_event_trigger_time(event),
+                "duration": library.get_anim_notify_event_duration(event),
+                "isState": state is not None,
+            })
 
         return json.dumps({"asset": asset_path, "length": asset.get_play_length(),
             "tracks": [str(track) for track in tracks], "events": results}, ensure_ascii=False)
@@ -3376,13 +3384,18 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             raise RuntimeError("物理对象检查需要有效静态网格")
         rows = []
         for world in unreal.EditorLevelLibrary.get_pie_worlds(False):
-            for actor in unreal.GameplayStatics.get_all_actors_of_class(world, unreal.StaticMeshActor):
-                component = actor.static_mesh_component
-                if component.get_editor_property("static_mesh") != mesh:
-                    continue
-                rows.append({"actor": actor.get_path_name(), "simulatingPhysics": component.is_simulating_physics(),
-                             "velocity": _serialize_value(component.get_physics_linear_velocity()),
-                             "remainingLifeSeconds": actor.get_life_span()})
+            for actor in unreal.GameplayStatics.get_all_actors_of_class(world, unreal.Actor):
+                for component in actor.get_components_by_class(unreal.StaticMeshComponent):
+                    if component.get_editor_property("static_mesh") != mesh:
+                        continue
+                    parent = component.get_attach_parent()
+                    rows.append({"actor": actor.get_path_name(), "component": component.get_path_name(),
+                                 "simulatingPhysics": component.is_simulating_physics(),
+                                 "velocity": _serialize_value(component.get_physics_linear_velocity()),
+                                 "position": _serialize_value(component.get_world_location()),
+                                 "attachParent": parent.get_path_name() if parent else None,
+                                 "attachSocket": str(component.get_attach_socket_name()),
+                                 "remainingLifeSeconds": actor.get_life_span() if isinstance(actor, unreal.StaticMeshActor) else None})
         return json.dumps({"mesh": mesh_path, "count": len(rows), "instances": rows}, ensure_ascii=False)
 
     @mcp_tool
