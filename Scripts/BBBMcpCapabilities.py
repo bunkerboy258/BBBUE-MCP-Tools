@@ -505,7 +505,7 @@ def tool_contract(toolset, name, schema, description=""):
     if name in {"get_actor_transform_at_frame", "get_node_type_pins"}:
         access = "write"
     world = "any" if access == "read" else "editor"
-    if "pie" in name.lower() or definition == "BBBAnimationPreviewToolset" or name in PIE_TOOLS.get(definition, set()):
+    if "pie" in name.lower().split("_") or definition == "BBBAnimationPreviewToolset" or name in PIE_TOOLS.get(definition, set()):
         world = "pie" if access == "write" else "any"
     if definition == "EditorAppToolset" and name in {"StartPIE", "StopPIE"}:
         access, world = "pie", "any"

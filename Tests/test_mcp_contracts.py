@@ -26,6 +26,13 @@ def response(value):
 class McpContractTests(unittest.TestCase):
     """/** 公共失败边界与能力发现回归 */"""
 
+    def test_asset_copies_are_editor_operations_and_pie_tokens_remain_runtime(self):
+        """/** @return 副本合并属于编辑器操作 显式 PIE 工具保留运行世界限制 */"""
+        copies = capabilities.tool_contract("BBBAssetMaintenanceToolset", "consolidate_verified_asset_copies", {"type": "object"})
+        self.assertEqual(copies["world"], "editor")
+        runtime = capabilities.tool_contract("BBBGenericEditorToolset", "apply_pie_damage", {"type": "object"})
+        self.assertEqual(runtime["world"], "pie")
+
     def test_failure_wrappings_and_diagnostic_data(self):
         """/** @return 文本和结构化失败均拒绝 嵌套诊断和布尔查询保留 */"""
         for value in [{"success": False}, {"error": "失败"}]:
