@@ -106,6 +106,8 @@ python -B Tests/verify_mcp_parallel_tests.py --url $hostInfo.Endpoint --project-
 
 PowerShell 文件保留 UTF-8 BOM，Windows PowerShell 正确显示中文状态与错误。
 
+僵尸共享命中血效重建改为十六个方向血滴、两张小尺寸喷溅和一张低透明度血雾，使用可见持续时间及年龄淡出，具体参数见命中反馈文档。
+
 ### 领域工具
 
 - [通用编辑器](Docs/BBBGenericEditorMCP.md)：资产读取、动画通知、实例缩略图和编辑操作。

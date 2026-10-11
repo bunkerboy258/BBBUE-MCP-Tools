@@ -20,6 +20,8 @@
 
 `rebuild_monster_blood_system` 用现有方向血滴、单张喷溅与八乘八血雾材质重建自有通道及 Niagara 系统并保存。两个目标必须已存在并独占持有。系统包含方向血滴、短促喷溅和低透明度血雾，运行时按空间岛批量发布，不生成逐命中 Niagara 组件。原始第三方材质只读。
 
+原生构建器每次普通命中配置十六个方向血滴 两张喷溅和一张血雾. 喷溅初始尺寸约十九至三十一厘米 寿命零点二四至零点三四秒. 血雾低透明度并延长至零点三六至零点五一秒. 更新按年龄淡入淡出 不使用数米贴片或不足一帧的寿命. 断离使用同一通道的 Surface 三增强尺寸与延迟滴血 不增加逐命中组件. 重建后必须重新加载资产确认只保留十六 二 一的发射数量与成功编译状态 再通过真实玩家武器逐帧验收 不能以构建器返回成功代替画面验收.
+
 `BBBHitReactionToolset` 配置局部物理受击资产并跨真实游戏帧采样 六部位通过 `BBBMonsterHitReactionComponent` 消费原始命中事实 受力方向 冲量 混合与恢复全部归属于表现层 普通命中保持追击和当前攻击 血效仍由独立共享表现管线处理
 
 `BBBAssetMaintenanceToolset.configure_monster_blood_residue` 接收 settings_path channel_path splatter_material_paths droplet_material_paths pool_material_paths。三类材质各一至十六个不同资产。已有血通道与材质只读。配置必须独占持有。保存后回读全部参数与材质组。保留现有 Definition 绑定与共享 Niagara。旧地面材质数组和旧工具名称已删除 不提供兼容入口。
