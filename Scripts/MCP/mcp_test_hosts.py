@@ -150,7 +150,7 @@ class TestHost:
                 guard.register_test(batch, self.process.pid)
             self.backend = backend_type("http://127.0.0.1:" + str(port) + "/bbb-mcp-" + key, Path(project_file).parent, self.process.pid)
             self.backend.remap = True
-            deadline = time.monotonic() + 180
+            deadline = time.monotonic() + (900 if options.get("rendering", False) else 180)
             last_error = None
             while time.monotonic() < deadline:
                 if self.process.poll() is not None:

@@ -160,7 +160,7 @@ class WeaponHandlingScopeTests(unittest.TestCase):
         """/** @param time 游戏秒 @param ammo 当前弹量 @param reloading 换弹事实 @param actor 实例身份 @return 合成单帧事实 */"""
         return {"time": time, "aiming": False, "mode": "walking", "camera": [0, 0, 0],
             "characterOffset": [0, 0], "equipmentActor": actor, "ammo": ammo,
-            "ammoCapacity": 8, "reloading": reloading}
+            "ammoCapacity": 8, "reloading": reloading, "actualAim": [640, 360], "viewport": [1280, 720]}
 
     def test_ammo_trace_records_each_load_and_reload_transition(self):
         """/** @return 重复帧不生成事件 每发装入与收束均保留实际时刻 */"""
@@ -170,8 +170,9 @@ class WeaponHandlingScopeTests(unittest.TestCase):
         result = self._probe_status(samples)
         self.assertEqual([event["ammo"] for event in result["ammoEvents"]], [5, 5, 6, 7, 8, 8])
         self.assertEqual([event["time"] for event in result["ammoEvents"]], [0, 0.1, 1.2, 3.4, 5.6, 6.6])
-        self.assertEqual(len(result["sampleColumns"]), 10)
-        self.assertTrue(all(len(row) == 10 for row in result["samples"]))
+        self.assertEqual(len(result["sampleColumns"]), 14)
+        self.assertTrue(all(len(row) == 14 for row in result["samples"]))
+        self.assertEqual(result["samples"][0][10:], [640, 360, 1280, 720])
 
     def test_ammo_trace_keeps_actor_identity_on_switch(self):
         """/** @return 相同弹量的换枪仍生成新实例事件 */"""

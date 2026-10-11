@@ -45,9 +45,9 @@ def sample_runtime(action, seconds, equipment_class_path):
             "first": samples[:1], "last": samples[-1:], "shotEvents": events, "ammoEvents": ammo_events, "modes": modes,
             "peakCharacter": [max((abs(s["characterOffset"][axis]) for s in samples), default=0) for axis in (0, 1)],
             "peakCamera": [max((abs(s["camera"][axis]) for s in samples), default=0) for axis in (0, 1)],
-            "sampleColumns": ["time", "shot", "pitch", "yaw", "roll", "aimPitch", "aimYaw", "ammo", "ammoCapacity", "reloading"],
+            "sampleColumns": ["time", "shot", "pitch", "yaw", "roll", "aimPitch", "aimYaw", "ammo", "ammoCapacity", "reloading", "actualAimX", "actualAimY", "viewportWidth", "viewportHeight"],
             "samples": [[s["time"], s.get("shot"), *s.get("cameraActor", s["camera"]), *s["characterOffset"],
-                s.get("ammo"), s.get("ammoCapacity"), s.get("reloading")] for s in samples]}
+                s.get("ammo"), s.get("ammoCapacity"), s.get("reloading"), *s["actualAim"], *s["viewport"]] for s in samples]}
     world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
     if world is None:
         raise RuntimeError("需要已开始的 PIE")
@@ -93,8 +93,14 @@ def sample_runtime(action, seconds, equipment_class_path):
             weapon = main.try_get_weapon_anim_instance()
             offset = main.get_aim_offset_degrees()
             camera = pawn.get_controller().get_control_rotation()
+            controller = pawn.get_controller()
+            actual_aim = controller.get_actual_aim_screen_position()
+            screen = [None, None]
+            if actual_aim is not None:
+                screen = [actual_aim.x, actual_aim.y]
             sample = {"time": time, "aiming": main.is_aiming(), "mode": str(main.get_editor_property("SourceMovementMode")),
                 "characterOffset": [offset.x, offset.y], "camera": [camera.pitch, camera.yaw, camera.roll],
+                "actualAim": screen, "viewport": list(controller.get_viewport_size()),
                 "hand": str(mesh.get_socket_location("hand_r")), "elbow": str(mesh.get_socket_location("lowerarm_r"))}
             if isinstance(weapon, unreal.BBBEquipmentAnimInstance):
                 sample.update({"weapon": weapon.get_path_name(), "shot": weapon.get_fire_sequence(), "shotTime": weapon.get_time_since_last_fire_seconds()})
@@ -128,7 +134,7 @@ def sample_runtime(action, seconds, equipment_class_path):
 
     handle = unreal.register_slate_post_tick_callback(tick)
     from BBBMcpCapabilities import register_activity
-    register_activity("weapon:probe", lambda: state)
+    register_activity("weapon:probe", lambda: state, blocking=False, wait=False)
     return {"state": "running", "duration": seconds}
 
 
@@ -624,7 +630,6 @@ def configure_camera_recoil(blueprint_path):
             value = g.binary("Multiply_VectorFloat", value, impulse_scale)
         source_settings[name] = value
     source_settings["RecoverySpeed"] = g.binary("Multiply_DoubleDouble", g.select(g.out(ads, "RecoverySpeed"), g.out(hip, "RecoverySpeed"), aiming), recovery_scale)
-    source_settings["RecoveryDelaySeconds"] = g.select(g.out(ads, "RecoveryDelaySeconds"), g.out(hip, "RecoveryDelaySeconds"), aiming)
     available = list(g.editor.list_available_nodes([]))
     matches = [name for name in available if name.rsplit("|", 1)[-1] == "MakeBBBPlayerCameraRecoilSettings"]
     if len(matches) != 1:
