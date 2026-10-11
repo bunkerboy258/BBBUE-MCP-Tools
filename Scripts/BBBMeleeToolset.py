@@ -558,12 +558,6 @@ class BBBMeleeToolset(unreal.ToolsetDefinition):
 
 
 _registration = Registration([BBBMeleeToolset])
-if __name__ == "__bbb_editor_script__":
-    def register_after_reload(delta_seconds):
-        _registration.unregister()
-        _registration.register()
-        unreal.unregister_slate_post_tick_callback(registration_handle)
-    registration_handle = unreal.register_slate_post_tick_callback(register_after_reload)
 
 
 if __name__ == "__main__":

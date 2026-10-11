@@ -1,6 +1,6 @@
 # 资产入库与重定向验证
 
-实际工具集名称必须通过 list_toolsets 发现。外部 retarget 入口的参数采用 params_json。
+通过 `find_tools` 搜索目标，使用 `describe_tool` 读取单项参数。外部重定向动作使用 `external.retarget.<动作>` 和普通参数对象。
 
 ## UE5.8 重定向
 

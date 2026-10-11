@@ -980,25 +980,3 @@ def calculate_annotation_layout(nodes, edges, comments, blocks):
         "warnings": warnings,
         "wireNodeHits": [{"source": edges[index]["source"], "target": edges[index]["target"], "node": key} for index, key in hits],
     }
-
-
-if __name__ == "__bbb_editor_script__":
-    import importlib
-    import sys
-
-    import toolset_registry
-    import unreal
-
-    previous_bytecode = sys.dont_write_bytecode
-    sys.dont_write_bytecode = True
-    try:
-        importlib.invalidate_caches()
-        importlib.reload(importlib.import_module("BBBBlueprintLayout"))
-        importlib.reload(importlib.import_module("BBBBlueprintAnnotations"))
-        toolset_registry.reload_module(importlib.import_module("BBBBlueprintGraphToolset"))
-        unreal.log("[BBBBlueprintLayout] 已仅重载蓝图排版工具 请重新发现参数并验证")
-    except Exception as error:
-        unreal.log_error("[BBBBlueprintLayout] 工具重载失败 请检查注册状态 " + str(error))
-        raise
-    finally:
-        sys.dont_write_bytecode = previous_bytecode

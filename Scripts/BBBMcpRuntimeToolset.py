@@ -5,8 +5,7 @@ import re
 
 import unreal
 
-from BBBMcpCapabilities import mcp_tool, usage_routes
-from MCP.mcp_access_policy import access_catalog
+from BBBMcpCapabilities import mcp_tool
 from toolset_registry.registration import Registration
 
 
@@ -215,73 +214,20 @@ class BBBMcpRuntimeToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def get_mcp_usage_guide() -> str:
-        """
-        /**
-         * 返回 AI 最小调用指南 包含实际可选档位与工具选型入口
-         * @return 使用指南 JSON 完整参数以目标工具集的描述为准
-         */
-        """
-        import BBBMcpBootstrap
-
-        toolset_name = BBBMcpBootstrap.get_toolset_name
-        return json.dumps(
-            {
-                "document_path": os.path.join(BBBMcpBootstrap.get_repository_root(), "Docs", "UnrealMcpCanonical.md"),
-                "dependency_document_path": os.path.join(BBBMcpBootstrap.get_repository_root(), "Docs", "ProjectDependencies.md"),
-                "task_protection_document_path": os.path.join(BBBMcpBootstrap.get_repository_root(), "Docs", "BBBMcpTaskProtection.md"),
-                "task_toolset": "bbb_task",
-                "task_flow": ["inspect_editor_tasks", "acquire_editor_task", "begin_editor_write", "inspect_editor_tasks", "renew_editor_write", "end_editor_write", "renew_editor_task", "cancel_editor_write", "release_editor_task", "shutdown_editor_host"],
-                "task_status_metadata": "result._meta.bbb/editor_state",
-                "access_policy": access_catalog(),
-                "pipeline": {
-                    "prepare": "shared_read 与本地分析期间准备完整参数",
-                    "queue": "begin_editor_write 返回 queued 时保持顺序 按 revision 等待变化",
-                    "claim": "can_claim_write=true 时再次调用 begin_editor_write 领取阶段",
-                    "execute": "在阶段内连续操作并回读结果",
-                    "handoff": "完成所属活动和未保存资产处理后 end_editor_write",
-                    "sdk": "McpSession.run_write_batch",
-                },
-                "project_root": os.path.realpath(unreal.Paths.project_dir()),
-                "dependency_tool": "inspect_mcp_dependencies",
-                "profiles": _profile_options(),
-                "performance_toolset": toolset_name("BBBMcpRuntimeToolset"),
-                "gaming_arguments": {"profile": "GamingBackground", "max_fps": -1},
-                "speed_arguments": {"profile": "Speed", "max_fps": -1},
-                "discovery": ["list_toolsets", "describe_toolset", "call_tool"],
-                **usage_routes(toolset_name, unreal.ToolsetRegistry),
-                "result_contract": {"failure_fields": ["success=false", "error 非空"], "batch_atomic": False, "automatic_retry": False},
-                "rules": [
-                    "先核对项目与宿主 只描述目标领域的工具集 不盲读全部描述",
-                    "仓库目录不再代表项目目录 先核对 project_root 再检查 inspect_mcp_dependencies 缺失原生依赖的动作不得继续写入",
-                    "同一宿主会话复用已确认参数 工具变化后重新发现 不缓存资产状态",
-                    "现有工具无法解决时先核对与组合 确认能力缺口后优先拓展旧工具或新增最小通用工具 注册 文档与实际调用验证必须同步完成 不用临时 py 脚本绕过",
-                    "工具扩展必须遵循 Law 与已批准范围 权限 文件锁和规则冲突不是可绕过的能力缺口 超出计划先说明命名与影响并请求批准",
-                    "共享宿主先登记任务 写操作另申请短期编辑阶段 分析期间让出写权限 PIE 和采样完成后结束编辑阶段 全部任务和实际活动结束后才关闭宿主",
-                    "共享入口拒绝任意脚本和控制台执行 批量使用逐项检查的 call_many",
-                    "content 文本先解析 JSON 字符串 returnValue 按输出结构再解析",
-                    "协议 error 工具 isError 项目结果 success 为 false 或根 error 非空均需检查并报告",
-                    "写入资产先独占签出 写入失败不自动重试 批量调用不是回滚事务",
-                    "后台游戏档不自动提速 重资源操作需告知用户 并协调其他会话",
-                    "切换档位后回读 inspect_mcp_performance 不把帧率上限当作实测帧率",
-                ],
-            },
-            ensure_ascii=False,
-            separators=(",", ":"),
-        )
-
-    @mcp_tool
-    @staticmethod
-    def inspect_mcp_dependencies() -> str:
+    def inspect_mcp_dependencies(tool: str) -> str:
         """
         /**
          * 只读报告独立仓库位置 接入项目和工具原生依赖
          * @return 依赖与实际加载位置 JSON
          */
         """
-        import BBBMcpBootstrap
-
-        return json.dumps(BBBMcpBootstrap.inspect_dependencies(), ensure_ascii=False)
+        from BBBMcpCapabilities import TOOL_DOMAINS, source_index, native_requirements, dependency_status
+        domain, function = tool.split(".", 1)
+        modules = [name for name, label in TOOL_DOMAINS.items() if label == domain and name.startswith("BBB")]
+        if len(modules) != 1 or function not in source_index(modules[0])["public_tools"]:
+            raise ValueError("TOOL_UNKNOWN")
+        status = dependency_status(native_requirements(modules[0], function), unreal)
+        return json.dumps({"tool": tool, "process_id": os.getpid(), "project_root": os.path.realpath(unreal.Paths.project_dir()), **status}, ensure_ascii=False)
 
 
 def configure_startup_performance():

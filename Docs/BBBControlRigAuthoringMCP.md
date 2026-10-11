@@ -20,7 +20,7 @@
 
 `evaluate_rig_pose` 可选 `variables_json` 接受公开变量名到 Unreal 文本值的对象，如 `{"TargetPosition":"(X=1,Y=2,Z=3)","TargetRotation":"(Pitch=0,Yaw=0,Roll=0)"}`。在瞬态实例上、输入原动画姿势之后赋值，任一赋值失败立即报错。不保存或重定向源动画。
 
-工具文件：`Scripts/BBBControlRigAuthoringToolset.py`。通过官方动画迁移工具的 `run_editor_script` 加载，注册 `Game.Scripts.BBBControlRigAuthoringToolset.BBBControlRigAuthoringToolset` 及 Epic 官方动画编辑工具集。
+工具文件：`Scripts/BBBControlRigAuthoringToolset.py`。Bootstrap 统一注册，通过 `find_tools` 搜索 `control_rig`，描述选中工具后提交批次。
 
 - `inspect_authoring_api` 查询当前引擎反射 API。
 - `set_background_budget` 限制编辑器帧率；后台使用唯一隐藏 NullRHI 编辑器，进程优先级 BelowNormal，不操作用户前台。

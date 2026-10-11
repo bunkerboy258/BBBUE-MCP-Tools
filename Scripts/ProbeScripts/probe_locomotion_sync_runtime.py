@@ -86,6 +86,8 @@ class BBBLocomotionSyncRuntimeProbe:
         })
 
         self.callback_handle = unreal.register_slate_post_tick_callback(self.tick)
+        from BBBMcpCapabilities import register_activity
+        register_activity("locomotion:probe", lambda: self.callback_handle is not None, wait=False)
         unreal.log_warning("[BBB Runtime Locomotion Probe] 已启动，请进入 PIE 复现踏步")
         unreal.log_warning(f"[BBB Runtime Locomotion Probe] 全链路报告：{OUTPUT_PATH}")
         unreal.log_warning(f"[BBB Runtime Locomotion Probe] 脚部轨迹：{FEET_OUTPUT_PATH}")

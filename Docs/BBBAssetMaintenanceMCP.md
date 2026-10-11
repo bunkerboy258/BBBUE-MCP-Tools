@@ -10,7 +10,7 @@
 
 `make_current_editor_level_explicit(expected_package)` 核对 LevelEditorSubsystem 的活动层包名后调用官方 set_current_level_by_name，同步多世界编辑状态下的放置目标；不载入或保存关卡，PIE 中拒绝执行。UE5.8 的 EditorLevelUtils.make_level_current 接受 LevelStreaming，不能直接传入 Level。
 
-`BBBAssetMaintenanceToolset` 已纳入 `BBBMcpBootstrap` 默认注册集合。正常启动或统一重载工具后，使用 `list_toolsets` 和 `describe_toolset` 读取实际工具名称与参数。源码更新不会自动替换当前宿主的已加载模块；未经允许不得为更新工具操作宿主。
+Bootstrap 统一注册资产维护工具。通过 `find_tools` 搜索 `assets`，使用 `describe_tool` 获取选中工具的参数。宿主更新在空闲交接窗口进行。
 
 `BBBAssetMaintenanceToolset.remove_unreferenced_loaded_redirectors(asset_paths)` 仅接受明确的 `/Game/` 包路径，逐项确认已加载对象的精确路径、ObjectRedirector 类型、无引用及可编辑状态，再删除重定向对象。不会通过重定向加载或删除目标资产。
 

@@ -234,10 +234,10 @@ class WoundAssetTests(unittest.TestCase):
         """/** @return 烘焙及其资产加载计划仍需独占编辑阶段 */"""
         import sys
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "Scripts"))
-        from MCP.mcp_access_policy import tool_access
-        self.assertEqual(tool_access("BBBHitReactionToolset", "inspect_zombie_gib_presentation"), "shared_read")
-        self.assertEqual(tool_access("BBBHitReactionToolset", "plan_zombie_wound_presentation_set"), "editor_write")
-        self.assertEqual(tool_access("BBBHitReactionToolset", "bake_zombie_wound_presentation_set"), "editor_write")
+        from BBBMcpCapabilities import tool_contract
+        self.assertEqual(tool_contract("BBBHitReactionToolset", "inspect_zombie_gib_presentation", {})["access"], "read")
+        self.assertEqual(tool_contract("BBBHitReactionToolset", "plan_zombie_wound_presentation_set", {})["access"], "write")
+        self.assertEqual(tool_contract("BBBHitReactionToolset", "bake_zombie_wound_presentation_set", {})["access"], "write")
 
 
 if __name__ == "__main__":

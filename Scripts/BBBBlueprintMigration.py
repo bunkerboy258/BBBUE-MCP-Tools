@@ -134,10 +134,3 @@ def migrate_blueprint(source_path, destination_path, parent_class_path, defaults
     report["old_path_exists"] = unreal.EditorAssetLibrary.does_asset_exist(source)
     report["dirty_packages"] = _dirty_content()
     return json.dumps(report, ensure_ascii=False)
-
-
-if __name__ == "__bbb_editor_script__":
-    import importlib
-    import BBBBlueprintMigration
-    importlib.reload(BBBBlueprintMigration)
-    print("演员蓝图迁移模块已刷新")

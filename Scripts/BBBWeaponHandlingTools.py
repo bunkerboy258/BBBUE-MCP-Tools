@@ -127,6 +127,8 @@ def sample_runtime(action, seconds, equipment_class_path):
             unreal.unregister_slate_post_tick_callback(handle)
 
     handle = unreal.register_slate_post_tick_callback(tick)
+    from BBBMcpCapabilities import register_activity
+    register_activity("weapon:probe", lambda: state)
     return {"state": "running", "duration": seconds}
 
 

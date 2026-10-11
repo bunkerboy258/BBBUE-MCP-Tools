@@ -287,6 +287,8 @@ def start_capture(montage_path, times, prefix, interrupt_time=-1.0, capture_imag
             finish("failed")
 
     _capture_handle = unreal.register_slate_post_tick_callback(tick)
+    from BBBMcpCapabilities import register_activity
+    register_activity("motion:capture", lambda: _capture_handle is not None)
     return json.dumps({"state": "waiting", "directory": directory})
 
 
@@ -320,11 +322,3 @@ def export_context(animation_paths, mesh_paths, file_name):
     with open(path, "w", encoding="utf-8") as output:
         json.dump(result, output)
     return json.dumps({"report": path})
-
-
-if __name__ == "__bbb_editor_script__":
-    import importlib
-    import sys
-
-    if "BBBAnimationMotionTools" in sys.modules:
-        importlib.reload(sys.modules["BBBAnimationMotionTools"] )

@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [string]$ProjectPath,
@@ -9,6 +9,8 @@ param(
     [ValidateRange(0, 65535)]
     [int]$BackendPort = 0,
     [string]$PythonPath = '',
+    [ValidateRange(1, 2)]
+    [int]$TestHosts = 2,
     [ValidateRange(1, 600)]
     [int]$TimeoutSeconds = 90,
     [switch]$EnableRendering,
@@ -141,7 +143,7 @@ try
         throw '其他会话正在启动 MCP 宿主 请等待其启动结束'
     }
 
-    $editors = @(Get-CimInstance Win32_Process -Filter "Name = 'UnrealEditor.exe'" | Where-Object { $_.CommandLine.Replace('/', '\') -match $projectArgumentPattern })
+    $editors = @(Get-CimInstance Win32_Process -Filter "Name = 'UnrealEditor.exe'" | Where-Object { $_.CommandLine.Replace('/', '\') -match $projectArgumentPattern -and $_.CommandLine -notmatch '(?i)-BBBMcpHostRole=Test(\s|$)' })
     if ($editors.Count -gt 1)
     {
         throw '检测到同一项目的多个 Unreal Editor 进程 必须先协调为单宿主 本脚本不终止其他会话'
@@ -392,7 +394,7 @@ try
                 {
                     if ($null -eq $createdGateway)
                     {
-                        $gatewayArguments = @('-B', ('"' + $gatewayScript + '"'), '--backend-url', $endpoint, '--port', $Port, '--project-root', ('"' + (Split-Path $projectPath -Parent) + '"'), '--host-pid', $processId)
+                        $gatewayArguments = @('-B', ('"' + $gatewayScript + '"'), '--backend-url', $endpoint, '--port', $Port, '--project-root', ('"' + (Split-Path $projectPath -Parent) + '"'), '--host-pid', $processId, '--editor-path', ('"' + $editorPath + '"'), '--project-file', ('"' + $projectPath + '"'), '--test-hosts', $TestHosts)
                         $createdGateway = Start-Process -FilePath $PythonPath -ArgumentList $gatewayArguments -WindowStyle Hidden -PassThru
                     }
 
@@ -411,7 +413,7 @@ try
                 $gatewayHeaders = @{ Accept = 'application/json'; 'Mcp-Session-Id' = $gatewaySession; 'MCP-Protocol-Version' = $initializeResult.result.protocolVersion }
                 try
                 {
-                    $gatewayProbe = @{ jsonrpc = '2.0'; id = 4; method = 'tools/call'; params = @{ name = 'inspect_editor_tasks'; arguments = @{} } } | ConvertTo-Json -Depth 8 -Compress
+                    $gatewayProbe = @{ jsonrpc = '2.0'; id = 4; method = 'tools/call'; params = @{ name = 'inspect_tasks'; arguments = @{} } } | ConvertTo-Json -Depth 8 -Compress
                     $gatewayResponse = Invoke-RestMethod -Uri $publicEndpoint -Method Post -ContentType 'application/json' -Headers $gatewayHeaders -Body $gatewayProbe -TimeoutSec 15 -ErrorAction Stop
                     if ($gatewayResponse.error -or $gatewayResponse.result.isError)
                     {
@@ -419,7 +421,7 @@ try
                     }
 
                     $taskState = $gatewayResponse.result.content[0].text | ConvertFrom-Json
-                    if ($taskState.activity.process_id -ne $processId -or $taskState.host_changed -or $taskState.draining)
+                    if ($taskState.host.process_id -ne $processId -or $taskState.status -eq 'draining' -or $taskState.host.exclusive -ne $true)
                     {
                         throw '共享宿主网关身份或生命周期不匹配'
                     }

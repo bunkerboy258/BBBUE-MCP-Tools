@@ -97,11 +97,3 @@ class BBBSkeletalMeshImportToolset(unreal.ToolsetDefinition):
 
 
 _registration = Registration([BBBSkeletalMeshImportToolset])
-
-if __name__ in {"__main__", "__bbb_editor_script__"}:
-    def register_after_reload(delta_seconds):
-        _registration.unregister()
-        _registration.register()
-        unreal.unregister_slate_post_tick_callback(registration_handle)
-
-    registration_handle = unreal.register_slate_post_tick_callback(register_after_reload)

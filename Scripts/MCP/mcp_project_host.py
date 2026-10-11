@@ -51,8 +51,11 @@ def editor_inventory():
         if match is None:
             continue
         port = re.search(r"-BBBProtectedMcpPort=(\d+)(?:\s|$)", command_line, re.I)
+        role = re.search(r"-BBBMcpHostRole=(\w+)(?:\s|$)", command_line, re.I)
+        test = re.search(r"-BBBMcpTestId=([0-9a-f]{16})(?:\s|$)", command_line, re.I)
         hosts.append({"kind": "editor", "process_id": item["ProcessId"], "project_root": project_identity(match.group(1) or match.group(2)),
-            "public_port": int(port.group(1)) if port else None})
+            "public_port": int(port.group(1)) if port else None, "role": "test" if role and role.group(1).lower() == "test" else "editor",
+            "batch": test.group(1) if test else None})
     return hosts
 
 
@@ -71,11 +74,12 @@ class ProjectHostGuard:
         self.project = project_identity(project)
         self.process_id = process_id
         self.inventory = inventory
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         self.observed_at = 0
         self.state = None
         self.handle = None
         self.kernel = None
+        self.tests = {}
 
     def acquire(self):
         """/** @return 在本网关生命周期内持有项目唯一锁 */"""
@@ -113,7 +117,9 @@ class ProjectHostGuard:
                 matching = [item for item in self.inventory() if project_identity(item["project_root"]) == self.project]
                 hosts = [item for item in matching if item.get("kind", "editor") == "editor"]
                 gateways = [item for item in matching if item.get("kind") == "gateway" and item["process_id"] != os.getpid()]
-                self.state = {"verified": True, "exclusive": len(hosts) == 1 and hosts[0]["process_id"] == self.process_id and not gateways,
+                writers = [item for item in hosts if item.get("role", "editor") == "editor"]
+                known_tests = all(item.get("role", "editor") == "editor" or self.tests.get(item.get("batch")) == item["process_id"] for item in hosts)
+                self.state = {"verified": True, "exclusive": len(writers) == 1 and writers[0]["process_id"] == self.process_id and known_tests and not gateways,
                     "hosts": hosts, "gateways": gateways, "gateway_lock_held": self.handle is not None,
                     "observed_at_unix": time.time()}
             except Exception:
@@ -121,6 +127,18 @@ class ProjectHostGuard:
                     "error_code": "PROJECT_HOST_INSPECTION_FAILED", "observed_at_unix": time.time()}
             self.observed_at = time.monotonic()
             return dict(self.state)
+
+    def register_test(self, batch, process_id):
+        """/** @param batch\t批次身份 @param process_id\t所属受限进程 @return 登记完成 */"""
+        with self.lock:
+            self.tests[batch] = process_id
+            self.observed_at = 0
+
+    def release_test(self, batch):
+        """/** @param batch\t已经退出的所属批次 @return 登记释放 */"""
+        with self.lock:
+            self.tests.pop(batch, None)
+            self.observed_at = 0
 
     def close(self):
         """/** @return 释放本网关持有的项目锁 */"""

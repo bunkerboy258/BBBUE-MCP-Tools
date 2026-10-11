@@ -25,11 +25,11 @@ class ProjectHostTests(unittest.TestCase):
     def test_public_contract_contains_only_main_project_controls(self):
         """/** @return 副本功能从公共协议 SDK 和源码同时移除 */"""
         from MCP.mcp_call import McpSession
-        from MCP.mcp_task_gateway import control_tools
+        from MCP.mcp_task_gateway import public_tools
         removed = {"prepare_test_snapshot", "start_test_run", "call_test_tool", "inspect_test_runs", "stop_test_run"}
-        tools = {item["name"] for item in control_tools()}
+        tools = {item["name"] for item in public_tools()}
         self.assertTrue(removed.isdisjoint(tools))
-        self.assertEqual(len(tools), 11)
+        self.assertEqual(tools, {"find_tools", "describe_tool", "submit_batch", "inspect_tasks", "control_task"})
         self.assertTrue(all(not hasattr(McpSession, name) for name in removed))
         self.assertFalse((SCRIPTS / "MCP" / "mcp_test_runner.py").exists())
 

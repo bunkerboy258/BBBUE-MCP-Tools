@@ -58,7 +58,7 @@ def require_business_success(value):
      */
     """
     value = decode_json_value(value)
-    if isinstance(value, dict) and (value.get("success") is False or value.get("error")):
+    if isinstance(value, dict) and (value.get("success") is False or value.get("error") or (value.get("status") == "rejected" and "batch" not in value)):
         raise McpBusinessError(value)
     return value
 
@@ -76,8 +76,13 @@ def decode_tool_result(response):
     if value is None:
         texts = [item["text"] for item in result.get("content", []) if item.get("type") == "text"]
         if len(texts) != 1:
+            if result.get("isError"):
+                raise McpBusinessError({"error": "TOOL_ERROR", "execution": {"state": "unknown"}})
             return result
         value = decode_json_value(texts[0])
     if isinstance(value, dict) and "returnValue" in value:
         value = value["returnValue"]
-    return require_business_success(value)
+    value = require_business_success(value)
+    if result.get("isError"):
+        raise McpBusinessError({"error": value, "execution": {"state": "unknown"}})
+    return value

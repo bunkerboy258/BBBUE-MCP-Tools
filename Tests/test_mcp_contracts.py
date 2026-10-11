@@ -8,8 +8,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "Scripts"))
-sys.path.insert(0, str(ROOT / "Scripts/MCP"))
-from mcp_call import McpSession, McpBatchError
+from MCP.mcp_call import McpSession
 from MCP.mcp_result import decode_tool_result, McpBusinessError, require_business_success
 import BBBMcpCapabilities as capabilities
 
@@ -38,40 +37,19 @@ class McpContractTests(unittest.TestCase):
         self.assertIs(decode_tool_result(response(False)), False)
         self.assertEqual(require_business_success("普通文本"), "普通文本")
 
-    def test_batch_stops_at_business_failure_and_retains_completed_results(self):
-        """/** @return 第一项保留 第二项失败 第三项不执行 */"""
-        session = object.__new__(McpSession)
-        seen = []
-        first = response({"success": True, "saved": ["/Game/A"]})
+    def test_schema_metadata_preserves_named_arguments(self):
+        schema = {"type": "object", "title": "Metadata", "properties": {"description": {"type": "string"},
+            "title": {"type": "string"}, "examples": {"type": "array", "items": {"type": "string"}}}}
+        clean = capabilities.clean_schema(schema)
+        self.assertNotIn("title", clean)
+        self.assertEqual(clean["properties"], schema["properties"])
 
-        def call(name, arguments):
-            """/** @param name 工具 @param arguments 参数 @return 协议结果 */"""
-            seen.append(name)
-            if len(seen) == 1:
-                return first
-            return response({"success": False, "message": "拒绝"})
+    def test_rejected_batch_remains_inspectable(self):
+        value = {"batch": "a" * 16, "status": "rejected", "code": "TEST_HOST_FAILED", "results": []}
+        self.assertEqual(decode_tool_result(response(value)), value)
 
-        session.call_tool = call
-        with self.assertRaises(McpBatchError) as raised:
-            session.call_many([{"name": name} for name in ["first", "second", "third"]])
-        self.assertEqual(seen, ["first", "second"])
-        self.assertEqual(raised.exception.failed_index, 1)
-        self.assertEqual(raised.exception.completed_results, [first])
-        self.assertIsInstance(raised.exception.__cause__, McpBusinessError)
 
-    def test_batch_validates_all_requests_before_execution(self):
-        """/** @return 无效后续参数不会留下首项副作用 */"""
-        session = object.__new__(McpSession)
-        session.call_tool = lambda *args: self.fail("禁止执行")
-        with self.assertRaises(ValueError):
-            session.call_many([{"name": "write"}, {"name": "next", "arguments": []}])
 
-    def test_routes_exclude_unregistered_entries(self):
-        """/** @return 可用路由只包含实际注册项 缺失项仍可诊断 */"""
-        registry = types.SimpleNamespace(is_toolset_registered=lambda name: name.startswith("project."))
-        report = capabilities.usage_routes(lambda module: "project." + module, registry)
-        self.assertEqual(len(report["routes"]), len(capabilities.TOOLSET_ROUTES))
-        self.assertEqual(set(report["unavailable_routes"]), set(capabilities.OFFICIAL_ROUTES))
 
     def test_native_function_presence_is_checked(self):
         """/** @return 类存在而函数缺失仍不可用 */"""
@@ -90,8 +68,6 @@ class McpContractTests(unittest.TestCase):
         self.assertEqual(transition["BBBMonsterBehavior"], set())
         rig = capabilities.native_requirements("BBBRigidPartToolset", "validate_rigid_part_selection")
         self.assertIn("BBBBlueprintEditorLibrary", rig)
-        old = capabilities.native_requirements("editor_actions", "ue_get_open_assets")
-        self.assertEqual(old["MCPythonHelper"], {"get_all_edited_assets"})
 
     def test_server_boundary_rejects_business_failure_without_client(self):
         """/** @return 官方编排直接调用时同样进入错误边界 */"""

@@ -1,6 +1,6 @@
 # 重定向资产审计与独立资产准备
 
-通过已发现的 `run_editor_script` 加载 `Scripts/BBBRetargetAssetAuditToolset.py` 后，重新执行 `list_toolsets` 与 `describe_toolset` 获取当前注册名称。
+Bootstrap 统一注册。通过 `find_tools` 搜索 `retarget`，使用 `describe_tool` 获取选中工具的参数。
 
 - `inspect_retargeter(asset_path)` 使用官方控制器读取操作栈的启用状态和设置，返回源目标网格、IK Rig 和 Perforce 连接状态。
 - `inspect_animation_poses(asset_paths, mesh_path="", sample_count=13)` 使用原始动画数据采样根、骨盆和手脚 IK，返回组件空间位置、四元数与 FK/IK 关系。`sample_count=0` 检查全部帧。空网格使用动画骨架。指定网格必须与动画骨架一致。结果仅通过 MCP 返回，不写诊断文件。

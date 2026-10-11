@@ -31,9 +31,7 @@
 
 ## 接口发现
 
-通过官方 `list_toolsets` 寻找 `BBBBlueprintGraphToolset` 的实际注册名称
-再使用 `describe_toolset` 读取参数结构
-不要缓存带哈希的工具集名称
+通过 `find_tools` 搜索 `blueprint` 与目标操作，使用 `describe_tool` 读取选中 ID 的参数，再提交批次。
 
 ## 只读逻辑快照
 

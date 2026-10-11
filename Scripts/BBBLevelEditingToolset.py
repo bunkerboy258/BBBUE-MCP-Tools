@@ -209,15 +209,3 @@ class BBBLevelEditingToolset(unreal.ToolsetDefinition):
 
 
 _registration = Registration([BBBLevelEditingToolset])
-
-
-if __name__ == "__bbb_editor_script__":
-    import importlib
-    import BBBLevelEditingToolset as loaded_toolset
-
-    for definition in unreal.ObjectIterator(unreal.Class):
-        if (definition.get_name().split("_0x", 1)[0] == "BBBLevelEditingToolset"
-                and unreal.ToolsetRegistry.is_toolset_class_registered(definition)):
-            unreal.ToolsetRegistry.unregister_toolset_class(definition)
-    importlib.reload(loaded_toolset)
-    unreal.ToolsetRegistry.register_toolset_class(loaded_toolset.BBBLevelEditingToolset)

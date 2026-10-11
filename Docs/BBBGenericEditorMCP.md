@@ -242,7 +242,7 @@ UE5.8 以 `DefaultKeyMappings` 为实际映射来源 工具调用引擎的 `unma
 
 节点映射为英文 DSL 类型到当前编辑器实际类型的 JSON 字符串对象。引脚映射为当前编辑器类型到 DSL 类型的对象，例如 `{"执行":"Exec"}`。先使用官方 `find_node_types` 和 `get_node_type_pins` 验证实际名称，不猜测名称。工具只接受 `/Game/` 蓝图直属图表，拒绝 PIE 期间编辑，不修改引擎或编辑器语言。写入会修改目标图表并编译，但不自动保存。失败会明确报警且可能留下部分图表，须检查或撤销，禁止在失败后保存。调用前完成资产独占签出。
 
-编辑器启动由 `Content/Python/init_unreal.py` 注册。已运行宿主可通过 `run_editor_script` 加载该工具集脚本本身完成注册，不创建临时任务脚本。
+编辑器启动由 `Content/Python/init_unreal.py` 加载 Bootstrap 统一注册。
 
 同工具集的 `inspect_owned_objects(asset_path, class_path)` 只读列出指定资产内部的对象路径和类型。用于查找官方 ObjectTools 自动转为 CDO 后无法访问的蓝图内部对象，例如控件设计树或关卡蓝图。控件附带父控件、可见性和文本，不修改对象。后续编辑仍需使用返回的确切对象路径。
 
@@ -260,7 +260,7 @@ UE5.8 以 `DefaultKeyMappings` 为实际映射来源 工具调用引擎的 `unma
 
 确认目标图表并完成 Perforce 独占签出后传 `dry_run=False` 应用 工具拒绝 PIE 未签出 他人签出 冲突 或包含节点重叠及连线穿节点的写入 不自动签出 不自动保存 不提交 Perforce 写入在编辑器事务中进行 每个被移动节点单独记录撤销 写入后回读坐标和原始连线 固定注释 失败时只恢复本次坐标并报警 不宣称回滚其它并行编辑 完成后由调用方检查图表再决定是否保存
 
-现有宿主更新本工具时 使用已发现的 `run_editor_script` 执行仓库 `Scripts/BBBBlueprintLayout.py` 该文件通过官方注册生命周期只重载排版计算与 `BBBBlueprintGraphToolset` 不重载其它并行工具 不重启编辑器 然后重新 `list_toolsets` 与 `describe_toolset` 确认 `dry_run` 参数 初次启动由正常注册入口加载 不能把脚本执行成功当作实际排版验证
+工具更新通过统一 Bootstrap 生命周期加载。工具契约通过 `find_tools` 与 `describe_tool` 核验，实际预览与回读用于确认排版结果。
 
 几何预检依赖接入项目 `BBBBlueprintEditorLibrary.measure_blueprint_graph_visual_geometry` 原生只读接口 该接口复用基础节点及固定注释归属查询 使用标准 Slate 节点控件的完整详细显示尺寸和引脚锚点测量 返回姿势引脚类型与连线样式 在游戏线程和已初始化 Slate 的宿主中调用 支持隐藏 `-NullRHI` 宿主 不读取受保护的 Python 字段 不修改节点或保存资产 未提供此接口 测量失败 或连接引脚缺少显示锚点时明确拒绝 不回退估算尺寸 修改原生接口后必须先编译编辑器模块并重新启动宿主
 
@@ -298,7 +298,7 @@ UE5.8 以 `DefaultKeyMappings` 为实际映射来源 工具调用引擎的 `unma
 
 工具拒绝 PIE 期间导入 等待源材质编译完成后分别捕获色调映射后的浮点颜色与反向不透明度 输出带透明背景的实际部件图 导入任务必须返回实际对象路径才允许报告成功 不将已有旧纹理当成新导入结果
 
-遇到现有 MCP 无法完成的功能时，先判断是否只是对象路径、属性名或批量参数不足。能用通用输入表达时，扩展本工具；只有通用接口无法安全表达明确领域语义时，才新增领域工具。新增工具集时更新 `Content/Python/init_unreal.py`；扩展已注册工具集时无需改动注册文件。每次扩展都须更新本文档或 `AGENTS.md`，并通过官方 MCP 的 `list_toolsets`、`describe_toolset`、`call_tool` 验证。
+遇到现有 MCP 无法完成的功能时，先判断是否只是对象路径、属性名或批量参数不足。能用通用输入表达时，扩展本工具；只有通用接口无法安全表达明确领域语义时，才新增领域工具。新增工具集时更新 `Content/Python/init_unreal.py`；扩展已注册工具集时无需改动注册文件。每次扩展都须更新本文档或 `AGENTS.md`，并通过`find_tools`、`describe_tool`、`submit_batch` 与结果回读 验证。
 
 ### 子弹表面反馈与曳光收尾
 

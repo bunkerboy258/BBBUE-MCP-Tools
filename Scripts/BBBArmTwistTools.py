@@ -549,11 +549,3 @@ def capture_pie_bone(focus_bone, camera_offset, file_name):
         return json.dumps({"imagePath": path, "focusBone": focus_bone})
     finally:
         camera.destroy_actor()
-
-
-if __name__ == "__bbb_editor_script__":
-    import importlib
-    import sys
-
-    if "BBBArmTwistTools" in sys.modules:
-        importlib.reload(sys.modules["BBBArmTwistTools"])

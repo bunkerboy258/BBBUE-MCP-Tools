@@ -1,6 +1,6 @@
 # Traversal 资产与基础验收工具
 
-`BBBTraversalToolset` 已纳入标准启动注册表 工具开发重载仍使用官方 `run_editor_script`
+`BBBTraversalToolset` 由 Bootstrap 统一注册，公开工具使用 `traversal.<函数>`。
 
 - `inspect_traversal_editing_schema` 只读返回 Base 和主动画蓝图的实际图表、可创建节点及 Motion Warping API。
 - `configure_traversal_montages` 从已准备的根运动序列配置独立 Traversal 槽蒙太奇和官方 Skew Warp 窗口 蒙太奇自身不淡出且不自动结束 由移动状态机管理姿势混合 目标脚底空间采用 UE Character Adapter 窗口可配置动画骨骼 Warp Point

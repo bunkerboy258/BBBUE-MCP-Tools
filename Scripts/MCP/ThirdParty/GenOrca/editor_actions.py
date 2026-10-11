@@ -5,22 +5,6 @@ import json
 import traceback
 from typing import List, Dict, Optional, Any # Modified import
 
-def ue_get_selected_assets() -> str:
-    """Gets the set of currently selected assets."""
-    try:
-        selected_assets = unreal.EditorUtilityLibrary.get_selected_assets()
-
-        serialized_assets = []
-        for asset in selected_assets:
-            serialized_assets.append({
-                "asset_name": asset.get_name(),
-                "asset_path": asset.get_path_name(),
-                "asset_class": asset.get_class().get_name(),
-            })
-
-        return json.dumps({"success": True, "selected_assets": serialized_assets})
-    except Exception as e:
-        return json.dumps({"success": False, "message": str(e)})
 
 # Helper function to load MaterialInterface assets (can be Material or MaterialInstance)
 def _load_material_interface(material_path: str):
@@ -355,28 +339,10 @@ def ue_replace_mesh_on_selected(mesh_to_be_replaced_path: str, new_mesh_path: st
         # Save initial mesh paths for change detection
         initial_meshes_map = {comp.get_path_name(): comp.static_mesh.get_path_name() if comp.static_mesh else "" for comp in all_mesh_components}
 
-        # Use Unreal's batch API if available
-        if hasattr(unreal.EditorLevelLibrary, "replace_mesh_components_meshes_on_actors"):
-            unreal.EditorLevelLibrary.replace_mesh_components_meshes_on_actors(
-                selected_actors,
-                mesh_to_replace,
-                new_mesh
-            )
-        else:
-            # Fallback to manual replacement if batch API is not available
-            for comp in all_mesh_components:
-                current_mesh = comp.static_mesh
-                should_replace = False
-                if not mesh_to_replace:
-                    if current_mesh != new_mesh:
-                        should_replace = True
-                elif current_mesh and current_mesh.get_path_name() == mesh_to_replace.get_path_name():
-                    if current_mesh.get_path_name() != new_mesh.get_path_name():
-                        should_replace = True
-                elif not current_mesh and not mesh_to_replace:
-                    should_replace = True
-                if should_replace:
-                    comp.set_static_mesh(new_mesh)
+        for component in all_mesh_components:
+            if mesh_to_replace is None or component.static_mesh == mesh_to_replace:
+                if component.static_mesh != new_mesh:
+                    component.set_static_mesh(new_mesh)
 
         # Detect changes
         changed_components_count = 0
@@ -457,28 +423,11 @@ def ue_replace_mesh_on_specified(actor_paths: List[str], mesh_to_be_replaced_pat
             })
         # Save initial mesh paths for change detection
         initial_meshes_map = {comp.get_path_name(): comp.static_mesh.get_path_name() if comp.static_mesh else "" for comp in all_mesh_components}
-        # Use Unreal's batch API if available
-        if hasattr(unreal.EditorLevelLibrary, "replace_mesh_components_meshes_on_actors"):
-            unreal.EditorLevelLibrary.replace_mesh_components_meshes_on_actors(
-                actors_to_process,
-                mesh_to_replace,
-                new_mesh
-            )
-        else:
-            # Fallback to manual replacement if batch API is not available
-            for comp in all_mesh_components:
-                current_mesh = comp.static_mesh
-                should_replace = False
-                if not mesh_to_replace:
-                    if current_mesh != new_mesh:
-                        should_replace = True
-                elif current_mesh and current_mesh.get_path_name() == mesh_to_replace.get_path_name():
-                    if current_mesh.get_path_name() != new_mesh.get_path_name():
-                        should_replace = True
-                elif not current_mesh and not mesh_to_replace:
-                    should_replace = True
-                if should_replace:
-                    comp.set_static_mesh(new_mesh)
+        for component in all_mesh_components:
+            if mesh_to_replace is None or component.static_mesh == mesh_to_replace:
+                if component.static_mesh != new_mesh:
+                    component.set_static_mesh(new_mesh)
+
         # Detect changes
         changed_components_count = 0
         affected_component_paths = []
@@ -552,28 +501,6 @@ def ue_replace_mesh_on_specified(actor_paths: List[str], mesh_to_be_replaced_pat
         unreal.log_error(f"MCP: Error in ue_replace_mesh_on_specified: {e}\n{traceback.format_exc()}")
         return json.dumps({"success": False, "message": str(e), "traceback": traceback.format_exc()})
 
-def ue_replace_selected_with_bp(blueprint_asset_path: str) -> str:
-    """Replaces the currently selected actors with new actors spawned from a specified Blueprint asset path using Unreal's official API."""
-    import unreal
-    import json
-    import traceback
-    try:
-        selected_actors = unreal.EditorLevelLibrary.get_selected_level_actors()
-        if not selected_actors:
-            return json.dumps({"success": False, "message": "No actors selected."})
-        # Check if the blueprint asset exists
-        blueprint = unreal.EditorAssetLibrary.load_asset(blueprint_asset_path)
-        if not blueprint:
-            return json.dumps({"success": False, "message": f"Blueprint asset not found at path: {blueprint_asset_path}"})
-        # Use the official API
-        unreal.EditorLevelLibrary.replace_selected_actors(blueprint_asset_path)
-        return json.dumps({
-            "success": True,
-            "message": f"Replaced {len(selected_actors)} actors with Blueprint '{blueprint_asset_path}' using official API.",
-            "replaced_actors_count": len(selected_actors)
-        })
-    except Exception as e:
-        return json.dumps({"success": False, "message": str(e), "traceback": traceback.format_exc()})
 
 # --- Actor merging / proxy geometry --------------------------------------------
 
@@ -679,15 +606,6 @@ def ue_open_editor_for_asset(asset_path: str = None) -> str:
         return json.dumps({"success": False, "message": str(e), "traceback": traceback.format_exc()})
 
 
-def ue_get_open_assets() -> str:
-    """Lists assets that currently have an editor open."""
-    try:
-        assets = unreal.MCPythonHelper.get_all_edited_assets()
-        open_assets = [{"asset_name": a.get_name(), "asset_path": a.get_path_name(),
-                        "asset_class": a.get_class().get_name()} for a in assets if a]
-        return json.dumps({"success": True, "count": len(open_assets), "open_assets": open_assets})
-    except Exception as e:
-        return json.dumps({"success": False, "message": str(e), "traceback": traceback.format_exc()})
 
 
 def ue_close_asset_editor(asset_path: str = None) -> str:

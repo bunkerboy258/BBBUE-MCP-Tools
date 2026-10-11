@@ -212,6 +212,13 @@ def capture_animation_views(mesh_path, animation_path, sample_progress, views_js
     capture_id = uuid.uuid4().hex
     record = {"status": "pending", "captureId": capture_id}
     captures_registry[capture_id] = record
+    from BBBMcpCapabilities import register_activity
+    def activity_status():
+        """/** @return 当前采样及 PIE 世界清理状态 */"""
+        if record["status"] == "failed" and record.get("cleanupError") and world not in unreal.EditorLevelLibrary.get_pie_worlds(False):
+            return {"status": "failed"}
+        return record
+    register_activity("views:" + capture_id, activity_status)
     iterator = render_frames()
     handle = None
 

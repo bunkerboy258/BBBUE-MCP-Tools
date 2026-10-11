@@ -16,6 +16,96 @@
           "returnValue"
         ]
       }
+    },
+    "inspect_saved_test_inputs": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "asset_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_test_host": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "map_path": {
+            "type": "string"
+          },
+          "server_port": {
+            "type": "integer"
+          },
+          "players": {
+            "type": "integer"
+          },
+          "net_mode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "map_path",
+          "server_port",
+          "players",
+          "net_mode"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "check_asset_write": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "object_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "object_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBHudAssetToolset": {
@@ -947,12 +1037,16 @@
           "focus_bone": {
             "type": "string",
             "default": "spine_03"
+          },
+          "views_json": {
+            "type": "string"
           }
         },
         "required": [
           "montage_path",
           "sample_times",
-          "file_prefix"
+          "file_prefix",
+          "views_json"
         ]
       },
       "outputSchema": {
@@ -1471,6 +1565,18 @@
           "height": {
             "type": "integer",
             "default": 960
+          },
+          "focus_bone": {
+            "type": "string",
+            "default": "spine_03"
+          },
+          "exposure_compensation": {
+            "type": "number",
+            "default": 1
+          },
+          "fill_light_intensity": {
+            "type": "number",
+            "default": 5000
           }
         },
         "required": [
@@ -2214,30 +2320,6 @@
     "stop_locomotion_runtime_probe": {
       "inputSchema": {
         "type": "object"
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "run_editor_script": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "script_path": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "script_path"
-        ]
       },
       "outputSchema": {
         "type": "object",
@@ -3522,22 +3604,6 @@
           "returnValue"
         ]
       }
-    },
-    "list_available_actions": {
-      "inputSchema": {
-        "type": "object"
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
     }
   },
   "BBBGenericEditorToolset": {
@@ -4224,13 +4290,16 @@
         "type": "object",
         "properties": {
           "system_path": {
-            "type": "string"
+            "type": "string",
+            "description": "已有持续曳光系统 *"
           },
           "channel_path": {
-            "type": "string"
+            "type": "string",
+            "description": "已有全局槽位通道 *"
           },
           "material_path": {
-            "type": "string"
+            "type": "string",
+            "description": "曳光头尾材质 *"
           }
         },
         "required": [
@@ -4256,13 +4325,16 @@
         "type": "object",
         "properties": {
           "channel_path": {
-            "type": "string"
+            "type": "string",
+            "description": "命中通道路径 *"
           },
           "system_path": {
-            "type": "string"
+            "type": "string",
+            "description": "创建或重建的系统路径 *"
           },
           "material_path": {
-            "type": "string"
+            "type": "string",
+            "description": "反馈粒子材质 *"
           }
         },
         "required": [
@@ -4288,10 +4360,12 @@
         "type": "object",
         "properties": {
           "material_path": {
-            "type": "string"
+            "type": "string",
+            "description": "新建材质路径 *"
           },
           "kind": {
-            "type": "string"
+            "type": "string",
+            "description": "tracer 为明亮头部与收尖尾部 impact 为软边反馈粒子 *"
           }
         },
         "required": [
@@ -5465,14 +5539,17 @@
             "type": "array",
             "items": {
               "type": "string"
-            }
+            },
+            "description": "明确的纹理资产列表 *"
           },
           "occupancy": {
             "type": "number",
+            "description": "主体最长边的目标占幅 *",
             "default": 0.86
           },
           "dry_run": {
             "type": "boolean",
+            "description": "只导出检查 不修改资产 *",
             "default": true
           }
         },
@@ -5557,10 +5634,12 @@
         "type": "object",
         "properties": {
           "asset_path": {
-            "type": "string"
+            "type": "string",
+            "description": "已有 Texture2D 的明确包路径 *"
           },
           "source_file": {
-            "type": "string"
+            "type": "string",
+            "description": "用于替换像素的 PNG 文件绝对路径 *"
           }
         },
         "required": [
@@ -8438,12 +8517,46 @@
           "returnValue"
         ]
       }
+    },
+    "inspect_control_rig_graph": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "控制绑定资产路径 *"
+          }
+        },
+        "required": [
+          "asset_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "官方 RigVM 图表内容 不求解或保存资产 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBMcpRuntimeToolset": {
     "inspect_mcp_dependencies": {
       "inputSchema": {
-        "type": "object"
+        "type": "object",
+        "properties": {
+          "tool": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool"
+        ]
       },
       "outputSchema": {
         "type": "object",
@@ -8451,23 +8564,6 @@
           "returnValue": {
             "type": "string",
             "description": "依赖与实际加载位置 JSON */"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "get_mcp_usage_guide": {
-      "inputSchema": {
-        "type": "object"
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string",
-            "description": "使用指南 JSON 完整参数以目标工具集的描述为准 */"
           }
         },
         "required": [
@@ -10167,6 +10263,17 @@
           "file_prefix": {
             "type": "string",
             "description": "唯一截图前缀 *"
+          },
+          "hit_region": {
+            "type": "integer",
+            "description": "六部位编号 *"
+          },
+          "hit_direction": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "世界空间命中方向 *"
           }
         },
         "required": [
@@ -10179,7 +10286,9 @@
           "target_speed",
           "sample_seconds",
           "bone_names",
-          "file_prefix"
+          "file_prefix",
+          "hit_region",
+          "hit_direction"
         ]
       },
       "outputSchema": {
@@ -12868,6 +12977,172 @@
           "returnValue": {
             "type": "string",
             "description": "原位保存结果 骨架与顶点数量 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    }
+  },
+  "BBBRetargetAssetAuditToolset": {
+    "retarget_sequences": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "源动画序列 *"
+          },
+          "retargeter_path": {
+            "type": "string",
+            "description": "已核验的重定向器 *"
+          },
+          "target_folder": {
+            "type": "string",
+            "description": "自有资产目标目录 *"
+          },
+          "overwrite": {
+            "type": "boolean",
+            "description": "是否重建同名目标 现有目标必须已签出或打开添加 *",
+            "default": false
+          }
+        },
+        "required": [
+          "source_paths",
+          "retargeter_path",
+          "target_folder"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_root_motion_retargeter": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "已独占签出或打开添加的独立重定向器 *"
+          },
+          "source_mesh_path": {
+            "type": "string",
+            "description": "与本批源动画骨架一致的预览网格 *"
+          }
+        },
+        "required": [
+          "asset_path",
+          "source_mesh_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_animation_poses": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "动画序列路径 *"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "明确预览网格 空字符串使用动画骨架 *"
+          },
+          "sample_count": {
+            "type": "integer",
+            "description": "均匀采样数 二至一百零一 零表示所有帧 *",
+            "default": 13
+          }
+        },
+        "required": [
+          "asset_paths",
+          "mesh_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_retargeter": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "重定向器路径 *"
+          }
+        },
+        "required": [
+          "asset_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "open_new_assets_for_add": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "已存在但尚未纳入 Perforce 的自有资产包 *"
+          }
+        },
+        "required": [
+          "asset_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
           }
         },
         "required": [

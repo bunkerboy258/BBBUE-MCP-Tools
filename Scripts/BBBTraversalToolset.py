@@ -349,6 +349,8 @@ class BBBTraversalToolset(unreal.ToolsetDefinition):
                 _sample_handle = None
 
         _sample_handle = unreal.register_slate_post_tick_callback(tick)
+        from BBBMcpCapabilities import register_activity
+        register_activity("traversal:samples", lambda: _sample_handle is not None)
         return json.dumps({"sampling": True, "seconds": seconds})
 
     @mcp_tool
@@ -736,11 +738,3 @@ class BBBTraversalToolset(unreal.ToolsetDefinition):
 
 
 _registration = Registration([BBBTraversalToolset])
-
-if __name__ == "__bbb_editor_script__":
-    def register_after_reload(delta_seconds):
-        _registration.unregister()
-        _registration.register()
-        unreal.unregister_slate_post_tick_callback(registration_handle)
-
-    registration_handle = unreal.register_slate_post_tick_callback(register_after_reload)

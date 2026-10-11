@@ -123,7 +123,6 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         import BBBDisplayAssetCaptureTools
         if getattr(BBBDisplayAssetCaptureTools, "_capture_handle", None) is not None:
             raise RuntimeError("特效拍摄仍在运行 请先读取状态")
-        importlib.reload(BBBDisplayAssetCaptureTools)
         return BBBDisplayAssetCaptureTools.capture_niagara_asset(system_path, age_seconds, camera_offset, file_name)
 
     @mcp_tool
@@ -307,6 +306,8 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         directory.mkdir(parents=True, exist_ok=True)
         unreal.AudioMixerLibrary.start_recording_output(world, 30.0)
         _pie_audio_capture = {"world": world, "directory": str(directory), "name": name, "file": str(filename)}
+        from BBBMcpCapabilities import register_activity
+        register_activity("audio:recording", lambda: _pie_audio_capture is not None, wait=False)
         return json.dumps({"file": str(filename), "recording_requested": True})
 
     @mcp_tool
@@ -328,6 +329,23 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             raise RuntimeError("PIE 世界已经变化 录音失效")
         unreal.AudioMixerLibrary.stop_recording_output(world, unreal.AudioRecordingExportType.WAV_FILE, record["name"], record["directory"])
         _pie_audio_capture = None
+        import time
+        import wave
+        from BBBMcpCapabilities import register_activity
+        requested_at = time.monotonic()
+        def export_status():
+            filename = Path(record["file"])
+            try:
+                with filename.open("rb") as handle:
+                    header = handle.read(12)
+                if len(header) == 12 and header[:4] == b"RIFF" and header[8:] == b"WAVE" and filename.stat().st_size >= int.from_bytes(header[4:8], "little") + 8:
+                    with wave.open(str(filename), "rb") as audio:
+                        if audio.getnframes() > 0:
+                            return {"status": "completed"}
+            except (OSError, EOFError, wave.Error):
+                pass
+            return {"status": "running" if time.monotonic() - requested_at < 60 else "unknown"}
+        register_activity("audio:export:" + record["file"], export_status, blocking=False)
         return json.dumps({"file": record["file"], "export_requested": True})
 
     @mcp_tool
@@ -1919,8 +1937,8 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.]*", test_filter) or unreal.EditorLevelLibrary.get_pie_worlds(False):
             raise RuntimeError("必须停止 PIE 并提供明确测试前缀")
 
-        unreal.SystemLibrary.execute_console_command(None, "Automation RunTests " + test_filter)
-        return json.dumps({"filter": test_filter, "requested": True})
+        from BBBMcpCapabilities import start_automation_activity
+        return json.dumps(start_automation_activity(test_filter))
 
     @mcp_tool
     @staticmethod
@@ -2585,10 +2603,9 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         require_write_access(context)
         default_data = context.get_editor_property("default_key_mappings")
         default_mappings = list(default_data.get_editor_property("mappings"))
-        legacy_mappings = list(context.get_editor_property("mappings"))
         removed = []
 
-        for mapping in default_mappings + legacy_mappings:
+        for mapping in default_mappings:
             action = mapping.get_editor_property("action")
             action_path = action.get_path_name() if action else None
             if action_path and action_path.split(".")[0] in action_paths:
@@ -2607,17 +2624,6 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
                     raise RuntimeError("输入动作不存在: {}".format(action_path))
 
                 context.unmap_all_keys_from_action(action)
-
-            remaining_legacy = []
-            for mapping in legacy_mappings:
-                action = mapping.get_editor_property("action")
-                action_path = action.get_path_name() if action else None
-                if action_path and action_path.split(".")[0] in action_paths:
-                    continue
-
-                remaining_legacy.append(mapping)
-
-            context.set_editor_property("mappings", remaining_legacy)
 
         remaining_default = list(context.get_editor_property("default_key_mappings").get_editor_property("mappings"))
         for mapping in remaining_default:
@@ -3033,7 +3039,26 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
                 raise RuntimeError("组件已经生成 拒绝自动重放")
             component.modify()
             component.set_graph(graph)
-            component.generate_local(True)
+            from BBBMcpCapabilities import register_activity
+            record = {"status": "pending"}
+            generated_event = component.get_editor_property("on_pcg_graph_generated_external")
+            cancelled_event = component.get_editor_property("on_pcg_graph_cancelled_external")
+            def finish_generation(completed_component):
+                record["status"] = "completed"
+                generated_event.remove_callable(finish_generation)
+                cancelled_event.remove_callable(cancel_generation)
+            def cancel_generation(cancelled_component):
+                record["status"] = "cancelled"
+                generated_event.remove_callable(finish_generation)
+                cancelled_event.remove_callable(cancel_generation)
+            generated_event.add_callable(finish_generation)
+            cancelled_event.add_callable(cancel_generation)
+            register_activity("pcg:" + component.get_path_name(), lambda: record)
+            try:
+                component.generate_local(True)
+            except Exception:
+                record["status"] = "unknown"
+                raise
         instances = []
         for mesh_component in actor.get_components_by_class(unreal.InstancedStaticMeshComponent):
             mesh = mesh_component.get_editor_property("static_mesh")
@@ -3669,11 +3694,3 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
 
 _registration = Registration([BBBGenericEditorToolset])
-
-if __name__ == "__bbb_editor_script__":
-    def register_after_reload(delta_seconds):
-        _registration.unregister()
-        _registration.register()
-        unreal.unregister_slate_post_tick_callback(registration_handle)
-
-    registration_handle = unreal.register_slate_post_tick_callback(register_after_reload)

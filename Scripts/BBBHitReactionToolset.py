@@ -434,6 +434,8 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
                 actor.destroy_actor()
             raise
         _captures[identifier] = record
+        from BBBMcpCapabilities import register_activity
+        register_activity("hit:" + identifier, lambda: record)
 
         def complete(error=None):
             """/** @return 结束采样并销毁全部短时演员 */"""
@@ -620,6 +622,8 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
         record = {"status": "pending", "captureId": identifier, "playerView": True, "includesUI": False,
                   "imagePaths": [], "imageSeconds": [], "samples": [], "durationSeconds": duration_seconds}
         _captures[identifier] = record
+        from BBBMcpCapabilities import register_activity
+        register_activity("hit:" + identifier, lambda: record)
         data = {"start": unreal.GameplayStatics.get_time_seconds(world), "last": -1.0, "lastImage": -1.0, "handle": None}
 
         def complete(error=None):
@@ -912,6 +916,8 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
         os.makedirs(directory, exist_ok=True)
         record = {"status": "pending", "captureId": identifier, "blueprint": actor_blueprint_path, "region": region, "shots": shots, "speed": speed, "interrupt": interrupt, "actorCount": actor_count}
         _captures[identifier] = record
+        from BBBMcpCapabilities import register_activity
+        register_activity("hit:" + identifier, lambda: record)
         library = unreal.BBBAnimationGraphEditorLibrary
         physics = unreal.BBBHitReactionEditorLibrary
         actor = unreal.BBBBlueprintEditorLibrary.spawn_transient_pie_actor(world, blueprint.generated_class(), unreal.Transform(location=unreal.Vector(0.0, 0.0, 20090.0), rotation=unreal.Rotator(yaw=180.0)))
@@ -1078,8 +1084,8 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
         """
         if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
             raise RuntimeError("PIE 期间禁止执行编辑器自动化回归")
-        unreal.SystemLibrary.execute_console_command(None, "Automation RunTests UBBB.Mass.Zombie")
-        return json.dumps({"queued": True, "filter": "UBBB.Mass.Zombie"})
+        from BBBMcpCapabilities import start_automation_activity
+        return json.dumps(start_automation_activity("UBBB.Mass.Zombie"))
 
     @mcp_tool
     @staticmethod

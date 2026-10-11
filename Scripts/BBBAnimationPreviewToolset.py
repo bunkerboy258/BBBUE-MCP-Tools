@@ -84,6 +84,8 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
         capture_id = str(uuid.uuid4())
         record = {"status": "pending", "captureId": capture_id}
         _transition_captures[capture_id] = record
+        from BBBMcpCapabilities import register_activity
+        register_activity("preview:" + capture_id, lambda: record)
 
         def capture_frames():
             """/** @return 跨引擎帧命中截图迭代器 完成或失败均销毁临时演员 */"""
@@ -354,6 +356,8 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
                   "renderSettings": {name: unreal.SystemLibrary.get_console_variable_float_value(name) for name in quality_names + render_names},
                   "resultPath": result_path, "csvPath": csv_path, "cases": []}
         _population_runs[run_id] = report
+        from BBBMcpCapabilities import register_activity
+        register_activity("population:" + run_id, lambda: report)
         state = {"case": -1, "entities": [], "phase": "next", "samples": [], "start": 0.0, "handle": None, "lastFrame": -1}
         cases = [(count, enabled) for count in counts for enabled in (False, True)]
 
@@ -529,6 +533,8 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
         path = os.path.join(directory, run_id + ".json")
         report = {"runId": run_id, "status": "running", "resultPath": path, "count": count, "cases": [], "samples": [], "submitted": 0}
         _population_runs[run_id] = report
+        from BBBMcpCapabilities import register_activity
+        register_activity("population:" + run_id, lambda: report)
         state = {"handle": None, "start": unreal.GameplayStatics.get_time_seconds(world), "last": -1.0, "configs": configs}
 
         def finish(status, error=""):
@@ -902,6 +908,8 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
         iterator = capture_frames()
         record = {"status": "pending", "captureId": capture_id}
         _transition_captures[capture_id] = record
+        from BBBMcpCapabilities import register_activity
+        register_activity("preview:" + capture_id, lambda: record)
         handle = None
 
         def advance_frame(delta_seconds):
@@ -941,18 +949,3 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
 
 
 _registration = Registration([BBBAnimationPreviewToolset])
-
-if __name__ == "__bbb_editor_script__":
-    def register_after_reload(delta_seconds):
-        """
-        /**
-         * 在当前调用结束后的编辑器帧重新注册工具类
-         * @param delta_seconds	编辑器帧间隔
-         * @return 无返回值
-         */
-        """
-        _registration.unregister()
-        _registration.register()
-        unreal.unregister_slate_post_tick_callback(registration_handle)
-
-    registration_handle = unreal.register_slate_post_tick_callback(register_after_reload)

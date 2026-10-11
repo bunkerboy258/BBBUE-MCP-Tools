@@ -1,6 +1,4 @@
 import builtins
-import contextlib
-import io
 import json
 import math
 import os
@@ -489,9 +487,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
          * @return 三档权重及动作阶段截图 不写项目资产
          */
         """
-        import importlib
         import BBBRecoilAnimationTools
-        importlib.reload(BBBRecoilAnimationTools)
         return json.dumps(BBBRecoilAnimationTools.capture_recoil_alpha_samples(source_path, animation_path, mesh_path, file_prefix), ensure_ascii=False)
 
     @mcp_tool
@@ -507,9 +503,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
         """
         if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
             raise RuntimeError("PIE 期间禁止重绑后坐力输入")
-        import importlib
         import BBBRecoilAnimationTools
-        importlib.reload(BBBRecoilAnimationTools)
         blueprint = unreal.load_asset(blueprint_path)
         animation = unreal.load_asset(animation_path)
         if not isinstance(blueprint, unreal.AnimBlueprint) or not isinstance(animation, unreal.AnimSequence):
@@ -599,10 +593,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
          * @return 自然更新的动画播放器 权重和手臂姿势采样
          */
         """
-        import importlib
         import BBBRecoilAnimationTools
-        if action == "start":
-            importlib.reload(BBBRecoilAnimationTools)
         return json.dumps(BBBRecoilAnimationTools.sample_recoil_runtime(action, seconds, file_prefix), ensure_ascii=False)
 
     @mcp_tool
@@ -618,9 +609,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
          * @return 合并 校验与保存结果 失败保留未保存现场
          */
         """
-        import importlib
         import BBBRecoilAnimationTools
-        importlib.reload(BBBRecoilAnimationTools)
         return json.dumps(BBBRecoilAnimationTools.merge_recoil_additives(interface_path, base_path, main_path, dependent_paths, animation_path), ensure_ascii=False)
 
     @mcp_tool
@@ -633,9 +622,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
          * @return 真实枪口轴和骨骼基准 仅只读
          */
         """
-        import importlib
         import BBBRecoilAnimationTools
-        importlib.reload(BBBRecoilAnimationTools)
         return json.dumps(BBBRecoilAnimationTools.inspect_recoil_context(source_path, definition_path), ensure_ascii=False)
 
     @mcp_tool
@@ -650,9 +637,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
          * @return 全帧验证与保存结果 失败不保存
          */
         """
-        import importlib
         import BBBRecoilAnimationTools
-        importlib.reload(BBBRecoilAnimationTools)
         return json.dumps(BBBRecoilAnimationTools.rebuild_backward_recoil(source_path, animation_path, definition_path, maximum_distance_cm), ensure_ascii=False)
 
     @mcp_tool
@@ -666,9 +651,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
          * @return 全帧轴向与握持误差 仅只读
          */
         """
-        import importlib
         import BBBRecoilAnimationTools
-        importlib.reload(BBBRecoilAnimationTools)
         return json.dumps(BBBRecoilAnimationTools.validate_backward_recoil(source_path, animation_path, definition_path), ensure_ascii=False)
 
     @mcp_tool
@@ -1630,35 +1613,6 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             ensure_ascii=False,
         )
 
-    @mcp_tool
-    @staticmethod
-    def run_editor_script(script_path: str) -> str:
-        """在编辑器内执行项目 Scripts 目录下的 Python 脚本并返回其标准输出"""
-        scripts_root = os.path.realpath(
-            os.path.join(unreal.Paths.project_dir(), "Scripts")
-        )
-        repository_scripts_root = os.path.dirname(os.path.realpath(__file__))
-        target = os.path.realpath(script_path)
-        allowed_roots = (scripts_root, repository_scripts_root)
-        if not any(os.path.commonpath((target, root)) == root for root in allowed_roots if os.path.splitdrive(target)[0].lower() == os.path.splitdrive(root)[0].lower()):
-            raise RuntimeError(
-                "仅允许执行当前项目或 MCP 仓库 Scripts 目录内的脚本: {}".format(script_path)
-            )
-        if not os.path.isfile(target):
-            raise RuntimeError("脚本不存在: {}".format(target))
-
-        buffer = io.StringIO()
-        error = None
-        with contextlib.redirect_stdout(buffer):
-            try:
-                runpy.run_path(target, run_name="__bbb_editor_script__")
-            except Exception as err:  # 保证异常时也能拿回已打印的输出
-                error = "{}: {}".format(type(err).__name__, err)
-
-        return json.dumps(
-            {"script": target, "output": buffer.getvalue(), "error": error},
-            ensure_ascii=False,
-        )
 
     @mcp_tool
     @staticmethod
@@ -2994,6 +2948,8 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
         if not isinstance(request, dict):
             raise RuntimeError("steps_json必须是schemaVersion:2的对象")
 
+        from BBBMcpCapabilities import register_activity
+        register_activity("input:sequence", lambda: json.loads(unreal.BBBPIEInputEditorLibrary.get_pie_input_sequence_status()))
         return unreal.BBBPIEInputEditorLibrary.start_pie_input_sequence(
             steps_json
         )
@@ -3517,9 +3473,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
          * @return 严格编译并保存的蓝图结果 失败不保存
          */
         """
-        import importlib
         import BBBWeaponHandlingTools
-        importlib.reload(BBBWeaponHandlingTools)
         return json.dumps(BBBWeaponHandlingTools.configure_continuous_bone_rotation(
             blueprint_path, bone_name, snapshot_properties), ensure_ascii=False)
 
@@ -3535,9 +3489,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
          * @return 编译状态 不自动保存
          */
         """
-        import importlib
         import BBBWeaponHandlingTools
-        importlib.reload(BBBWeaponHandlingTools)
         if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
             raise RuntimeError("PIE 期间禁止改造持枪图表")
         if camera:
@@ -3556,9 +3508,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
          * @return 实际采样或注入结果 不保存资产
          */
         """
-        import importlib
         import BBBWeaponHandlingTools
-        importlib.reload(BBBWeaponHandlingTools)
         return json.dumps(BBBWeaponHandlingTools.sample_runtime(action, seconds, equipment_class_path), ensure_ascii=False)
 
     @mcp_tool
@@ -3602,9 +3552,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
          * @return 实际创建结果
          */
         """
-        import importlib
         import BBBWeaponHandlingTools
-        importlib.reload(BBBWeaponHandlingTools)
         if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
             raise RuntimeError("PIE 期间禁止创建后震动画")
         return json.dumps(BBBWeaponHandlingTools.create_backward_additive(source_path, destination_path, bone_name, local_offset, duration), ensure_ascii=False)
@@ -3700,11 +3648,3 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
 
 _registration = Registration([BBBAnimationMigrationToolset])
-
-if __name__ == "__bbb_editor_script__":
-    def register_after_reload(delta_seconds):
-        _registration.unregister()
-        _registration.register()
-        unreal.unregister_slate_post_tick_callback(registration_handle)
-
-    registration_handle = unreal.register_slate_post_tick_callback(register_after_reload)

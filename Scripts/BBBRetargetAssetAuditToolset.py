@@ -294,12 +294,3 @@ class BBBRetargetAssetAuditToolset(unreal.ToolsetDefinition):
 
 
 _registration = Registration([BBBRetargetAssetAuditToolset])
-
-if __name__ == "__bbb_editor_script__":
-    def register_after_reload(delta_seconds):
-        """/** @param delta_seconds 帧间隔 @return 注册只读工具 */"""
-        _registration.unregister()
-        _registration.register()
-        unreal.unregister_slate_post_tick_callback(registration_handle)
-
-    registration_handle = unreal.register_slate_post_tick_callback(register_after_reload)

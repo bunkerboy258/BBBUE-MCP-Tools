@@ -439,6 +439,8 @@ def sample_recoil_runtime(action, seconds, file_prefix):
     os.makedirs(directory, exist_ok=True)
     state = {"status": "running", "path": path, "samples": [], "start": unreal.GameplayStatics.get_time_seconds(world), "lastFrame": -1}
     setattr(builtins, "BBB_BACKWARD_RECOIL_RUNTIME_PROBE", state)
+    from BBBMcpCapabilities import register_activity
+    register_activity("recoil:probe", lambda: state)
 
     def finish(error=None):
         """/** @param error 失败原因 @return 结束采样并写入报告 */"""

@@ -62,8 +62,6 @@ _DOMAIN_ACTIONS = {
     "editor": {
         "close_asset_editor",
         "create_proxy_actor",
-        "get_open_assets",
-        "get_selected_assets",
         "join_actors",
         "merge_actors",
         "open_editor_for_asset",
@@ -90,7 +88,6 @@ _DOMAIN_ACTIONS = {
         "get_current_level_path",
         "list_level_actors",
         "load_level",
-        "save_all_levels",
         "save_current_level",
         "set_world_settings",
     },
@@ -125,17 +122,11 @@ _DOMAIN_ACTIONS = {
         "get_cvar",
         "get_output_log",
         "get_project_info",
-        "get_viewport_camera",
-        "is_in_pie",
         "list_class_properties",
         "list_enum_values",
         "print_message",
-        "save_all_dirty",
         "set_cvar",
         "set_log_verbosity",
-        "set_viewport_camera",
-        "start_pie",
-        "stop_pie",
     },
     "vision": {
         "capture_actors",
@@ -238,24 +229,6 @@ def _run(domain, action, params_json):
 class BBBExternalToolset(unreal.ToolsetDefinition):
     """移植 GenOrca Unreal MCP 中当前官方工具集缺少的 UE Python 工具"""
 
-    @mcp_tool
-    @staticmethod
-    def list_available_actions() -> str:
-        """列出已移植的 GenOrca 工具领域和动作"""
-        catalog = inspect_actions()
-        return json.dumps(
-            {
-                "source": "GenOrca/unreal-mcp",
-                "sourceRevision": "f7986db239516aa4299ddc6f54d713253bd82631",
-                "license": "Apache-2.0",
-                "domains": {
-                    domain: [action for action, status in actions.items() if status["available"]]
-                    for domain, actions in catalog.items()
-                },
-                "actions": catalog,
-            },
-            ensure_ascii=False,
-        )
 
     @mcp_tool
     @staticmethod
@@ -325,25 +298,3 @@ class BBBExternalToolset(unreal.ToolsetDefinition):
 
 
 _registration = Registration([BBBExternalToolset])
-
-
-if __name__ == "__bbb_editor_script__":
-    def register_after_reload(delta_seconds):
-        """
-        /**
-         * 等待工具类重实例化后替换原注册 不重启编辑器
-         * @param delta_seconds	本帧时间间隔
-         * @return 无返回值
-         */
-        """
-        try:
-            _registration.unregister()
-            if not _registration.register():
-                raise RuntimeError("外部工具注册表不可用")
-            unreal.log("[BBBExternal]工具类更新后已替换注册 请重新发现并验证调用")
-        except Exception as error:
-            unreal.log_error("[BBBExternal]工具类更新后注册失败 {}".format(error))
-        finally:
-            unreal.unregister_slate_post_tick_callback(registration_handle)
-
-    registration_handle = unreal.register_slate_post_tick_callback(register_after_reload)

@@ -132,13 +132,3 @@ def ue_save_current_level() -> str:
                            "message": "Saved current level." if ok else "save_current_level returned False (untitled or unsaved level)."})
     except Exception as e:
         return json.dumps({"success": False, "message": str(e), "traceback": traceback.format_exc()})
-
-
-def ue_save_all_levels() -> str:
-    """Saves all dirty levels."""
-    try:
-        ok = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).save_all_dirty_levels()
-        return json.dumps({"success": bool(ok),
-                           "message": "Saved all dirty levels." if ok else "save_all_dirty_levels returned False (nothing to save)."})
-    except Exception as e:
-        return json.dumps({"success": False, "message": str(e), "traceback": traceback.format_exc()})

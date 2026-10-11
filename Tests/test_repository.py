@@ -1,10 +1,12 @@
 import ast
+import builtins
 import importlib.util
 import json
 from pathlib import Path
 import sys
 import types
 import unittest
+from unittest.mock import patch
 
 
 sys.dont_write_bytecode = True
@@ -35,9 +37,12 @@ class RepositoryTests(unittest.TestCase):
         self.assertTrue((ROOT / "Scripts/MCP/ThirdParty/GenOrca/LICENSE.txt").is_file())
         self.assertTrue((ROOT / "Scripts/ProbeScripts/probe_locomotion_sync_runtime.py").is_file())
 
-    def test_bootstrap_metadata_and_reload(self):
+    def test_bootstrap_metadata_and_registration(self):
         """/** @return 包名 原生依赖与性能状态保留断言 */"""
         existing = dict(sys.modules)
+        activities = patch.object(builtins, "BBB_MCP_ACTIVITIES", {}, create=True)
+        activities.start()
+        self.addCleanup(activities.stop)
         previous_reload = importlib.reload
         registered = set()
         events = []
@@ -118,6 +123,8 @@ class RepositoryTests(unittest.TestCase):
             fake_unreal.ObjectIterator = lambda value: [getattr(sys.modules[name], name) for name in bootstrap.TOOLSET_ROUTES]
             bootstrap.importlib.reload = lambda module: events.append(module.__name__)
             runtime._snapshot = lambda: {"profile": "GamingBackground", "configured_max_fps": 10}
+            runtime._active_profile = "GamingBackground"
+            runtime._configured_max_fps = 10
             sys.modules["BBBExternalToolset"]._DOMAIN_MODULES = {}
             sys.modules["BBBExternalToolset"].inspect_actions = lambda: {}
             report = bootstrap.register_mcp_toolsets()
@@ -126,19 +133,13 @@ class RepositoryTests(unittest.TestCase):
             self.assertEqual(runtime._configured_max_fps, 10)
             self.assertTrue(report["modules"]["BBBBlueprintGraphToolset"]["missing_native_classes"])
             self.assertEqual(bootstrap.get_toolset_name("BBBMcpRuntimeToolset"), "Game.Scripts.BBBMcpRuntimeToolset.BBBMcpRuntimeToolset")
-            bootstrap.reload_mcp_toolsets()
+            bootstrap.register_mcp_toolsets()
             self.assertEqual(len(registered), len(bootstrap.TOOLSET_ROUTES))
             self.assertEqual(runtime._configured_max_fps, 10)
-            self.assertEqual(sum(value in bootstrap.TOOLSET_ROUTES for value in events), len(bootstrap.TOOLSET_ROUTES))
+            self.assertEqual(sum(value in bootstrap.TOOLSET_ROUTES for value in events), 0)
             runtime_definition = runtime.BBBMcpRuntimeToolset
             runtime_definition.static_class = lambda: types.SimpleNamespace(get_path_name=lambda: "/Engine/PythonTypes.BBBMcpRuntimeToolset_0x1234ABCD")
             self.assertEqual(bootstrap.get_toolset_name("BBBMcpRuntimeToolset"), "PythonTypes.BBBMcpRuntimeToolset_0x1234ABCD")
-            fake_unreal.get_editor_subsystem = lambda kind: types.SimpleNamespace(is_in_play_in_editor=lambda: True)
-            before_refusal = list(events)
-            with self.assertRaisesRegex(RuntimeError, "PIE"):
-                bootstrap.reload_mcp_toolsets()
-            self.assertEqual(events, before_refusal)
-            fake_unreal.get_editor_subsystem = lambda kind: types.SimpleNamespace(is_in_play_in_editor=lambda: False)
             Registry.is_available = staticmethod(lambda: False)
             with self.assertRaisesRegex(RuntimeError, "注册表不可用"):
                 bootstrap.register_mcp_toolsets()

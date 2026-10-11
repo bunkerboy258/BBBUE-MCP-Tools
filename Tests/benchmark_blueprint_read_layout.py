@@ -3,7 +3,6 @@ from copy import deepcopy
 import json
 from pathlib import Path
 import random
-import re
 from statistics import median
 import subprocess
 import sys
@@ -35,18 +34,15 @@ def main():
     fixtures = []
     snapshot = None
     if args.graph:
-        sys.path.insert(0, str(ROOT / "Scripts/MCP"))
-        from mcp_call import McpSession, URL
-        from MCP.mcp_result import decode_tool_result
-        with McpSession(URL, timeout_seconds=120) as session:
-            listing = session.call_tool("list_toolsets", {})["result"]["content"][0]["text"]
-            names = re.findall(r"^- ([^:\r\n ]+)", listing, re.MULTILINE)
-            matches = [name for name in names if re.search(r"(?:^|\.)BBBBlueprintGraphToolset(?:_0x[0-9A-Fa-f]{8})?$", name)]
-            if len(matches) != 1:
-                raise RuntimeError("蓝图工具集入口不唯一")
-
-            session.call_tool("describe_toolset", {"toolset_name": matches[0]})
-            snapshot = decode_tool_result(session.call_tool("call_tool", {"toolset_name": matches[0], "tool_name": "inspect_blueprint_graph", "arguments": {"graph_path": args.graph}}))
+        from MCP.mcp_call import McpSession
+        with McpSession(timeout_seconds=120) as session:
+            session.describe_tool("blueprint.inspect_blueprint_graph")
+            identity = session.submit_batch([{"tool": "blueprint.inspect_blueprint_graph", "arguments": {"graph_path": args.graph}}], "代表图只读基准")["batch"]
+            result = session.wait_batch(identity, 180)
+            if result["status"] != "completed":
+                raise RuntimeError(str(result))
+            snapshot = result["results"][0]
+            session.control_task("close", identity)
 
     if args.snapshot_stdin:
         snapshot = json.loads(sys.stdin.readline())

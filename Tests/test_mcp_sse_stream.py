@@ -44,7 +44,7 @@ class McpSseStreamTests(unittest.TestCase):
 
     def test_truncated_stream_is_rejected(self):
         """/** @return 不完整事件不能冒充已完成结果 */"""
-        with self.assertRaisesRegex(RuntimeError, "未收到"):
+        with self.assertRaisesRegex(RuntimeError, "RESPONSE_STREAM_ENDED"):
             self.parse([b'data: {"id":7,"result":true}\n', b""])
 
 

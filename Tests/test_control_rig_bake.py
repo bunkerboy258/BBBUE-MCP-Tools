@@ -3,6 +3,7 @@ import json
 import math
 from pathlib import Path
 import unittest
+import uuid
 from unittest.mock import Mock
 
 
@@ -33,8 +34,9 @@ class ControlRigBakeTests(unittest.TestCase):
         self.engine.EditorAssetLibrary.does_asset_exist.return_value = True
         self.engine.EditorAssetLibrary.save_loaded_asset.return_value = True
         self.engine.SequencerTools.export_anim_sequence.return_value = True
+        self.engine.AnimationLibrary.get_animation_curve_names.return_value = []
         self.binding.find_tracks_by_type.side_effect = lambda kind: [Mock()] if kind is self.engine.MovieSceneControlRigParameterTrack else []
-        self.namespace = {"json": json, "math": math, "unreal": self.engine,
+        self.namespace = {"json": json, "math": math, "uuid": uuid, "unreal": self.engine,
                           "require_write_access": self.access, "_asset": self.assets,
                           "_mesh_binding": Mock(return_value=self.binding)}
         exec(compile(ast.Module(body=methods, type_ignores=[]), "control_rig_bake", "exec"), self.namespace)

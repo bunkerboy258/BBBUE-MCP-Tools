@@ -17,7 +17,6 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "Scripts"))
 import BBBMcpCapabilities as capabilities
 from MCP.mcp_result import McpExecutionError, McpBusinessError, decode_tool_result
-from MCP.mcp_task_gateway import write_execution_evidence
 
 
 class CaptureExecutionTests(unittest.TestCase):
@@ -42,7 +41,7 @@ class CaptureExecutionTests(unittest.TestCase):
         function.decorator_list = []
         self.records = {}
         namespace = {"unreal": self.engine, "json": json, "math": math, "re": re, "os": os, "uuid": uuid,
-            "McpExecutionError": McpExecutionError, "_transition_captures": self.records,
+            "McpExecutionError": McpExecutionError, "register_activity": lambda *args: None, "_transition_captures": self.records,
             "BBBAnimationPreviewToolset": types.SimpleNamespace(submit_monster_hit_ray=lambda *args: '{"hit":false}')}
         exec(compile(ast.Module(body=[function], type_ignores=[]), str(ROOT / "Scripts" / "BBBAnimationPreviewToolset.py"), "exec"), namespace)
         self.capture = namespace["capture_monster_hit_scene"]
@@ -106,7 +105,8 @@ class CaptureExecutionTests(unittest.TestCase):
         payload = {"result": {"content": [{"type": "text", "text": json.dumps({"returnValue": result})}]}}
         with self.assertRaises(McpBusinessError):
             decode_tool_result(payload)
-        self.assertEqual(write_execution_evidence((200, {}, payload)), ("rejected", "tool_execution_evidence", "HIT_CAPTURE_RAY_MISSED"))
+        self.assertEqual(json.loads(result)["execution"]["state"], "rejected")
+        self.assertEqual(json.loads(result)["code"], "HIT_CAPTURE_RAY_MISSED")
 
     def test_cleanup_request_requires_observed_destruction(self):
         """/** @return 演员仍有效且处于普通状态时保留核实要求 */"""

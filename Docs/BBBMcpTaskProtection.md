@@ -1,335 +1,65 @@
-# BBB MCP 共享宿主任务保护
+# 共享宿主调度
 
-## 原项目宿主归属与错误交接
+## 归属
 
-原项目按真实目录统一身份. 所有公开端口共用一个网关生命周期锁. 启动器遇到其他端口的同项目宿主时返回现有入口 客户端按返回地址复用. `IndependentHost` 入口已移除.
+同一原项目共用一个可写 UE 宿主。启动器与网关核对项目真实路径、进程和生命周期锁；冲突时进入 `draining` 并展示身份信息。
 
-网关同时核对同项目的全部编辑器与其他网关. 占用查询的 `activity.project_hosts` 展示进程 公开端口 核验时间和 `gateway_lock_held`. 多宿主 多网关或查询故障时返回 `PROJECT_HOST_CONFLICT` 保留查询与任务归属. 进程观测共享两秒缓存 避免每个客户端重复启动系统查询.
+测试宿主由该网关按批次登记，采用 Windows 受限令牌与低完整性级别。项目资产保持读取权限，任务目录配置独立写入权限，日志、缓存、存档和采样写入所属目录。主宿主维持唯一资产写入归属。
 
-截图重名 参数预检和射线未命中提供固定业务错误码与明确执行证据. 射线未命中先核实临时演员清理. 清理失败返回 `partial` 并保留结果核实流程. 普通业务失败继续由客户端接收 网关依据执行证据决定阶段是否继续.
+客户端归属由私有连接凭证维护。批次编号用于查询执行结果，执行槽由服务器发放。分析和准备参数时，其他客户端可以继续工作。
 
-### 更新后的交接
+批次登记驻留于当前网关。网关更新在空闲交接窗口进行。
 
-Windows PowerShell 就绪检查使用 `Invoke-WebRequest -UseBasicParsing` 直接读取 MCP JSON 与事件流响应.
+## 流水线
 
-1. 当前任务通过已有入口保存并回读自己的资产 完成所属 PIE 与后台采样 释放编辑阶段和任务登记.
-2. 回读当前任务列表 PIE 后台活动与脏包清单 完成全部任务交接后由宿主所属会话执行正式退出 并核对宿主与网关进程退出.
-3. 使用新版 `Start-UE58OfficialMcpEditor.ps1` 沿用选定端口 渲染 音频和性能参数启动原项目宿主.
-4. 新客户端使用启动器返回的 `Endpoint`. 匿名查询 `inspect_editor_tasks` 核对项目 进程与 `activity.project_hosts.gateway_lock_held=true` 再登记任务.
+批次先检查全部参数，再按顺序执行。队列优先派发可执行批次，等待 PIE、活动或范围冲突的批次保留原因。
 
-本轮已移除整项目复制模块 测试副本队列 五个副本接口 SDK 方法和测试宿主启动分支. 现阶段统一使用原项目宿主 PIE 由所属编辑阶段安排. 后续隔离方式按实际测试需求另行确定.
+异步采样、录音、PCG 和自动化测试登记活动。阻塞活动等待期间让出执行槽，其他客户端的只读批次继续运行。活动结束后，原批次从下一项继续，已派发项保持一次执行。
 
-## 入口和适用范围
+PIE 输入、采样和停止操作属于发起客户端。同一宿主上的多轮 PIE 按归属顺序交接；共享查询可在每轮期间执行。
 
-通过 `Scripts/MCP/Start-UE58OfficialMcpEditor.ps1` 启动或复用一个可写项目宿主.
-客户端使用启动器返回的 `Endpoint` 可通过 `BBB_MCP_URL` 配置地址.
-官方 UE MCP 后端使用独立本机端口和每次启动生成的私有路径.
+独立测试使用 `submit_batch(environment="test", test_options={"map":"已保存地图"}, operations=...)`。测试宿主默认上限为两个，超出容量的批次排队。各宿主的 PIE 世界和游戏端口分别维护，主宿主继续编辑。
 
-声音验收使用启动器的 `EnableAudio` 开关 新宿主启用音频混音器 并仅通过进程参数将后台音量系数设为一 避免隐藏窗口录到静音 不修改项目配置 参数须使用 UE 配置节语法 `-ini:Engine:[Audio]:UnfocusedVolumeMultiplier=1.0` 缺少方括号不会覆盖 Audio 配置节 默认宿主仍禁用音频 复用时必须匹配原宿主音频模式及后台声音参数 活动任务期间不切换模式 音频录制和实际输出必须回读 不将发声请求视为已经听到声音
+首次批次返回 `test_host`，后续操作用 `submit_batch(environment="test", test_host=..., operations=...)` 进入同一测试世界。宿主容量按实际流程占用计算；活动结束或所属客户端到期后回收。`close` 首次批次可结束本客户端的测试流程并交付清理，后续批次分别关闭记录。
 
-隐藏编辑器还有独立的后台声音门控 启动器仅为音频模式增加 `-ini:EditorPerProjectUserSettings:[/Script/UnrealEd.LevelEditorMiscSettings]:bAllowBackgroundAudio=True` 不保存用户设置 不能只检查系统后台音量系数 实际 PIE 的应用音量与设备主音量也必须非零.
+## 等待原因
 
-启动器核对项目 进程 渲染模式 性能设置和网关身份.
-同一项目的旧式直连宿主须在原任务结束后退出才能切换.
-有活动任务时不重启网关 不丢弃已有凭证.
-公开入口检查项目工具 官方工具和直接工具名称调用.
-
-私有路径用于防止误连后端.
-具有本机进程访问权限的程序仍可发现后端地址 手动操作 UE 或终止进程.
-本机制不提供操作系统权限隔离.
-
-## 任务登记和写权限是两个阶段
-
-任务登记表示该任务仍需要宿主 不自动取得写权限.
-多个 `read` `editor` 和 `pie` 任务可以同时登记.
-
-- `read` 任务只能执行已审核的只读查询.
-- `editor` 和 `pie` 任务可以申请编辑阶段.
-- 同一宿主同时只允许一个编辑阶段.
-- 一组连续编辑操作及结果回读完成后结束阶段.
-- 分析 等待回复和准备下一组操作期间保留登记并让出写权限.
-- PIE 录制和采样期间保留所属任务的编辑阶段.
-
-完整流程:
-
-```text
-登记任务
-    -> 分析和准备
-    -> 申请编辑阶段
-    -> 执行连续操作并核实实际结果
-    -> 结束 PIE 和采样 处理本阶段未保存内容
-    -> 结束编辑阶段
-    -> 继续分析或释放任务登记
-```
-
-多步骤编辑中需要保持连续性的操作放在同一个阶段.
-结束阶段会要求宿主没有实际活动和未保存内容.
-当前按整个宿主检查这些条件.
-
-## 九个网关工具
-
-通过 `list_toolsets` 找到 `bbb_task` 然后描述该工具集.
-也可以通过 `tools/list` 发现这些工具.
-只提供固定发现接口的客户端可用 `call_tool` 且不填写 `toolset_name` 调用它们.
-
-| 工具 | 参数 | 行为 |
+| code | 含义 | 可继续的工作 |
 | --- | --- | --- |
-| `acquire_editor_task` | `task_id` `description` `mode` 可选 `ttl_seconds=300` | 登记任务 返回 `task_token` |
-| `renew_editor_task` | `task_token` 可选 `resume=False` | 续期任务登记 |
-| `begin_editor_write` | `task_token` 可选 `ttl_seconds=120` `wait_seconds=0` `stage_label` | 申请或领取编辑阶段 返回 `active` 与 `write_token` 或 `queued` 与状态 |
-| `cancel_editor_write` | `task_token` | 取消本任务排队申请 保留登记 唤醒本任务等待请求 |
-| `renew_editor_write` | `task_token` `write_token` 可选 `resume=False` | 续期或显式恢复原阶段 |
-| `end_editor_write` | `task_token` `write_token` | 让出写权限 保留登记 |
-| `release_editor_task` | `task_token` | 结束没有编辑阶段的任务登记 |
-| `inspect_editor_tasks` | 可选 `task_token` `after_revision` `wait_seconds=0` | 查询占用 当前工具 阻塞原因和下一步 或等待状态版本变化 |
-| `prepare_editor_recovery` | `task_token` `target_task_id` | 预览过期阶段的操作证据 资产清单和用户确认文本 |
-| `recover_editor_write` | `task_token` `review_id` `user_confirmation` | 按用户确认转移过期阶段 撤销旧凭证 保留资产与核实要求 |
-| `shutdown_editor_host` | 无 | 所有任务 请求 活动和脏包清零后请求退出 |
+| `PIE_OWNED` | 另一客户端维护当前 PIE | 查询、准备与排队 |
+| `ACTIVITY_OWNED` | 另一客户端维护当前活动 | 查询与准备 |
+| `ACTIVITY_RUNNING` | 本批次等待活动结束 | 查询活动结果 |
+| `EDITOR_WORLD_REQUIRED` | 下一项需要编辑器世界 | 所属客户端结束 PIE |
+| `TARGET_ALREADY_DIRTY` | 明确目标已有待保存内容 | 核对目标归属 |
+| `DIRTY_BASELINE_UNSCOPED` | 修改范围需要完整基线核验 | 回读实际修改范围 |
+| `RESULT_REVIEW_REQUIRED` | 涉及待核实结果的范围 | 回读并完成核实 |
+| `HOST_DRAINING` | 宿主身份或独占状态待处理 | 准备与检查 |
+| `TEST_HOST_WAITING` | 等待测试宿主容量 | 编辑、查询与准备 |
+| `TEST_HOST_READ_ONLY` | 本操作需要资产编辑宿主 | 提交编辑批次 |
+| `TEST_INPUT_CHANGED` | 测试输入文件版本发生变化 | 保留结果并重新测试 |
 
-任务有效期为三十至三千六百秒.
-编辑阶段有效期为三十至九百秒.
-单次申请最多等待六十秒.
-单次等待结束后返回 `status=queued` 并保留原顺序.
-队列按申请顺序排列 队首任务主动领取阶段.
-再次调用 `begin_editor_write` 复用本任务的申请与原阶段参数.
-任务每次保持一份申请 同时保持一个领取请求.
-取消申请或任务有效期结束后释放队列位置.
-长时间准备期间使用 `renew_editor_task` 保持任务与申请有效.
-编辑阶段从领取成功后开始计时.
+明确写入目标由契约声明。输入资产仅作为读取来源；范围待定工具采用完整基线检查。PIE 操作与宿主性能设置按其实际副作用核对。
 
-`inspect_editor_tasks` 中 `writer_task_id` 表示当前写入者.
-`write_queue` 表示等待顺序.
-每个任务的 `write` 为当前阶段状态或空值.
-`last_write_state` 表示阶段完成 超时回收或预检失败.
+已有脏包保留自身归属；批次记录本次新增内容。范围明确且相互独立的编辑可以继续。结果核实释放执行槽，同时保护受影响范围。
 
-## AI 如何理解当前占用
+## 核实与恢复
 
-`inspect_editor_tasks` 返回完整快照 `summary` 提供精简解释:
+1. `inspect_tasks(batch=..., detail=true)` 读取完成范围、错误和待保存包。
+2. 使用领域读取核对实际状态，处理本批次内容。保存传入明确的 `asset_paths`。
+3. `control_task(action="review", batch=...)` 获取本次状态的确认编号。
+4. `control_task(action="resume", batch=..., confirmation=...)` 确认处理完成。
+5. `control_task(action="close", batch=...)` 关闭记录。
 
-| 字段 | 含义 |
-| --- | --- |
-| `revision` | 实际状态版本 |
-| `writer` | 当前任务说明 阶段用途与正在执行的工具 |
-| `writer.write.elapsed_seconds` | 阶段实际耗时 |
-| `writer.operations` | 执行中的工具名称 权限分类与操作耗时 |
-| `blockers` | 占用 PIE 采样 未保存资产和恢复要求 |
-| `caller` | 本任务可读 可准备 可写 可领取及下一步调用 |
-| `observation_age_seconds` | 最近实际宿主观测距今秒数 |
+确认绑定宿主、PIE 版本、脏包、活动和完成数量。状态变化后重新核实。
 
-`remaining_seconds` 表示凭证有效期.
-实际耗时由 `elapsed_seconds` 表示 完成时间以实际结果为准.
+原客户端使用原私有凭证重连，继续查询原批次。客户端到期后，另一客户端可对待核实批次取得快照并确认接管，随后完成活动与资产交接。尚待派发的到期批次取消；已有执行结果的批次保留证据进入核实。
 
-标准调用响应和工具发现结果在 `result._meta["bbb/editor_state"]` 中附带精简状态.
-`list_toolsets` 的文字结果和 `get_mcp_usage_guide` 的业务结果也展示当前占用.
-SDK 将最近收到的状态保存在 `session.editor_state` 中.
-发现缓存保存工具结构 占用摘要使用最近收到的状态并累加观测年龄.
-准备写入或确认新变化时调用 `inspect_editor_tasks` 获取当前快照.
+## 收尾与验收
 
-传入任务凭证后 `caller` 对应本任务 SDK 自动携带登记凭证.
-`caller.can_claim_write=true` 时调用 `begin_editor_write` 领取阶段.
-等待期间可执行 `shared_read` 查询 分析结果和准备下一批完整参数.
-查询结果反映该次调用时的实际状态 连续读取时结合状态版本和当前操作理解结果.
+批次完成后逐项关闭。全部排队、执行、核实、PIE、活动与待保存内容完成后，通过 `control_task(action="shutdown_host")` 请求退出，核对实际进程。
 
-已有 `revision` 时调用 `inspect_editor_tasks(after_revision=revision, wait_seconds=30)`.
-版本变化时及时返回 达到等待上限时返回当前状态.
-状态版本属于当前网关宿主 连接到新宿主后重新获取.
-网关合并同时进行的宿主探测 等待期间共享一秒观测窗口.
-实际编辑授权与阶段结束继续执行现场状态检查.
-`metrics.probe_count` 与 `metrics.probe_seconds` 用于比较探测数量和耗时.
+独立测试结束后退出所属宿主并核实进程。结果与输出保留至交付关闭；清理逐项核对目录身份与链接。测试失败和输入变化只影响所属测试结果。
 
-工具描述中的 `_meta["bbb/access"]` 与附加文字标明 `shared_read` `editor_write` `pie_write` `conditional` 或 `blocked`.
-唯一权限分类来源为 `Scripts/MCP/mcp_access_policy.py`.
-`bbb_task` 描述和使用指南提供共享查询清单及参数条件.
-经过审查的资产搜索 对象属性查询 蓝图快照和动画通知查询可以与其他任务的编辑阶段并存.
+`Tests/test_mcp_task_gateway.py`、`Tests/test_mcp_task_recovery.py` 验证隔离调度。`Tests/verify_mcp_task_protection.py --run-pie` 在专用空闲窗口验证真实双客户端共享读取与 PIE 交接。
 
-## 两份凭证
-
-`task_token` 证明任务身份.
-`write_token` 证明当前编辑阶段的权限.
-写操作必须同时携带两份凭证.
-
-`call_tool` 最外层参数示例:
-
-```json
-{
-  "toolset_name": "<实际发现的工具集完整名称>",
-  "tool_name": "<目标工具名称>",
-  "arguments": {},
-  "task_token": "<任务凭证>",
-  "write_token": "<当前编辑阶段凭证>"
-}
-```
-
-协议客户端也可通过 `params._meta` 中的 `bbb/task_token` 和 `bbb/write_token` 传入.
-网关检查后剥离凭证 再将业务参数发给 UE.
-
-凭证不写入公开文档 仓库 日志或其他任务.
-被结束或回收的阶段凭证不能控制后续阶段.
-
-## Python 和命令行客户端
-
-从仓库 `Scripts` 目录导入客户端 并先配置 `BBB_MCP_URL`.
-
-```python
-import os
-from MCP.mcp_call import McpSession
-
-with McpSession(os.environ["BBB_MCP_URL"]) as session:
-    task = session.acquire_task("editing-task", "编辑与分析", "editor", 900)
-    stage = session.begin_write(ttl_seconds=120, wait_seconds=30, stage_label="已准备的编辑批次")
-    if stage["status"] == "queued":
-        state = session.inspect_tasks(stage["state"]["revision"], wait_seconds=30)
-        print(state["summary"])
-        if state["summary"]["caller"]["can_claim_write"]:
-            stage = session.begin_write()
-    if stage["status"] == "active":
-        session.renew_write()
-        session.end_write()
-    session.cancel_write()
-    session.renew_task()
-    session.release_task()
-```
-
-示例只演示生命周期.
-目标编辑操作放在 `begin_write` 和 `end_write` 之间.
-结束前核实实际结果并处理本阶段的未保存内容.
-SDK 为持有编辑阶段的存活 `McpSession` 自动调用 `renew_write` 周期为阶段有效期的三分之一 上限二十秒.
-续期使用独立 HTTP 连接 客户端关闭或阶段结束后结束续期.
-传输异常和恢复要求会暂停续期 保留两份凭证 在回读并显式恢复后继续续期.
-`heartbeat_error` 提供续期暂停提示.
-`auto_heartbeat=False` 适用于已经由调用方维护续期的客户端.
-直接使用 ChatGPT 工具接口的客户端在持有阶段时每二十秒调用 `renew_editor_write`.
-AI 分析和用户审批期间优先完成编辑批次并交接阶段.
-没有编辑阶段的长时间分析主动调用 `renew_task`.
-
-已经准备好完整参数时使用 `session.run_write_batch(calls, stage_label, ttl_seconds=120, wait_seconds=60)`.
-`calls` 使用 `call_many` 的请求数组结构.
-该方法先检查整批结构 再排队等待领取 执行逐项检查 回读结果并交接.
-等待期间按状态版本监听 每二十秒保持任务有效.
-PIE 和采样需要阶段归属覆盖整个活动 使用手动阶段流程管理开始 结束和实际状态检查.
-
-`McpWriteBatchError.phase` 标明 `queue` `execute` 或 `handoff`.
-`completed_results` 保留已完成请求 `__cause__` 保留原始错误与失败位置.
-排队总等待结束后申请继续有效 可继续领取或显式取消.
-执行或交接受阻时保留阶段凭证 原任务核实结果和实际活动后继续处理.
-资产保存和采样停止由所属任务明确执行.
-
-`close()` 只关闭 HTTP 会话.
-重连时创建 `McpSession(url, task_token=task["task_token"], write_token=stage["write_token"])`.
-分析阶段重连只需要任务凭证.
-
-命令行通过 `BBB_MCP_TASK_TOKEN` 和 `BBB_MCP_WRITE_TOKEN` 携带凭证.
-批量操作使用 `call_many` 或 `batch` 每个实际操作都经过网关检查.
-批量调用不回滚已完成的操作.
-
-## 超时和安全回收
-
-有实际请求在执行时保留编辑阶段.
-请求完成后刷新阶段有效期.
-
-编辑阶段超时后仅在以下条件全部成立时回收:
-
-- 没有该任务的实际请求.
-- 没有 PIE 世界 开始或结束的未确认请求.
-- 没有后台采样或其他已跟踪活动.
-- 没有未保存内容.
-- 没有执行结果不确定或宿主身份变化.
-
-回收只撤销写权限 不停止 PIE 不保存资产.
-仍有效的任务登记可重新申请阶段.
-没有请求 编辑阶段或不确定结果的失联登记也会被回收.
-任务凭证已失效时重新登记.
-
-存在活动或不确定结果的阶段标记为 `orphaned` 并保留权限归属.
-原任务先读取实际状态 再凭两份原凭证调用 `renew_editor_write(resume=True)`.
-任何持有两份原凭证的客户端都可执行上述恢复流程.
-未生效的 PIE 请求不能通过续期清除.
-不确定的资产写入不自动重试.
-
-客户端收到明确的凭证失效错误后清除对应本地凭证.
-传输失败和活动未结束时保留凭证.
-
-## 执行证据与失联接管
-
-`inspect_editor_tasks` 的任务记录包含 `last_operation` 和 `dirty_evidence`.
-最近操作记录工具名称 固定原因 错误标识 记录时间 耗时 操作前后包数量及新增与清除的包路径.
-公共诊断使用结构化证据 操作参数 凭证和原始传输异常保留在调用方.
-
-| `execution_state` | 含义 | 后续操作 |
-| --- | --- | --- |
-| `completed` | 工具返回成功或提供明确完成证据 | 按领域接口回读结果并完成阶段 |
-| `rejected` | 协议明确在执行前拒绝 或工具提供拒绝证据 | 修正参数后继续使用原阶段 |
-| `partial` | 工具报告部分完成 或拒绝声明与实际宿主变化冲突 | 回读已完成部分后显式恢复 |
-| `unknown` | 传输异常 或业务失败缺少执行证据 | 根据实际资产和活动核实结果后显式恢复 |
-
-提供协议结果的工具可使用 `result._meta["bbb/execution"].state` 声明 `rejected` `completed` 或 `partial`.
-声明须由工具实现中的执行边界保证 普通错误消息仍按 `unknown` 处理.
-官方协议 `-32601` 和 `-32602` 作为调用前拒绝的证据 宿主实际变化优先于拒绝声明.
-操作后探针失败时 `observation_verified=False` 操作后的包计数和差异为 `null` 下一步重新回读.
-
-`dirty_evidence` 记录阶段开始时的 `baseline_packages` 阶段观察到的 `observed_packages` 和最新 `current_packages`.
-`observed_outside_write` 记录实际写请求以外观察到的新增包 可能来自延迟任务或编辑器外部操作.
-这些字段表达宿主快照差异 具体资产来源以领域回读和操作记录核实.
-资产收尾使用已经确认的明确清单.
-
-原凭证遗失时 接手 AI 使用以下流程:
-
-1. 登记自己的 `editor` 或 `pie` 任务.
-2. 调用 `prepare_editor_recovery` 指定失联任务.
-3. 向用户展示目标阶段 最近操作 全部未保存包及接管影响 请求用户批准完整 `user_confirmation` 文本.
-4. 用户确认后 调用 `recover_editor_write` 传入本任务凭证 `review_id` 和完整确认文本.
-5. 按 `requires_result_review` 回读实际结果 再调用 `renew_editor_write(resume=True)`.
-6. 保存或处理经过确认的资产清单 调用 `end_editor_write` 交接给队列.
-
-接管仅适用于实际已过期且标记 `orphaned` 的阶段.
-原任务和接管任务的实际请求 PIE 请求 世界及后台活动均结束后可生成预览.
-接管预览有效期五分钟 绑定接管任务 宿主 阶段身份及资产快照.
-预览后原任务恢复 宿主变化 或资产证据变化时重新预览并请求确认.
-成功接管将现有阶段交给接手任务并撤销旧任务和阶段凭证 所有内存资产继续保留 原有结果核实要求继续保留.
-`recovered_from_task_id` 保留原任务标识.
-队列首位具备领取条件时 `summary.caller` 返回 `next_call` `next_arguments` 和立即领取提示.
-`next_arguments.task_token` 使用占位符 调用时填写自己的凭证.
-
-SDK 对应方法为 `prepare_recovery(target_task_id)` 和 `recover_write(review_id, user_confirmation)`.
-接管确认属于具体阶段的用户审批 AI 将用户批准的文本传给 SDK.
-
-## 实际活动和重载
-
-`BBBMcpTaskToolset.inspect_editor_activity` 返回宿主身份 PIE 世界代次 暂停世界 后台活动和脏包.
-当前活动包括动画运动采样 音频录制 动画截图 群体基准 受击采样 后坐力采样和原生输入序列.
-原生输入释放失败也保留活动保护.
-
-宿主身份和世界代次保存在同一 UE Python 进程中.
-正常工具重载不会重新生成宿主身份或重置代次.
-真正的宿主身份变化仍阻断旧凭证.
-重载后重新发现工具参数和实际注册名称.
-
-已有活动或未保存内容没有当前阶段归属时不自动接管.
-未知工具默认需要编辑阶段.
-已审核的只读清单位于 `mcp_access_policy.py`.
-`inspect_mass_inspection_population(pause_game=True)` 需要编辑阶段.
-任意 Python 脚本和控制台执行被拒绝.
-PCG 异步生成尚无活动状态探针 共享入口拒绝 `generate=True`.
-新增异步工具必须同时提供完成状态的实际回读.
-
-## 宿主退出和验证
-
-按用户批准的共享生命周期规则 单个任务结束后释放自己的登记.
-有效任务 编辑阶段 等待申请和实际请求都会阻止宿主退出.
-全部清零后调用 `shutdown_editor_host`.
-返回 `shutdown_requested` 后仍需核实对应编辑器和网关进程已退出.
-宿主退出后本网关自行退出 不终止其他进程或删除其他任务文件.
-项目 `Law.md` 保持只读.
-
-隔离验证入口为 `Tests/test_mcp_task_gateway.py`.
-执行证据 191 个未保存包接管和 SDK 续期验证入口为 `Tests/test_mcp_task_recovery.py`.
-真实宿主验证入口为 `Tests/verify_mcp_task_protection.py`.
-真实验证检查三个客户端 两个任务交替编辑 第三个任务共享查询 持久排队 批次交接 旧凭证失效和 PIE 保护.
-真实验证不修改或保存项目资产.
-独立游戏或服务器进程属于后续运行测试隔离阶段.
-
-SSE 返回使用 `HTTPResponse.read1` 按可用字节块读取 再组合完整 UTF-8 行 小事件不等待连接关闭 大姿势消息不逐字节重复复制 整个实际请求完成前仍保持任务占用 传输中断不视为调用完成
-
-### Perforce 票据路径
-
-登录脚本 命令行与 UE 必须使用同一份 `P4TICKETS` 文件 Windows 用户环境与 Perforce 用户设置应保持一致 启动脚本读取已持久配置的用户票据路径 并清空当前启动进程中可能过期的 `P4PASSWD` 不将密码或票据放进命令行参数 不放宽资产写入检查
+`Tests/test_mcp_test_hosts.py` 验证并行、权限与资源回收。`Tests/verify_mcp_parallel_tests.py` 验证同一原项目的两个测试 PIE 与主宿主操作同时进行。

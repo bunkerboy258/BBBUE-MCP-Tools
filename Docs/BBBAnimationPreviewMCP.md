@@ -22,7 +22,7 @@
 
 `inspect_mass_population_benchmark` 查询当前运行标识 测量期间不可重新加载该模块或关闭 PIE。测量输出保存在 Saved/temp/<file_prefix>/ 调用方必须另行检查画面 移动 配置 数量与测量条件才判定验收通过。边界与恢复测试位于 `Tests/test_population_render_quality.py`。
 
-通过 `list_toolsets` 找到 `BBBAnimationPreviewToolset` 并描述参数后调用 `capture_animation_samples`。
+通过 `find_tools` 搜索 `preview.capture_animation_samples`，描述参数后提交批次。
 
 工具必须使用唯一开启渲染的官方宿主和已启动的 PIE，不接受 NullRHI。明确传入同骨架网格、至多八条动画、至多三个零至一的采样进度和唯一英文文件前缀。每条动画生成一张图片，采样姿势按输入顺序从左至右排列。
 

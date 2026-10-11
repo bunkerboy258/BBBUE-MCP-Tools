@@ -1847,12 +1847,3 @@ from animation_toolset.toolsets.controlrig_sequencer import SequencerControlRigT
 from animation_toolset.toolsets.import_export import SequencerImportExportTools
 
 _registration = Registration([BBBControlRigAuthoringToolset, ControlRigTools, SequencerTools, SequencerControlRigTools, SequencerImportExportTools])
-
-if __name__ == "__bbb_editor_script__":
-    def register_after_reload(delta_seconds):
-        _registration.unregister()
-        _registration.register()
-        unreal.unregister_slate_post_tick_callback(registration_handle)
-
-    registration_handle = unreal.register_slate_post_tick_callback(register_after_reload)
-    print("已注册通用 Control Rig 动画编辑工具")

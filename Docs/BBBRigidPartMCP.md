@@ -1,6 +1,6 @@
 # 骨骼部件刚性附着工具
 
-`Scripts/BBBRigidPartToolset.py` 已加入 `BBBMcpBootstrap`。实际工具集名称通过 `list_toolsets` 发现，不固定 Python 类型哈希。
+`Scripts/BBBRigidPartToolset.py` 由 Bootstrap 注册。通过 `find_tools` 搜索 `rigid`，使用 `describe_tool` 读取参数。
 
 ## 工具
 

@@ -235,7 +235,7 @@ IK 重建通过网格查询真实父骨名，使用 FK 脚组件变换相对于�
 
 稳定移动动画播放器的时间推进与声明速率一致 主动画事实与角色位置一致 可见身体组件变换与主网格一致 不据此修改循环同步组或身体跟随逻辑 本次结论证明已定位的一帧相机滞后被移除 不代表已完成用户显示器上的主观视觉验收
 
-`probe_animation_instance_runtime(instance_path)` 接受 PIE 动画实例对象路径，返回状态机名称、状态时间及活跃播放器资产、时间、权重。原生端先等待并行动画计算完成，再按实际节点类型读取；禁止通过猜测状态机索引调用 GetCurrentStateName。持续 UA 测试通过 `run_editor_script` 执行 `Scripts/UA_RuntimeProbe.py`。
+`probe_animation_instance_runtime(instance_path)` 接受 PIE 动画实例对象路径，返回状态机名称、状态时间及活跃播放器资产、时间、权重。原生端先等待并行动画计算完成，再按实际节点类型读取；禁止通过猜测状态机索引调用 GetCurrentStateName。持续运行采样使用已注册的输入序列与运动采样工具，活动状态由批次调度回读。
 
 
 `remap_animation_sequence_notify_classes(animation_path, class_paths)` 原位替换 AnimSequence 中的通知实例类，保留通知时间、持续时间、轨道及实例属性。`Scripts/UA_RepointNotifies.py` 先从 BBBC 原动画复制通知，再将 BBBC 通知类替换为 UA 对应类，避免状态判断与通知实例类型不一致。

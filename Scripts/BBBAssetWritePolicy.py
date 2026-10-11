@@ -31,6 +31,8 @@ def require_asset_write(assets, destinations=()):
      * @return 已核实的源包状态字典
      */
     """
+    if os.environ.get("BBB_MCP_HOST_ROLE") == "test":
+        raise RuntimeError("TEST_HOST_READ_ONLY")
     sources = sorted({_package_path(value) for value in assets})
     targets = sorted({_package_path(value) for value in destinations})
     if not sources and not targets:

@@ -1,4 +1,4 @@
-﻿Set-StrictMode -Version 1.0
+Set-StrictMode -Version 1.0
 $ErrorActionPreference = 'Stop'
 $startupScript = Join-Path $PSScriptRoot '..\Scripts\MCP\Start-UE58OfficialMcpEditor.ps1'
 $testProjectPath = [System.IO.Path]::GetFullPath((Join-Path $env:TEMP 'BBBMcpStartupTest\Test.uproject'))
@@ -114,9 +114,12 @@ function global:Start-Process
     if ($FilePath -eq $global:bbbStartupPythonPath)
     {
         Assert-StartupTest ($WindowStyle -eq 'Hidden') '启动网关必须隐藏'
-        Assert-StartupTest ($ArgumentList.Count -eq 10) '网关参数被 PowerShell 表达式拆开'
+        Assert-StartupTest ($ArgumentList.Count -eq 16) '网关参数被 PowerShell 表达式拆开'
         Assert-StartupTest ($ArgumentList[1] -eq ('"' + $global:bbbStartupGatewayPath + '"')) '网关脚本必须作为一个完整参数'
         Assert-StartupTest ($ArgumentList[7] -eq ('"' + (Split-Path $global:bbbStartupProjectPath -Parent) + '"')) '项目目录必须作为一个完整参数'
+        Assert-StartupTest ($ArgumentList[11] -eq ('"' + $global:bbbStartupEditorPath + '"')) '测试编辑器复用官方程序'
+        Assert-StartupTest ($ArgumentList[13] -eq ('"' + $global:bbbStartupProjectPath + '"')) '测试宿主直接使用原项目'
+        Assert-StartupTest ($ArgumentList[15] -eq 2) '两个测试宿主按容量调度'
         $global:bbbStartupTest.GatewayStarted = $true
         $global:bbbStartupTest.GatewayArguments = $ArgumentList
         return $global:bbbStartupTest.GatewayProcess
@@ -259,8 +262,8 @@ function global:Invoke-RestMethod
 
     Assert-StartupTest ($Uri -eq "http://127.0.0.1:$($global:bbbStartupTest.PublicPort)/mcp") '网关公开地址不匹配'
     $request = $Body | ConvertFrom-Json
-    Assert-StartupTest ($request.params.name -eq 'inspect_editor_tasks') '未回读任务保护'
-    $state = @{ activity = @{ process_id = 987654 }; host_changed = $false; draining = $false }
+    Assert-StartupTest ($request.params.name -eq 'inspect_tasks') '未回读任务保护'
+    $state = @{ host = @{ process_id = 987654; exclusive = $true }; status = 'ready' }
     return [pscustomobject]@{ result = @{ isError = $false; content = @(@{ text = ($state | ConvertTo-Json -Depth 5 -Compress) }) } }
 }
 

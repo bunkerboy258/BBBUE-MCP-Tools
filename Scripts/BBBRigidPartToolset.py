@@ -319,12 +319,3 @@ class BBBRigidPartToolset(unreal.ToolsetDefinition):
 
 
 _registration = Registration([BBBRigidPartToolset])
-
-if __name__ == "__bbb_editor_script__":
-    def register_after_reload(delta_seconds):
-        """/** @param delta_seconds 编辑器帧间隔 @return 无 下一帧刷新工具注册 */"""
-        _registration.unregister()
-        _registration.register()
-        unreal.unregister_slate_post_tick_callback(registration_handle)
-
-    registration_handle = unreal.register_slate_post_tick_callback(register_after_reload)

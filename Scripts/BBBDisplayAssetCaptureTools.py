@@ -122,6 +122,8 @@ def capture_niagara_asset(system_path, age_seconds, camera_offset, file_name):
                 finish("failed", str(error))
 
         _capture_handle = unreal.register_slate_post_tick_callback(tick)
+        from BBBMcpCapabilities import register_activity
+        register_activity("display:capture", lambda: _capture_handle is not None)
         pending = True
         return json.dumps(_capture)
     finally:
