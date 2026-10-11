@@ -12187,6 +12187,11 @@
           "blood_system_path": {
             "type": "string",
             "description": "可选血效系统 同帧记录真实粒子状态 *"
+          },
+          "capture_gibs": {
+            "type": "boolean",
+            "description": "是否同帧读取独立碎肢的真实位置与物理速度 *",
+            "default": false
           }
         },
         "required": [

@@ -572,7 +572,7 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def start_player_weapon_hit_capture(file_prefix: str, duration_seconds: float = 3.0, width: int = 960, height: int = 540, blood_system_path: str = "") -> str:
+    def start_player_weapon_hit_capture(file_prefix: str, duration_seconds: float = 3.0, width: int = 960, height: int = 540, blood_system_path: str = "", capture_gibs: bool = False) -> str:
         """
         /**
          * 跨真实游戏帧采集玩家视点及真实实体状态 不生成子弹或修改伤害
@@ -581,6 +581,7 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
          * @param width 图像宽度 三百二十至一千九百二十
          * @param height 图像高度 一百八十至一千零八十
          * @param blood_system_path	可选血效系统 同帧记录真实粒子状态
+         * @param capture_gibs	是否同帧读取独立碎肢的真实位置与物理速度
          * @return 采样编号 用 inspect_skeletal_hit_reaction_capture 查询
          */
         """
@@ -660,11 +661,14 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
                     unreal.ImageWriteBlueprintLibrary.export_to_disk(target, path, write_options)
                     record["imagePaths"].append(path)
                     record["imageSeconds"].append(elapsed)
-                    record["samples"].append({"seconds": elapsed,
+                    sample = {"seconds": elapsed,
                         "bloodRuntime": str(unreal.BBBNiagaraEditorLibrary.inspect_pie_system(blood_system.get_path_name())) if blood_system else "",
                         "weapon": json.loads(unreal.BBBHitReactionEditorLibrary.inspect_player_weapon_hit_state(world)),
                         "population": json.loads(unreal.BBBMassValidationLibrary.inspect_population(world, [])),
-                        "performance": list(unreal.BBBAnimationGraphEditorLibrary.read_performance_frame_metrics())})
+                        "performance": list(unreal.BBBAnimationGraphEditorLibrary.read_performance_frame_metrics())}
+                    if capture_gibs:
+                        sample["gibPresentation"] = json.loads(unreal.BBBZombieSeveringEditorLibrary.inspect_gib_presentation(world))
+                    record["samples"].append(sample)
                     data["lastImage"] = elapsed
                 if elapsed >= duration_seconds:
                     if not all(os.path.isfile(path) and os.path.getsize(path) >= 1024 for path in record["imagePaths"]):

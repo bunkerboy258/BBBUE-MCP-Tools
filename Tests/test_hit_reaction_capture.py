@@ -1,6 +1,7 @@
 import ast
 import json
 import math
+import inspect
 from pathlib import Path
 import re
 import unittest
@@ -56,6 +57,17 @@ class HitReactionCaptureTests(unittest.TestCase):
             self.scope["rebuild_monster_blood_system"](*["/Game/_Project/A"] * 5)
         self.engine.load_asset.assert_not_called()
         self.access.assert_not_called()
+
+    def test_gib_sampling_is_opt_in_and_read_only(self):
+        """/** @return 默认不采集碎肢 开启后只查询当帧真实物理 */"""
+        call = self.scope["start_player_weapon_hit_capture"]
+        self.assertIs(inspect.signature(call).parameters["capture_gibs"].default, False)
+        tree = ast.parse((Path(__file__).resolve().parents[1] / "Scripts/BBBHitReactionToolset.py").read_text(encoding="utf-8-sig"))
+        method = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "start_player_weapon_hit_capture")
+        guard = next(node for node in ast.walk(method) if isinstance(node, ast.If)
+                     and isinstance(node.test, ast.Name) and node.test.id == "capture_gibs")
+        calls = [node.func.attr for node in ast.walk(guard) if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)]
+        self.assertEqual(calls, ["loads", "inspect_gib_presentation"])
 
 
 if __name__ == "__main__":
