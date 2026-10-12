@@ -12706,6 +12706,40 @@
           "returnValue"
         ]
       }
+    },
+    "normalize_zombie_gib_material_bindings": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mesh_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "明确的已有断肢姿态网格 最多六十四项 *"
+          },
+          "apply_changes": {
+            "type": "boolean",
+            "description": "按源分组名称重建材质绑定 默认仅核对 *",
+            "default": false
+          }
+        },
+        "required": [
+          "mesh_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "源分组与实际材质索引 不保存 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBMeleeToolset": {

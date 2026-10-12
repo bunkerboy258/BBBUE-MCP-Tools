@@ -16,6 +16,8 @@ Law 规则是代码更新的最高铁律：
 
 MCP 工具扩展规则
 
+- `hit.normalize_zombie_gib_material_bindings` 默认核对姿态断肢源分组与实际材质索引 显式应用按源分组名称重建绑定并清除继承覆盖 只处理明确的自有 `_PosePart` 资产 不保存 随后回读并保存目标资产
+
 - `BBBGenericEditorToolset.render_asset_thumbnails` 的单项请求支持 `material_overrides` 字典 将实际材质槽名称映射至 Game 材质路径 原生库检查目标槽和材质并只替换临时预览组件 可用于匹配运行时隐藏旗帜贴片的材质 不修改源网格
 
 - `BBBGenericEditorToolset.render_asset_thumbnails` 的单项请求支持 `scalar_parameters` 数值字典 由项目编辑器库校验有限数值并建立临时动态材质 仅影响预览组件 适用于让物品详情图匹配实际穿戴的迷彩 污渍和磨损参数 不保存或修改源材质

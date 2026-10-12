@@ -75,6 +75,29 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def normalize_zombie_gib_material_bindings(mesh_paths: list[str], apply_changes: bool = False) -> str:
+        """
+        /**
+         * @param mesh_paths\t明确的已有断肢姿态网格 最多六十四项
+         * @param apply_changes\t按源分组名称重建材质绑定 默认仅核对
+         * @return 源分组与实际材质索引 不保存
+         */
+        """
+        if not mesh_paths or len(mesh_paths) > 64 or len(set(mesh_paths)) != len(mesh_paths):
+            raise RuntimeError("必须提供一至六十四个不重复的姿态网格")
+        meshes = [unreal.load_asset(path) for path in mesh_paths]
+        if any(not isinstance(mesh, unreal.SkeletalMesh) or not path.startswith("/Game/_Project/")
+               or not path.endswith("_PosePart") for path, mesh in zip(mesh_paths, meshes)):
+            raise RuntimeError("只允许已有自有断肢姿态网格")
+        if apply_changes:
+            require_asset_write(mesh_paths)
+        result = str(unreal.BBBZombieSeveringEditorLibrary.normalize_gib_material_bindings(meshes, apply_changes))
+        if result.startswith("失败"):
+            raise RuntimeError(result)
+        return result
+
+    @mcp_tool
+    @staticmethod
     def plan_zombie_wound_presentation_set(body_mesh_path: str, definition_path: str, output_folder: str) -> str:
         """
         /**

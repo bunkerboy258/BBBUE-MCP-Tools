@@ -353,6 +353,7 @@ WRITE_TARGET_FIELDS = {
     "editor.import_animation_fbx": ("asset_path",),
     "editor.remove_empty_animation_notify_track": ("asset_path",),
     "editor.resave_asset": ("asset_path",),
+    "hit.normalize_zombie_gib_material_bindings": ("mesh_paths",),
     "editor.retime_single_action_montage": ("asset_path",),
     "editor.add_animation_notify_events": ("asset_path",),
     "editor.replace_animation_notify_track": ("asset_path",),

@@ -98,6 +98,8 @@ python -B Tests/verify_mcp_parallel_tests.py --url $hostInfo.Endpoint --project-
 
 ## 更新日志
 
+- 2026-10-12 `hit.normalize_zombie_gib_material_bindings` 核对姿态断肢的源多边形组 实际分段索引与继承覆盖 显式应用时按源分组名称重建材质绑定并清除覆盖 不保存 需随后回读和保存明确资产
+
 - 2026-10-12 持枪与相机连线生成工具增加下蹲倍率 只读角色实际下蹲快照 先选择腰射或瞄准再乘空中与下蹲倍率 保持镜头角度上限和纵向保留比例不变
 
 - 2026-10-12: `rigid.inspect_static_mesh_geometry` 核对源顶点与实际渲染包围盒的有限性 快速构建标记和简单碰撞数量 用于定位加载后包围盒与源几何不一致 不修改资产
