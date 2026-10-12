@@ -132,6 +132,19 @@ class MontageTargetTests(unittest.TestCase):
 class WeaponHandlingScopeTests(unittest.TestCase):
     """/** 验证持枪采样使用正式公共层与装备动画基类 */"""
 
+    def test_camera_retention_uses_posture_without_airborne_scaling(self):
+        """/** @return 保留比例直接按腰射与瞄准选择 不与空中倍率相乘 */"""
+        tree = ast.parse((ROOT / "Scripts/BBBWeaponHandlingTools.py").read_text(encoding="utf-8-sig"))
+        function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "configure_camera_recoil")
+        assignment = next(node for node in ast.walk(function) if isinstance(node, ast.Assign)
+                          and isinstance(node.targets[0], ast.Subscript)
+                          and isinstance(node.targets[0].slice, ast.Constant)
+                          and node.targets[0].slice.value == "PitchRetention")
+        self.assertEqual(assignment.value.func.attr, "select")
+        self.assertEqual([argument.args[0].id for argument in assignment.value.args[:2]], ["ads", "hip"])
+        self.assertEqual([argument.args[1].value for argument in assignment.value.args[:2]], ["PitchRetention", "PitchRetention"])
+        self.assertEqual(assignment.value.args[2].id, "aiming")
+
     def test_handling_probe_includes_equipment_and_layer_subclasses(self):
         """/** @return 不依赖步枪专属类型或旧动画层路径 */"""
         tree = ast.parse((ROOT / "Scripts/BBBWeaponHandlingTools.py").read_text(encoding="utf-8-sig"))
@@ -160,7 +173,10 @@ class WeaponHandlingScopeTests(unittest.TestCase):
         """/** @param time 游戏秒 @param ammo 当前弹量 @param reloading 换弹事实 @param actor 实例身份 @return 合成单帧事实 */"""
         return {"time": time, "aiming": False, "mode": "walking", "camera": [0, 0, 0],
             "characterOffset": [0, 0], "equipmentActor": actor, "ammo": ammo,
-            "ammoCapacity": 8, "reloading": reloading, "actualAim": [640, 360], "viewport": [1280, 720]}
+            "ammoCapacity": 8, "reloading": reloading, "actualAim": [640, 360], "viewport": [1280, 720],
+            "viewRotation": [1, 2, 3], "viewFOV": 90, "muzzleRotation": [4, 5], "targetRotation": [6, 7],
+            "aimOffset": [8, 9], "healthFraction": 1, "sourceAimAlpha": 1,
+            "poseState": [0.5, 0.1, True, 0.8, False, 2]}
 
     def test_ammo_trace_records_each_load_and_reload_transition(self):
         """/** @return 重复帧不生成事件 每发装入与收束均保留实际时刻 */"""
@@ -170,9 +186,19 @@ class WeaponHandlingScopeTests(unittest.TestCase):
         result = self._probe_status(samples)
         self.assertEqual([event["ammo"] for event in result["ammoEvents"]], [5, 5, 6, 7, 8, 8])
         self.assertEqual([event["time"] for event in result["ammoEvents"]], [0, 0.1, 1.2, 3.4, 5.6, 6.6])
-        self.assertEqual(len(result["sampleColumns"]), 14)
-        self.assertTrue(all(len(row) == 14 for row in result["samples"]))
-        self.assertEqual(result["samples"][0][10:], [640, 360, 1280, 720])
+        self.assertEqual(len(result["sampleColumns"]), 35)
+        self.assertTrue(all(len(row) == 35 for row in result["samples"]))
+        self.assertEqual(result["samples"][0][10:14], [640, 360, 1280, 720])
+        self.assertEqual(result["samples"][0][14:28], [0, 0, 0, 1, 2, 3, 90, 4, 5, 6, 7, 8, 9, 1])
+        self.assertEqual(result["samples"][0][28:], [1, 0.5, 0.1, True, 0.8, False, 2])
+
+    def test_missing_muzzle_is_recorded_as_unknown(self):
+        """/** @return 不具备枪口的装备不伪造零角度 */"""
+        sample = self._sample(0, None, None, "Bat")
+        sample["muzzleRotation"] = [None, None]
+        sample["targetRotation"] = [None, None]
+        result = self._probe_status([sample])
+        self.assertEqual(result["samples"][0][21:25], [None, None, None, None])
 
     def test_ammo_trace_keeps_actor_identity_on_switch(self):
         """/** @return 相同弹量的换枪仍生成新实例事件 */"""

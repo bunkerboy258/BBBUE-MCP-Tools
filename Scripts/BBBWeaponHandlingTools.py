@@ -45,9 +45,13 @@ def sample_runtime(action, seconds, equipment_class_path):
             "first": samples[:1], "last": samples[-1:], "shotEvents": events, "ammoEvents": ammo_events, "modes": modes,
             "peakCharacter": [max((abs(s["characterOffset"][axis]) for s in samples), default=0) for axis in (0, 1)],
             "peakCamera": [max((abs(s["camera"][axis]) for s in samples), default=0) for axis in (0, 1)],
-            "sampleColumns": ["time", "shot", "pitch", "yaw", "roll", "aimPitch", "aimYaw", "ammo", "ammoCapacity", "reloading", "actualAimX", "actualAimY", "viewportWidth", "viewportHeight"],
+            "sampleColumns": ["time", "shot", "pitch", "yaw", "roll", "aimPitch", "aimYaw", "ammo", "ammoCapacity", "reloading", "actualAimX", "actualAimY", "viewportWidth", "viewportHeight",
+                "controlPitch", "controlYaw", "controlRoll", "viewPitch", "viewYaw", "viewRoll", "viewFOV", "muzzlePitch", "muzzleYaw", "targetPitch", "targetYaw", "poseAimPitch", "poseAimYaw", "healthFraction",
+                "sourceAimAlpha", "locomotionAimAlpha", "disableAimCurve", "raiseAfterFiring", "hipPoseWeight", "wantsIdleBreak", "idleBreakDelay"],
             "samples": [[s["time"], s.get("shot"), *s.get("cameraActor", s["camera"]), *s["characterOffset"],
-                s.get("ammo"), s.get("ammoCapacity"), s.get("reloading"), *s["actualAim"], *s["viewport"]] for s in samples]}
+                s.get("ammo"), s.get("ammoCapacity"), s.get("reloading"), *s["actualAim"], *s["viewport"],
+                *s["camera"], *s["viewRotation"], s["viewFOV"], *s["muzzleRotation"], *s["targetRotation"], *s["aimOffset"], s["healthFraction"],
+                s["sourceAimAlpha"], *s["poseState"]] for s in samples]}
     world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
     if world is None:
         raise RuntimeError("需要已开始的 PIE")
@@ -72,6 +76,9 @@ def sample_runtime(action, seconds, equipment_class_path):
     main = mesh.get_anim_instance()
     cameras = unreal.GameplayStatics.get_all_actors_of_class(world, unreal.BBBPlayerCameraSystem)
     camera_actor = cameras[0] if len(cameras) == 1 else None
+    camera_manager = unreal.GameplayStatics.get_player_camera_manager(world, 0)
+    if camera_manager is None:
+        raise RuntimeError("持枪采样缺少实际玩家镜头")
     layer_class = unreal.load_class(None, "/Game/_Project/Characters/BBBC_UA/AnimationSystem/Layers/ABP_BBB_LocomotionLayer_Base.ABP_BBB_LocomotionLayer_Base_C")
     if layer_class is None:
         raise RuntimeError("持枪采样缺少正式公共动画层")
@@ -102,11 +109,28 @@ def sample_runtime(action, seconds, equipment_class_path):
                 "characterOffset": [offset.x, offset.y], "camera": [camera.pitch, camera.yaw, camera.roll],
                 "actualAim": screen, "viewport": list(controller.get_viewport_size()),
                 "hand": str(mesh.get_socket_location("hand_r")), "elbow": str(mesh.get_socket_location("lowerarm_r"))}
+            view_rotation = camera_manager.get_camera_rotation()
+            sample["viewRotation"] = [view_rotation.pitch, view_rotation.yaw, view_rotation.roll]
+            sample["viewFOV"] = camera_manager.get_fov_angle()
+            sample["healthFraction"] = controller.get_hud_health_fraction()
+            sample["sourceAimAlpha"] = main.get_editor_property("AimIKAlpha")
+            sample["poseState"] = [None] * 6
+            sample["muzzleRotation"] = [None, None]
+            sample["targetRotation"] = [None, None]
+            sample["aimOffset"] = [None, None]
             if isinstance(weapon, unreal.BBBEquipmentAnimInstance):
                 sample.update({"weapon": weapon.get_path_name(), "shot": weapon.get_fire_sequence(), "shotTime": weapon.get_time_since_last_fire_seconds()})
                 equipment = weapon.get_owning_actor()
                 if equipment is not None:
                     sample["equipmentActor"] = equipment.get_path_name()
+                    equipment_mesh = weapon.get_owning_component()
+                    if equipment_mesh.does_socket_exist("BBBMuzzle"):
+                        muzzle_position = equipment_mesh.get_socket_location("BBBMuzzle")
+                        muzzle_rotation = equipment_mesh.get_socket_rotation("BBBMuzzle")
+                        target_position = mesh.get_world_transform().transform_location(main.get_aim_target_component_space())
+                        target_rotation = unreal.MathLibrary.find_look_at_rotation(muzzle_position, target_position)
+                        sample["muzzleRotation"] = [muzzle_rotation.pitch, muzzle_rotation.yaw]
+                        sample["targetRotation"] = [target_rotation.pitch, target_rotation.yaw]
                     ammo_getter = getattr(equipment, "get_loaded_ammo", None)
                     if ammo_getter is None:
                         ammo_getter = getattr(equipment, "get_ammo", None)
@@ -123,6 +147,9 @@ def sample_runtime(action, seconds, equipment_class_path):
                 sample["recoilTime"] = layer.get_editor_property("WeaponRecoilTime")
                 sway = layer.get_editor_property("WeaponAimOffsetDegrees")
                 sample["aimOffset"] = [sway.x, sway.y]
+                sample["poseState"] = [layer.get_editor_property("LocomotionAimIKAlpha"), layer.get_curve_value("DisableAimIK"),
+                    layer.get_editor_property("RaiseWeaponAfterFiring"), layer.get_editor_property("HipFireUpperBodyOverrideWeight"),
+                    layer.get_editor_property("WantsIdleBreak"), layer.get_editor_property("TimeUntilNextIdleBreak")]
             state["samples"].append(sample)
             if time >= seconds:
                 state["state"] = "finished"
@@ -630,6 +657,7 @@ def configure_camera_recoil(blueprint_path):
             value = g.binary("Multiply_VectorFloat", value, impulse_scale)
         source_settings[name] = value
     source_settings["RecoverySpeed"] = g.binary("Multiply_DoubleDouble", g.select(g.out(ads, "RecoverySpeed"), g.out(hip, "RecoverySpeed"), aiming), recovery_scale)
+    source_settings["PitchRetention"] = g.select(g.out(ads, "PitchRetention"), g.out(hip, "PitchRetention"), aiming)
     available = list(g.editor.list_available_nodes([]))
     matches = [name for name in available if name.rsplit("|", 1)[-1] == "MakeBBBPlayerCameraRecoilSettings"]
     if len(matches) != 1:

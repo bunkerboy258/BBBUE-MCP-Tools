@@ -98,6 +98,10 @@ python -B Tests/verify_mcp_parallel_tests.py --url $hostInfo.Endpoint --project-
 
 ## 更新日志
 
+- 2026-10-12: 相机持枪配置构图读取当前姿态的纵向保留比例 不受空中冲量与回零倍率改变 用于分别控制镜头持续爬升和自动回落部分
+
+- 2026-10-12: `animation.sample_weapon_handling_runtime` 同帧记录控制视角 实际镜头 FOV 物理 BBBMuzzle 插槽方向 AimIK 目标方向 动画层偏移 生命比例 IK 权重和待机小动作状态 输出 35 列轨迹 用于区分后坐力 镜头跟随 近处射线落点与姿势切换造成的实际准星变化 缺失枪口保留空值 不修改玩法或资产
+
 - 2026-10-11：角色连续循环构图入口 `animation_graph.configure_character_continuous_locomotion` 从装备层已有动画与角色移动配置生成站立、跑步和蹲伏速度混合，仅更新基础继承层 Cycle 和主状态机的急转最低速度规则，保持主 AnimGraph 姿势组合。测试网关允许取消已经路由但尚未执行的自有测试批次，取消权限仍由原调度队列核验。
 
 - 2026-10-11：`animation.start_pie_character_motion_capture` 与状态查询工具提供正式角色图的跨帧骨骼和截图观察；采样不修改输入、姿势、时钟或源资产，可与同宿主真实输入序列同时执行。
