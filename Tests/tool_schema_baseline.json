@@ -11653,20 +11653,20 @@
         ]
       }
     },
-    "configure_fact_stagger_state": {
+    "configure_fact_body_stagger_state": {
       "inputSchema": {
         "type": "object",
         "properties": {
           "asset_path": {
             "type": "string",
-            "description": "独占持有的僵尸动画蓝图 *"
+            "description": "独占持有的项目僵尸动画蓝图 *"
           },
           "sequence_paths": {
             "type": "array",
             "items": {
               "type": "string"
             },
-            "description": "头部 左向 右向三个同骨架序列 *"
+            "description": "头部 左臂 右臂 左腿 右腿五个同骨架序列 *"
           },
           "blend_duration": {
             "type": "number",

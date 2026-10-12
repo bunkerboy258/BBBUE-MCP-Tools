@@ -15,7 +15,7 @@ class ZombieStaggerGraphTests(unittest.TestCase):
         """/** @return 构造只提取本工具的隔离引擎替身 */"""
         root = Path(__file__).resolve().parents[1]
         tree = ast.parse((root / "Scripts/BBBAnimationGraphToolset.py").read_text(encoding="utf-8-sig"))
-        method = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "configure_fact_stagger_state")
+        method = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "configure_fact_body_stagger_state")
         method.decorator_list = []
         self.engine = Mock()
         self.engine.AnimBlueprint = Mock
@@ -30,13 +30,13 @@ class ZombieStaggerGraphTests(unittest.TestCase):
         namespace = {"unreal": self.engine, "json": json, "math": math, "require_write_access": self.access}
         exec(compile(ast.Module(body=[method], type_ignores=[]), "stagger_boundary_test", "exec"), namespace)
         self.configure = namespace[method.name]
-        self.arguments = ("/Game/_Project/Test/ABP", ["/Game/Head", "/Game/Left", "/Game/Right"])
+        self.arguments = ("/Game/_Project/Test/ABP", ["/Game/Head", "/Game/LeftArm", "/Game/RightArm", "/Game/LeftLeg", "/Game/RightLeg"])
 
     def test_explicit_sequences_and_only_target_saved(self):
         """/** @return 明确顺序和签出前传 只保存目标蓝图 */"""
         result = json.loads(self.configure(*self.arguments))
         self.access.assert_called_once_with(self.blueprint)
-        self.engine.BBBAnimationGraphEditorLibrary.configure_fact_stagger_state.assert_called_once_with(self.blueprint, [self.sequence] * 3, 0.12)
+        self.engine.BBBAnimationGraphEditorLibrary.configure_fact_body_stagger_state.assert_called_once_with(self.blueprint, [self.sequence] * 5, 0.12)
         self.engine.EditorAssetLibrary.save_loaded_asset.assert_called_once_with(self.blueprint, False)
         self.assertEqual(result["state"], "Stagger")
 
@@ -60,11 +60,11 @@ class ZombieStaggerGraphTests(unittest.TestCase):
         self.access.side_effect = RuntimeError("未签出")
         with self.assertRaises(RuntimeError):
             self.configure(*self.arguments)
-        self.engine.BBBAnimationGraphEditorLibrary.configure_fact_stagger_state.assert_not_called()
+        self.engine.BBBAnimationGraphEditorLibrary.configure_fact_body_stagger_state.assert_not_called()
 
     def test_native_compile_or_save_failure_is_not_success(self):
         """/** @return 原生 编译 保存失败不得报告成功 */"""
-        native = self.engine.BBBAnimationGraphEditorLibrary.configure_fact_stagger_state
+        native = self.engine.BBBAnimationGraphEditorLibrary.configure_fact_body_stagger_state
         native.return_value = False
         with self.assertRaises(RuntimeError):
             self.configure(*self.arguments)

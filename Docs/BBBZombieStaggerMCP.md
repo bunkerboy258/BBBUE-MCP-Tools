@@ -1,18 +1,22 @@
 # 僵尸踉跄构图
 
-`BBBAnimationGraphToolset.configure_fact_stagger_state` 在项目僵尸动画蓝图的 `FactDrivenActions` 状态机加入一个 `Stagger` 状态 不改变六种 AI 行为 不修改 `FactDrivenCrawl`。
+`BBBAnimationGraphToolset.configure_fact_body_stagger_state` 重建项目僵尸动画蓝图现有 `Stagger` 状态的五部位姿态分支 不改变六种 AI 行为 不修改 `FactDrivenCrawl` 不保留旧三分支入口。
 
 参数:
 
 - `asset_path`: `/Game/_Project/` 下已独占签出的动画蓝图
-- `sequence_paths`: 头部 左向 右向三个不同的同骨架动画序列
+- `sequence_paths`: 头部 左臂 右臂 左腿 右腿五个不同的同骨架动画序列 躯干共用头部
 - `blend_duration`: 大于零且不超过 0.3 秒 默认 0.12 秒
 
-调用前必须完成原生编辑器模块编译并重新启动唯一 MCP 宿主。PIE 期间拒绝构图。已含踉跄或非标准站立图拒绝重复构图。不创建兼容分支 不保存编译失败的资产。
+调用前必须完成原生编辑器模块编译并重新启动唯一 MCP 宿主。PIE 期间拒绝构图。要求现有完整七状态站立图 删除踉跄姿态图旧节点后构造五分支 原有状态转换链保留。不创建兼容分支 不保存编译失败的资产。
 
-动画只读 `StaggeringFact` `StaggerProgressFact` `StaggerVariantFact`。各序列显式时间由 Mass 进度映射 不触发动画通知。死亡无出口 站立踉跄不抢占爬行。轻击不打断攻击 重击由 Mass 的踉跄事实取消未结算攻击并进入踉跄 不回滚已结算伤害。
+动画只读 `StaggeringFact` `StaggerProgressFact` `StaggerVariantFact`。各序列显式时间由 Mass 进度映射 不触发动画通知。死亡无出口 爬行不踉跄 子弹来源成立的踉跄结果取消未结算攻击 不回滚已结算伤害。
 
-推荐当前 Ramster 序列顺序: `Zombie_HitReact_Head` `Zombie_HitReact_LeftArm` `Zombie_HitReact_RightArm`。腿部完整受击含明显跪地 不作为通用站立踉跄。
+Ramster 序列顺序: `Zombie_HitReact_Head` `Zombie_HitReact_LeftArm` `Zombie_HitReact_RightArm` `Zombie_HitReact_LeftLeg` `Zombie_HitReact_RightLeg`。头部和躯干完整播放 2.333333 秒 四肢完整播放 3 秒 踉跄全程停止主动水平移动 重力持续 动作完成后保留 0.35 秒重触发间隔。程序化受击不因踉跄减弱。
+
+`BBBProjectileDefinition.StaggerValue` 是 0 到 1 的基础踉跄能力 乘 `BBBMonsterBodyPartDefinition.StaggerMultiplier` 后夹到 0 到 1。头部默认 1.5 腿部 1.25 躯干 1 手臂 0.75。与普通伤害 耐久伤害和穿透衰减独立 同次开火每个目标只用一个随机样本 同轮命中选择有效伤害乘部位系数最高的候选 已处理的同发后续弹丸不重启动作。不处理近战 不新增历史事件队列。当前贡献快照保留尚有效的踉跄结果 后续未触发命中不会覆盖它 远端还原不重新抽取概率。
+
+来源本机的候选身份 排序时间 随机样本与当前攻击部位汇总不参与反射传输 网络只传当前已成立动作的身份 起止服务器时间和锁定部位 本机去重缓存不会被房主镜像快照清空。候选分组仅在当轮碰撞处理的栈上整理 不跨帧保存事件集合。
 
 验证边界: `Tests/test_zombie_stagger_graph.py`。实际资产仍需编译 事实测试与渲染验收。
 

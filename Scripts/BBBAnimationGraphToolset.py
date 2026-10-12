@@ -220,25 +220,25 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def configure_fact_stagger_state(asset_path: str, sequence_paths: list[str], blend_duration: float = 0.12) -> str:
+    def configure_fact_body_stagger_state(asset_path: str, sequence_paths: list[str], blend_duration: float = 0.12) -> str:
         """
         /**
-         * 为六行为站立事实图加入一个踉跄状态 保留爬行和死亡
-         * @param asset_path\t独占持有的僵尸动画蓝图
-         * @param sequence_paths\t头部 左向 右向三个同骨架序列
+         * 重建现有踉跄的五部位原地姿态分支 不新增玩法状态
+         * @param asset_path\t独占持有的项目僵尸动画蓝图
+         * @param sequence_paths\t头部 左臂 右臂 左腿 右腿五个同骨架序列
          * @param blend_duration\t惯性混合秒数
          * @return 无警告编译保存结果
          */
         """
-        if len(sequence_paths) != 3 or len(set(sequence_paths)) != 3 or not asset_path.startswith("/Game/_Project/") or not math.isfinite(blend_duration) or not 0.0 < blend_duration <= 0.3:
-            raise RuntimeError("踉跄需要项目动画蓝图 三个不同序列和有效混合时间")
+        if len(sequence_paths) != 5 or len(set(sequence_paths)) != 5 or not asset_path.startswith("/Game/_Project/") or not math.isfinite(blend_duration) or not 0.0 < blend_duration <= 0.3:
+            raise RuntimeError("需要项目动画蓝图 五个不同部位序列和有效混合时间")
 
         if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
-            raise RuntimeError("PIE 期间禁止配置踉跄状态")
+            raise RuntimeError("PIE 期间禁止重建踉跄姿态")
 
         library = getattr(unreal, "BBBAnimationGraphEditorLibrary", None)
-        if library is None or not hasattr(library, "configure_fact_stagger_state"):
-            raise RuntimeError("请先编译踉跄构图能力")
+        if library is None or not hasattr(library, "configure_fact_body_stagger_state"):
+            raise RuntimeError("请先编译五部位踉跄构图能力")
 
         blueprint = unreal.load_asset(asset_path)
         sequences = [unreal.load_asset(path) for path in sequence_paths]
@@ -246,8 +246,8 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
             raise RuntimeError("踉跄蓝图或序列无效")
 
         require_write_access(blueprint)
-        if not library.configure_fact_stagger_state(blueprint, sequences, blend_duration):
-            raise RuntimeError("踉跄构图失败 不保存")
+        if not library.configure_fact_body_stagger_state(blueprint, sequences, blend_duration):
+            raise RuntimeError("五部位踉跄构图失败 不保存")
 
         unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
         if blueprint.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
