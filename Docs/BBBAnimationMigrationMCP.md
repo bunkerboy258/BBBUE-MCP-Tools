@@ -284,3 +284,15 @@ IK 重建通过网格查询真实父骨名，使用 FK 脚组件变换相对于�
 `validate_backward_recoil_animation` 审计全部关键帧、双手受力轴、朝向、握持距离、首尾恢复及下半身，并计算 Alpha 为 0、0.5、1 的实际局部旋转混合。中间权重存在微小非线性误差，容差为偏轴 0.3 厘米、朝向 0.15 度和握持距离 0.35 厘米。
 
 `sample_backward_recoil_runtime` 以 `start` 和 `status` 在 PIE 中只读采样自然更新完成的游戏帧，不主动推进被测动画。报告位于 `Saved/temp/<file_prefix>/runtime.json`。`capture_backward_recoil_alpha_samples` 在内存中的 `/Engine/Transient` 普通序列复现完整持枪姿势，避免把加法差值直接叠到参考 A 姿势上；渲染宿主及 PIE 必须存在。截图位于 `Saved/temp/<file_prefix>/`，临时演员会销毁，验证序列不保存到磁盘，宿主退出时释放。任务收尾删除自己的临时报告和截图。
+
+## 下蹲倍率接入
+
+`configure_weapon_handling_graphs` 从角色主动画实例读取 `bSourceCrouching` 作为实际下蹲事实 不使用下蹲输入意图 不让装备读取角色姿态
+
+角色图在当前腰射或瞄准参数上叠乘空中与下蹲倍率 使用 `GetCrouchedAimFollowScale` `GetCrouchedBackwardRecoilScale` `GetCrouchedSwayAmplitudeScale` `GetCrouchedSwayFrequencyScale` 四个中性默认值为 1 的线程安全快照入口
+
+相机图使用 `GetCrouchedCameraImpulseScale` 与 `GetCrouchedCameraRecoveryScale` 缩放镜头冲量及随机范围和回零速率 不缩放角度上限或纵向保留比例
+
+枪口方向冲击和回零倍率由角色方向冲击输入包根据实际下蹲事实选择 不在动画快照 getter 内计算
+
+新增原生入口必须先编译并加载到编辑器后才能运行此工具 工具执行会编译蓝图 禁止在不允许编译的任务中执行

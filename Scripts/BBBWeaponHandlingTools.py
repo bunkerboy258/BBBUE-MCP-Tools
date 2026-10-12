@@ -526,6 +526,7 @@ def configure_animation_handling(blueprint_path, animation_path):
     valid, weapon = _weapon_source(g, character, execute)
     execute = valid.find_then_pin()
     aiming, falling = _aim_air(g, character)
+    crouching = g.get("bSourceCrouching", character, "/Script/ABBB_Evac.BBBAnimInstance")
     def snapshot(name):
         return _weapon_get(g, weapon, "Get" + name)
 
@@ -533,7 +534,9 @@ def configure_animation_handling(blueprint_path, animation_path):
         return g.select(snapshot("AimFire" + name), snapshot("HipFire" + name), aiming)
 
     def scale(name):
-        return g.select(snapshot("Airborne" + name), 1, falling)
+        airborne = g.select(snapshot("Airborne" + name), 1, falling)
+        crouched = g.select(snapshot("Crouched" + name), 1, crouching)
+        return g.binary("Multiply_DoubleDouble", airborne, crouched)
 
     follow = g.binary("Multiply_DoubleDouble", field("AimFollowSpeed"), scale("AimFollowScale"))
     recoil = g.binary("Multiply_DoubleDouble", field("BackwardRecoilAlpha"), scale("BackwardRecoilScale"))
@@ -651,6 +654,11 @@ def configure_camera_recoil(blueprint_path):
     source_settings = {}
     impulse_scale = g.select(_weapon_get(g, weapon, "GetAirborneCameraImpulseScale"), 1, falling)
     recovery_scale = g.select(_weapon_get(g, weapon, "GetAirborneCameraRecoveryScale"), 1, falling)
+    crouching = g.get("bSourceCrouching", character, "/Script/ABBB_Evac.BBBAnimInstance")
+    crouched_impulse = g.select(_weapon_get(g, weapon, "GetCrouchedCameraImpulseScale"), 1, crouching)
+    crouched_recovery = g.select(_weapon_get(g, weapon, "GetCrouchedCameraRecoveryScale"), 1, crouching)
+    impulse_scale = g.binary("Multiply_DoubleDouble", impulse_scale, crouched_impulse)
+    recovery_scale = g.binary("Multiply_DoubleDouble", recovery_scale, crouched_recovery)
     for name in ("ImpulseDegrees", "RandomDegrees", "LimitDegrees"):
         value = g.out(g.call("SelectVector", inputs={"A": g.out(ads, name), "B": g.out(hip, name), "bPickA": aiming}))
         if name != "LimitDegrees":
