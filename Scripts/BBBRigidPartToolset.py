@@ -49,6 +49,25 @@ class BBBRigidPartToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def inspect_static_mesh_geometry(mesh_paths: list[str]) -> str:
+        """
+        /**
+         * @param mesh_paths	一至一百个唯一静态网格包路径
+         * @return 源顶点 渲染包围盒与简单碰撞数量 不修改资产
+         */
+        """
+        if not mesh_paths or len(mesh_paths) > 100 or len(set(mesh_paths)) != len(mesh_paths):
+            raise RuntimeError("网格数量或唯一性无效")
+        meshes = [unreal.load_asset(path) for path in mesh_paths]
+        if any(not isinstance(mesh, unreal.StaticMesh) for mesh in meshes):
+            raise RuntimeError("目标必须是静态网格")
+        result = str(unreal.BBBZombieSeveringEditorLibrary.inspect_sealed_part_geometry(meshes))
+        if result.startswith("失败"):
+            raise RuntimeError(result)
+        return result
+
+    @mcp_tool
+    @staticmethod
     def inspect_reference_attachment(mesh_paths: list[str], bone_name: str) -> str:
         """
         /**

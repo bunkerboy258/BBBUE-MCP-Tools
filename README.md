@@ -98,6 +98,7 @@ python -B Tests/verify_mcp_parallel_tests.py --url $hostInfo.Endpoint --project-
 
 ## 更新日志
 
+- 2026-10-12: `rigid.inspect_static_mesh_geometry` 核对源顶点与实际渲染包围盒的有限性 快速构建标记和简单碰撞数量 用于定位加载后包围盒与源几何不一致 不修改资产
 - 2026-10-12: 相机持枪配置构图读取当前姿态的纵向保留比例 不受空中冲量与回零倍率改变 用于分别控制镜头持续爬升和自动回落部分
 
 - 2026-10-12: `animation.sample_weapon_handling_runtime` 同帧记录控制视角 实际镜头 FOV 物理 BBBMuzzle 插槽方向 AimIK 目标方向 动画层偏移 生命比例 IK 权重和待机小动作状态 输出 35 列轨迹 用于区分后坐力 镜头跟随 近处射线落点与姿势切换造成的实际准星变化 缺失枪口保留空值 不修改玩法或资产

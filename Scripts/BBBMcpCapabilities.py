@@ -302,7 +302,7 @@ QUERY_TOOLS = {
     "BBBControlRigAuthoringToolset": {"inspect_mesh_bounds", "inspect_authoring_api", "inspect_control_rig_reference", "inspect_control_rig_graph", "inspect_control_rig_controls", "inspect_sequence_bindings"},
     "BBBAnimationGraphToolset": {"inspect_mass_scene_population", "inspect_mass_variation_network"},
     "BBBMeleeToolset": {"inspect_upper_body_mask", "inspect_melee_sources"},
-    "BBBRigidPartToolset": {"inspect_reference_attachment"},
+    "BBBRigidPartToolset": {"inspect_reference_attachment", "inspect_static_mesh_geometry"},
     "BBBTraversalToolset": {"get_pie_traversal_samples", "inspect_pie_traversal_contact_points", "inspect_traversal_montage_windows", "inspect_pie_traversal_network", "inspect_traversal_editing_schema"},
     "BBBRetargetAssetAuditToolset": {"inspect_retargeter", "inspect_animation_poses"},
 }

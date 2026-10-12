@@ -7003,6 +7003,29 @@
     }
   },
   "BBBRigidPartToolset": {
+    "inspect_static_mesh_geometry": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mesh_paths": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "一至一百个唯一静态网格包路径 *"
+          }
+        },
+        "required": ["mesh_paths"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "源顶点 渲染包围盒与简单碰撞数量 不修改资产 */"
+          }
+        },
+        "required": ["returnValue"]
+      }
+    },
     "validate_rigid_part_selection": {
       "inputSchema": {
         "type": "object",
