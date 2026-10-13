@@ -3693,4 +3693,109 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         return unreal.BBBAssetThumbnailEditorLibrary.activate_slate_button(label)
 
 
+    @mcp_tool
+    @staticmethod
+    def inspect_material_statistics(asset_paths: list[str]) -> str:
+        """
+        /**
+         * 读取当前渲染平台的代表着色器统计 不修改或保存资产 可能等待着色器编译
+         * @param asset_paths	Game 目录下明确的材质或材质实例包路径 每次一至三十二项
+         * @return 平台信息 统计可用性与每项材质成本 无渲染或不完整统计不作为成本
+         */
+        """
+        if isinstance(asset_paths, unreal.Array):
+            asset_paths = list(asset_paths)
+
+        if not isinstance(asset_paths, list) or not 1 <= len(asset_paths) <= 32:
+            raise RuntimeError("材质统计需要一至三十二个明确资产路径")
+
+        if any(not isinstance(path, str) for path in asset_paths):
+            raise RuntimeError("材质资产路径必须为字符串")
+
+        if len(set(asset_paths)) != len(asset_paths):
+            raise RuntimeError("材质统计拒绝重复资产路径")
+
+        if any(
+            re.fullmatch(r"/Game/(?:[A-Za-z0-9_]+/)*[A-Za-z0-9_]+", path) is None
+            for path in asset_paths
+        ):
+            raise RuntimeError("材质统计只接受明确的 Game 包路径")
+
+        materials = []
+
+        for path in asset_paths:
+            material = unreal.load_asset(path)
+
+            if not isinstance(material, unreal.MaterialInterface):
+                raise RuntimeError("目标不是材质或材质实例: " + path)
+
+            materials.append(material)
+
+        null_rhi = "-nullrhi" in unreal.SystemLibrary.get_command_line().lower().split()
+        platform = str(unreal.GameplayStatics.get_platform_name() or "unknown")
+        names = [
+            "num_vertex_shader_instructions",
+            "num_pixel_shader_instructions",
+            "num_samplers",
+            "num_vertex_texture_samples",
+            "num_pixel_texture_samples",
+            "num_virtual_texture_samples",
+            "num_uv_scalars",
+            "num_interpolator_scalars",
+        ]
+        results = []
+
+        for material in materials:
+            item = {
+                "assetPath": material.get_path_name(),
+                "classPath": material.get_class().get_path_name(),
+                "statisticsAvailable": False,
+                "statistics": None,
+                "unavailableReason": "NULL_RHI",
+            }
+
+            if null_rhi:
+                results.append(item)
+                continue
+
+            statistics = unreal.MaterialEditingLibrary.get_statistics(material)
+            values = {
+                name: int(statistics.get_editor_property(name))
+                for name in names
+            }
+            available = (
+                values["num_vertex_shader_instructions"] > 0
+                and values["num_pixel_shader_instructions"] > 0
+                and all(value >= 0 for value in values.values())
+            )
+
+            if not available:
+                item["unavailableReason"] = "REPRESENTATIVE_SHADER_STATISTICS_INCOMPLETE"
+                unreal.log_warning(
+                    "[BBBMaterialStatistics] 代表着色器统计不完整 不作为零成本: "
+                    + material.get_path_name()
+                )
+                results.append(item)
+                continue
+
+            item["statisticsAvailable"] = True
+            item["statistics"] = values
+            item["unavailableReason"] = None
+            results.append(item)
+
+        return json.dumps(
+            {
+                "readOnly": True,
+                "engineVersion": unreal.SystemLibrary.get_engine_version(),
+                "platform": platform,
+                "shaderPlatform": "unknown",
+                "featureLevel": "unknown",
+                "nullRHI": null_rhi,
+                "mayWaitForShaderCompilation": not null_rhi,
+                "assets": results,
+            },
+            ensure_ascii=False,
+        )
+
+
 _registration = Registration([BBBGenericEditorToolset])

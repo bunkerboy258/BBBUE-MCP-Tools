@@ -3670,6 +3670,33 @@
     }
   },
   "BBBGenericEditorToolset": {
+    "inspect_material_statistics": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "asset_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
     "import_skeletal_animation_set": {
       "inputSchema": {
         "type": "object",

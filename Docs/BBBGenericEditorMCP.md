@@ -346,3 +346,13 @@ PIE 反射调用中的 Guid 返回值按标准字符串序列化 位置参数可
 
 项目原生 `render_mesh_thumbnail` 使用 1024 方形采样后按真实透明边界裁切 用于背包的大幅详情图 避免将小图放大。
 `render_mesh_silhouettes` 的线稿突出外轮廓和主要材质分界 抑制细碎折面 使用较宽描线保证普通背包格子中的可读性。
+
+### 材质代表着色器统计
+
+`editor.inspect_material_statistics(asset_paths)` 读取一至三十二个不重复的 `/Game/` 材质或材质实例包路径，拒绝对象子路径、非材质资产与缺失资产。完整批次先核对类型，不修改或保存资产，可在共享编辑宿主或受限测试宿主调用。
+
+工具组合 UE `MaterialEditingLibrary.get_statistics` 返回代表顶点与像素着色器指令数、采样器数、顶点与像素纹理采样数、虚拟纹理采样数、UV 标量数和自定义插值标量数。引擎可能提交并等待着色器编译，因此读取可能耗时；该调用不代表角色 GPU 帧时间。
+
+`platform` 来自引擎宿主平台查询；当前接口无法直接确认的 `shaderPlatform` 与 `featureLevel` 明确返回 `unknown`。`-NullRHI` 不调用统计 API，每项返回 `statisticsAvailable=false`、`statistics=null` 与 `NULL_RHI`。代表顶点或像素指令缺失、或统计含负值时同样返回空统计，并标记 `REPRESENTATIVE_SHADER_STATISTICS_INCOMPLETE` 与警告，不将零或缺失结果当作低成本。
+
+前后成本只比较同一渲染宿主、相同配置与已核实资产版本的非空统计。无贴图材质的零采样器或零纹理采样可合法保留。

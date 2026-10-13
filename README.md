@@ -100,6 +100,8 @@ python -B Tests/verify_mcp_parallel_tests.py --url $hostInfo.Endpoint --project-
 
 ## 更新日志
 
+- 2026-10-13：新增只读 `editor.inspect_material_statistics`，读取明确材质的代表着色器指令、采样与插值统计。NullRHI 或不完整结果明确不可用，不作为零成本；读取可能等待引擎着色器编译。使用边界见 `Docs/BBBGenericEditorMCP.md`。
+
 2026-10-12：补齐常用编辑工具的目标范围，单资产维护按相关包检查待保存内容。目录范围覆盖子包并保留路径边界。批次仅因待保存资产进入核实时，保存回读通过后自动完成并交接；失败现场继续按原批次核实。等待结果提供相关包、占用批次与下一步。
 
 - 2026-10-12 `hit.normalize_zombie_gib_material_bindings` 核对姿态断肢的源多边形组 实际分段索引与继承覆盖 显式应用时按源分组名称重建材质绑定并清除覆盖 不保存 需随后回读和保存明确资产
