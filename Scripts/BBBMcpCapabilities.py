@@ -506,6 +506,8 @@ def tool_contract(toolset, name, schema, description=""):
         access, world = "pie", "any"
     if definition == "BBBAnimationMigrationToolset" and name in {"start_locomotion_runtime_probe", "stop_locomotion_runtime_probe"}:
         access, world = "pie", "any"
+    if definition == "BBBGenericEditorToolset" and name == "run_automation_tests":
+        access, world = "pie", "any"
     summary = re.sub(r"/\*\*|\*/|^\s*\*", "", description, flags=re.M).strip().split("\n")[0][:100]
     return compile_contract({"id": domain + "." + name, "toolset": toolset, "name": name, "parameters": parameters,
         "summary": summary or name, "access": access, "world": world, "definition": definition})

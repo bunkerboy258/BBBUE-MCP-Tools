@@ -4116,4 +4116,31 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         )
 
 
+    @mcp_tool
+    @staticmethod
+    def create_monster_director_assets(asset_paths: list[str]) -> str:
+        """
+        /**
+         * 创建项目副本小怪导演的九个基础蓝图与规则资产 拒绝覆盖
+         * @param asset_paths	明确的新目标包路径数组 必须完整包含原生库约定的九项
+         * @return 原生创建 编译 保存与结构校验结果
+         */
+        """
+        from BBBAssetWritePolicy import require_asset_write
+
+        require_asset_write([], destinations=asset_paths)
+        return unreal.BBBMonsterDirectorEditorLibrary.create_basic_assets(asset_paths)
+
+    @mcp_tool
+    @staticmethod
+    def validate_monster_director_assets() -> str:
+        """
+        /**
+         * 只读校验已保存的副本小怪导演基础资产
+         * @return 蓝图父类 默认配置 小怪组合 导演 Trait 与出生查询校验结果
+         */
+        """
+        return unreal.BBBMonsterDirectorEditorLibrary.validate_basic_assets()
+
+
 _registration = Registration([BBBGenericEditorToolset])
