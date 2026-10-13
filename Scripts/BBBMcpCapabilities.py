@@ -288,6 +288,7 @@ QUERY_TOOLS = {
     "EditorAppToolset": {"IsPIERunning", "GetSelectedActors", "GetSelectedAssets", "GetCameraTransform", "GetContentBrowserPath", "GetOpenAssets"},
     "BBBMcpRuntimeToolset": {"inspect_mcp_performance", "inspect_mcp_dependencies"},
     "BBBGenericEditorToolset": {
+        "inspect_skeletal_mesh_skinning",
         "inspect_material_statistics",
         "inspect_dirty_packages", "inspect_pie_characters", "inspect_pie_player_control", "inspect_pie_actor_properties",
         "inspect_pie_actor_skeletal_bones", "inspect_pie_hand_attachments", "inspect_pie_bone_alignment", "inspect_pie_static_mesh_instances",

@@ -3670,6 +3670,33 @@
     }
   },
   "BBBGenericEditorToolset": {
+    "inspect_skeletal_mesh_skinning": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mesh_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "mesh_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
     "inspect_material_statistics": {
       "inputSchema": {
         "type": "object",

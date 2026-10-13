@@ -3798,4 +3798,157 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         )
 
 
+    @mcp_tool
+    @staticmethod
+    def inspect_skeletal_mesh_skinning(mesh_paths: list[str]) -> str:
+        """
+        /**
+         * 只读检查网格实际参考骨架与零级源顶点权重 不提交或保存修改
+         * @param mesh_paths	Game 目录下明确的骨骼网格包路径 每次一至八项
+         * @return 父空间参考姿势与按零级源顶点编号排列的完整原始权重 缺插件明确不可用
+         */
+        """
+        if isinstance(mesh_paths, unreal.Array):
+            mesh_paths = list(mesh_paths)
+
+        if not isinstance(mesh_paths, list) or not 1 <= len(mesh_paths) <= 8:
+            raise RuntimeError("蒙皮检查需要一至八个明确网格路径")
+
+        if any(not isinstance(path, str) for path in mesh_paths):
+            raise RuntimeError("骨骼网格路径必须为字符串")
+
+        if len(set(mesh_paths)) != len(mesh_paths):
+            raise RuntimeError("蒙皮检查拒绝重复网格路径")
+
+        if any(
+            re.fullmatch(r"/Game/(?:[A-Za-z0-9_]+/)*[A-Za-z0-9_]+", path) is None
+            for path in mesh_paths
+        ):
+            raise RuntimeError("蒙皮检查只接受明确的 Game 包路径")
+
+        meshes = []
+
+        for path in mesh_paths:
+            mesh = unreal.load_asset(path)
+
+            if not isinstance(mesh, unreal.SkeletalMesh):
+                raise RuntimeError("目标不是骨骼网格: " + path)
+
+            skeleton = mesh.get_editor_property("skeleton")
+
+            if skeleton is None:
+                raise RuntimeError("目标骨骼网格缺少骨架: " + path)
+
+            meshes.append((mesh, skeleton))
+
+        dirty_paths = {
+            package.get_path_name()
+            for package in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()
+        }
+
+        for mesh, skeleton in meshes:
+            if mesh.get_outermost().get_path_name() in dirty_paths:
+                raise RuntimeError("目标网格存在未保存修改 拒绝蒙皮检查: " + mesh.get_path_name())
+
+        modifier_classes = {
+            "SkeletonModifier": getattr(unreal, "SkeletonModifier", None),
+            "SkinWeightModifier": getattr(unreal, "SkinWeightModifier", None),
+        }
+        missing = [
+            name for name, definition in modifier_classes.items()
+            if not callable(definition)
+        ]
+
+        if missing:
+            unreal.log_warning("[BBBSkinningInspection] 缺少官方蒙皮检查类: " + ", ".join(missing))
+            return json.dumps(
+                {
+                    "readOnly": True,
+                    "supported": False,
+                    "unavailableReason": "SKELETAL_MESH_MODIFIERS_UNAVAILABLE",
+                    "missingClasses": missing,
+                    "meshes": None,
+                },
+                ensure_ascii=False,
+            )
+
+        results = []
+
+        for mesh, skeleton in meshes:
+            reference = modifier_classes["SkeletonModifier"]()
+
+            if not reference.set_skeletal_mesh(mesh):
+                raise RuntimeError("网格参考骨架读取失败: " + mesh.get_path_name())
+
+            weights_modifier = modifier_classes["SkinWeightModifier"]()
+
+            if not weights_modifier.set_skeletal_mesh(mesh):
+                raise RuntimeError("网格零级源权重读取失败: " + mesh.get_path_name())
+
+            bone_names = list(reference.get_all_bone_names())
+
+            if not bone_names:
+                raise RuntimeError("网格实际参考骨架为空: " + mesh.get_path_name())
+
+            vertex_count = int(weights_modifier.get_num_vertices())
+
+            if vertex_count <= 0:
+                raise RuntimeError("网格零级源顶点数量无效: " + mesh.get_path_name())
+
+            bones = []
+
+            for name in bone_names:
+                pose = reference.get_bone_transform(name, False)
+                parent = str(reference.get_parent_name(name))
+
+                if parent in {"", "None"}:
+                    parent = None
+
+                bones.append(
+                    {
+                        "name": str(name),
+                        "parent": parent,
+                        "local": {
+                            "position": [pose.translation.x, pose.translation.y, pose.translation.z],
+                            "rotation": [pose.rotation.x, pose.rotation.y, pose.rotation.z, pose.rotation.w],
+                            "scale": [pose.scale3d.x, pose.scale3d.y, pose.scale3d.z],
+                        },
+                    }
+                )
+
+            weights = {}
+
+            for vertex_id in range(vertex_count):
+                weights[str(vertex_id)] = {
+                    str(name): float(weight)
+                    for name, weight in weights_modifier.get_vertex_weights(vertex_id).items()
+                }
+
+            results.append(
+                {
+                    "mesh": mesh.get_path_name(),
+                    "skeleton": skeleton.get_path_name(),
+                    "vertexCount": vertex_count,
+                    "boneCount": len(bones),
+                    "bones": bones,
+                    "weights": weights,
+                }
+            )
+
+        return json.dumps(
+            {
+                "readOnly": True,
+                "supported": True,
+                "lodIndex": 0,
+                "vertexIdSpace": "LOD0 MeshDescription",
+                "referencePoseSpace": "mesh local parent space",
+                "positionUnit": "centimeter",
+                "rotationFormat": "quaternion XYZW",
+                "meshes": results,
+            },
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+
+
 _registration = Registration([BBBGenericEditorToolset])

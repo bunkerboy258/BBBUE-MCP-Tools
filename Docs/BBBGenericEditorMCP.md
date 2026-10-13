@@ -356,3 +356,13 @@ PIE 反射调用中的 Guid 返回值按标准字符串序列化 位置参数可
 `platform` 来自引擎宿主平台查询；当前接口无法直接确认的 `shaderPlatform` 与 `featureLevel` 明确返回 `unknown`。`-NullRHI` 不调用统计 API，每项返回 `statisticsAvailable=false`、`statistics=null` 与 `NULL_RHI`。代表顶点或像素指令缺失、或统计含负值时同样返回空统计，并标记 `REPRESENTATIVE_SHADER_STATISTICS_INCOMPLETE` 与警告，不将零或缺失结果当作低成本。
 
 前后成本只比较同一渲染宿主、相同配置与已核实资产版本的非空统计。无贴图材质的零采样器或零纹理采样可合法保留。
+
+### 骨骼网格参考姿势与源蒙皮检查
+
+`editor.inspect_skeletal_mesh_skinning(mesh_paths)` 只读接收一至八个不重复的 `/Game/` 骨骼网格包路径，支持官方绑定数组。完整批次先检查类型、骨架关联及目标网格未保存修改，再创建官方 `SkeletonModifier` 与 `SkinWeightModifier` 的临时数据副本；仅用 `set_skeletal_mesh` 加载副本，不调用骨架或权重编辑、提交、归一化、保存或标脏操作。
+
+每项返回 `mesh`、`skeleton`、`vertexCount`、`boneCount`、`bones` 与 `weights`。`bones` 来自网格本身的实际参考骨架，包含 `name`、`parent` 及 `local.position/rotation/scale`；根骨父级为空，位置为厘米，旋转为 XYZW 四元数，变换在父骨局部空间，不使用关联 Skeleton 资产的参考姿势代替网格数据。
+
+`weights` 为字符串顶点编号到 `骨名: 权重` 的完整字典，编号属于 LOD0 MeshDescription 源顶点，不等同于渲染顶点或重新导入后的 DCC 编号。不补全、不归一化、不过滤零值或空权重。缺少任一官方 modifier 类时返回 `supported=false`、`SKELETAL_MESH_MODIFIERS_UNAVAILABLE`、`missingClasses` 与空 `meshes`，不伪造数据。
+
+读取失败、空参考骨架、无效顶点数或无法序列化的非有限源数据明确失败。该检查可在 editor/test 与 NullRHI 中运行，前提是插件已加载且资产具有 LOD0 MeshDescription；它用于参考骨架和蒙皮归因，不代表动态姿势或肉眼变形验收。
