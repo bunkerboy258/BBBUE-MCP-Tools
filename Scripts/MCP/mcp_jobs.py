@@ -166,7 +166,7 @@ class JobQueue:
             return None
         if job["access"] == "read":
             return None
-        corrective = all(item["contract"]["name"] in {"save_assets", "StopPIE"} or item["contract"].get("action") == "stop_pie" for item in operations)
+        corrective = all(self._is_corrective(item) for item in operations)
         for pending in self.jobs.values():
             if pending["status"] != "review" or pending["access"] == "read":
                 continue
@@ -200,6 +200,20 @@ class JobQueue:
             job["blocked"] = {"next": "scope_required"}
             return "DIRTY_BASELINE_UNSCOPED"
         return None
+
+    def _is_corrective(self, operation):
+        """/** @param operation 已校验操作 @return 保存 停止或明确授权丢弃的重载收尾操作 */"""
+        contract = operation["contract"]
+        if contract["name"] in {"save_assets", "StopPIE"} or contract.get("action") == "stop_pie":
+            return True
+
+        if contract["id"] != "editor.reload_assets_from_disk":
+            return False
+
+        arguments = operation["arguments"]
+        targets = asset_targets(arguments.get("asset_paths", []))
+        discarded = asset_targets(arguments.get("discard_dirty_packages", []))
+        return arguments.get("dry_run", True) is False and bool(targets) and targets == discarded
 
     def run_once(self):
         """/** @return 执行一个可调度批次 */"""

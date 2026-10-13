@@ -47,6 +47,8 @@ class FakeBackend:
             self.state["dirty_packages"].append(arguments["asset"])
         if name == "save_assets":
             self.state["dirty_packages"] = [path for path in self.state["dirty_packages"] if path not in arguments["asset_paths"]]
+        if name == "reload_assets_from_disk" and arguments.get("dry_run", True) is False:
+            self.state["dirty_packages"] = [path for path in self.state["dirty_packages"] if path not in arguments["discard_dirty_packages"]]
         if name == "activity":
             self.state["activities"] = [{"id": "capture:1", "status": "running"}]
             if arguments.get("asset") == "/Game/Continuous":
@@ -254,6 +256,49 @@ class JobTests(unittest.TestCase):
         self.assertEqual(self.manager.jobs[save]["status"], "completed")
         self.assertEqual(self.manager.inspect(self.first, identity)["status"], "completed")
         self.assertEqual(self.manager.control(self.first, "close", identity)["status"], "closed")
+
+    def add_reload_contract(self):
+        self.catalog.add({"id": "editor.reload_assets_from_disk", "name": "reload_assets_from_disk",
+            "toolset": "editor", "definition": "Test", "summary": "reload",
+            "access": "write", "world": "editor", "parameters": {"type": "object",
+            "properties": {"asset_paths": {"type": "array", "items": {"type": "string"}},
+                "discard_dirty_packages": {"type": "array", "items": {"type": "string"}},
+                "dry_run": {"type": "boolean", "default": True}}, "additionalProperties": False}})
+
+    def test_owner_explicit_reload_resolves_failed_review(self):
+        self.add_reload_contract()
+        identity = self.submit(self.first, operation("write", asset="/Game/A"), operation("unknown", asset="/Game/A"))
+        self.manager.run_once()
+        reload = {"tool": "editor.reload_assets_from_disk", "arguments": {
+            "asset_paths": ["/Game/A"], "discard_dirty_packages": ["/Game/A"], "dry_run": False}}
+        foreign = self.submit(self.second, reload)
+        self.assertFalse(self.manager.run_once())
+        self.assertEqual(self.manager.jobs[foreign]["code"], "RESULT_REVIEW_REQUIRED")
+        own = self.submit(self.first, reload)
+        self.manager.run_once()
+        self.assertEqual(self.manager.jobs[own]["status"], "completed")
+        review = self.manager.control(self.first, "review", identity)
+        self.assertEqual(self.manager.control(self.first, "resume", identity, review["confirmation"])["status"], "closed")
+
+    def test_reload_requires_exact_explicit_discard_scope(self):
+        self.add_reload_contract()
+        identity = self.submit(self.first, operation("write", asset="/Game/A"), operation("unknown", asset="/Game/A"))
+        self.manager.run_once()
+        for discard, dry_run in [([], False), (["/Game/A", "/Game/B"], False)]:
+            with self.subTest(discard=discard, dry_run=dry_run):
+                batch = self.submit(self.first, {"tool": "editor.reload_assets_from_disk", "arguments": {
+                    "asset_paths": ["/Game/A"], "discard_dirty_packages": discard, "dry_run": dry_run}})
+                self.assertFalse(self.manager.run_once())
+                self.assertEqual(self.manager.jobs[batch]["code"], "RESULT_REVIEW_REQUIRED")
+        outside = self.submit(self.first, {"tool": "editor.reload_assets_from_disk", "arguments": {
+            "asset_paths": ["/Game/A", "/Game/B"], "discard_dirty_packages": ["/Game/A", "/Game/B"], "dry_run": False}})
+        self.assertFalse(self.manager.run_once())
+        self.assertEqual(self.manager.jobs[outside]["code"], "RESULT_REVIEW_REQUIRED")
+        dry = self.submit(self.first, {"tool": "editor.reload_assets_from_disk", "arguments": {
+            "asset_paths": ["/Game/A"], "discard_dirty_packages": ["/Game/A"], "dry_run": True}})
+        self.manager.run_once()
+        self.assertEqual(self.manager.jobs[dry]["status"], "completed")
+        self.assertEqual(self.backend.state["dirty_packages"], ["/Game/A"])
 
     def test_rejection_releases_without_unknown_result(self):
         identity = self.submit(self.first, operation("reject", asset="/Game/A"))
