@@ -1,5 +1,7 @@
 # BBBUE MCP Tools
 
+更新 2026-10-13: `preview.capture_animation_views` 在截图证据中记录现成原生整帧 GPU/游戏线程/渲染线程计时；使用网格变形器时在首个同姿势同相机视角比较临时组件关闭变形器与资产默认变形器，各预热 12 帧并采样 32 帧。仅更改自有临时组件，不改资产或全局渲染设置。无原生接口或 GPU 计时为零时明确返回空值；这些是包含诊断 SceneCapture 的整帧数据，不能当作角色独占 GPU 成本。独立测试批次须等待上一异步截图批次完成再提交下一批，避免交叉采样。
+
 更新 2026-10-13: 失败批次的所有者可以使用 `editor.reload_assets_from_disk` 收尾 明确传入完全相同的 `asset_paths` 与 `discard_dirty_packages` 并设置 `dry_run=false` 仅允许处理原批次范围内的包 其他客户端仍不得重载该批次的脏包 重载不保存磁盘资产 收尾后仍须复核确认关闭失败批次
 
 更新 2026-10-12: 僵尸踉跄构图使用 `animation_graph.configure_fact_body_stagger_state` 干净替换旧三分支入口 重建头部 左臂 右臂 左腿 右腿五分支 保留现有行为转换链 完整原片时长与子弹踉跄值规则见 `Docs/BBBZombieStaggerMCP.md`。

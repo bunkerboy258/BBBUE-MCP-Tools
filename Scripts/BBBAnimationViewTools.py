@@ -7,6 +7,21 @@ import uuid
 import unreal
 
 
+def _read_frame_metrics():
+    """/** @return 原生整帧计时 不可用或无效 GPU 计时明确返回空值 */"""
+    library = getattr(unreal, "BBBAnimationGraphEditorLibrary", None)
+    reader = getattr(library, "read_performance_frame_metrics", None)
+    if reader is None:
+        return None
+
+    values = [float(value) for value in reader()]
+    if len(values) != 5 or any(not math.isfinite(value) or value < 0.0 for value in values):
+        raise RuntimeError("原生帧计时无效")
+
+    return {"frame": int(values[0]), "gameThreadMs": values[1], "renderThreadMs": values[2],
+            "gpuMs": values[3] if values[3] > 0.0 else None, "engineDeltaMs": values[4]}
+
+
 def capture_animation_views(mesh_path, animation_path, sample_progress, views_json, file_prefix, exposure_bias, captures_registry):
     """
     /**
@@ -183,6 +198,35 @@ def capture_animation_views(mesh_path, animation_path, sample_progress, views_js
                     for light, position in zip(lights, positions):
                         light.set_actor_location(position, False, True)
 
+                    performance_comparison = None
+                    if sample_index == 0 and view_index == 0 and mesh.get_editor_property("default_mesh_deformer") is not None:
+                        comparison_rows = {}
+                        for comparison_mode in ["withoutMeshDeformer", "assetDefaultMeshDeformer"]:
+                            if comparison_mode == "withoutMeshDeformer":
+                                component.call_method("SetMeshDeformer", (None,))
+                            if comparison_mode == "assetDefaultMeshDeformer":
+                                component.call_method("UnsetMeshDeformer", ())
+
+                            for comparison_warmup in range(12):
+                                capture.capture_scene()
+                                yield
+
+                            rows = []
+                            last_frame = None
+                            for comparison_frame in range(32):
+                                capture.capture_scene()
+                                yield
+                                metrics = _read_frame_metrics()
+                                if metrics is not None and metrics["frame"] != last_frame:
+                                    rows.append(metrics)
+                                    last_frame = metrics["frame"]
+
+                            comparison_rows[comparison_mode] = rows
+
+                        performance_comparison = {"scope": "wholeEngineFrameWithDiagnosticSceneCapture",
+                                                  "warmupFramesPerMode": 12, "requestedSamplesPerMode": 32,
+                                                  "rows": comparison_rows}
+
                     yield
                     yield
                     capture.capture_scene()
@@ -196,7 +240,7 @@ def capture_animation_views(mesh_path, animation_path, sample_progress, views_js
                     if not os.path.isfile(path) or os.path.getsize(path) < 1024:
                         raise RuntimeError("截图文件缺失或异常小 必须检查渲染结果")
 
-                    captures.append({"sampleProgress": progress, "seconds": seconds, "yaw": yaw, "pitch": pitch, "imagePath": path, "cameraDistanceCm": distance, "bones": bones})
+                    captures.append({"sampleProgress": progress, "seconds": seconds, "yaw": yaw, "pitch": pitch, "imagePath": path, "cameraDistanceCm": distance, "bones": bones, "frameMetrics": _read_frame_metrics(), "performanceComparison": performance_comparison})
                     save_report({"status": "running", "mesh": mesh_path, "animation": animation_path, "exposureBias": exposure_bias, "captures": captures, "temporaryActorsDestroyed": False})
 
             unreal.log("[BBBAnimationViews] CAPTURE " + animation_path + " count=" + str(len(captures)))
