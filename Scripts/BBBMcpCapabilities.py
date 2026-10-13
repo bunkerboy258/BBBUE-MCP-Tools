@@ -453,6 +453,7 @@ WRITE_TARGET_FIELDS = {
     "control_rig.set_sequence_spawn_range": ("sequence_path",),
     "control_rig.create_control_rig_sequence": ("sequence_path",),
     "control_rig.configure_sequence_rig": ("sequence_path",),
+    "control_rig.configure_sequence_animation_source": ("sequence_path",),
     "control_rig.create_sequence_attachment": ("sequence_path",),
     "control_rig.configure_sequence_attachment_animation": ("sequence_path",),
     "control_rig.convert_component_mesh_grips": ("mesh_path",),

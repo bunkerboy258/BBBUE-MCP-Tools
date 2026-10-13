@@ -948,6 +948,66 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def configure_sequence_animation_source(sequence_path: str, animation_path: str, mesh_path: str) -> str:
+        """
+        /**
+         * 替换唯一角色源动作并同步原全长区间 保留控制器轨道与局部附件区间
+         * @param sequence_path\t保留的矫正序列
+         * @param animation_path\t新源动作
+         * @param mesh_path\t\t角色网格
+         * @return 已保存的源动作与播放区间
+         */
+        """
+        sequence = _asset(sequence_path, unreal.LevelSequence)
+        animation = _asset(animation_path, unreal.AnimSequence)
+        mesh = _asset(mesh_path, unreal.SkeletalMesh)
+        binding = _mesh_binding(sequence, mesh)
+        tracks = binding.find_tracks_by_type(unreal.MovieSceneSkeletalAnimationTrack)
+        if len(tracks) != 1 or len(tracks[0].get_sections()) != 1:
+            raise RuntimeError("角色源动作轨道与片段必须唯一")
+        if animation.get_editor_property("skeleton") != mesh.get_editor_property("skeleton"):
+            raise RuntimeError("源动作与角色骨架不一致")
+
+        rate = sequence.get_display_rate()
+        first = sequence.get_playback_start()
+        previous_end = sequence.get_playback_end()
+        end = first + round(animation.get_play_length() * rate.numerator / rate.denominator) + 1
+        require_write_access(sequence)
+        sequence.modify()
+        for current in sequence.get_bindings():
+            for track in current.get_tracks():
+                for section in track.get_sections():
+                    if not section.has_start_frame() or not section.has_end_frame():
+                        continue
+                    if section.get_start_frame() != first or section.get_end_frame() != previous_end:
+                        continue
+                    section.set_range(first, end)
+                    if isinstance(track, unreal.MovieSceneSpawnTrack):
+                        channel = section.get_all_channels()[0]
+                        for key in list(channel.get_keys()):
+                            channel.remove_key(key)
+                        channel.set_default(True)
+                        channel.add_key(unreal.FrameNumber(value=first), True)
+                        channel.add_key(unreal.FrameNumber(value=end), False)
+
+        section = tracks[0].get_sections()[0]
+        params = section.get_editor_property("params")
+        params.animation = animation
+        params.play_rate = unreal.MovieSceneTimeWarpExtensions.make_time_warp(1.0)
+        params.first_loop_start_frame_offset = unreal.FrameNumber(value=0)
+        params.start_frame_offset = unreal.FrameNumber(value=0)
+        params.end_frame_offset = unreal.FrameNumber(value=0)
+        params.reverse = False
+        section.set_editor_property("params", params)
+        section.set_range(first, end)
+        sequence.set_playback_end(end)
+        unreal.LevelSequenceEditorBlueprintLibrary.force_update()
+        if not unreal.EditorAssetLibrary.save_loaded_asset(sequence, False):
+            raise RuntimeError("序列源动作保存失败")
+        return json.dumps({"sequence": sequence.get_path_name(), "animation": animation.get_path_name(), "range": [first, end]})
+
+    @mcp_tool
+    @staticmethod
     def create_control_rig_sequence(sequence_path: str, mesh_path: str, duration_seconds: float, frame_rate: int) -> str:
         """
         /**
