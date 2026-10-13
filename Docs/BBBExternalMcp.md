@@ -6,10 +6,7 @@
 
 ## 调用
 
-1. `find_tools` 搜索目标，例如 `external.animation list_notifies`。
-2. `describe_tool` 获取该动作的明确参数。
-3. `submit_batch` 传入普通参数对象。
-4. 查询批次并核验业务结果。
+已知工具 ID 时直接 `submit_batch`。新目标先 `find_tools`，首项提供完整调用参数，再提交批次。短调用直接返回结果；长调用依据返回的批次和 `next` 继续。
 
 网关负责内部动作分发。参数结构从实际函数声明生成，输入先核验。每个动作独立检查自身原生依赖。
 

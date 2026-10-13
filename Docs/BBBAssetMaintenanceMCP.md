@@ -4,7 +4,7 @@
 
 `inspect_native_package_referencers(script_packages)` 只读查询明确 `/Script/模块名` 的全部直接资产引用者 最多 64 项. 使用完成扫描的资产注册表 同时检查硬引用 软引用及管理引用 不加载或修改资产. 用于移除原生模块前后核验资产依赖.
 
-`delete_unreferenced_uncontrolled_assets(expected_files_json, dry_run=True)` 原生删除已排除版本控制的第三方无引用资产. 清单逐项指定 `package` 和检查阶段的 `sha256` 最多 32 项. 仅接受 `/Game/_ThirdParty/` 下真实可写文件 严格核对无引用 无脏包 无 PIE 及未受版本控制. 受控资产或他人签出拒绝执行. 不创建备份或重定向 不执行 P4 Add Submit 或 Revert. 返回物理文件清除结果 部分失败停止且不自动重试.
+`delete_unreferenced_uncontrolled_assets(expected_files, dry_run=True)` 原生删除已排除版本控制的第三方无引用资产. 清单逐项指定 `package` 和检查阶段的 `sha256` 最多 32 项. 仅接受 `/Game/_ThirdParty/` 下真实可写文件 严格核对无引用 无脏包 无 PIE 及未受版本控制. 受控资产或他人签出拒绝执行. 不创建备份或重定向 不执行 P4 Add Submit 或 Revert. 返回物理文件清除结果 部分失败停止且不自动重试.
 
 `fixup_redirector_references_batch(asset_paths, referencer_paths, dry_run=True)` 仅处理明确引用者, 单批最多 32 项. 预览只读注册表, 不加载目标. 执行前须备份并签出所选引用者; 工具逐包核对实际加载类型, 阻止本次加载新产生的项目蓝图错误、所选引用者自身已有的蓝图错误以及脏包, 不会因无关且既有的蓝图错误阻止本批保存. 使用原生软引用替换与逐包保存更新引用, 不修改蓝图图表, 不删除重定向器, 不执行签出/Submit/Get Latest/Revert. 保存后强制刷新引用者目录, remaining_selected 表示本批包是否仍残留旧路径; success 要求没有本批残留和脏包. 返回 saved 是已完成部分, 遇到失败不直接重试整批; 先核对磁盘, 日志和部分结果.
 
@@ -20,9 +20,9 @@ Bootstrap 统一注册资产维护工具。通过 `find_tools` 搜索 `assets`�
 
 `BBBAssetMaintenanceToolset.audit_asset_folder_move(source_folder, destination_folder)` 只读盘点目录迁移：递归列出源资产、检查按相对路径映射后的目标冲突，并统计源目录外的引用者及其内容根目录。它拒绝迁移 `__ExternalActors__` 和 `__ExternalObjects__`，不执行签出、移动、保存或删除。返回无冲突也不代表可以直接移动；仍须单独核对 Perforce 打开状态、脏包、代码或配置中的硬编码路径，以及关卡外部数据。
 
-`BBBAssetMaintenanceToolset.move_assets_batch(moves_json, dry_run=True)` 将明确列出的资产和目录展开为精确资产映射，一次调用 UE5.8 原生 `AssetTools.rename_assets`。目录映射保留相对层级，可合并到已有目标目录；目标父目录可由原生保存过程创建。同名包、磁盘文件或资产与目录重名均拒绝覆盖。禁止重复源、父子源同时移动、链式或循环移动、仅大小写改名和目标落入正在移动的源目录。单批最多 1000 项请求，展开后最多 5000 个资产。
+`BBBAssetMaintenanceToolset.move_assets_batch(moves, dry_run=True)` 将明确列出的资产和目录展开为精确资产映射，一次调用 UE5.8 原生 `AssetTools.rename_assets`。目录映射保留相对层级，可合并到已有目标目录；目标父目录可由原生保存过程创建。同名包、磁盘文件或资产与目录重名均拒绝覆盖。禁止重复源、父子源同时移动、链式或循环移动、仅大小写改名和目标落入正在移动的源目录。单批最多 1000 项请求，展开后最多 5000 个资产。
 
-`moves_json` 是不带对象后缀的包路径映射数组，例如：
+`moves` 是不带对象后缀的包路径映射数组，例如：
 
 ```json
 [
@@ -45,7 +45,7 @@ UE 原生 `rename_assets` 内部具有自动签出和保存逻辑，本工具通
 
 AI 应先读取上述阶段统计再判断瓶颈，不将查询次数减少等同于实际移动提速。本工具仍按明确输入执行一次原生批量移动，不自动拆批、不增加强制垃圾回收、不省略引用修复或包保存，也不修改资源包导入的追加修复流程。大规模迁移的实际耗时比较必须使用经用户指定的代表性资产与相同最终核验标准，不能为了测试擅自移动或自动保存项目资产。存在部分失败时保留完成结果，先核验再生成剩余请求。
 
-`BBBAssetMaintenanceToolset.verify_asset_moves(moves_json)` 接受预览或执行报告的 `assets` 数组序列化结果，必须保留 `class_path`，不接受未展开的目录映射。只读检查目标注册类型、名称和磁盘文件，旧包是否消失或是否存在直接指向目标的重定向器，并报告旧引用者、未保存相关包和旧父目录中的剩余文件及注册资产。不加载对象、不修引用、不删除文件；该检查不证明内容逐字节一致，也不证明代码与配置中的路径字符串已更新。日志前缀为 `[BBBAssetMoveVerify]`。
+`BBBAssetMaintenanceToolset.verify_asset_moves(moves)` 接受预览或执行报告的 `assets` 数组序列化结果，必须保留 `class_path`，不接受未展开的目录映射。只读检查目标注册类型、名称和磁盘文件，旧包是否消失或是否存在直接指向目标的重定向器，并报告旧引用者、未保存相关包和旧父目录中的剩余文件及注册资产。不加载对象、不修引用、不删除文件；该检查不证明内容逐字节一致，也不证明代码与配置中的路径字符串已更新。日志前缀为 `[BBBAssetMoveVerify]`。
 
 迁移通过不代表旧目录可删除：正确重定向器和仍引用旧路径的包可以继续存在。`source_folders` 的 `empty_on_disk_and_registry` 只描述当前磁盘和注册表是否为空，不自动授权清理。引用修复和旧目录清理按明确范围另外执行，禁止直接在资源管理器搬运 `.uasset` 或删除仍被引用的重定向器。目录内非资产文件不会由本工具迁移，核验报告会显示它们。
 
@@ -57,7 +57,7 @@ AI 应先读取上述阶段统计再判断瓶颈，不将查询次数减少等�
 
 原生迁移待添加资产时可能留下没有任何子对象的旧脏包和旧磁盘副本。通用 `reload_assets_from_disk` 仅在包确实为空且逐项列入 `discard_dirty_packages` 时允许从磁盘重载这种空包，不丢弃含对象的加载失败包。该能力不等于允许删除旧文件。
 
-`consolidate_verified_asset_copies(moves_json, dry_run=True)` 只处理明确列出的旧副本和保留目标。每项须提供备份校验后的 `source_sha256` 和稳定 `class_path`；源文件有变化、类型不一致、存在脏包、关卡或重定向器时拒绝。执行要求源、目标和引用者已在 Perforce 可编辑，通过原生 `consolidate_assets` 归并引用并保存；失败报告部分进度，不重试、不回滚。该操作不是内容相同证明，调用者必须先确认目标确为应保留版本并备份。
+`consolidate_verified_asset_copies(moves, dry_run=True)` 只处理明确列出的旧副本和保留目标。每项须提供备份校验后的 `source_sha256` 和稳定 `class_path`；源文件有变化、类型不一致、存在脏包、关卡或重定向器时拒绝。执行要求源、目标和引用者已在 Perforce 可编辑，通过原生 `consolidate_assets` 归并引用并保存；失败报告部分进度，不重试、不回滚。该操作不是内容相同证明，调用者必须先确认目标确为应保留版本并备份。
 
 `fixup_redirector_references(asset_paths, dry_run=True)` 修复明确重定向包的项目内硬/软引用，只保存这些引用者，保留重定向器。原生加载解析硬引用，`rename_referencing_soft_object_paths` 更新软路径，`save_packages` 支持明确的普通地图包。禁止外部 Actor/Object 包及未保存修改，执行前须备份并签出全部引用者，返回剩余旧引用，不宣称自动清理。
 
@@ -73,7 +73,7 @@ AI 应先读取上述阶段统计再判断瓶颈，不将查询次数减少等�
 
 调用前保存移动后资产和引用者、确认无并行 PIE、备份旧包并处理 Perforce 独占签出。删除失败会报告已删除列表，不宣称事务回滚。此工具不替代通用引用修复，存在引用时停止。
 
-`move_assets_preserving_external_actor_references(moves_json, dry_run=True)` 用于普通资产存在明确外部 Actor 引用时的原生批量迁移，单批最多 64 个资产。它复用普通移动的映射、类型、目标冲突、脏包和 Perforce 独占签出检查，只允许磁盘存在的 `/Game/__ExternalActors__/` 引用者通过专用预检；外部 Object、项目外引用、关卡、关卡构建数据和重定向器仍拒绝。源与全部引用者必须先备份并签出。工具不会移动外部 Actor 文件，也不宣称引用已清理；移动后的已加载引用修改须明确保存，再用外部 Actor 引用修复工具和普通引用修复工具分批清零，核验后才删除旧重定向器。部分失败保留逐对象执行结果，不得盲重试整个批次。
+`move_assets_preserving_external_actor_references(moves, dry_run=True)` 用于普通资产存在明确外部 Actor 引用时的原生批量迁移，单批最多 64 个资产。它复用普通移动的映射、类型、目标冲突、脏包和 Perforce 独占签出检查，只允许磁盘存在的 `/Game/__ExternalActors__/` 引用者通过专用预检；外部 Object、项目外引用、关卡、关卡构建数据和重定向器仍拒绝。源与全部引用者必须先备份并签出。工具不会移动外部 Actor 文件，也不宣称引用已清理；移动后的已加载引用修改须明确保存，再用外部 Actor 引用修复工具和普通引用修复工具分批清零，核验后才删除旧重定向器。部分失败保留逐对象执行结果，不得盲重试整个批次。
 
 `move_partitioned_world(source_package, destination_package, dry_run=True)` 迁移唯一分区关卡主资产及其外部 Actor/Object 包。预检输出明确的 `affected_packages` 和外部文件清单；须先备份全部包并独占签出。执行要求源关卡未加载、目标关卡和外部目录不存在内容、无脏包和 PIE。原生 `BBBAssetRepairEditorLibrary.MovePartitionedWorld` 复用 UE 的 `WorldPartitionRenameDuplicateBuilder`，按 Actor 引用簇加载和保存，保留源关卡重定向，不执行 Submit。返回真实修改文件和源目标外部包数量回读；数量不一致、源外部包残留、脏包或保存失败时禁止盲重试。每个关卡应在干净宿主中处理，结束后冷启动核对 Actor GUID、关卡引用和外部包。构建器生成的临时关卡 `.ini` 由原生接口在同次调用结束时清理；源已有该配置文件时拒绝执行。
 
@@ -115,7 +115,7 @@ verify_asset_moves 对旧包读取全部注册对象，非主资产规范化后�
 
 `inspect_content_dependency_integrity(asset_paths)` 对最多 5000 个明确包只读核验项目硬包和软包依赖。返回物理目录缺失的 `/Game/` 包及对应引用者；同时认可 `.uasset` 与 `.umap`，不加载、不保存、不修改资产。该检查覆盖已经没有重定向包的旧失效路径，须与重定向清零、原生依赖和运行验收共同使用。
 
-`remap_missing_soft_object_paths(referencer_paths, replacements_json, dry_run=True)` 对明确缺失包的软路径执行 UE 原生替换，保留对象的子路径与编辑文档信息。每批最多 64 个已备份引用者，每项映射必须给出顶层 source/destination 对象路径，目标须为唯一真实主资产或其蓝图生成类/默认对象。源文件仍存在、目标缺失、无实际引用、脏包、PIE、加载类型变化或蓝图错误均拒绝；按当前 Perforce 签出状态保存并报告部分结果。不会创建兼容重定向器，也不删除未知引用。
+`remap_missing_soft_object_paths(referencer_paths, replacements, dry_run=True)` 对明确缺失包的软路径执行 UE 原生替换，保留对象的子路径与编辑文档信息。每批最多 64 个已备份引用者，每项映射必须给出顶层 source/destination 对象路径，目标须为唯一真实主资产或其蓝图生成类/默认对象。源文件仍存在、目标缺失、无实际引用、脏包、PIE、加载类型变化或蓝图错误均拒绝；按当前 Perforce 签出状态保存并报告部分结果。不会创建兼容重定向器，也不删除未知引用。
 依赖完整性检查支持只读核验外部 Actor/Object 包，并分别返回缺失的硬包与软包依赖；不使用普通资产移动入口处理外部包。
 
 `inspect_loaded_package_soft_paths` 只读列出已经加载包中的实际软对象路径。`create_missing_path_recovery_redirector` 为明确缺失源包和唯一真实目标建立临时原生重定向，禁止覆盖源包；只在修复硬引用时使用，保存引用者并验收后必须删除临时重定向。软路径修复拒绝加载具有缺失硬依赖的包，防止保存时丢失配置。
@@ -133,7 +133,7 @@ verify_asset_moves 对旧包读取全部注册对象，非主资产规范化后�
 - `rebuild_loaded_actor_construction(actor_paths)` 仅操作当前已加载编辑器世界中的明确非分区角色。重建后核对角色 GUID、变换、样条控制点，并报告剩余零长度样条段。拒绝脏包、PIE、其它世界或外部角色包，不保存关卡。
 
 
-`update_pose_assets_from_source(expected_reports_json, dry_run=True)` 使用引擎 `UPoseAsset::UpdatePoseFromAnimation` 正式更新已有姿势。要求检查报告未变化、姿势结构与曲线兼容、骨架相同，执行前必须备份并独占签出；更新后核对全部姿势名称、加法基准和当前源 GUID，再保存。源动画不修改。该工具用于不能通过严格姿势数据一致性证明的旧缓存，不放宽 GUID 单独修复的误差限制。
+`update_pose_assets_from_source(expected_reports, dry_run=True)` 使用引擎 `UPoseAsset::UpdatePoseFromAnimation` 正式更新已有姿势。要求检查报告未变化、姿势结构与曲线兼容、骨架相同，执行前必须备份并独占签出；更新后核对全部姿势名称、加法基准和当前源 GUID，再保存。源动画不修改。该工具用于不能通过严格姿势数据一致性证明的旧缓存，不放宽 GUID 单独修复的误差限制。
 
 
 `delete_unreferenced_asset_packages(asset_paths, backup_directory, dry_run=True)` 用于已经决定隔离的明确无组外引用资产。要求已有 Content 外永久备份且逐文件 SHA-256 一致、Perforce 可编辑、无脏包或 PIE。执行直接调用资产原生删除，不使用按目录优先分派的通用删除工具，并以物理文件消失为成功条件。部分失败返回完整已完成结果并报警，不继续删除。

@@ -26,7 +26,7 @@ def main():
         initial = first.inspect_tasks(detail=True)
         assert initial["status"] == "ready" and initial["host"]["exclusive"], initial
         assert initial["queued"] == initial["activities"] == initial["dirty"] == 0 and not initial["pie"] and initial["tests"]["running"] == 0, initial
-        identity = first.submit_batch([operation("runtime.inspect_mcp_dependencies", tool="blueprint.inspect_blueprint_graph"), operation("runtime.inspect_mcp_performance")])["batch"]
+        identity = first.submit_batch([operation("runtime.inspect_mcp_dependencies", tool="blueprint.inspect_blueprint_graph"), operation("runtime.inspect_mcp_resources")])["batch"]
         checked = first.wait_batch(identity)
         assert checked["status"] == "completed", checked
         assert Path(checked["results"][0]["project_root"]).resolve() == Path(arguments.project_root).resolve()
@@ -51,7 +51,7 @@ def main():
             assert len(set(pids + [initial["host"]["process_id"]])) == 3, views
             current = first.inspect_tasks()
             assert current["tests"]["running"] == 2 and "edit" in current["available"] and not current["pie"], current
-            edit = first.submit_batch([operation("runtime.configure_mcp_performance", profile=performance["profile"], max_fps=int(performance["max_fps"])), operation("runtime.inspect_mcp_performance")], "主宿主继续操作")["batch"]
+            edit = first.submit_batch([operation("runtime.configure_mcp_resources", profile=performance["profile"], max_fps=int(performance["max_fps"])), operation("runtime.inspect_mcp_resources")], "主宿主继续操作")["batch"]
             result = first.wait_batch(edit, 30)
             assert result["status"] == "completed", result
             assert result["results"][1]["process_id"] == initial["host"]["process_id"], result
@@ -59,7 +59,7 @@ def main():
             for session, batch in batches:
                 value = session.wait_batch(batch, 240)
                 assert value["status"] == "completed" and value["input_stable"], value
-                sample = session.submit_batch([operation("runtime.inspect_mcp_performance"), operation("app.IsPIERunning"), operation("app.StopPIE")],
+                sample = session.submit_batch([operation("runtime.inspect_mcp_resources"), operation("app.IsPIERunning"), operation("app.StopPIE")],
                     environment="test", test_host=batch)["batch"]
                 sampled = session.wait_batch(sample, 120)
                 assert sampled["status"] == "completed" and sampled["input_stable"], sampled

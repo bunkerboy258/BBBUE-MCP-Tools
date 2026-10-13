@@ -4,6 +4,7 @@ import os
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -82,14 +83,7 @@ class McpSession:
         if urlparse(self.url).hostname in {"127.0.0.1", "localhost", "::1"}:
             self._http.trust_env = False
         try:
-            parameters = {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "bbb-mcp", "version": "2"}}
-            if client_key:
-                parameters["_meta"] = {"bbb/client_key": client_key}
-            value = self._post("initialize", parameters)["result"]
-            self._protocol_version = value["protocolVersion"]
-            if not private_backend:
-                self.client_key = value["_meta"]["bbb/client_key"]
-            self._notify("notifications/initialized")
+            self._initialize()
             if not private_backend:
                 self._heartbeat = threading.Thread(target=self._keepalive, daemon=True)
                 self._heartbeat.start()
@@ -111,20 +105,47 @@ class McpSession:
             headers["MCP-Protocol-Version"] = self._protocol_version
         return headers
 
+    def _initialize(self):
+        """/** @return 使用原客户端身份建立传输会话 */"""
+        self.session_id = None
+        parameters = {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "bbb-mcp", "version": "3"}}
+        if self.client_key:
+            parameters["_meta"] = {"bbb/client_key": self.client_key}
+        response = self._post("initialize", parameters)
+        value = response["result"]
+        if "protocolVersion" not in value:
+            decode_tool_result(response)
+            raise RuntimeError("INITIALIZE_CONTRACT_REQUIRED")
+        self._protocol_version = value["protocolVersion"]
+        if not self.private_backend:
+            self.client_key = value["_meta"]["bbb/client_key"]
+        self._identity_recovered = value.get("_meta", {}).get("bbb/client_recovered", False)
+        version = value.get("_meta", {}).get("bbb/catalog_version")
+        if getattr(self, "_catalog_version", None) != version:
+            self.invalidate_discovery()
+        self._catalog_version = version
+        self._notify("notifications/initialized")
+
     def _post(self, method, parameters):
         with self._lock:
             if self._closed:
                 raise RuntimeError("SESSION_CLOSED")
             self._next_id += 1
             body = {"jsonrpc": "2.0", "id": self._next_id, "method": method, "params": parameters}
-            try:
-                with self._http.post(self.url, json=body, headers=self._headers(), timeout=self._timeout, stream=True) as response:
-                    response.raise_for_status()
-                    if self.session_id is None:
-                        self.session_id = response.headers.get("Mcp-Session-Id")
-                    result = _parse_response(response, self._next_id, self.invalidate_discovery)
-            except requests.RequestException as error:
-                raise RuntimeError("TRANSPORT_UNCERTAIN: inspect_tasks") from error
+            for attempt in range(2):
+                try:
+                    with self._http.post(self.url, json=body, headers=self._headers(), timeout=self._timeout, stream=True) as response:
+                        response.raise_for_status()
+                        if self.session_id is None:
+                            self.session_id = response.headers.get("Mcp-Session-Id")
+                        result = _parse_response(response, body["id"], self.invalidate_discovery)
+                    break
+                except (requests.RequestException, RuntimeError) as error:
+                    if attempt or self.private_backend or method == "initialize":
+                        raise RuntimeError("TRANSPORT_UNCERTAIN: inspect_tasks") from error
+                    self._initialize()
+                    if method == "tools/call" and parameters.get("name") in {"submit_batch", "control_task"} and not self._identity_recovered:
+                        raise RuntimeError("TRANSPORT_UNCERTAIN: inspect_tasks") from error
             if result.get("error"):
                 raise RuntimeError("PROTOCOL_ERROR: " + json.dumps(result["error"], ensure_ascii=False))
             return result
@@ -139,9 +160,12 @@ class McpSession:
 
     def request(self, name, arguments):
         """/** @param name 工具名 @param arguments 参数 @return 一次解码后的业务结果 */"""
-        return decode_tool_result(self._post("tools/call", {"name": name, "arguments": arguments}))
+        parameters = {"name": name, "arguments": arguments}
+        if not self.private_backend and name in {"submit_batch", "control_task"}:
+            parameters["_meta"] = {"bbb/request_id": uuid.uuid4().hex}
+        return decode_tool_result(self._post("tools/call", parameters))
 
-    def find_tools(self, query, limit=8):
+    def find_tools(self, query, limit=3):
         """/** @param query 目标关键字 @param limit 上限 @return 精简候选 */"""
         return self.request("find_tools", {"query": query, "limit": limit})
 
@@ -151,9 +175,9 @@ class McpSession:
             self._cache[tool] = self.request("describe_tool", {"tool": tool})
         return json.loads(json.dumps(self._cache[tool]))
 
-    def submit_batch(self, operations, label="", environment="editor", test_options=None, test_host=None):
+    def submit_batch(self, operations, label="", environment="editor", test_options=None, test_host=None, await_seconds=2, completion="save"):
         """/** @param operations 有序操作 @param label 阶段用途 @return 即时批次编号 */"""
-        arguments = {"operations": operations, "label": label, "environment": environment}
+        arguments = {"operations": operations, "label": label, "environment": environment, "await_seconds": await_seconds, "completion": completion}
         if test_options is not None:
             arguments["test_options"] = test_options
         if test_host is not None:
@@ -194,7 +218,7 @@ class McpSession:
             try:
                 self._post("ping", {})
             except Exception:
-                return
+                continue
 
     def close(self):
         """/** @return 关闭连接 保留客户端凭证与已提交批次 */"""

@@ -1,5 +1,7 @@
 # BBB 通用编辑器 MCP
 
+公开批次默认完成本批次范围的验证、保存与回读。分阶段预览或人工检查时传 `completion="review"`。下文函数级保存行为描述对应领域实现；公开调用的完成策略以批次参数为准。
+
 ## 动画通知完整性检查
 
 `inspect_animation_notify_properties` 的 `match_index` 按完整事件数组中同类通知的顺序从零选择实例 用于分别读取双弹握持或多枚退壳的变换 默认负一要求唯一实例 索引越界明确失败 返回实例路径 匹配数量和时间区间 不修改资产
@@ -14,7 +16,7 @@
 
 ## 明确字体源导入
 
-`import_font_faces(requests_json)` 每项指定项目 Content 内永久 `.ttf` 或 `.otf` 的 `source` 与新 `destination` 包路径。仅创建内联 `FontFace` 不生成额外 `Font` 不覆盖既有资源。批量一至十六项。导入前检查源文件与 Perforce 写入许可。
+`import_font_faces(requests)` 每项指定项目 Content 内永久 `.ttf` 或 `.otf` 的 `source` 与新 `destination` 包路径。仅创建内联 `FontFace` 不生成额外 `Font` 不覆盖既有资源。批量一至十六项。导入前检查源文件与 Perforce 写入许可。
 
 ## 透明缩略图主体取景
 
@@ -95,7 +97,7 @@ property_paths 支持以点分隔的反射属性路径 数组返回数量与前�
 ## set_struct_array_object
 
 在已签出对象的结构体数组指定元素上创建实例化子对象
-参数为 object_path array_property index object_property class_path properties_json
+参数为 object_path array_property index object_property class_path properties
 不修改数组中其它元素 调用后使用 save_assets 保存宿主包
 
 ## create_channel_sprite_system
@@ -117,7 +119,7 @@ property_paths 支持以点分隔的反射属性路径 数组返回数量与前�
 ## set_instanced_struct_array
 
 为指定资产结构体中的实例化对象数组创建真实子对象并保存
-参数为 `asset_path` `struct_property` `array_property` `instances_json`
+参数为 `asset_path` `struct_property` `array_property` `instances`
 JSON 数组每项包含 `class` 原生类路径和可选的 `properties` 属性对象
 适用于 Mass 配置的 `config.traits` 等实例数组
 拒绝空引用并在写回后核对实际对象
@@ -126,14 +128,14 @@ JSON 数组每项包含 `class` 原生类路径和可选的 `properties` 属性�
 ## create_asset_with_factory
 
 使用原生工厂创建尚不存在的 Game 资产并保存
-参数为 `asset_path` `asset_class_path` `factory_class_path` 和可选的 `factory_properties_json`
+参数为 `asset_path` `asset_class_path` `factory_class_path` 和可选的 `factory_properties`
 拒绝覆盖已有资产
 
 ## import_files_from_directory
 
-参数为本地 `source_directory` `destination_path` `extensions_json` 和可选的 `recursive`
+参数为本地 `source_directory` `destination_path` `extensions` 和可选的 `recursive`
 按扩展名调用 UE 原生资产工厂批量导入文件 保留源目录层级并保存生成资产
-`extensions_json` 为 JSON 字符串数组 例如 `["wav"]` 或 `[".wav"]`
+`extensions` 为 结构化对象数组 例如 `["wav"]` 或 `[".wav"]`
 目标必须是空的 `/Game/` 目录 工具拒绝覆盖 重名或超出 5000 个文件的任务
 源目录和文件名中的非字母数字 下划线或连字符字符会转换为下划线以符合 UE 资产路径要求
 单个源文件未生成资产或生成路径不在目标目录时会报警并停止保存
@@ -179,7 +181,7 @@ JSON 数组每项包含 `class` 原生类路径和可选的 `properties` 属性�
 
 ## invoke_pie_actor_function
 
-调用当前 PIE 世界中指定 Actor 的反射函数 参数为 `actor_path` `function_name` 和 JSON 位置参数数组 `arguments_json` 默认 `[]`
+调用当前 PIE 世界中指定 Actor 的反射函数 参数为 `actor_path` `function_name` 和 位置参数数组 `arguments` 默认 `[]`
 仅接受当前 PIE 中已加载 Actor 拒绝编辑器对象 此工具会改变运行时状态 调用前必须确认函数语义与任务授权 不用于资产保存或编辑器生命周期管理
 
 ## inspect_asset_properties
@@ -204,7 +206,7 @@ JSON 数组每项包含 `class` 原生类路径和可选的 `properties` 属性�
 ## set_blueprint_class_defaults
 
 更新一个蓝图生成类默认对象的指定属性 编译蓝图并在无编译错误后保存
-参数 `asset_path` 是蓝图资产路径 `values_json` 是属性名到目标值的 JSON 对象字符串
+参数 `asset_path` 是蓝图资产路径 `values` 是属性名到目标值的 对象
 结构体属性使用嵌套对象表达 对象引用使用 `{"refPath":"/Game/...Asset.Asset"}` 表达
 工具拒绝 PIE 期间修改 未独占签出 无效属性 无效引用 编译失败和保存失败
 调用后必须使用 `inspect_blueprint_class_defaults` 与 PIE 运行时探针核对最终值和实际动画播放器
@@ -238,9 +240,9 @@ UE5.8 以 `DefaultKeyMappings` 为实际映射来源 工具调用引擎的 `unma
 
 ## 蓝图图表语言映射
 
-实际发现的 `BBBBlueprintGraphToolset` 中 `write_graph` 复用官方蓝图 DSL 写入器 解决本地化节点名称和执行引脚类型与英文 DSL 不一致的问题. 参数为 `graph_path` `code` `node_aliases_json` `pin_aliases_json`.
+实际发现的 `BBBBlueprintGraphToolset` 中 `write_graph` 复用官方蓝图 DSL 写入器 解决本地化节点名称和执行引脚类型与英文 DSL 不一致的问题. 参数为 `graph_path` `code` `node_aliases` `pin_aliases`.
 
-节点映射为英文 DSL 类型到当前编辑器实际类型的 JSON 字符串对象。引脚映射为当前编辑器类型到 DSL 类型的对象，例如 `{"执行":"Exec"}`。先使用官方 `find_node_types` 和 `get_node_type_pins` 验证实际名称，不猜测名称。工具只接受 `/Game/` 蓝图直属图表，拒绝 PIE 期间编辑，不修改引擎或编辑器语言。写入会修改目标图表并编译，但不自动保存。失败会明确报警且可能留下部分图表，须检查或撤销，禁止在失败后保存。调用前完成资产独占签出。
+节点映射为英文 DSL 类型到当前编辑器实际类型的 结构化对象。引脚映射为当前编辑器类型到 DSL 类型的对象，例如 `{"执行":"Exec"}`。先使用官方 `find_node_types` 和 `get_node_type_pins` 验证实际名称，不猜测名称。工具只接受 `/Game/` 蓝图直属图表，拒绝 PIE 期间编辑，不修改引擎或编辑器语言。写入会修改目标图表并编译，但不自动保存。失败会明确报警且可能留下部分图表，须检查或撤销，禁止在失败后保存。调用前完成资产独占签出。
 
 编辑器启动由 `Content/Python/init_unreal.py` 加载 Bootstrap 统一注册。
 
@@ -264,7 +266,7 @@ UE5.8 以 `DefaultKeyMappings` 为实际映射来源 工具调用引擎的 `unma
 
 几何预检依赖接入项目 `BBBBlueprintEditorLibrary.measure_blueprint_graph_visual_geometry` 原生只读接口 该接口复用基础节点及固定注释归属查询 使用标准 Slate 节点控件的完整详细显示尺寸和引脚锚点测量 返回姿势引脚类型与连线样式 在游戏线程和已初始化 Slate 的宿主中调用 支持隐藏 `-NullRHI` 宿主 不读取受保护的 Python 字段 不修改节点或保存资产 未提供此接口 测量失败 或连接引脚缺少显示锚点时明确拒绝 不回退估算尺寸 修改原生接口后必须先编译编辑器模块并重新启动宿主
 
-`invoke_pie_object_function(object_path, function_name, arguments_json)` 用于运行时蓝图接口验证，支持组件、控件和子系统持有的对象。目标或其所有者链必须属于当前 PIE 世界，否则拒绝。参数为 JSON 位置参数数组，结果会返回。此工具会改变运行时状态，调用前必须核对函数语义；不得用于编辑器资产编辑。
+`invoke_pie_object_function(object_path, function_name, arguments)` 用于运行时蓝图接口验证，支持组件、控件和子系统持有的对象。目标或其所有者链必须属于当前 PIE 世界，否则拒绝。参数为 位置参数数组，结果会返回。此工具会改变运行时状态，调用前必须核对函数语义；不得用于编辑器资产编辑。
 
 ## 扩展原则
 
@@ -274,15 +276,15 @@ UE5.8 以 `DefaultKeyMappings` 为实际映射来源 工具调用引擎的 `unma
 
 `configure_static_mesh_surface_collision(mesh_path, apply_changes=False)` 默认只读检查所有 LOD 分段是否启用碰撞及复杂度。显式开启修改时要求编辑权限，启用各分段碰撞、双面几何和 ComplexAsSimple 并重建网格，不自动保存。适用于不模拟自身物理的静态地表；修改后必须通过实际角色落地验证，不能仅以编辑器射线命中判定通过。
 
-`spawn_static_mesh_batch(expected_level, items_json)` 在校验关卡、编辑权限、全量输入变换、网格与唯一标签后创建最多400个独立静态网格演员。可选material、folder和collision，输入包含完整location/rotation/scale，不自动保存关卡。中途错误需按已返回/日志中的标签核对，禁止盲目重放。
+`spawn_static_mesh_batch(expected_level, items)` 在校验关卡、编辑权限、全量输入变换、网格与唯一标签后创建最多400个独立静态网格演员。可选material、folder和collision，输入包含完整location/rotation/scale，不自动保存关卡。中途错误需按已返回/日志中的标签核对，禁止盲目重放。
 
 `remove_scene_mesh_actors(expected_level, actor_paths, dry_run=True)` 只接受最多5000个明确对象路径；先用dry_run预览，再对同一列表执行。仅删除StaticMeshActor与TextRenderActor，其它Actor保留并报告，拒绝PIE、错误世界与无编辑权限。不删除网格资产，不自动保存关卡。
 
-`create_static_mesh_points_graph(graph_path, mesh_path, points_json, collision=False)` 创建一个 CreatePoints 到 StaticMeshSpawner 的可编辑图。点列表每项包含 `location`、`rotation`、`scale` 三元数组，分别为世界厘米坐标、Pitch/Yaw/Roll 角度和正缩放。每图限制 1–12000 点，拒绝 PIE、非有限数值、无效网格及已有图覆盖，成功保存后日志报告点数。默认关闭实例碰撞，需阻挡的组显式开启。
+`create_static_mesh_points_graph(graph_path, mesh_path, points, collision=False)` 创建一个 CreatePoints 到 StaticMeshSpawner 的可编辑图。点列表每项包含 `location`、`rotation`、`scale` 三元数组，分别为世界厘米坐标、Pitch/Yaw/Roll 角度和正缩放。每图限制 1–12000 点，拒绝 PIE、非有限数值、无效网格及已有图覆盖，成功保存后日志报告点数。默认关闭实例碰撞，需阻挡的组显式开启。
 
 使用已有 `generate_and_inspect_pcg` 在目标关卡的 PCG Actor 生成并回读实际实例数。输入点应提前完成地形贴合与道路/建筑避让；本工具不自行推断落点，不把点数当作视觉或性能验收。修改图后不得盲目重复生成，先检查生成状态。
 
-点集较大时 `points_json` 可传入 `{"file":"<项目内布局 JSON 的绝对路径>","group":"<分组名>"}` 读取该文件的 `pcg_groups` 中对应分组. 尖括号内容需替换为本任务的实际输入. 文件必须是实际项目目录内的 JSON 不接受外部路径. 旋转数组始终按 Pitch Yaw Roll 解释 内部显式使用命名参数 禁止依赖 Unreal Python 构造器的位置参数顺序. 场景布置后应通过官方 ActorTools 回读至少一个非零角度对象 避免静态输入正确但实际轴错误.
+点集较大时 `points` 可传入 `{"file":"<项目内布局 JSON 的绝对路径>","group":"<分组名>"}` 读取该文件的 `pcg_groups` 中对应分组. 尖括号内容需替换为本任务的实际输入. 文件必须是实际项目目录内的 JSON 不接受外部路径. 旋转数组始终按 Pitch Yaw Roll 解释 内部显式使用命名参数 禁止依赖 Unreal Python 构造器的位置参数顺序. 场景布置后应通过官方 ActorTools 回读至少一个非零角度对象 避免静态输入正确但实际轴错误.
 
 `remove_empty_animation_notify_track(asset_path, track_name)` 支持动画序列和蒙太奇 只删除已清空的指定通知轨道
 工具拒绝 PIE 未独占签出 非动画资产 不存在的轨道和仍含事件的轨道 成功后保存并返回完整通知列表
@@ -290,7 +292,7 @@ UE5.8 以 `DefaultKeyMappings` 为实际映射来源 工具调用引擎的 `unma
 
 ### 网格实物缩略图
 
-`render_asset_thumbnails(requests_json)` 接收显式列表 每项为 `source` 网格包路径 `destination` 纹理包路径以及可选 `yaw` 观察方向 默认七十五度 一次最多一百项
+`render_asset_thumbnails(requests)` 接收显式列表 每项为 `source` 网格包路径 `destination` 纹理包路径以及可选 `yaw` 观察方向 默认七十五度 一次最多一百项
 
 工具由 `BBBAssetThumbnailEditorLibrary` 在临时独立场景按真实顶点边界生成 512 方形 PNG 再导入普通 UI Texture2D 每项立即保存 已有目标必须独占签出成功 失败项明确返回 不修改源网格或当前关卡 需要启用渲染的宿主 不支持 NullRHI 组合预设需另行提供实际组合网格
 
@@ -323,7 +325,7 @@ UE5.8 以 `DefaultKeyMappings` 为实际映射来源 工具调用引擎的 `unma
 - 网格缩略图请求支持 excluded_material_slots 与 output_directory 排除非物品表面 输出到 Saved/temp 对应任务目录。
 - `render_mesh_silhouettes` 请求可选 `line_art=true` 输出正交白色边缘线稿和微弱内部填充，尺寸为 512×512；不显示排除材质所属的人体表面。
 - `render_asset_thumbnails` 请求可选 `orthographic=true` 使用无俯视的正交视角，以 `yaw` 明确物品正面方向，避免透视歪斜。
-- `rebind_asset_import_sources(requests_json)` 将指定资产的第一个导入源文件绑定到项目 Content 内的永久文件，保留资产内容、逐项签出保存，用于清理临时生成目录前固定重导入来源。
+- `rebind_asset_import_sources(requests)` 将指定资产的第一个导入源文件绑定到项目 Content 内的永久文件，保留资产内容、逐项签出保存，用于清理临时生成目录前固定重导入来源。
 - 图标和详情成图的 `mesh` 或 `source` 可用分号连接最多八个骨骼网格，组合物品按同一正面方向平放排开；不创建合并模型或第二份物品。
 - 隐藏官方宿主启动脚本可选 `-EnableSlateInspector` 启用官方 Slate 树观察、按键、拖动和截图工具；视觉测试须同时启用 `-EnableRendering`，仍只允许一个可写宿主。
 `render_asset_thumbnails` 的正交输出按非透明网格边界裁切并保留 12 像素留白 保持网格比例与水平观察方向 便于直接用于详情图。
@@ -334,7 +336,7 @@ PIE 反射调用中的 Guid 返回值按标准字符串序列化 位置参数可
 
 ### 物品详情与轮廓清晰度
 
-`spawn_configured_pie_actor(class_path, world_path, properties_json, location)` 只在明确的当前 PIE 世界中延迟生成演员 配置完成后才执行构造与 BeginPlay 不修改类默认对象或关卡资产 引用及引用数组使用 `refPath` 属性写入或完成生成失败时销毁本次演员 不会代替调用者判断后续行为是否成立。
+`spawn_configured_pie_actor(class_path, world_path, properties, location)` 只在明确的当前 PIE 世界中延迟生成演员 配置完成后才执行构造与 BeginPlay 不修改类默认对象或关卡资产 引用及引用数组使用 `refPath` 属性写入或完成生成失败时销毁本次演员 不会代替调用者判断后续行为是否成立。
 
 此入口使用 `BBBBlueprintEditorLibrary.BeginTransientPIEActor` 与 `FinishTransientPIEActor` 的编辑器专用原生桥接 不依赖未暴露到 UE Python 的 GameplayStatics 内部生成函数 创建对象带有 Transient 标记 不会进入关卡保存。
 

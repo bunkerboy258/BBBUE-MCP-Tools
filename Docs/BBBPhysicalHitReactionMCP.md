@@ -1,5 +1,7 @@
 # 骨骼物理受击工具
 
+公开批次默认完成本批次范围的验证、保存与回读。分阶段预览或人工检查时传 `completion="review"`。下文函数级保存行为描述对应领域实现；公开调用的完成策略以批次参数为准。
+
 `BBBHitReactionToolset` 通过官方工具注册表加载 依赖项目原生 `BBBHitReactionEditorLibrary` 和 ProcHitReact
 
 - `configure_hit_reaction_physics_asset` 为独占签出的自有物理资产配置 `BBBHitReact` 恢复驱动 关节限制和无重力刚体 调用后显式保存
@@ -19,7 +21,7 @@
 ### 封闭断肢资源
 
 - `create_zombie_sealed_part_meshes(source_mesh_path root_bone output_folder rebuild_existing=False)` 只读源网格 根据断开骨骼的权重提取部件 验证切口闭环 生成封闭掉落部件和身体断口封盖 默认拒绝已有输出 显式重建要求同名部件与封口完整存在且已独占签出 原地重建不备份旧版本 不自动保存
-- `configure_monster_severing_parts(definition_path parts_json)` 要求正式配置独占签出 五个部位完整对应头部 左右上臂和左右大腿 每项包含 `region bone part cap` 不自动保存
+- `configure_monster_severing_parts(definition_path parts)` 要求正式配置独占签出 五个部位完整对应头部 左右上臂和左右大腿 每项包含 `region bone part cap` 不自动保存
 
 - `BBBAnimationPreviewToolset.capture_monster_hit_scene` 可显式传入 `damage` 与 `sample_seconds` 使用真实 Mass 碰撞和公开伤害输入检查断口 爬行与尸体落地 零伤害默认模式不变 正伤害不是直接改写 Fragment 采样时间必须为 0.12 至 3 秒 图像写入本任务 Saved/temp 完成后清理
 - 运行时断肢仅还原 Mass 损毁位图 掉落部件全局最多二十四个 八秒回收 不新增逐实例逻辑更新 池化复用时恢复骨骼并清除自有部件 身体断口和衣物接缝必须用实际画面验收

@@ -219,7 +219,7 @@ function global:Invoke-WebRequest
     if ($request.id -eq 3)
     {
         Assert-StartupTest ($request.params.arguments.toolset_name -eq 'PythonTypes.BBBMcpRuntimeToolset_0x1234ABCD') '未使用实际发现的带哈希名称'
-        Assert-StartupTest ($request.params.arguments.tool_name -eq 'inspect_mcp_performance') '未回读性能状态'
+        Assert-StartupTest ($request.params.arguments.tool_name -eq 'inspect_mcp_resources') '未回读性能状态'
         $performance = @{
             process_id = 987654
             profile = $global:bbbStartupTest.Profile
@@ -332,7 +332,7 @@ function Invoke-StartupFailureTest
 }
 
 $cases = @(
-    @{ Input = 'Speed'; Profile = 'Speed'; FPS = 120; Priority = 'Normal'; Extra = @{} },
+    @{ Input = 'HighThroughput'; Profile = 'HighThroughput'; FPS = 120; Priority = 'Normal'; Extra = @{} },
     @{ Input = 'Balanced'; Profile = 'Balanced'; FPS = 60; Priority = 'Normal'; Extra = @{} },
     @{ Input = 'Economy'; Profile = 'Economy'; FPS = 30; Priority = 'BelowNormal'; Extra = @{} },
     @{ Input = 'GamingBackground'; Profile = 'GamingBackground'; FPS = 15; Priority = 'BelowNormal'; Extra = @{} },
@@ -359,7 +359,7 @@ foreach ($case in $cases)
     Assert-StartupTest (($global:bbbStartupTest.Arguments -contains '-NullRHI') -ne [bool]$extra['EnableRendering']) '无渲染模式不匹配'
 }
 
-New-StartupTestState 'Speed' 120 'Normal'
+New-StartupTestState 'HighThroughput' 120 'Normal'
 $global:bbbStartupTest.Editors = @([pscustomobject]@{ ProcessId = 987654; ExecutablePath = $testEditorPath; CommandLine = "$testProjectPath -ModelContextProtocolStartServer" })
 Invoke-StartupFailureTest '未使用共享保护入口'
 Assert-StartupTest (-not $global:bbbStartupTest.Started -and -not $global:bbbStartupTest.Stopped) '不匹配宿主不得启动或终止'
@@ -370,17 +370,17 @@ Invoke-StartupFailureTest '宿主性能档位与请求不一致'
 Assert-StartupTest (-not $global:bbbStartupTest.Started -and -not $global:bbbStartupTest.Stopped) '已有宿主的档位不匹配不得启动或终止'
 Assert-StartupTest ($global:bbbStartupTest.DeletedSessions -eq 1) '失败测试会话未释放'
 
-New-StartupTestState 'Speed' 120 'Normal'
+New-StartupTestState 'HighThroughput' 120 'Normal'
 $global:bbbStartupTest.EarlyExit = $true
 Invoke-StartupFailureTest '在就绪前退出'
 Assert-StartupTest $global:bbbStartupTest.Stopped '失败时必须清理自己创建的宿主'
 
-New-StartupTestState 'Speed' 120 'Normal'
+New-StartupTestState 'HighThroughput' 120 'Normal'
 $global:bbbStartupTest.PortOccupied = $true
 Invoke-StartupFailureTest '被其他进程占用'
 Assert-StartupTest (-not $global:bbbStartupTest.Started -and -not $global:bbbStartupTest.Stopped) '端口冲突不得操作进程'
 
-New-StartupTestState 'Speed' 120 'Normal'
+New-StartupTestState 'HighThroughput' 120 'Normal'
 $foreignEditor = [pscustomobject]@{ ProcessId = 123456; ExecutablePath = $testEditorPath; CommandLine = "$testProjectPath -ModelContextProtocolStartServer -ModelContextProtocolPort=19000 -BBBProtectedMcpPort=8000" }
 $global:bbbStartupTest.Editors = @($foreignEditor, $foreignEditor)
 Invoke-StartupFailureTest '多个 Unreal Editor'
@@ -392,14 +392,14 @@ $global:bbbStartupTest.Editors = @($foreignEditor)
 Invoke-StartupFailureTest '请复用 http://127.0.0.1:8000/mcp'
 Assert-StartupTest (-not $global:bbbStartupTest.Started -and -not $global:bbbStartupTest.Stopped) '其他端口的原项目宿主需要复用'
 
-New-StartupTestState 'Speed' 120 'Normal'
+New-StartupTestState 'HighThroughput' 120 'Normal'
 $global:bbbStartupTest.PublicPort = 8010
 $ownEditor = [pscustomobject]@{ ProcessId = 987654; ExecutablePath = $testEditorPath; CommandLine = "$testProjectPath -ModelContextProtocolStartServer -NullRHI -RenderOffscreen -NoSound -ModelContextProtocolPort=18000 -BBBProtectedMcpPort=8010 -BBBProtectedMcpKey=12345678901234567890123456789012" }
 $global:bbbStartupTest.Editors = @($ownEditor)
 $result = & $startupScript -ProjectPath $testProjectPath -EnginePath $testEnginePath -BackendPort 18000 -Port 8010 -TimeoutSeconds 3 | ConvertFrom-Json
 Assert-StartupTest ($result.Status -eq 'Ready' -and -not $global:bbbStartupTest.Started -and -not $global:bbbStartupTest.Stopped) '同端口独立宿主应复用而非重启'
 
-New-StartupTestState 'Speed' 120 'Normal'
+New-StartupTestState 'HighThroughput' 120 'Normal'
 $global:bbbStartupTest.PublicPort = 8010
 $global:bbbStartupTest.Editors = @($foreignEditor, $ownEditor)
 Invoke-StartupFailureTest '多个 Unreal Editor'

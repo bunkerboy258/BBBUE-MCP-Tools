@@ -15,7 +15,7 @@
 
 `sample_pie_traversal(include_ik_curves: true)` 同时读取主实例与当前 Rifle 或 Unarmed 链接层曲线 蒙太奇位置 左手目标有效性和原图权重因子 calculatedLeftInputAlpha 与 calculatedAimInputAlpha 仅是按现有公式计算的输入权重 并非节点内部 ActualAlpha 诊断读取运行在编辑器主线程 不作为动画工作线程 API
 
-`windows_json` 每条动画对应一个窗口数组。字段为 `start`、`end`、`target`，可选 `bone`、`rotation`、`subtract_remaining`。接触骨骼窗口通常设置 `rotation: false`，避免骨骼朝向改变角色整体朝向；最终落点窗口可设置 `subtract_remaining: true`，将窗口后的剩余根运动计入落点。这里的骨骼 Warp Point 用于根运动目标换算，不代表已实现手部贴面 IK。
+`windows` 每条动画对应一个窗口数组。字段为 `start`、`end`、`target`，可选 `bone`、`rotation`、`subtract_remaining`。接触骨骼窗口通常设置 `rotation: false`，避免骨骼朝向改变角色整体朝向；最终落点窗口可设置 `subtract_remaining: true`，将窗口后的剩余根运动计入落点。这里的骨骼 Warp Point 用于根运动目标换算，不代表已实现手部贴面 IK。
 
 推荐基础验收为 150cm 薄障碍跨越 150cm 深平台攀爬 200cm 深平台攀爬 100cm 低障碍普通跳跃 顶部受阻回退 无障碍跳跃 动作完成后持续移动和动作期间障碍销毁 当前触发最低高度由角色配置决定 不增加普通跳跃可通过性的程序判断 NullRHI 可验收流程和位置数据 不能替代手部接触等视觉验收 工具不会修改输入配置或绕过项目输入管线
 
@@ -58,7 +58,7 @@ Perforce 用于版本管理而非限制正常编辑 受控资产仍检查他人�
 截图会引入渲染开销 平滑度应结合无截图时的实际帧时与位置采样判断
 
 `inspect_pie_traversal_contact_points` 使用已初始化 PIE 角色的完整骨骼容器只读采样接触窗口末尾的左手组件空间位置
-停止 PIE 后将其 `contacts` 数组传入 `configure_traversal_contact_points` 的 `points_json`
+停止 PIE 后将其 `contacts` 数组传入 `configure_traversal_contact_points` 的 `points`
 先 `dry_run` 核对再保存 已有自有蒙太奇必须独占签出 不改源序列与窗口时间
 接触点采用无额外旋转的动画空间 Static Warp Point 最终落点仍使用原来的脚底空间目标
 用于精确配置当前角色骨架 不修改引擎 也不新增运行时骨骼采样或手部 IK

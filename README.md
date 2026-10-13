@@ -1,155 +1,74 @@
 # BBBUE MCP Tools
 
-更新 2026-10-13: `control_rig.configure_sequence_animation_source` 原位替换唯一角色源动作 按源长度同步播放区间和原全长轨道 保留已有控制器及局部附件区间 适用于切换矫正动作基底 随后须重新写入源姿势控制器并烘焙回读
+UE5.8 编辑器操作与任务调度。AI 使用五个入口；工具契约按当前目标读取。
 
-更新 2026-10-13: `animation.sample_weapon_handling_runtime` 的 `equip` 通过玩家公开物品 API 查找稳定物品身份 每次只提交当前事实所需的一步 `injected` 表示已请求入包 `move_submitted` 表示已请求移入首个快捷格 `select_submitted` 表示快捷格已有目标并已请求选择 等待游戏更新后再次调用 返回 `equipped` 才证明实际手持目标类型 不依赖同帧包处理顺序 不直接写入背包或装备状态
+## 调用
 
-更新 2026-10-13: `preview.capture_animation_views` 在截图证据中记录现成原生整帧 GPU/游戏线程/渲染线程计时；使用网格变形器时在首个同姿势同相机视角比较临时组件关闭变形器与资产默认变形器，各预热 12 帧并采样 32 帧。仅更改自有临时组件，不改资产或全局渲染设置。无原生接口或 GPU 计时为零时明确返回空值；这些是包含诊断 SceneCapture 的整帧数据，不能当作角色独占 GPU 成本。独立测试批次须等待上一异步截图批次完成再提交下一批，避免交叉采样。
-
-更新 2026-10-13: 失败批次的所有者可以使用 `editor.reload_assets_from_disk` 收尾 明确传入完全相同的 `asset_paths` 与 `discard_dirty_packages` 并设置 `dry_run=false` 仅允许处理原批次范围内的包 其他客户端仍不得重载该批次的脏包 重载不保存磁盘资产 收尾后仍须复核确认关闭失败批次
-
-更新 2026-10-12: 僵尸踉跄构图使用 `animation_graph.configure_fact_body_stagger_state` 干净替换旧三分支入口 重建头部 左臂 右臂 左腿 右腿五分支 保留现有行为转换链 完整原片时长与子弹踉跄值规则见 `Docs/BBBZombieStaggerMCP.md`。
-
-UE5.8 编辑器工具。多个 AI 客户端共用原项目的资产编辑宿主，测试批次按需使用独立宿主。通过五个接口发现工具、提交批次和读取结果。
-
-## 使用顺序
-
-1. `inspect_tasks` 查看宿主、占用者和可执行工作。
-2. `find_tools` 搜索当前目标，最多返回八项。
-3. `describe_tool` 读取选中工具的参数。
-4. `submit_batch` 提交有序操作，立即取得 `batch`。
-5. `inspect_tasks(batch=..., detail=true)` 读取结果；完成后 `control_task(action="close", batch=...)`。
-
-工具 ID 使用 `领域.函数`，例如 `blueprint.inspect_blueprint_graph`。参数、权限和世界约束以实际描述为准。
-
-## 启动
-
-需要 Windows、UE5.8、项目编辑器模块、Python 和 `requests`。项目的 `Content/Python/init_unreal.py` 加载 `Scripts/BBBMcpBootstrap.py`。
-
-```powershell
-$hostInfo = & .\Scripts\MCP\Start-UE58OfficialMcpEditor.ps1 `
-    -ProjectPath '<项目的 uproject 绝对路径>' `
-    -EnginePath '<UE5.8 根目录>' `
-    -Port <公开端口>
-$env:BBB_MCP_URL = $hostInfo.Endpoint
-```
-
-启动器核对原项目宿主与网关，已有匹配宿主时复用。默认隐藏 NullRHI；截图使用 `-EnableRendering`，音频使用 `-EnableAudio`，混音验收可同时使用 `-MuteAudioOutput`。
-
-## Python 客户端
-
-在 Python 模块搜索路径中加入本仓库 `Scripts`。
+- 已知工具：直接 `submit_batch`。
+- 新目标：`find_tools(query)` 返回最多三项，首项附带参数、默认值和完成条件。
+- 参数细节：`describe_tool(tool)`。
+- 短调用：提交响应包含结果和证据。
+- 长调用：按响应的 `batch`、`revision`、`next` 继续。
 
 ```python
 from MCP.mcp_call import McpSession
 
 with McpSession() as session:
-    state = session.inspect_tasks()
-    candidates = session.find_tools("inspect_dirty_packages")
-    tool = candidates[0]["id"]
-    session.describe_tool(tool)
-    batch = session.submit_batch(
-        [{"tool": tool, "arguments": {}}],
-        label="读取待保存包",
-    )["batch"]
-    result = session.wait_batch(batch)
+    result = session.submit_batch([
+        {"tool": "editor.inspect_dirty_packages", "arguments": {}}
+    ])
+    if result["status"] in {"queued", "running"}:
+        result = session.wait_batch(result["batch"])
     print(result)
-    session.control_task("close", batch)
 ```
 
-`BBB_MCP_URL` 来自启动器。长连接自动维护归属和心跳。重连使用原 `client_key`，由连接层私有保管。
+`BBB_MCP_URL` 由启动器返回。连接层维护客户端归属、心跳和请求重放。
 
-命令行跨进程操作使用当前客户端专属 `--client-state` 文件。文件放在本任务临时目录，连接与批次完成后按项目清理规则处理。
+## 编辑与测试
 
-```powershell
-python -B .\Scripts\MCP\mcp_call.py inspect_tasks '{}'
-```
+编辑批次默认 `completion="save"`，按声明范围完成验证、保存与回读。分阶段保留改动使用 `completion="review"`。参数使用对象、数组和路径字符串；源控检查维护真实资产归属。
 
-## 调度
-
-- 同步 UE 调用顺序执行；批次最多十六项。
-- 异步活动等待期间让出执行槽，只读批次可继续。
-- PIE 归发起客户端维护；其他客户端可查询并排队，前一轮结束后启动下一轮。
-- `environment="test"` 在原项目启动受限测试宿主；默认最多两组测试并行，编辑宿主继续工作。
-- `test_options` 指定已保存地图，可选择渲染、音频、玩家数量与网络模式。
-- 测试结果记录地图依赖、显式输入和代码配置的文件版本；输入变化时标记 `TEST_INPUT_CHANGED`。
-- 首次测试返回 `test_host`。PIE 与采样活动期间，后续批次使用该身份继续操作；测试流程结束后回收宿主。交付输出后关闭首次批次，清理对应任务目录。
-- 明确目标包的编辑按范围核对；场景与范围待定操作核对完整基线。
-- 已完成范围、失败证据和待保存包进入 `review`；所属客户端回读、处理后确认。
-- 业务状态变化更新 `revision`，客户端可按版本等待。
-- 全部批次、PIE、活动和待保存内容完成后，通过 `control_task(action="shutdown_host")` 退出宿主。
+测试使用原项目的已保存资产：
 
 ```python
-batch = session.submit_batch(
+result = session.submit_batch(
     operations,
-    label="玩法测试",
     environment="test",
-    test_options={"map": "/Game/_Project/Maps/TestMap"},
-)["batch"]
-result = session.wait_batch(batch)
+    test_options={"map": "/Game/Maps/Acceptance"},
+)
 ```
 
-## 验证与源码
+首次测试返回 `test_host`，后续批次携带该身份继续。默认容量两组；测试输出交付后使用 `control_task(action="close", batch=...)` 清理所属目录。共享宿主在任务、活动与资产交接完成后使用 `shutdown_host` 退出。
 
-- [调用契约](Docs/UnrealMcpCanonical.md)
+## 启动
+
+环境：Windows、UE5.8、接入项目的编辑器模块、Python 与 `requests`。
+
+```powershell
+$hostInfo = & .\Scripts\MCP\Start-UE58OfficialMcpEditor.ps1 `
+    -ProjectPath '<uproject 绝对路径>' `
+    -EnginePath '<UE5.8 根目录>' `
+    -PerformanceProfile Economy
+$env:BBB_MCP_URL = $hostInfo.Endpoint
+```
+
+默认资源档位 `Economy`：30 FPS、低优先级。渲染与音频通过启动参数选择。
+
+## 验收与维护
+
+- [公开契约](Docs/UnrealMcpCanonical.md)
 - [调度与恢复](Docs/BBBMcpTaskProtection.md)
 - [项目依赖](Docs/ProjectDependencies.md)
 - [第三方来源](Docs/BBBExternalMcp.md)
 
 ```powershell
 python -B -m unittest discover -s Tests -p 'test_mcp*.py'
-powershell -NoProfile -File Tests/Test-Startup.ps1
-python -B Tests/verify_live_mcp.py --url $hostInfo.Endpoint --project-root '<项目根目录>'
-python -B Tests/verify_mcp_task_protection.py --url $hostInfo.Endpoint --project-root '<项目根目录>' --run-pie
-python -B Tests/verify_mcp_parallel_tests.py --url $hostInfo.Endpoint --project-root '<项目根目录>'
+python -B Tests/benchmark_mcp_workflows.py --report '<本任务目录>/discovery.json'
+python -B Tests/verify_mcp_workflows.py --url $hostInfo.Endpoint --project-root '<项目根>' --task-directory '<本任务新目录>'
 ```
 
-真实 PIE 验收使用专用空闲窗口。领域参数的复杂 JSON 结构保存在对应专用文档，按目标读取。
+## 更新
 
-## 更新日志
+2026-10-13：统一连接登记与恢复存储、结构化契约、三项工具发现、短调用结果、按批次等待和验证保存。蓝图读取提供总览、逻辑与几何视图；资源配置使用 `runtime.configure_mcp_resources`。
 
-- 2026-10-13：新增只读 `editor.inspect_skeletal_mesh_skinning`，通过官方临时 modifier 读取网格实际父空间参考姿势和完整 LOD0 源顶点权重。拒绝 dirty 目标，缺插件明确不可用，不编辑、归一化、提交或保存；使用边界见 `Docs/BBBGenericEditorMCP.md`。
-
-- 2026-10-13：新增只读 `editor.inspect_material_statistics`，读取明确材质的代表着色器指令、采样与插值统计。NullRHI 或不完整结果明确不可用，不作为零成本；读取可能等待引擎着色器编译。使用边界见 `Docs/BBBGenericEditorMCP.md`。
-
-2026-10-12：补齐常用编辑工具的目标范围，单资产维护按相关包检查待保存内容。目录范围覆盖子包并保留路径边界。批次仅因待保存资产进入核实时，保存回读通过后自动完成并交接；失败现场继续按原批次核实。等待结果提供相关包、占用批次与下一步。
-
-- 2026-10-12 `hit.normalize_zombie_gib_material_bindings` 核对姿态断肢的源多边形组 实际分段索引与继承覆盖 显式应用时按源分组名称重建材质绑定并清除覆盖 不保存 需随后回读和保存明确资产
-
-- 2026-10-12 持枪与相机连线生成工具增加下蹲倍率 只读角色实际下蹲快照 先选择腰射或瞄准再乘空中与下蹲倍率 保持镜头角度上限和纵向保留比例不变
-
-- 2026-10-12: `rigid.inspect_static_mesh_geometry` 核对源顶点与实际渲染包围盒的有限性 快速构建标记和简单碰撞数量 用于定位加载后包围盒与源几何不一致 不修改资产
-- 2026-10-12: 相机持枪配置构图读取当前姿态的纵向保留比例 不受空中冲量与回零倍率改变 用于分别控制镜头持续爬升和自动回落部分
-
-- 2026-10-12: `animation.sample_weapon_handling_runtime` 同帧记录控制视角 实际镜头 FOV 物理 BBBMuzzle 插槽方向 AimIK 目标方向 动画层偏移 生命比例 IK 权重和待机小动作状态 输出 35 列轨迹 用于区分后坐力 镜头跟随 近处射线落点与姿势切换造成的实际准星变化 缺失枪口保留空值 不修改玩法或资产
-
-- 2026-10-11：角色连续循环构图入口 `animation_graph.configure_character_continuous_locomotion` 从装备层已有动画与角色移动配置生成站立、跑步和蹲伏速度混合，仅更新基础继承层 Cycle 和主状态机的急转最低速度规则，保持主 AnimGraph 姿势组合。测试网关允许取消已经路由但尚未执行的自有测试批次，取消权限仍由原调度队列核验。
-
-- 2026-10-11：`animation.start_pie_character_motion_capture` 与状态查询工具提供正式角色图的跨帧骨骼和截图观察；采样不修改输入、姿势、时钟或源资产，可与同宿主真实输入序列同时执行。
-
-### 2026-10-11
-
-碎肢只读诊断新增刚体位置 线速度 角速度 重力与质量. 玩家武器跨帧采样可显式启用碎肢诊断 验证实际抛飞 碰撞与落地残留 不改变玩法或物理状态.
-
-后坐力镜头图表移除暂停回正设置 配合持续平滑回正。持枪运行采样新增实际枪口准星屏幕坐标和视口尺寸 直接读取项目 HUD 查询用于验证连射稳定性。
-
-持枪采样作为只读观察活动 不阻塞同批次的输入序列 允许先开始采样 再执行开火 最后读取结果。
-
-渲染测试宿主的启动等待上限改为十五分钟 容纳隔离缓存的首次着色器编译 无渲染宿主保持三分钟 超时仍回收所属进程。
-
-统一五个公开接口、稳定工具 ID 和服务端批次调度。连接层维护归属，异步活动按实际完成证据续跑；占用查询按需展开，工具契约按目标加载。工具注册统一由 Bootstrap 完成。
-
-宿主 Law 改为共享资产编辑与按需测试。测试直接读取原项目，采用 Windows 受限令牌、独立输出、端口和资产版本核验；支持两个测试批次并行，交付关闭后清理所属输出。
-
-PowerShell 文件保留 UTF-8 BOM，Windows PowerShell 正确显示中文状态与错误。
-
-僵尸共享命中血效重建改为十六个方向血滴、两张小尺寸喷溅和一张低透明度血雾，使用可见持续时间及年龄淡出，具体参数见命中反馈文档。
-
-### 领域工具
-
-- [通用编辑器](Docs/BBBGenericEditorMCP.md)：资产读取、动画通知、实例缩略图和编辑操作。
-- [命中反馈](Docs/BBBHitReactionMCP.md)：玩法采样与实际角色表现检查。
-
-本次同步保留领域更新：相机后坐力回正延迟、动画通知实例索引、运行时材质缩略图。
-
-2026-10-11: 工具世界分类按完整 PIE 单词识别 修复 copies 被误判为运行世界的错误 资产副本合并继续遵守编辑器写入预检与批次归属。
+更新 2026-10-13: `control_rig.configure_sequence_animation_source` 原位替换唯一角色源动作 按源长度同步播放区间和原全长轨道 保留已有控制器及局部附件区间 适用于切换矫正动作基底 随后须重新写入源姿势控制器并烘焙回读

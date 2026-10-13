@@ -10,6 +10,98 @@ from editor_toolset.toolsets.blueprint import BlueprintTools
 from editor_toolset.toolsets import blueprint_dsl
 
 
+
+
+MCP_INPUTS = {
+    'set_blueprint_node_positions': {
+        'positions_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {
+                    'nodeGuid': {'type': 'string'},
+                    'x': {'type': 'integer', 'minimum': -100000, 'maximum': 100000},
+                    'y': {'type': 'integer', 'minimum': -100000, 'maximum': 100000},
+                },
+                'required': ['nodeGuid', 'x', 'y'],
+                'additionalProperties': False,
+            },
+            'minItems': 1,
+            'maxItems': 512,
+        },
+    },
+    'edit_blueprint_graph_comments': {
+        'request_json': {
+            'type': 'object',
+            'properties': {
+                'expectedSnapshot': {'type': 'string'},
+                'removeComments': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'object',
+                        'properties': {'nodeGuid': {'type': 'string'}, 'expectedText': {'type': 'string'}},
+                        'required': ['nodeGuid', 'expectedText'],
+                        'additionalProperties': False,
+                    },
+                    'minItems': 0,
+                    'maxItems': 512,
+                },
+                'nodeComments': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'object',
+                        'properties': {'nodeGuid': {'type': 'string'}, 'expectedText': {'type': 'string'}, 'text': {'type': 'string'}},
+                        'required': ['nodeGuid', 'expectedText', 'text'],
+                        'additionalProperties': False,
+                    },
+                    'minItems': 0,
+                    'maxItems': 512,
+                },
+            },
+            'required': ['expectedSnapshot', 'removeComments', 'nodeComments'],
+            'additionalProperties': False,
+        },
+    },
+    'annotate_blueprint_graph': {
+        'annotations_json': {
+            'type': 'object',
+            'properties': {
+                'expectedSnapshot': {'type': 'string'},
+                'blocks': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'object',
+                        'properties': {
+                            'title': {'type': 'string'},
+                            'description': {'type': 'string'},
+                            'members': {'type': 'array', 'items': {'type': 'string'}, 'minItems': 1},
+                        },
+                        'required': ['title', 'description', 'members'],
+                        'additionalProperties': False,
+                    },
+                    'minItems': 0,
+                    'maxItems': 64,
+                },
+                'nodeComments': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'object',
+                        'properties': {'nodeGuid': {'type': 'string'}, 'text': {'type': 'string', 'maxLength': 2048}},
+                        'required': ['nodeGuid', 'text'],
+                        'additionalProperties': False,
+                    },
+                    'minItems': 0,
+                    'maxItems': 512,
+                },
+            },
+            'required': ['expectedSnapshot', 'blocks', 'nodeComments'],
+            'additionalProperties': False,
+        },
+    },
+    'write_graph': {'node_aliases_json': {'$ref': '#/$defs/StringMap'}, 'pin_aliases_json': {'$ref': '#/$defs/StringMap'}},
+}
+
+
 def _annotation_documentation(method):
     """
     /**
@@ -197,8 +289,8 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
         if unreal.BlueprintEditorLibrary.find_graph(blueprint, alpha_function) is not None:
             raise RuntimeError("新权重函数已存在 不重复迁移")
 
-        before = json.loads(BBBBlueprintGraphToolset.inspect_blueprint_graph_logic(graph.get_path_name()))
-        main_before = json.loads(BBBBlueprintGraphToolset.inspect_blueprint_graph_logic(main_graph.get_path_name()))
+        before = json.loads(BBBBlueprintGraphToolset._graph_snapshot(graph.get_path_name()))
+        main_before = json.loads(BBBBlueprintGraphToolset._graph_snapshot(main_graph.get_path_name()))
         if not expected_snapshot or before["snapshot"] != expected_snapshot:
             raise RuntimeError("函数快照已变化 请重新读取")
 
@@ -293,7 +385,7 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
             connect(new_caller.find_output_pin("ReturnValue"), node.find_input_pin("Alpha"))
             BlueprintTools.compile_blueprint(blueprint, True)
 
-        after = json.loads(BBBBlueprintGraphToolset.inspect_blueprint_graph_logic(main_graph.get_path_name()))
+        after = json.loads(BBBBlueprintGraphToolset._graph_snapshot(main_graph.get_path_name()))
         preserved_before = {item["guid"]: item for item in main_before["nodes"] if item["guid"] not in {rig["guid"], callers[0]["guid"]}}
         preserved_after = {item["guid"]: item for item in after["nodes"] if item["guid"] in preserved_before}
         if preserved_before != preserved_after or len(after["nodes"]) != len(main_before["nodes"]):
@@ -362,26 +454,6 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
         result["saved"] = True
         return json.dumps(result, ensure_ascii=False)
 
-    @mcp_tool
-    @staticmethod
-    def invoke_pie_object_function(object_path: str, function_name: str, arguments_json: str) -> str:
-        """调用当前 PIE 对象的反射函数 拒绝编辑器资产与默认对象"""
-        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
-        instance = unreal.find_object(None, object_path)
-        if world is None or instance is None:
-            raise RuntimeError("PIE 或目标对象不存在")
-
-        owner = instance
-        while owner is not None and owner.get_world() != world:
-            owner = owner.get_outer()
-        if owner is None:
-            raise RuntimeError("目标对象及其所有者不属于当前 PIE")
-
-        arguments = json.loads(arguments_json)
-        if not isinstance(arguments, list):
-            raise RuntimeError("参数必须为 JSON 位置参数数组")
-        result = instance.call_method(function_name, tuple(arguments))
-        return json.dumps({"object": object_path, "function": function_name, "result": result}, default=str, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod
@@ -549,7 +621,7 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
          * @return 回读通过的节点坐标 尚未编译保存
          */
         """
-        before = json.loads(BBBBlueprintGraphToolset.inspect_blueprint_graph_logic(graph_path))
+        before = json.loads(BBBBlueprintGraphToolset._graph_snapshot(graph_path))
         if before["snapshot"] != expected_snapshot:
             raise RuntimeError("图表快照已变化 请重新读取")
         requests = json.loads(positions_json)
@@ -572,7 +644,7 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
         require_write_access(graph)
         if not unreal.BBBBlueprintEditorLibrary.set_blueprint_graph_node_positions(graph, nodes, positions):
             raise RuntimeError("原生节点移动失败 不保存")
-        after = json.loads(BBBBlueprintGraphToolset.inspect_blueprint_graph_logic(graph_path))
+        after = json.loads(BBBBlueprintGraphToolset._graph_snapshot(graph_path))
         if before["logicSignature"] != after["logicSignature"]:
             raise RuntimeError("移动后逻辑发生变化 不保存")
         current = {node["guid"]: node for node in after["nodes"]}
@@ -580,10 +652,9 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
             raise RuntimeError("移动坐标回读不符 不保存")
         return json.dumps({"graph": graph_path, "moved": requests, "saved": False}, ensure_ascii=False)
 
-    @mcp_tool
     @staticmethod
     @_annotation_documentation
-    def inspect_blueprint_graph_logic(graph_path: str) -> str:
+    def _graph_snapshot(graph_path: str) -> str:
         """
         /**
          * 只读返回逻辑引用 引脚 连接和注释 不测量 Slate 几何
@@ -621,7 +692,7 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
 
         if type(dry_run) is not bool:
             raise RuntimeError("dry_run 必须为布尔值")
-        before = json.loads(BBBBlueprintGraphToolset.inspect_blueprint_graph_logic(graph_path))
+        before = json.loads(BBBBlueprintGraphToolset._graph_snapshot(graph_path))
         request = json.loads(request_json)
         if not isinstance(request, dict) or set(request) != {"expectedSnapshot", "removeComments", "nodeComments"}:
             raise RuntimeError("请求必须只包含 expectedSnapshot removeComments nodeComments")
@@ -688,7 +759,7 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
         if not 200 <= width <= 4096 or not 100 <= height <= 4096 or max(abs(x), abs(y)) > 1000000:
             raise RuntimeError("说明框尺寸或坐标超出支持范围")
 
-        before = json.loads(BBBBlueprintGraphToolset.inspect_blueprint_graph_logic(graph_path))
+        before = json.loads(BBBBlueprintGraphToolset._graph_snapshot(graph_path))
         if not expected_snapshot or before["snapshot"] != expected_snapshot:
             raise RuntimeError("图表快照已变化 请重新读取后添加说明框")
 
@@ -725,7 +796,7 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
                 comment = unreal.BBBBlueprintEditorLibrary.add_blueprint_comment_node(graph, expected_snapshot, text, x, y, width, height)
                 if comment is None:
                     raise RuntimeError("引擎没有创建说明框")
-                after = json.loads(BBBBlueprintGraphToolset.inspect_blueprint_graph_logic(graph_path))
+                after = json.loads(BBBBlueprintGraphToolset._graph_snapshot(graph_path))
                 original_nodes = {node["guid"]: node for node in before["nodes"]}
                 remaining_nodes = {node["guid"]: node for node in after["nodes"] if node["guid"] in original_nodes}
                 added = [node for node in after["nodes"] if node["guid"] not in original_nodes]
@@ -769,7 +840,7 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
         if not isinstance(expected_text, str) or not expected_text:
             raise RuntimeError("必须提供说明框现有正文")
 
-        before = json.loads(BBBBlueprintGraphToolset.inspect_blueprint_graph_logic(graph_path))
+        before = json.loads(BBBBlueprintGraphToolset._graph_snapshot(graph_path))
         targets = [node for node in before["nodes"] if node["guid"] == node_guid]
         if len(targets) != 1:
             raise RuntimeError("说明框不存在或 GUID 不唯一 请重新读取图表")
@@ -811,7 +882,7 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
                 comments[0].modify()
                 editor.remove_comment_node(comments[0])
 
-                after = json.loads(BBBBlueprintGraphToolset.inspect_blueprint_graph_logic(graph_path))
+                after = json.loads(BBBBlueprintGraphToolset._graph_snapshot(graph_path))
                 expected_nodes = {node["guid"]: node for node in before["nodes"] if node["guid"] != node_guid}
                 actual_nodes = {node["guid"]: node for node in after["nodes"]}
                 if actual_nodes != expected_nodes or after["logicSignature"] != before["logicSignature"]:
@@ -828,7 +899,7 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
     @mcp_tool
     @staticmethod
     @_annotation_documentation
-    def inspect_blueprint_graph(graph_path: str) -> str:
+    def inspect_blueprint_graph(graph_path: str, view: str = "overview", node_guids: list[str] = [], offset: int = 0, limit: int = 40, expected_snapshot: str = "") -> str:
         """
         /**
          * 只读返回逻辑引用 原有注释及显示几何 不探测创建节点
@@ -843,11 +914,14 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
         if not isinstance(graph, unreal.EdGraph):
             raise RuntimeError("目标不是蓝图图表")
 
-        result = json.loads(unreal.BBBBlueprintEditorLibrary.inspect_blueprint_graph_snapshot(graph))
+        from MCP.mcp_result import graph_view
+        result = json.loads(BBBBlueprintGraphToolset._graph_snapshot(graph_path))
+        if view == "geometry":
+            result = json.loads(unreal.BBBBlueprintEditorLibrary.inspect_blueprint_graph_snapshot(graph))
         if result.get("error"):
             raise RuntimeError("蓝图语义读取失败 " + result["error"])
 
-        return json.dumps(result, ensure_ascii=False)
+        return json.dumps(graph_view(result, view, node_guids, offset, limit, expected_snapshot), ensure_ascii=False)
 
     @mcp_tool
     @staticmethod
@@ -870,7 +944,7 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
         if unreal.EditorLevelLibrary.get_pie_worlds(False):
             raise RuntimeError("PIE 期间禁止注释及排版蓝图")
 
-        snapshot = json.loads(BBBBlueprintGraphToolset.inspect_blueprint_graph_logic(graph_path))
+        snapshot = json.loads(BBBBlueprintGraphToolset._graph_snapshot(graph_path))
         if not snapshot["layoutSupported"]:
             raise RuntimeError("图表无法完整测量 不允许注释排版 " + " ".join(snapshot["warnings"]))
 

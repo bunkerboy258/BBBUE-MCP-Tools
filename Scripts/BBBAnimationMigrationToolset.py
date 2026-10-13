@@ -12,6 +12,115 @@ from editor_toolset.toolsets.blueprint import BlueprintTools
 from toolset_registry.registration import Registration
 
 
+
+
+MCP_INPUTS = {
+    'migrate_animation_data_accesses': {
+        'getter_paths_json': {'type': 'object', 'additionalProperties': {'$ref': '#/$defs/Names'}},
+        'missing_value_defaults_json': {'$ref': '#/$defs/Properties'},
+    },
+    'rewrite_animation_node_binding_paths': {
+        'replacements_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {
+                    'nodePath': {'type': 'string'},
+                    'property': {'type': 'string'},
+                    'oldPath': {'$ref': '#/$defs/Names'},
+                    'newPath': {'$ref': '#/$defs/Names'},
+                },
+                'required': ['nodePath', 'property', 'oldPath', 'newPath'],
+                'additionalProperties': False,
+            },
+            'minItems': 1,
+        },
+    },
+    'rewrite_animation_property_access_paths': {
+        'path_replacements_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {'oldPath': {'$ref': '#/$defs/Names'}, 'newPath': {'$ref': '#/$defs/Names'}},
+                'required': ['oldPath', 'newPath'],
+                'additionalProperties': False,
+            },
+            'minItems': 1,
+        },
+    },
+    'run_pie_input_sequence': {
+        'steps_json': {
+            'type': 'object',
+            'properties': {
+                'schemaVersion': {'type': 'integer', 'const': 2},
+                'runId': {'type': 'string'},
+                'timingMode': {'type': 'string', 'const': 'game_frames'},
+                'steps': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'object',
+                        'properties': {
+                            'frames': {'type': 'integer', 'minimum': 1, 'maximum': 600},
+                            'held': {
+                                'type': 'object',
+                                'properties': {
+                                    'move': {'type': 'array', 'items': {'type': 'number'}, 'minItems': 2, 'maxItems': 2},
+                                    'look': {'type': 'array', 'items': {'type': 'number'}, 'minItems': 2, 'maxItems': 2},
+                                    'crouch': {'type': 'boolean'},
+                                    'run': {'type': 'boolean'},
+                                    'aim': {'type': 'boolean'},
+                                    'fire': {'type': 'boolean'},
+                                },
+                                'required': [],
+                                'additionalProperties': False,
+                            },
+                            'pulse': {
+                                'type': 'array',
+                                'items': {
+                                    'type': 'string',
+                                    'enum': ['jump', 'equip_slot_1', 'equip_slot_2', 'equip_slot_3', 'equip_slot_4', 'equip_slot_5', 'reload'],
+                                },
+                                'minItems': 0,
+                            },
+                        },
+                        'required': ['frames', 'held'],
+                        'additionalProperties': False,
+                    },
+                    'minItems': 1,
+                },
+            },
+            'required': ['schemaVersion', 'runId', 'timingMode', 'steps'],
+            'additionalProperties': False,
+        },
+    },
+    'start_pie_montage_motion_capture': {
+        'views_json': {
+            'type': 'array',
+            'items': {'type': 'array', 'items': {'type': 'number'}, 'minItems': 2, 'maxItems': 2},
+            'minItems': 0,
+            'maxItems': 32,
+        },
+    },
+    'replace_montage_animation_references': {'replacements_json': {'$ref': '#/$defs/StringMap'}},
+    'submit_character_diagnostic_inputs': {
+        'requests_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {
+                    'name': {'type': 'string', 'enum': ['Camera', 'Unequip', 'AimFact', 'AimImpulseFact']},
+                    'value': {'$ref': '#/$defs/Vector3'},
+                },
+                'required': ['name', 'value'],
+                'additionalProperties': False,
+            },
+            'minItems': 1,
+            'maxItems': 16,
+        },
+    },
+}
+
+
 def _path(value):
     if value is None:
         return None

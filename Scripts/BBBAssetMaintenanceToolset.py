@@ -11,6 +11,213 @@ from BBBAssetWritePolicy import require_asset_write
 from toolset_registry.registration import Registration
 
 
+
+
+MCP_INPUTS = {
+    'repair_pose_asset_source_guids': {
+        'expected_reports_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {
+                    'asset': {'type': 'string'},
+                    'stored_guid': {'type': 'string'},
+                    'legacy_matches': {'type': 'boolean'},
+                    'current_matches': {'type': 'boolean'},
+                    'payload_hash': {'type': 'string'},
+                },
+                'required': ['asset'],
+                'additionalProperties': True,
+            },
+            'minItems': 1,
+            'maxItems': 64,
+        },
+    },
+    'repair_animation_property_queries': {
+        'operations_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {
+                    'asset': {'type': 'string'},
+                    'guarded_queries': {
+                        'type': 'array',
+                        'items': {
+                            'type': 'object',
+                            'properties': {
+                                'class': {'type': 'string'},
+                                'fallback': {},
+                                'name': {'type': 'string'},
+                                'object_getter': {'type': 'string'},
+                                'value_getter': {'type': 'string'},
+                            },
+                            'required': ['class', 'fallback', 'name', 'object_getter', 'value_getter'],
+                            'additionalProperties': False,
+                        },
+                        'minItems': 0,
+                    },
+                    'weights': {
+                        'type': 'array',
+                        'items': {
+                            'type': 'object',
+                            'properties': {
+                                'update': {'type': 'string'},
+                                'variable': {'type': 'string'},
+                                'boolean_getter': {'type': 'string'},
+                                'object_getter': {'type': 'string'},
+                                'speed': {'type': 'number'},
+                            },
+                            'required': ['update', 'variable', 'boolean_getter', 'object_getter', 'speed'],
+                            'additionalProperties': False,
+                        },
+                        'minItems': 0,
+                    },
+                    'paths': {
+                        'type': 'array',
+                        'items': {
+                            'type': 'object',
+                            'properties': {'node': {'type': 'string'}, 'old': {'$ref': '#/$defs/Names'}, 'new': {'$ref': '#/$defs/Names'}},
+                            'required': ['node', 'old', 'new'],
+                            'additionalProperties': False,
+                        },
+                        'minItems': 0,
+                    },
+                    'calls': {
+                        'type': 'array',
+                        'items': {
+                            'type': 'object',
+                            'properties': {'node': {'type': 'string'}, 'old': {'$ref': '#/$defs/Names'}, 'query': {'type': 'string'}},
+                            'required': ['node', 'old', 'query'],
+                            'additionalProperties': False,
+                        },
+                        'minItems': 0,
+                    },
+                },
+                'required': ['asset'],
+                'additionalProperties': False,
+            },
+            'minItems': 1,
+            'maxItems': 16,
+        },
+    },
+    'remap_missing_soft_object_paths': {
+        'replacements_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {'source': {'type': 'string'}, 'destination': {'type': 'string'}},
+                'required': ['source', 'destination'],
+                'additionalProperties': False,
+            },
+            'minItems': 1,
+            'maxItems': 2000,
+        },
+    },
+    'consolidate_verified_asset_copies': {
+        'moves_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {
+                    'source': {'type': 'string'},
+                    'destination': {'type': 'string'},
+                    'class_path': {'type': 'string'},
+                    'source_sha256': {'type': 'string'},
+                    'referencers': {'$ref': '#/$defs/Names'},
+                    'source_folder': {'type': 'string'},
+                },
+                'required': ['source', 'destination'],
+                'additionalProperties': False,
+            },
+            'minItems': 1,
+        },
+    },
+    'move_assets_batch': {
+        'moves_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {
+                    'source': {'type': 'string'},
+                    'destination': {'type': 'string'},
+                    'class_path': {'type': 'string'},
+                    'source_sha256': {'type': 'string'},
+                    'referencers': {'$ref': '#/$defs/Names'},
+                    'source_folder': {'type': 'string'},
+                },
+                'required': ['source', 'destination'],
+                'additionalProperties': False,
+            },
+            'minItems': 1,
+        },
+    },
+    'move_assets_preserving_external_actor_references': {
+        'moves_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {
+                    'source': {'type': 'string'},
+                    'destination': {'type': 'string'},
+                    'class_path': {'type': 'string'},
+                    'source_sha256': {'type': 'string'},
+                    'referencers': {'$ref': '#/$defs/Names'},
+                    'source_folder': {'type': 'string'},
+                },
+                'required': ['source', 'destination'],
+                'additionalProperties': False,
+            },
+            'minItems': 1,
+        },
+    },
+    'verify_asset_moves': {
+        'moves_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {
+                    'source': {'type': 'string'},
+                    'destination': {'type': 'string'},
+                    'class_path': {'type': 'string'},
+                    'source_sha256': {'type': 'string'},
+                    'referencers': {'$ref': '#/$defs/Names'},
+                    'source_folder': {'type': 'string'},
+                },
+                'required': ['source', 'destination'],
+                'additionalProperties': False,
+            },
+            'minItems': 1,
+        },
+    },
+    'update_pose_assets_from_source': {
+        'expected_reports_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {'asset': {'type': 'string'}, 'source': {'type': 'string'}},
+                'required': ['asset', 'source'],
+                'additionalProperties': True,
+            },
+            'minItems': 1,
+            'maxItems': 64,
+        },
+    },
+    'delete_unreferenced_uncontrolled_assets': {
+        'expected_files_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {'package': {'type': 'string'}, 'sha256': {'type': 'string', 'pattern': '^[0-9a-fA-F]{64}$'}},
+                'required': ['package', 'sha256'],
+                'additionalProperties': False,
+            },
+            'minItems': 1,
+            'maxItems': 32,
+        },
+    },
+}
+
+
 def _move_path(value):
     """
     /**

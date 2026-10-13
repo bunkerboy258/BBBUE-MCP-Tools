@@ -1,8 +1,10 @@
 # 蓝图逻辑读取与注释排版
 
+公开批次默认完成本批次范围的验证、保存与回读。分阶段预览或人工检查时传 `completion="review"`。下文函数级保存行为描述对应领域实现；公开调用的完成策略以批次参数为准。
+
 ## 现行教学注释重写接口
 
-`edit_blueprint_graph_comments(graph_path, request_json, dry_run=True)` 支持蓝图直属图以及嵌套状态和过渡图
+`edit_blueprint_graph_comments(graph_path, request, dry_run=True)` 支持蓝图直属图以及嵌套状态和过渡图
 
 请求只包含 `expectedSnapshot` `removeComments` `nodeComments`
 `removeComments` 每项为 `nodeGuid` 与完整 `expectedText` 只允许说明框
@@ -31,11 +33,11 @@
 
 ## 接口发现
 
-通过 `find_tools` 搜索 `blueprint` 与目标操作，使用 `describe_tool` 读取选中 ID 的参数，再提交批次。
+已知工具 ID 时直接提交批次。新目标通过 `find_tools` 搜索，首项提供调用参数。
 
 ## 只读逻辑快照
 
-`inspect_blueprint_graph(graph_path)` 返回完整图表对象路径对应的 JSON
+`inspect_blueprint_graph(graph_path, view="overview")` 默认返回节点总览。`view="logic"` 返回完整引脚和按输出方向记录的连线；`view="geometry"` 返回 Slate 几何。每页默认 40 个节点；后续页沿 `next_page` 的版本继续。
 
 `nodes` 使用节点 `guid` 和引脚 `pinId` 识别目标
 包含原生节点类 标题 说明 函数或变量引用 属性访问路径 引脚默认值及完整连接
@@ -56,8 +58,8 @@
 
 ## 注释方案
 
-`annotate_blueprint_graph(graph_path, annotations_json, dry_run=True)` 默认只读预览
-`annotations_json` 必须含以下三个字段
+`annotate_blueprint_graph(graph_path, annotations, dry_run=True)` 默认只读预览
+`annotations` 必须含以下三个字段
 
 ```json
 {
@@ -94,7 +96,7 @@
 
 `add_blueprint_comment_node(graph_path, expected_snapshot, text, x, y, width, height, dry_run=True)` 在明确空白位置添加说明框 不调整任何原有节点或分组
 
-先读取 `inspect_blueprint_graph_logic` 并传入当前 `snapshot` 预览通过后使用同一方案传 `dry_run=false`
+先读取 `inspect_blueprint_graph(view="logic")` 并传入当前 `snapshot` 预览通过后使用同一方案传 `dry_run=false`
 正文包含标题与多行说明 使用简体中文 空格断句及半角符号
 宽度支持 200 至 4096 高度支持 100 至 4096 坐标必须为整数
 
@@ -112,7 +114,7 @@
 
 `remove_blueprint_comment_node(graph_path, node_guid, expected_text, dry_run=True)` 默认只读预览
 
-从 `inspect_blueprint_graph_logic` 的当前快照取得说明框 GUID 和完整 `nodeComment` 正文
+从 `inspect_blueprint_graph(view="logic")` 的当前快照取得说明框 GUID 和完整 `nodeComment` 正文
 工具只接受 `EdGraphNode_Comment` 类型且原文完全匹配的单个说明框
 实际删除使用 UE5.8 原生 `BlueprintGraphEditor.remove_comment_node` 接口
 普通 `BlueprintTools.delete_node` 接口只支持 K2 逻辑节点 不适用于说明框

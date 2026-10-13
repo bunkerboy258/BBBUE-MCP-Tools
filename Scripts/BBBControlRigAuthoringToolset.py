@@ -12,6 +12,254 @@ from toolset_registry.registration import Registration
 from BBBAssetWritePolicy import require_write_access, require_asset_write
 
 
+
+
+MCP_INPUTS = {
+    'capture_attachment_pose': {
+        'attachments_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {
+                    'mesh': {'type': 'string'},
+                    'socket': {'type': 'string'},
+                    'transform': {'$ref': '#/$defs/TransformQuaternion'},
+                    'animation': {'type': 'string'},
+                    'animation_time_seconds': {'type': 'number'},
+                    'hidden_bones': {'$ref': '#/$defs/Names'},
+                },
+                'required': ['mesh', 'socket', 'transform'],
+                'additionalProperties': False,
+            },
+            'minItems': 0,
+        },
+    },
+    'convert_component_mesh_grips': {'grips_json': {'type': 'object', 'additionalProperties': {'$ref': '#/$defs/TransformQuaternion'}}},
+    'remap_animation_bone_times': {
+        'time_maps_json': {
+            'type': 'object',
+            'additionalProperties': {
+                'type': 'array',
+                'items': {'type': 'array', 'items': {'type': 'number'}, 'minItems': 2, 'maxItems': 2},
+                'minItems': 0,
+            },
+        },
+    },
+    'set_sequence_attachment_transform': {'transform_json': {'$ref': '#/$defs/TransformQuaternion'}},
+    'build_pose_control_keys': {
+        'overrides_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {
+                    'reference_frame': {'type': 'integer'},
+                    'bones': {'$ref': '#/$defs/Names'},
+                    'weights': {'type': 'array', 'items': {'type': 'number'}, 'minItems': 0},
+                    'hand_space_aim': {'type': 'array', 'items': {'$ref': '#/$defs/Properties'}, 'minItems': 0},
+                },
+                'required': ['reference_frame', 'bones', 'weights'],
+                'additionalProperties': False,
+            },
+            'minItems': 0,
+        },
+    },
+    'play_pie_montages': {
+        'montages_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {'instance': {'type': 'string'}, 'montage': {'type': 'string'}},
+                'required': ['instance', 'montage'],
+                'additionalProperties': False,
+            },
+            'minItems': 1,
+        },
+    },
+    'create_control_rig': {
+        'controls_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {
+                    'name': {'type': 'string'},
+                    'type': {'type': 'string'},
+                    'bone': {'type': 'string'},
+                    'shape': {'type': 'string'},
+                    'value': {'type': 'number'},
+                },
+                'required': ['name', 'type'],
+                'additionalProperties': False,
+            },
+            'minItems': 0,
+        },
+        'graph_json': {
+            'type': 'object',
+            'properties': {
+                'nodes': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'object',
+                        'properties': {
+                            'name': {'type': 'string'},
+                            'struct': {'type': 'string'},
+                            'position': {'type': 'array', 'items': {'type': 'number'}, 'minItems': 2, 'maxItems': 2},
+                            'defaults': {'$ref': '#/$defs/StringMap'},
+                        },
+                        'required': ['name', 'struct'],
+                        'additionalProperties': False,
+                    },
+                    'minItems': 0,
+                },
+                'links': {
+                    'type': 'array',
+                    'items': {'type': 'array', 'items': {'type': 'string'}, 'minItems': 2, 'maxItems': 2},
+                    'minItems': 0,
+                },
+                'variables': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'object',
+                        'properties': {
+                            'name': {'type': 'string'},
+                            'type': {'type': 'string'},
+                            'typeObject': {'type': 'string'},
+                            'default': {'type': 'string'},
+                            'position': {'type': 'array', 'items': {'type': 'number'}, 'minItems': 2, 'maxItems': 2},
+                            'node': {'type': 'string'},
+                        },
+                        'required': ['name', 'type'],
+                        'additionalProperties': False,
+                    },
+                    'minItems': 0,
+                },
+                'controls': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'object',
+                        'properties': {'name': {'type': 'string'}, 'visible': {'type': 'boolean'}},
+                        'required': ['name'],
+                        'additionalProperties': False,
+                    },
+                    'minItems': 0,
+                },
+                'removeNodes': {'$ref': '#/$defs/Names'},
+                'breakLinks': {
+                    'type': 'array',
+                    'items': {'type': 'array', 'items': {'type': 'string'}, 'minItems': 2, 'maxItems': 2},
+                    'minItems': 0,
+                },
+            },
+            'required': [],
+            'additionalProperties': False,
+        },
+    },
+    'evaluate_rig_pose': {'controls_json': {'$ref': '#/$defs/Properties'}, 'variables_json': {'$ref': '#/$defs/Properties'}},
+    'audit_control_rig_round_trip': {'control_deltas_json': {'type': 'object', 'additionalProperties': {'$ref': '#/$defs/TransformQuaternion'}}},
+    'configure_control_rig_graph': {
+        'request_json': {
+            'type': 'object',
+            'properties': {
+                'nodes': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'object',
+                        'properties': {
+                            'name': {'type': 'string'},
+                            'struct': {'type': 'string'},
+                            'position': {'type': 'array', 'items': {'type': 'number'}, 'minItems': 2, 'maxItems': 2},
+                            'defaults': {'$ref': '#/$defs/StringMap'},
+                        },
+                        'required': ['name', 'struct'],
+                        'additionalProperties': False,
+                    },
+                    'minItems': 0,
+                },
+                'links': {
+                    'type': 'array',
+                    'items': {'type': 'array', 'items': {'type': 'string'}, 'minItems': 2, 'maxItems': 2},
+                    'minItems': 0,
+                },
+                'variables': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'object',
+                        'properties': {
+                            'name': {'type': 'string'},
+                            'type': {'type': 'string'},
+                            'typeObject': {'type': 'string'},
+                            'default': {'type': 'string'},
+                            'position': {'type': 'array', 'items': {'type': 'number'}, 'minItems': 2, 'maxItems': 2},
+                            'node': {'type': 'string'},
+                        },
+                        'required': ['name', 'type'],
+                        'additionalProperties': False,
+                    },
+                    'minItems': 0,
+                },
+                'controls': {
+                    'type': 'array',
+                    'items': {
+                        'type': 'object',
+                        'properties': {'name': {'type': 'string'}, 'visible': {'type': 'boolean'}},
+                        'required': ['name'],
+                        'additionalProperties': False,
+                    },
+                    'minItems': 0,
+                },
+                'removeNodes': {'$ref': '#/$defs/Names'},
+                'breakLinks': {
+                    'type': 'array',
+                    'items': {'type': 'array', 'items': {'type': 'string'}, 'minItems': 2, 'maxItems': 2},
+                    'minItems': 0,
+                },
+            },
+            'required': [],
+            'additionalProperties': False,
+        },
+    },
+    'configure_sequence_rig': {
+        'keys_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {
+                    'frame': {'type': 'integer'},
+                    'control': {'type': 'string'},
+                    'value': {'anyOf': [{'type': 'number'}, {'$ref': '#/$defs/TransformQuaternion'}]},
+                },
+                'required': ['frame', 'control', 'value'],
+                'additionalProperties': False,
+            },
+            'minItems': 0,
+        },
+    },
+    'compute_attachment_contacts': {
+        'contact_frames_json': {'type': 'object', 'additionalProperties': {'type': 'integer'}},
+        'grip_position_json': {'$ref': '#/$defs/Vector3'},
+    },
+    'create_sequence_attachment': {
+        'transform_json': {'$ref': '#/$defs/TransformQuaternion'},
+        'ranges_json': {
+            'type': 'array',
+            'items': {'type': 'array', 'items': {'type': 'integer'}, 'minItems': 2, 'maxItems': 2},
+            'minItems': 0,
+        },
+    },
+    'apply_baked_bone_deltas': {
+        'targets_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {'source': {'type': 'string'}, 'target': {'type': 'string'}},
+                'required': ['source', 'target'],
+                'additionalProperties': False,
+            },
+            'minItems': 1,
+        },
+    },
+}
+
+
 def _asset(path, expected_type):
     value = unreal.load_asset(path)
     if not isinstance(value, expected_type):

@@ -4,8 +4,10 @@ import secrets
 import threading
 import time
 
-from MCP.mcp_result import McpBusinessError
+from MCP.mcp_result import McpBusinessError, public_value, result_artifacts, clean_result_artifacts
+from pathlib import Path
 from MCP.mcp_asset_scope import asset_targets, conflicting_packages
+from MCP.mcp_clients import ClientRegistry
 
 
 class JobConflict(McpBusinessError):
@@ -19,15 +21,16 @@ class JobConflict(McpBusinessError):
 class JobQueue:
     """/** 原项目批次执行槽与活动归属 */"""
 
-    def __init__(self, backend, catalog, clock=time.monotonic, start_worker=True):
+    def __init__(self, backend, catalog, clock=time.monotonic, start_worker=True, state_path=None):
         """/** @param backend 官方后端 @param catalog 契约目录 @param clock 时间来源 @param start_worker 启动执行循环 @return 批次调度 */"""
         self.backend = backend
         self.catalog = catalog
+        backend.catalog = catalog
         self.clock = clock
         self.changed = threading.Condition(threading.RLock())
         self.jobs = {}
         self.queue = []
-        self.clients = {}
+        self.clients = ClientRegistry(clock, state_path)
         self.client_owners = set()
         self.writer = None
         self.pie_owner = None
@@ -46,6 +49,7 @@ class JobQueue:
         self.observed_at = None
         self.call_active = False
         self.observe(force=True)
+        self._restore_jobs()
         if start_worker:
             self.worker = threading.Thread(target=self._loop, daemon=True, name="BBB-MCP-batches")
             self.worker.start()
@@ -56,23 +60,95 @@ class JobQueue:
             owners = {job["owner"] for job in self.jobs.values()} | set(self.activity_owners.values()) | self.client_owners
             if self.pie_owner is not None:
                 owners.add(self.pie_owner)
-            self.clients = {key: deadline for key, deadline in self.clients.items() if deadline > self.clock() or key in owners or key == resume_key}
-            if resume_key is not None and resume_key not in self.clients:
-                raise JobConflict("CLIENT_KEY_INVALID")
-            key = resume_key or secrets.token_urlsafe(32)
-            self.clients[key] = self.clock() + 300
+            key = self.clients.connect(resume_key, owners)
+            historical = "@" + self.clients.digest(key)
+            for job in self.jobs.values():
+                if job["owner"] == historical:
+                    job["owner"] = key
+            if self.pie_owner == historical:
+                self.pie_owner = key
+            self.activity_owners = {identity: key if owner == historical else owner for identity, owner in self.activity_owners.items()}
             return key
 
     def touch(self, client):
         """/** @param client 客户端凭证 @return 续期完成 */"""
         with self.changed:
-            if client not in self.clients:
-                raise JobConflict("CLIENT_KEY_INVALID")
-            self.clients[client] = self.clock() + 300
+            self.clients.touch(client)
 
     def _signal(self):
         self.revision += 1
+        for job in self.jobs.values():
+            signature = (job["owner"], job["status"], job["completed"], job["code"], tuple(job["dirty"]), repr(job.get("blocked")), job.get("execution"), tuple(sorted(job["activities"] & set(self.activity_owners))))
+            if signature != job.get("signature"):
+                job["signature"] = signature
+                job["revision"] = job.get("revision", 0) + 1
+                self._checkpoint(job)
         self.changed.notify_all()
+
+    def _checkpoint(self, job):
+        """/** @param job\t当前批次 @return 单向身份与执行边界的恢复证据 */"""
+        record = {key: copy.deepcopy(job[key]) for key in ("id", "label", "status", "completed", "results", "access", "scoped", "baseline", "dirty", "effects_completed", "code", "failed_index", "completion", "timings")}
+        record.update(owner=job["owner"][1:] if job["owner"].startswith("@") else self.clients.digest(job["owner"]),
+            environment="editor",
+            operations=[{"tool": item["contract"]["id"], "arguments": item["arguments"]} for item in job["operations"]],
+            targets=sorted(asset_targets(job["targets"])), owned_dirty=sorted(job["owned_dirty"]),
+            activities=sorted(job["activities"]), pie=job["id"] == self.pie_batch, host=list(self.host_identity))
+        for key in ("proof", "execution", "failure"):
+            if key in job:
+                record[key] = copy.deepcopy(job[key])
+        self.clients.store_job(record)
+
+    def _restore_jobs(self):
+        """/** @return 恢复结果与保护范围 以核实流程接续中断写入 */"""
+        active = {item["id"] if isinstance(item, dict) else item for item in self.activity.get("activities", [])}
+        for record in self.clients.stored_jobs():
+            if record["environment"] != "editor":
+                continue
+            record.pop("environment")
+            owner = "@" + record.pop("owner")
+            self.clients[owner] = 0
+            prepared = []
+            try:
+                prepared = self.catalog.prepare(record["operations"])
+            except (ValueError, KeyError):
+                prepared = [{"contract": {"id": item["tool"], "name": item["tool"].split(".")[-1]}, "arguments": item["arguments"], "access": record["access"], "world": "editor"} for item in record["operations"]]
+            pie = record.pop("pie")
+            host = tuple(record.pop("host"))
+            record.update(owner=owner, operations=prepared, targets=set(record["targets"]), owned_dirty=set(record["owned_dirty"]), activities=set(record["activities"]),
+                await_activity=set(), started=True, submitted_at=self.clock(), started_at=self.clock(), review=None)
+            if record["status"] == "queued" and record["completed"] == 0:
+                record.update(status="cancelled", code="INTERRUPTED_BEFORE_DISPATCH")
+            if record["status"] in {"running", "queued", "review"}:
+                record.update(status="review", code="GATEWAY_RESTARTED" if host == self.host_identity else "HOST_EPOCH_CHANGED", execution="unknown")
+                appeared = set(self.activity.get("dirty_packages", [])) - set(record["baseline"])
+                if record["scoped"]:
+                    appeared = conflicting_packages(appeared, record["targets"])
+                record["owned_dirty"].update(appeared)
+                record["dirty"] = sorted(record["owned_dirty"] & set(self.activity.get("dirty_packages", [])))
+            self.jobs[record["id"]] = record
+            self.activity_owners.update({identity: owner for identity in record["activities"] & active})
+            if pie and self.activity.get("pie_active"):
+                self.pie_owner = owner
+                self.pie_batch = record["id"]
+        if self.jobs:
+            with self.changed:
+                self._prune_results()
+                self._signal()
+
+    def _prune_results(self):
+        """/** @return 回收已交接短批次 保留必要结果重放 */"""
+        finished = [job for job in self.jobs.values() if job["status"] in {"completed", "rejected", "cancelled", "closed"} and job["id"] != self.pie_batch and not job["activities"] & set(self.activity_owners)]
+        finished.sort(key=lambda job: job["submitted_at"])
+        for job in finished:
+            if self.clock() - job["submitted_at"] > 3600 or len(self.jobs) >= 256:
+                del self.jobs[job["id"]]
+                self.clients.delete_job(job["id"])
+                self._clean_outputs(job["id"])
+
+    def _clean_outputs(self, batch):
+        """/** @param batch\t本队列批次 @return 回收所属图像输出 */"""
+        if hasattr(self.backend, "project"):
+            clean_result_artifacts(Path(self.backend.project) / "Saved/temp/McpResults" / batch)
 
     def observe(self, force=False):
         """/** @param force 边界立即核验 @return 共享实际快照 */"""
@@ -131,23 +207,24 @@ class JobQueue:
         finally:
             self.probe_lock.release()
 
-    def submit(self, client, operations, label=""):
+    def submit(self, client, operations, label="", completion="review"):
         """/** @param client 客户端 @param operations 完整批次 @param label 阶段用途 @return 即时接收结果 */"""
         self.touch(client)
         prepared = self.catalog.prepare(operations)
         with self.changed:
+            self._prune_results()
             if self.draining:
                 raise JobConflict("HOST_DRAINING")
             if len(self.queue) >= 64 or len(self.jobs) >= 256:
                 raise JobConflict("QUEUE_CAPACITY", {"next": "control_task.close"})
             identity = secrets.token_hex(8)
-            job = {"id": identity, "owner": client, "label": label, "operations": prepared,
+            job = {"id": identity, "owner": client, "label": label, "operations": prepared, "completion": completion,
                 "status": "queued", "completed": 0, "results": [], "submitted_at": self.clock(),
                 "access": "read" if all(item["access"] == "read" for item in prepared) else "write",
                 "targets": set().union(*(asset_targets(item.get("targets", [])) for item in prepared)) if all(item.get("scoped", item["access"] == "read") for item in prepared) else set(),
                 "scoped": all(item.get("scoped", item["access"] == "read") for item in prepared),
                 "baseline": [], "dirty": [], "owned_dirty": set(), "await_activity": set(), "started": False,
-                "activities": set(), "effects_completed": 0,
+                "activities": set(), "effects_completed": 0, "timings": {"operations_seconds": []},
                 "code": None, "failed_index": None, "review": None}
             self.jobs[identity] = job
             self.queue.append(identity)
@@ -247,6 +324,7 @@ class JobQueue:
                 selected["baseline"] = list(activity.get("dirty_packages", []))
                 selected["started"] = True
                 selected["started_at"] = self.clock()
+                selected["timings"] = {"queue_seconds": self.clock() - selected["submitted_at"], "operations_seconds": []}
             if selected.get("yield_dirty") is not None:
                 appeared = set(activity.get("dirty_packages", [])) - set(selected.pop("yield_dirty"))
                 if selected["scoped"]:
@@ -294,14 +372,20 @@ class JobQueue:
                 before_dirty = set(self.activity.get("dirty_packages", []))
                 job["segment_dirty"] = before_dirty
                 self.call_active = True
+                called_at = self.clock()
                 try:
                     result = self.backend.invoke(contract, operation["arguments"])
                 finally:
                     self.call_active = False
                 if result is False and operation["access"] != "read":
                     raise McpBusinessError({"success": False, "code": "OPERATION_FALSE", "execution": {"state": "unknown"}})
-                job["results"].append(result)
+                job["timings"]["operations_seconds"].append(self.clock() - called_at)
+                if hasattr(self.backend, "project"):
+                    result = result_artifacts(result, Path(self.backend.project) / "Saved/temp/McpResults" / job["id"])
+                job["results"].append(public_value(result))
                 job["completed"] += 1
+                with self.changed:
+                    self._checkpoint(job)
                 if operation["access"] != "read":
                     job["effects_completed"] += 1
                 if start_pie or stop_pie:
@@ -326,11 +410,29 @@ class JobQueue:
             if job["access"] != "read" and not current["host_verified"]:
                 raise RuntimeError("HOST_UNVERIFIED")
             job["dirty"] = sorted(job["owned_dirty"] & set(current.get("dirty_packages", [])))
+            if job["dirty"] and job["completion"] == "save":
+                unexpected = set(job["dirty"]) - conflicting_packages(job["dirty"], job["targets"])
+                if not job["scoped"] or unexpected:
+                    self._review(job, "WRITE_SCOPE_CHANGED", "partial")
+                    return
+                if not hasattr(self.backend, "finalize"):
+                    self._review(job, "SAVE_VALIDATION_REQUIRED", "partial")
+                    return
+                finalizing_at = self.clock()
+                job["proof"] = self.backend.finalize(job["dirty"])
+                job["timings"]["finalize_seconds"] = self.clock() - finalizing_at
+                current = self.observe(force=True)
+                if not current["host_verified"]:
+                    raise RuntimeError("HOST_UNVERIFIED")
+                job["dirty"] = sorted(job["owned_dirty"] & set(current.get("dirty_packages", [])))
             if job["dirty"]:
                 self._review(job, "DIRTY_ASSETS", "partial")
                 return
             with self.changed:
                 job["status"], job["failed_index"] = "completed", None
+                job.setdefault("proof", {"execution": "observed", "dirty": []})
+                job["proof"]["dirty"] = list(job["dirty"])
+                job["timings"]["total_seconds"] = self.clock() - job["submitted_at"]
                 if self.writer == job["id"]:
                     self.writer = None
                 self._signal()
@@ -488,7 +590,7 @@ class JobQueue:
                     self._signal()
                 if job["status"] != "review":
                     raise JobConflict("REVIEW_REQUIRED")
-                fingerprint = json.dumps({"host": self.host_identity, "pie": current.get("pie_generation"), "dirty": current.get("dirty_packages"), "activities": current.get("activities"), "completed": job["completed"]}, sort_keys=True)
+                fingerprint = self._review_fingerprint(job, current)
                 review_id = secrets.token_hex(12)
                 job["review"] = {"id": review_id, "fingerprint": fingerprint, "reviewer": client}
                 return {"batch": batch, "status": "review", "completed": job["completed"], "failed_index": job["failed_index"], "dirty": job["dirty"], "execution": job.get("execution"), "confirmation": review_id}
@@ -500,7 +602,7 @@ class JobQueue:
                 if foreign and not orphan:
                     raise JobConflict("BATCH_OWNERSHIP")
                 review = job["review"]
-                fingerprint = json.dumps({"host": self.host_identity, "pie": current.get("pie_generation"), "dirty": current.get("dirty_packages"), "activities": current.get("activities"), "completed": job["completed"]}, sort_keys=True)
+                fingerprint = self._review_fingerprint(job, current)
                 if not review or confirmation != review["id"] or fingerprint != review["fingerprint"] or review["reviewer"] != client:
                     raise JobConflict("REVIEW_CONFIRMATION_REQUIRED")
                 if foreign and orphan:
@@ -512,7 +614,9 @@ class JobQueue:
                     job["review"] = None
                     self._signal()
                     return {**self._job_view(job), "next": "submit_batch", "dirty": list(job["dirty"])}
-                if self.draining or set(job["dirty"]) & set(current.get("dirty_packages", [])) or current.get("activities") or current.get("pie_active") or current.get("worlds"):
+                owned_activity = job["activities"] & set(self.activity_owners)
+                owned_pie = self.pie_owner == client and (current.get("pie_active") or current.get("worlds"))
+                if self.draining or set(job["dirty"]) & set(current.get("dirty_packages", [])) or owned_activity or owned_pie:
                     raise JobConflict("REVIEW_ACTIVITY_PENDING")
                 job["owner"] = client
                 job["status"] = "closed"
@@ -531,16 +635,29 @@ class JobQueue:
                 if job["status"] not in {"completed", "rejected", "cancelled", "closed"}:
                     raise JobConflict("BATCH_ACTIVE")
                 del self.jobs[batch]
+                self.clients.delete_job(batch)
+                self._clean_outputs(batch)
                 self._signal()
                 return {"batch": batch, "status": "closed"}
         raise JobConflict("CONTROL_ACTION")
 
+    def _review_fingerprint(self, job, current):
+        """/** @param job\t待核实批次 @param current\t实际占用 @return 属于此批次的确认边界 */"""
+        dirty = current.get("dirty_packages", [])
+        if job["scoped"]:
+            dirty = sorted(conflicting_packages(dirty, job["targets"] | job["owned_dirty"]))
+        activities = [item for item in current.get("activities", []) if (item["id"] if isinstance(item, dict) else item) in job["activities"]]
+        return json.dumps({"host": self.host_identity, "pie": current.get("pie_generation") if self.pie_owner == job["owner"] else None, "dirty": dirty, "activities": activities, "completed": job["completed"]}, sort_keys=True)
+
     def _job_view(self, job, detail=False):
         result = {"batch": job["id"], "status": job["status"], "completed": job["completed"]}
+        result["revision"] = job.get("revision", 0)
         if job["code"]:
             result["code"] = job["code"]
         if job.get("blocked"):
             result["blocked"] = copy.deepcopy(job["blocked"])
+        if job.get("failure"):
+            result["failure"] = copy.deepcopy(job["failure"])
         if job["status"] == "queued":
             result["ahead"] = self.queue.index(job["id"])
         if job["status"] == "review":
@@ -548,13 +665,20 @@ class JobQueue:
             if job["code"] == "DIRTY_ASSETS":
                 result["next"] = "submit_batch"
                 result["pending_save"] = {"packages": job["dirty"][:8], "count": len(job["dirty"])}
+        if detail or job["status"] == "completed":
+            result["results"] = copy.deepcopy(job["results"])
         if detail:
-            result.update({"results": copy.deepcopy(job["results"]), "dirty": list(job["dirty"]), "failed_index": job["failed_index"]})
+            result.update({"dirty": list(job["dirty"]), "failed_index": job["failed_index"]})
+            result["timings"] = copy.deepcopy(job.get("timings", {}))
             result["elapsed_seconds"] = int(self.clock() - job.get("started_at", job["submitted_at"]))
             if job.get("failure"):
                 result["failure"] = copy.deepcopy(job["failure"])
             if job.get("execution"):
                 result["execution"] = job["execution"]
+        if job.get("proof"):
+            result["proof"] = copy.deepcopy(job["proof"])
+        if "next" not in result:
+            result["next"] = "submit_batch" if job["status"] in {"completed", "rejected", "cancelled", "closed"} else "inspect_tasks"
         return result
 
     def inspect(self, client, batch=None, detail=False, after_revision=None, wait_seconds=0):
@@ -564,12 +688,18 @@ class JobQueue:
         while True:
             self.observe()
             with self.changed:
-                if after_revision is None or self.revision != after_revision or self.clock() >= deadline:
+                revision = self.revision
+                if batch:
+                    job = self.jobs.get(batch)
+                    if job is None or job["owner"] != client:
+                        raise JobConflict("BATCH_OWNERSHIP")
+                    revision = job.get("revision", 0)
+                if after_revision is None or revision != after_revision or self.clock() >= deadline:
                     if batch:
                         job = self.jobs.get(batch)
                         if job is None or job["owner"] != client:
                             raise JobConflict("BATCH_OWNERSHIP")
-                        return {"revision": self.revision, **self._job_view(job, detail)}
+                        return self._job_view(job, detail)
                     result = {"revision": self.revision, "host": {"process_id": self.activity["process_id"], "exclusive": self.activity["host_exclusive"], "verified": self.activity["host_verified"]}, "status": "draining" if self.draining else "ready", "available": ["read", "prepare"], "queued": len(self.queue), "pie": bool(self.activity.get("pie_active")), "activities": len(self.activity.get("activities", [])), "dirty": len(self.activity.get("dirty_packages", [])), "next": "submit_batch"}
                     blockers = [job for job in self.jobs.values() if job["status"] in {"running", "review"}]
                     blockers.sort(key=lambda job: job["status"] != "running")
@@ -599,7 +729,9 @@ class JobQueue:
                         owned = [job for job in self.jobs.values() if job["owner"] == client]
                     if owned:
                         result["batch"] = self._job_view(owned[-1])
-                        result["next"] = "inspect_tasks" if owned[-1]["status"] in {"queued", "running"} else result["batch"].get("next", "control_task")
+                        result["batch"].pop("results", None)
+                        result["batch"].pop("proof", None)
+                        result["next"] = result["batch"]["next"]
                     if detail:
                         result["evidence"] = copy.deepcopy(self.activity)
                         result["batches"] = [{**self._job_view(job), "label": job["label"]} for job in self.jobs.values() if job["owner"] == client]

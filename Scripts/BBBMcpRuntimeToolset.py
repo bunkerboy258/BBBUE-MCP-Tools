@@ -10,7 +10,7 @@ from toolset_registry.registration import Registration
 
 
 _PROFILES = {
-    "Speed": {"max_fps": 120, "priority": 0x20},
+    "HighThroughput": {"max_fps": 120, "priority": 0x20},
     "Balanced": {"max_fps": 60, "priority": 0x20},
     "Economy": {"max_fps": 30, "priority": 0x4000},
     "GamingBackground": {"max_fps": 15, "priority": 0x4000},
@@ -190,7 +190,7 @@ class BBBMcpRuntimeToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def inspect_mcp_performance() -> str:
+    def inspect_mcp_resources() -> str:
         """
         /**
          * 只读检查当前宿主配置与低速风险
@@ -201,7 +201,7 @@ class BBBMcpRuntimeToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def configure_mcp_performance(profile: str = "Speed", max_fps: int = -1) -> str:
+    def configure_mcp_resources(profile: str = "Economy", max_fps: int = -1) -> str:
         """
         /**
          * 选择当前宿主的运行时性能档位 不保存用户配置
@@ -230,7 +230,7 @@ class BBBMcpRuntimeToolset(unreal.ToolsetDefinition):
         return json.dumps({"tool": tool, "process_id": os.getpid(), "project_root": os.path.realpath(unreal.Paths.project_dir()), **status}, ensure_ascii=False)
 
 
-def configure_startup_performance():
+def configure_startup_resources():
     """
     /**
      * 从启动参数读取档位 默认速度优先 配置失败明确报警
@@ -240,7 +240,7 @@ def configure_startup_performance():
     command_line = unreal.SystemLibrary.get_command_line()
     profile_match = re.search(r"(?i)(?:^|\s)-BBBMcpPerformanceProfile=([^\s]+)", command_line)
     fps_match = re.search(r"(?i)(?:^|\s)-BBBMcpMaxFPS=([^\s]+)", command_line)
-    profile = "Speed"
+    profile = "Economy"
     max_fps = -1
     try:
         if profile_match:

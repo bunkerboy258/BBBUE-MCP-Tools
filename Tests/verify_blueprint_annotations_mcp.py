@@ -30,16 +30,16 @@ def main():
         dependencies = call("runtime.inspect_mcp_dependencies", {"tool": "blueprint.inspect_blueprint_graph"})
         assert Path(dependencies["project_root"]).resolve() == Path(args.project_root).resolve()
         assert dependencies["native_dependencies_ready"], dependencies
-        for name in ("inspect_blueprint_graph", "inspect_blueprint_graph_logic", "annotate_blueprint_graph"):
+        for name in ("inspect_blueprint_graph", "annotate_blueprint_graph"):
             descriptor = session.describe_tool("blueprint." + name)
             assert "graph_path" in descriptor["parameters"]["properties"]
-        print(json.dumps({"schemas": 3, "process_id": dependencies["process_id"]}, ensure_ascii=False))
+        print(json.dumps({"schemas": 2, "process_id": dependencies["process_id"]}, ensure_ascii=False))
         if args.graph:
             dirty = call("editor.inspect_dirty_packages")
-            snapshot = call("blueprint.inspect_blueprint_graph", {"graph_path": args.graph})
-            logic = call("blueprint.inspect_blueprint_graph_logic", {"graph_path": args.graph})
+            snapshot = call("blueprint.inspect_blueprint_graph", {"graph_path": args.graph, "view": "geometry"})
+            logic = call("blueprint.inspect_blueprint_graph", {"graph_path": args.graph, "view": "logic"})
             assert "geometry" not in logic, "逻辑读取触发显示测量"
-            assert logic["snapshot"] == snapshot["snapshot"] and logic["nodes"] == snapshot["nodes"], "两种读取的逻辑身份不一致"
+            assert logic["snapshot"] == snapshot["snapshot"] and logic["logicSignature"] == snapshot["logicSignature"], "两种读取的逻辑身份不一致"
             assert snapshot["layoutSupported"], snapshot["warnings"]
             candidates = [item for item in snapshot["nodes"] if not item["isComment"] and not item["nodeComment"]]
             assert candidates, "图表没有空注释节点"
@@ -50,8 +50,8 @@ def main():
                 "expectedSnapshot": snapshot["snapshot"], "blocks": blocks,
                 "nodeComments": [{"nodeGuid": candidates[0]["guid"], "text": "读取此节点的输入并计算输出"}],
             }
-            preview = call("blueprint.annotate_blueprint_graph", {"graph_path": args.graph, "annotations_json": json.dumps(request, ensure_ascii=False), "dry_run": True})
-            after = call("blueprint.inspect_blueprint_graph", {"graph_path": args.graph})
+            preview = call("blueprint.annotate_blueprint_graph", {"graph_path": args.graph, "annotations": request, "dry_run": True})
+            after = call("blueprint.inspect_blueprint_graph", {"graph_path": args.graph, "view": "geometry"})
             assert snapshot == after, "只读预览改变了图表"
             assert dirty == call("editor.inspect_dirty_packages"), "预览改变脏资产列表"
             print(json.dumps({"graph": args.graph, "nodes": len(snapshot["nodes"]), "blocks": len(preview["blocks"]), "warnings": snapshot["warnings"], "before": preview["before"], "after": preview["after"], "canApply": preview["canApply"], "unchanged": True}, ensure_ascii=False))

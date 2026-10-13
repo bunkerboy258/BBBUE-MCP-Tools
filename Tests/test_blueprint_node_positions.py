@@ -22,7 +22,7 @@ class BlueprintNodePositionTests(unittest.TestCase):
                          "nodes": [{"guid": "A", "path": "node", "x": 0, "y": 0}]}
         self.engine = Mock()
         self.access = Mock()
-        self.owner = types.SimpleNamespace(inspect_blueprint_graph_logic=lambda path: json.dumps(self.snapshot))
+        self.owner = types.SimpleNamespace(_graph_snapshot=lambda path: json.dumps(self.snapshot))
         self.engine.IntPoint.side_effect = lambda x, y: (x, y)
 
         def move(graph, nodes, positions):

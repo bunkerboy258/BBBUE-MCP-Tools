@@ -14,6 +14,31 @@ _captures = {}
 _acceptance_population = {}
 
 
+
+
+MCP_INPUTS = {
+    'configure_monster_severing_parts': {
+        'parts_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {
+                    'region': {'type': 'string'},
+                    'bone': {'type': 'string'},
+                    'part': {'type': 'string'},
+                    'cap': {'type': 'string'},
+                },
+                'required': ['region', 'bone', 'part', 'cap'],
+                'additionalProperties': False,
+            },
+            'minItems': 5,
+            'maxItems': 5,
+        },
+    },
+    'preview_blood_residue': {'positions_json': {'type': 'array', 'items': {'$ref': '#/$defs/Vector3'}, 'minItems': 1, 'maxItems': 64}},
+}
+
+
 def _wound_asset_plan(body_mesh_path, definition_path, output_folder):
     """
     /**

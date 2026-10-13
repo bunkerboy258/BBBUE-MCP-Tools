@@ -17,6 +17,20 @@ _population_runs = {}
 _inspection_population = {}
 
 
+
+
+MCP_INPUTS = {
+    'capture_animation_views': {
+        'views_json': {
+            'type': 'array',
+            'items': {'type': 'array', 'items': {'type': 'number'}, 'minItems': 2, 'maxItems': 2},
+            'minItems': 1,
+            'maxItems': 32,
+        },
+    },
+}
+
+
 @unreal.uclass()
 class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
     """

@@ -3,9 +3,9 @@
 工具集 `BBBAssetMaintenanceToolset` 新增以下通用入口. 原生能力位于接入项目 `BBBAssetRepairEditorLibrary`, 运行前须完成编辑器目标编译.
 
 - `inspect_pose_asset_source_guids(asset_paths)`: 只读比较缓存 GUID 与源动画的新旧算法, 返回持久化姿势载荷指纹. 最多 64 项.
-- `repair_pose_asset_source_guids(expected_reports_json, dry_run=true, allow_verified_samples=false)`: 使用完整检查报告进行全批预检. 默认仅缓存匹配旧算法且不匹配当前算法时允许更新. 显式启用逐键证明时, 还要求骨骼/姿势/曲线结构匹配, 全部姿势有效, 位置误差不超过 0.0001 cm, 旋转误差不超过 0.0001 度, 缩放误差不超过 0.000001. 精度界限固定, 不能通过参数放大. 拒绝报告漂移或任意脏包. 执行必须备份并独占签出. 不调用姿势重生成, 不修改源动画. 保存前验证载荷指纹相同.
+- `repair_pose_asset_source_guids(expected_reports, dry_run=true, allow_verified_samples=false)`: 使用完整检查报告进行全批预检. 默认仅缓存匹配旧算法且不匹配当前算法时允许更新. 显式启用逐键证明时, 还要求骨骼/姿势/曲线结构匹配, 全部姿势有效, 位置误差不超过 0.0001 cm, 旋转误差不超过 0.0001 度, 缩放误差不超过 0.000001. 精度界限固定, 不能通过参数放大. 拒绝报告漂移或任意脏包. 执行必须备份并独占签出. 不调用姿势重生成, 不修改源动画. 保存前验证载荷指纹相同.
 - `inspect_animation_access_errors(asset_paths)`: 输出动画属性访问节点精确路径和错误, 最多 16 项.
-- `repair_animation_property_queries(operations_json, save=false)`: 创建带空值回退的浮点或布尔查询, 插入平滑布尔权重, 修改精确属性路径或替换为纯查询调用. 全批编译通过后才允许保存. 失败不保存, 保留内存现场供诊断.
+- `repair_animation_property_queries(operations, save=false)`: 创建带空值回退的浮点或布尔查询, 插入平滑布尔权重, 修改精确属性路径或替换为纯查询调用. 全批编译通过后才允许保存. 失败不保存, 保留内存现场供诊断.
 
 蓝图操作计划为数组, 每项包含 `asset` 和以下可选数组:
 

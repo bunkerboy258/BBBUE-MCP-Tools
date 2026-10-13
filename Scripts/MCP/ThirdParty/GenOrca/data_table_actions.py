@@ -128,23 +128,13 @@ def ue_remove_row(asset_path: str = None, row_name: str = None) -> str:
         return json.dumps({"success": False, "message": str(e), "traceback": traceback.format_exc()})
 
 
-def ue_set_rows_from_json(asset_path: str = None, json_string: str = None) -> str:
-    """Replaces a DataTable's rows from a JSON string (array of row objects with a 'Name' key)."""
-    if asset_path is None or json_string is None:
-        return json.dumps({"success": False, "message": "Required parameters: asset_path, json_string."})
-    try:
-        dt = _load_data_table(asset_path)
-        # Return type varies by engine version: bool (ok) or a list of problem strings.
-        result = DFL.fill_data_table_from_json_string(dt, json_string)
-        if isinstance(result, bool):
-            if not result:
-                return json.dumps({"success": False, "message": "fill_data_table_from_json_string returned False."})
-        else:
-            problems = [str(p) for p in result] if result else []
-            if problems:
-                return json.dumps({"success": False, "message": "Fill reported problems.", "problems": problems})
-        unreal.EditorAssetLibrary.save_loaded_asset(dt)
-        names = [str(n) for n in DFL.get_data_table_row_names(dt)]
-        return json.dumps({"success": True, "asset_path": asset_path, "row_count": len(names)})
-    except Exception as e:
-        return json.dumps({"success": False, "message": str(e), "traceback": traceback.format_exc()})
+def ue_replace_rows(asset_path: str, rows: list[dict]) -> str:
+    """/** @param asset_path	表资产路径 @param rows	含 Name 字段的完整行集合 @return 已保存的行数量 */"""
+    if not isinstance(rows, list) or any(not isinstance(row, dict) or not isinstance(row.get("Name"), str) or not row["Name"] for row in rows):
+        raise ValueError("ROWS_REQUIRE_NAMES")
+    table = _load_data_table(asset_path)
+    if not DFL.fill_data_table_from_json_string(table, json.dumps(rows, ensure_ascii=False)):
+        raise RuntimeError("TABLE_IMPORT_FAILED")
+    if not unreal.EditorAssetLibrary.save_loaded_asset(table):
+        raise RuntimeError("TABLE_SAVE_FAILED")
+    return json.dumps({"success": True, "asset_path": asset_path, "row_count": len(DFL.get_data_table_row_names(table))})

@@ -9,7 +9,7 @@ import unittest
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "Scripts"))
 
-from BBBMcpCapabilities import ToolCatalog, validate_arguments, WRITE_TARGET_FIELDS, tool_contract
+from BBBMcpCapabilities import ToolCatalog, validate_arguments, tool_contract
 from MCP.mcp_call import McpSession
 from MCP.mcp_jobs import JobQueue, JobConflict
 from MCP.mcp_result import McpBusinessError, McpExecutionError
@@ -72,12 +72,10 @@ def fixtures(worker=False, clock=time.monotonic):
     catalog = ToolCatalog(backend)
     definitions = [("read", "read", "any"), ("write", "write", "editor"), ("save_assets", "write", "editor"), ("StartPIE", "pie", "any"), ("StopPIE", "pie", "any"), ("activity", "write", "pie"), ("unknown", "write", "editor"), ("reject", "write", "editor"), ("long", "write", "editor")]
     for name, access, world in definitions:
-        if access != "read":
-            WRITE_TARGET_FIELDS["test." + name] = ("asset_paths",) if name == "save_assets" else ("asset",)
         properties = {"asset": {"type": "string"}}
         if name == "save_assets":
             properties = {"asset_paths": {"type": "array", "items": {"type": "string"}, "minItems": 1}}
-        catalog.add({"id": "test." + name, "name": name, "toolset": "test", "definition": "Test", "parameters": {"type": "object", "properties": properties, "additionalProperties": False}, "summary": name, "access": access, "world": world})
+        catalog.add({"id": "test." + name, "name": name, "toolset": "test", "definition": "Test", "parameters": {"type": "object", "properties": properties, "additionalProperties": False}, "summary": name, "access": access, "world": world, "scope": {"fields": ["asset_paths" if name == "save_assets" else "asset"]}})
     manager = JobQueue(backend, catalog, clock=clock, start_worker=worker)
     return backend, catalog, manager
 

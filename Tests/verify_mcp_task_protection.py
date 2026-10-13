@@ -49,7 +49,7 @@ def main():
         assert state["status"] == "ready" and state["host"]["exclusive"], state
         assert state["queued"] == state["dirty"] == state["activities"] == 0 and not state["pie"] and "occupant" not in state, state
         assert len(json.dumps(first.inspect_tasks(), separators=(",", ":")).encode()) <= 1024
-        original = complete(first, first.submit_batch([operation("runtime.inspect_mcp_dependencies", tool="blueprint.inspect_blueprint_graph"), operation("runtime.inspect_mcp_performance")], "身份核验")["batch"])
+        original = complete(first, first.submit_batch([operation("runtime.inspect_mcp_dependencies", tool="blueprint.inspect_blueprint_graph"), operation("runtime.inspect_mcp_resources")], "身份核验")["batch"])
         assert Path(original[0]["project_root"]).resolve() == Path(args.project_root).resolve()
         options = {"bSimulate": True, "playMode": "PlayMode_InViewPort", "warmupSeconds": 0.0}
         first.describe_tool("app.StartPIE")
@@ -65,7 +65,7 @@ def main():
                 assert error.value["code"] == "BATCH_OWNERSHIP", error.value
             else:
                 raise AssertionError("FOREIGN_CONTROL_ACCEPTED")
-            complete(second, second.submit_batch([operation("runtime.inspect_mcp_performance"), operation("app.IsPIERunning")], "客户端二只读")["batch"])
+            complete(second, second.submit_batch([operation("runtime.inspect_mcp_resources"), operation("app.IsPIERunning")], "客户端二只读")["batch"])
             assert second.inspect_tasks()["pie_owner"] == "other"
             second.control_task("cancel", foreign_stop)
             second.control_task("close", foreign_stop)
@@ -74,7 +74,7 @@ def main():
             complete(first, first.submit_batch([operation("app.StopPIE")], "客户端一释放 PIE")["batch"])
             first.control_task("close", started)
             assert second.wait_batch(successor, 120)["status"] == "completed"
-            complete(first, first.submit_batch([operation("runtime.inspect_mcp_performance")], "客户端一只读")["batch"])
+            complete(first, first.submit_batch([operation("runtime.inspect_mcp_resources")], "客户端一只读")["batch"])
             assert first.inspect_tasks()["pie_owner"] == "other"
             complete(second, second.submit_batch([operation("app.StopPIE")], "客户端二释放 PIE")["batch"])
             second.control_task("close", successor)

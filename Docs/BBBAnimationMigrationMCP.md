@@ -1,5 +1,7 @@
 # BBB 动画迁移 MCP
 
+公开批次默认完成本批次范围的验证、保存与回读。分阶段预览或人工检查时传 `completion="review"`。下文函数级保存行为描述对应领域实现；公开调用的完成策略以批次参数为准。
+
 ## 角色与装备蒙太奇实际采样
 
 `focus_bone` 优先读取角色骨骼 角色不存在该名称时允许使用被测武器骨骼或插槽 例如 `BBBMuzzle` 便于直接检查枪口和抛壳 不改变角色或武器姿势
@@ -34,13 +36,13 @@
 
 目标资产被编辑器动画数据控制器持有时删除会被拒绝 可关闭宿主后删除目标 uasset 文件 再启动宿主直接复制 引用该目标的蒙太奇在目标重建前不要保存
 
-`replace_montage_animation_references(montage_path, replacements_json)` 的映射键除了动画路径也接受 `slot:插槽名` 按插槽替换全部片段 用于当前引用已损坏为空的片段修复
+`replace_montage_animation_references(montage_path, replacements)` 的映射键除了动画路径也接受 `slot:插槽名` 按插槽替换全部片段 用于当前引用已损坏为空的片段修复
 
 蒙太奇运动采样的装备记录包含武器 `LeftHand` 插槽的世界变换 采样总超时为 300 秒 覆盖离屏渲染宿主的慢速帧率
 
 ## 左手 IK 曲线
 
-`replace_animation_float_curve(asset_path, curve_name, keys_json, dry_run=True)` 原位替换一个 AnimSequence 的浮点曲线 `keys_json` 为包含 `time` 与 `value` 的关键帧数组 默认只预检 写入要求目标包无未保存修改 已独占签出 可编辑且不在 PIE 中 目标曲线原始 `.uasset` 与关键帧清单备份到 `Saved/Diagnostics/LeftHandIKCurves/Backups` 保存后逐关键帧复核并通过 `[BBB][LeftHandIKCurve]` 日志报告结果
+`replace_animation_float_curve(asset_path, curve_name, keys, dry_run=True)` 原位替换一个 AnimSequence 的浮点曲线 `keys` 为包含 `time` 与 `value` 的关键帧数组 默认只预检 写入要求目标包无未保存修改 已独占签出 可编辑且不在 PIE 中 目标曲线原始 `.uasset` 与关键帧清单备份到 `Saved/Diagnostics/LeftHandIKCurves/Backups` 保存后逐关键帧复核并通过 `[BBB][LeftHandIKCurve]` 日志报告结果
 
 `/Game/BBBC_UA/AnimationSystem/Layers/ABP_BBB_LocomotionLayer_Base` 的 `Two Bone IK hand_l` 节点读取 `DisableLHandIK` 曲线并将 AlphaScaleBias 设为 Scale `-1` Bias `1` 因此曲线值 `0` 表示启用左手 IK 曲线值 `1` 表示关闭左手 IK
 
@@ -56,15 +58,15 @@
 
 `inspect_animation_bone_track_keys(asset_path, bone_name, sample_count=12)` 通过原生编辑器库读取动画数据模型里的真实骨骼关键帧 用于检查新建动画保存后的轨道与运行姿势是否一致
 
-`Game.Scripts.BBBGenericEditorToolset.BBBGenericEditorToolset.add_animation_notify_events(asset_path, track_name, events_json)` 向指定动画通知轨道增加单次通知 保留已有通知及其时间 状态和轨道 输入数组每项包含 `class_path` 与 `time` 要求资产独占签出 保存后返回完整通知列表
+`Game.Scripts.BBBGenericEditorToolset.BBBGenericEditorToolset.add_animation_notify_events(asset_path, track_name, events)` 向指定动画通知轨道增加单次通知 保留已有通知及其时间 状态和轨道 输入数组每项包含 `class_path` 与 `time` 要求资产独占签出 保存后返回完整通知列表
 
-`Game.Scripts.BBBGenericEditorToolset.BBBGenericEditorToolset.replace_animation_notify_track(asset_path, track_name, events_json)` 原位替换指定轨道的通知 输入数组支持单次通知与带 `duration` 的通知状态 每项可附 `properties` 设置独立通知实例的网格引用 骨骼名 浮点值和 `location` `rotation` `scale` 变换数组 旋转也可传 `rotation_quaternion` 四元数数组 要求资产独占签出并保存
+`Game.Scripts.BBBGenericEditorToolset.BBBGenericEditorToolset.replace_animation_notify_track(asset_path, track_name, events)` 原位替换指定轨道的通知 输入数组支持单次通知与带 `duration` 的通知状态 每项可附 `properties` 设置独立通知实例的网格引用 骨骼名 浮点值和 `location` `rotation` `scale` 变换数组 旋转也可传 `rotation_quaternion` 四元数数组 要求资产独占签出并保存
 
 `Game.Scripts.BBBGenericEditorToolset.BBBGenericEditorToolset.move_animation_notify_event(asset_path, notify_class_path, time_seconds)` 移动资产中唯一的指定单次通知 校验通知名称唯一及目标时间 保留其他通知和轨道 拒绝 PIE 中写入 要求资产已签出并在保存后返回完整通知列表
 
 `Game.Scripts.BBBGenericEditorToolset.BBBGenericEditorToolset.set_asset_object_property(asset_path, property_name, object_path)` 为独占签出的资产设置单个对象引用属性 拒绝非对象属性和 PIE 中的写入
 
-`Game.Scripts.BBBGenericEditorToolset.BBBGenericEditorToolset.set_asset_transform_property(asset_path, property_name, transform_json)` 为独占签出的资产设置单个变换属性 JSON 使用 `location` `rotation` `scale` 三个长度为三的数组 旋转顺序为 Pitch Yaw Roll 保存后回读变换
+`Game.Scripts.BBBGenericEditorToolset.BBBGenericEditorToolset.set_asset_transform_property(asset_path, property_name, transform)` 为独占签出的资产设置单个变换属性 JSON 使用 `location` `rotation` `scale` 三个长度为三的数组 旋转顺序为 Pitch Yaw Roll 保存后回读变换
 
 `Game.Scripts.BBBGenericEditorToolset.BBBGenericEditorToolset.inspect_static_mesh_bounds(asset_path)` 只读返回静态网格局部包围盒 用于定位手持道具的网格原点
 
@@ -137,7 +139,7 @@
 编辑器可用后，固定使用以下官方 MCP 调用顺序：
 
 1. `EditorToolset.EditorAppToolset.StartPIE`，参数使用 `bSimulate=false`、`playMode=PlayMode_InViewPort`。
-2. `Game.Scripts.BBBAnimationMigrationToolset.BBBAnimationMigrationToolset.run_pie_input_sequence`，传入 `schemaVersion=2`、`timingMode="game_frames"` 的 `steps_json`。
+2. `Game.Scripts.BBBAnimationMigrationToolset.BBBAnimationMigrationToolset.run_pie_input_sequence`，传入 `schemaVersion=2`、`timingMode="game_frames"` 的 `steps`。
    输入序列只预检 Move、Look 和各步骤实际启用的 held/pulse Action；未配置且未使用的 Dash、Slide 等动作不阻止移动场景复现。释放时只对已配置的 held Action 注入零值。
    移动档位仅接受 `held.run` 蹲伏仍使用 `held.crouch` 不再接受 `held.walk` 或 `held.sprint`
 3. `get_pie_input_sequence_status`，确认 `finished=true`、`releaseAck=true` 与 `totalInjectedFrames`。
@@ -152,7 +154,7 @@
 
 不要只检查 MCP 外层请求是否成功。每个项目工具的 `returnValue` 都必须解析，若内层 `error` 非空或输入序列未完成，则该次验收失败。
 
-常用 `steps_json` 场景：
+常用 `steps` 场景：
 
 ```json
 {

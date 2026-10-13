@@ -6704,10 +6704,33 @@
           "graph_path": {
             "type": "string",
             "description": "项目蓝图图表完整路径"
+          },
+          "view": {
+            "type": "string"
+          },
+          "node_guids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "expected_snapshot": {
+            "type": "string"
           }
         },
         "required": [
-          "graph_path"
+          "graph_path",
+          "view",
+          "node_guids",
+          "offset",
+          "limit",
+          "expected_snapshot"
         ]
       },
       "outputSchema": {
@@ -6752,32 +6775,6 @@
           "returnValue": {
             "type": "string",
             "description": "回读通过的节点坐标 尚未编译保存"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "inspect_blueprint_graph_logic": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "graph_path": {
-            "type": "string",
-            "description": "项目蓝图图表完整路径"
-          }
-        },
-        "required": [
-          "graph_path"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string",
-            "description": "不含显示几何的逻辑快照"
           }
         },
         "required": [
@@ -6835,38 +6832,6 @@
         "required": [
           "asset_path",
           "class_path"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "invoke_pie_object_function": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "object_path": {
-            "type": "string"
-          },
-          "function_name": {
-            "type": "string"
-          },
-          "arguments_json": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "object_path",
-          "function_name",
-          "arguments_json"
         ]
       },
       "outputSchema": {
@@ -7063,11 +7028,15 @@
         "properties": {
           "mesh_paths": {
             "type": "array",
-            "items": {"type": "string"},
+            "items": {
+              "type": "string"
+            },
             "description": "一至一百个唯一静态网格包路径 *"
           }
         },
-        "required": ["mesh_paths"]
+        "required": [
+          "mesh_paths"
+        ]
       },
       "outputSchema": {
         "type": "object",
@@ -7077,7 +7046,9 @@
             "description": "源顶点 渲染包围盒与简单碰撞数量 不修改资产 */"
           }
         },
-        "required": ["returnValue"]
+        "required": [
+          "returnValue"
+        ]
       }
     },
     "validate_rigid_part_selection": {
@@ -8747,14 +8718,14 @@
         ]
       }
     },
-    "configure_mcp_performance": {
+    "configure_mcp_resources": {
       "inputSchema": {
         "type": "object",
         "properties": {
           "profile": {
             "type": "string",
             "description": "Speed Balanced Economy *",
-            "default": "Speed"
+            "default": "Economy"
           },
           "max_fps": {
             "type": "integer",
@@ -8776,7 +8747,7 @@
         ]
       }
     },
-    "inspect_mcp_performance": {
+    "inspect_mcp_resources": {
       "inputSchema": {
         "type": "object"
       },

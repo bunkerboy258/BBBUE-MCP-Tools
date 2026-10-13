@@ -132,8 +132,8 @@ class TestHost:
                 + ",bLaunchSeparateServer=False",
             "-DDC=(ProjectPak,EnginePak,ZenLocal,Local)", "-ZenLocalDataCacheReadOnly=true",
             "-LocalDataCachePath=" + str(self.directory / "DDC"),
-            "-BBBMcpPerformanceProfile=Balanced", "-BBBMcpMaxFPS=60",
-            "-ExecCmds=t.MaxFPS 60,t.IdleWhenNotForeground 0",
+            "-BBBMcpPerformanceProfile=Economy", "-BBBMcpMaxFPS=30",
+            "-ExecCmds=t.MaxFPS 30,t.IdleWhenNotForeground 0",
             "-Unattended", "-Multiprocess", "-NoSplash", "-AutoDeclinePackageRecovery", "-RenderOffscreen", "-SCCProvider=None"]
         if not options.get("rendering", False):
             arguments.append("-NullRHI")
@@ -206,20 +206,52 @@ class ProjectJobs:
         self.signature = None
         self.closed = False
         self.stopping = False
+        self._restore_tests()
 
     def connect(self, resume_key=None):
-        return self.editor.connect(resume_key)
+        key = self.editor.connect(resume_key)
+        historical = "@" + self.editor.clients.digest(key)
+        with self.condition:
+            for record in self.tests.values():
+                if record["owner"] == historical:
+                    record["owner"] = key
+            for context in self.contexts.values():
+                if context["owner"] == historical:
+                    context["owner"] = key
+            if any(record["owner"] == key for record in self.tests.values()):
+                self.editor.client_owners.add(key)
+        return key
+
+    def _restore_tests(self):
+        """/** @return 通过已结束世界的证据恢复原测试结果与输出归属 */"""
+        for record in self.editor.clients.stored_jobs():
+            if record["environment"] != "test":
+                continue
+            owner = "@" + record["owner"]
+            self.editor.clients[owner] = 0
+            record.update(owner=owner, queue=None, finished=True, submitted_at=time.monotonic())
+            record.pop("id")
+            if record["status"] in {"queued", "running"}:
+                record.update(status="review", code="TEST_INTERRUPTED")
+            self.tests[record["batch"]] = record
+            self.contexts.setdefault(record["test_host"], {"id": record["test_host"], "owner": owner, "label": record["label"],
+                "options": record["options"], "state": "closed", "queue": None, "host": record["host"], "close_requested": True})
+
+    def _checkpoint_test(self, record):
+        """/** @param record\t测试批次 @return 输出与结果的恢复记录 */"""
+        if self.editor.clients.database is None:
+            return
+        value = {key: copy.deepcopy(record[key]) for key in ("batch", "test_host", "label", "status", "completed", "environment", "operations", "options", "host", "results", "code", "finished")}
+        value.update(id=record["batch"], owner=record["owner"][1:] if record["owner"].startswith("@") else self.editor.clients.digest(record["owner"]))
+        for key in ("outcome", "input_version", "input_stable"):
+            if key in record:
+                value[key] = copy.deepcopy(record[key])
+        self.editor.clients.store_job(value)
 
     def touch(self, client):
         self.editor.touch(client)
-        with self.condition:
-            for context in self.contexts.values():
-                queue = context.get("queue")
-                if queue is not None and client == context["owner"]:
-                    with queue.changed:
-                        queue.clients[client] = self.editor.clients[client]
 
-    def submit(self, client, operations, label="", environment="editor", test_options=None, test_host=None):
+    def submit(self, client, operations, label="", environment="editor", test_options=None, test_host=None, completion="save"):
         """/** @param client\t客户端 @param operations\t有序操作 @param label\t用途 @param environment\t运行环境 @param test_options\t首次测试参数 @param test_host\t继续所属测试流程 @return 即时批次身份 */"""
         self.touch(client)
         if self.closed or self.stopping:
@@ -227,7 +259,7 @@ class ProjectJobs:
         if environment == "editor":
             if test_options is not None or test_host is not None:
                 raise JobConflict("TEST_OPTIONS_REQUIRE_TEST_ENVIRONMENT")
-            return {**self.editor.submit(client, operations, label), "environment": "editor"}
+            return {**self.editor.submit(client, operations, label, completion), "environment": "editor"}
         if environment != "test":
             raise JobConflict("ENVIRONMENT_INVALID")
         if self.factory is None:
@@ -260,6 +292,7 @@ class ProjectJobs:
                 "options": context["options"], "submitted_at": time.monotonic(), "host": None,
                 "results": [], "code": "TEST_HOST_WAITING", "finished": False}
             self.tests[batch] = record
+            self._checkpoint_test(record)
             with self.editor.changed:
                 self.editor.client_owners.add(client)
             self._dispatch()
@@ -315,7 +348,7 @@ class ProjectJobs:
             host = self.factory(context["id"], context["options"])
             context["handle"] = host
             queue = JobQueue(host.backend, self.editor.catalog, start_worker=False)
-            queue.clients[context["owner"]] = self.editor.clients[context["owner"]]
+            queue.clients = self.editor.clients
             with self.condition:
                 context.update(queue=queue, host=host.backend.process_id, state="running")
                 self.condition.notify_all()
@@ -325,8 +358,6 @@ class ProjectJobs:
                 if time.monotonic() >= expires:
                     context["close_requested"] = True
                     break
-                with queue.changed:
-                    queue.clients[context["owner"]] = expires
                 with self.condition:
                     pending = [record for record in self._records(context) if record["status"] == "queued" and "child" not in record]
                 for record in pending:
@@ -387,14 +418,21 @@ class ProjectJobs:
                 self.condition.notify_all()
 
     def _view(self, record, detail=False):
+        signature = (record["status"], record["completed"], record["code"], record.get("input_stable"), record["finished"], self.contexts[record["test_host"]]["state"])
+        if signature != record.get("signature"):
+            record["signature"] = signature
+            record["revision"] = record.get("revision", 0) + 1
+            self._checkpoint_test(record)
         result = {key: record[key] for key in ("batch", "environment", "test_host", "status", "completed")}
+        result["revision"] = record.get("revision", 0)
+        result["next"] = "inspect_tasks" if record["status"] in {"queued", "running"} else "submit_batch"
         context = self.contexts[record["test_host"]]
         result["host_status"] = context["state"]
         if record["code"]:
             result["code"] = record["code"]
         if context["host"] is not None:
             result["process_id"] = context["host"]
-        if detail:
+        if detail or record["status"] == "completed":
             result["results"] = copy.deepcopy(record["results"])
             result["elapsed_seconds"] = int(time.monotonic() - record["submitted_at"])
             for key in ("input_version", "input_stable"):
@@ -408,6 +446,11 @@ class ProjectJobs:
     def inspect(self, client, batch=None, detail=False, after_revision=None, wait_seconds=0):
         """/** @param client\t客户端 @param batch\t批次 @param detail\t结果证据 @param after_revision\t业务版本 @param wait_seconds\t等待上限 @return 项目占用与结果 */"""
         self.touch(client)
+        if batch is not None:
+            with self.condition:
+                is_test = batch in self.tests
+            if not is_test:
+                return {**self.editor.inspect(client, batch, detail, after_revision, wait_seconds), "environment": "editor"}
         if batch is not None and detail:
             with self.condition:
                 record = self.tests.get(batch)
@@ -430,12 +473,13 @@ class ProjectJobs:
                 if signature != self.signature:
                     self.signature = signature
                     self.revision += 1
-                if after_revision is None or after_revision != self.revision or time.monotonic() >= deadline:
+                revision = self._view(self.tests[batch])["revision"] if batch in self.tests else self.revision
+                if after_revision is None or after_revision != revision or time.monotonic() >= deadline:
                     if batch in self.tests:
                         record = self.tests[batch]
                         if record["owner"] != client:
                             raise JobConflict("BATCH_OWNERSHIP")
-                        return {"revision": self.revision, **self._view(record, detail)}
+                        return self._view(record, detail)
                     if batch:
                         return {**self.editor.inspect(client, batch, detail), "revision": self.revision, "environment": "editor"}
                     editor["revision"] = self.revision
@@ -518,6 +562,7 @@ class ProjectJobs:
                     {"batch": batch, "error": str(error), "next": "control_task.close"}) from error
             with self.condition:
                 del self.tests[batch]
+                self.editor.clients.delete_job(batch)
                 if not self._records(context):
                     del self.contexts[context["id"]]
                 if not any(item["owner"] == client for item in self.tests.values()):

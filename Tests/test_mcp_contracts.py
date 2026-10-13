@@ -105,6 +105,14 @@ class McpContractTests(unittest.TestCase):
             with self.assertRaises(McpBusinessError):
                 tool("asset")
 
+    def test_selected_graph_view_requires_its_actual_native_symbols(self):
+        """/** @return 逻辑读取使用逻辑依赖 几何读取增加显示依赖 */"""
+        logic = capabilities._walk_native_requirements("BBBBlueprintGraphToolset", "inspect_blueprint_graph", set(), {"view": "logic"})
+        geometry = capabilities._walk_native_requirements("BBBBlueprintGraphToolset", "inspect_blueprint_graph", set(), {"view": "geometry"})
+        self.assertIn("inspect_blueprint_graph_logical_snapshot", logic["BBBBlueprintEditorLibrary"])
+        self.assertNotIn("inspect_blueprint_graph_snapshot", logic["BBBBlueprintEditorLibrary"])
+        self.assertIn("inspect_blueprint_graph_snapshot", geometry["BBBBlueprintEditorLibrary"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,11 +3,13 @@ import copy
 from functools import lru_cache, wraps
 import inspect
 import json
+import hashlib
 from pathlib import Path
 import re
 
 from MCP.mcp_result import require_business_success, McpExecutionError
 from MCP.mcp_asset_scope import asset_targets
+from MCP.mcp_contracts import TOOL_POLICIES, compile_contract, default_arguments
 
 
 TOOL_DOMAINS = {
@@ -158,7 +160,7 @@ def native_requirements(module_name, function_name):
     return _walk_native_requirements(module_name, function_name, set())
 
 
-def _walk_native_requirements(module_name, function_name, visited):
+def _walk_native_requirements(module_name, function_name, visited, arguments=None):
     """
     /**
      * 追踪静态原生引用和本仓库辅助调用 动态业务条件仍由工具预检
@@ -168,7 +170,7 @@ def _walk_native_requirements(module_name, function_name, visited):
      * @return 原生类到所需函数名称集合
      */
     """
-    key = (module_name, function_name)
+    key = (module_name, function_name, repr(arguments))
     if key in visited:
         return {}
     visited.add(key)
@@ -176,6 +178,9 @@ def _walk_native_requirements(module_name, function_name, visited):
     function = index["functions"].get(function_name)
     if function is None:
         return {}
+    if arguments is not None:
+        function = copy.deepcopy(function)
+        function.body = selected_statements(function.body, arguments)
     requirements = {}
     aliases = {}
     call_targets = {id(node.func) for node in ast.walk(function) if isinstance(node, ast.Call)}
@@ -216,10 +221,73 @@ def _walk_native_requirements(module_name, function_name, visited):
             imported = index["imports"].get(node.func.value.id)
             if imported in HELPER_MODULES:
                 child = (imported, node.func.attr)
+            if node.func.value.id == module_name and node.func.attr in index["functions"]:
+                child = (module_name, node.func.attr)
         if child:
-            for name, methods in _walk_native_requirements(*child, visited).items():
+            bound = None
+            if arguments is not None:
+                target = source_index(child[0])["functions"].get(child[1])
+                if target is not None:
+                    bound = {parameter.arg: value for parameter, expression in zip(target.args.args, node.args) for value in [static_value(expression, arguments)] if value is not UNKNOWN_VALUE}
+                    bound.update({keyword.arg: value for keyword in node.keywords for value in [static_value(keyword.value, arguments)] if keyword.arg is not None and value is not UNKNOWN_VALUE})
+            for name, methods in _walk_native_requirements(*child, visited, bound).items():
                 requirements.setdefault(name, set()).update(methods)
     return requirements
+
+
+UNKNOWN_VALUE = object()
+
+
+def static_value(expression, arguments):
+    """/** @param expression\t源码条件 @param arguments\t已绑定标量参数 @return 可确定值或未知标记 */"""
+    if isinstance(expression, ast.Name):
+        value = arguments.get(expression.id, UNKNOWN_VALUE)
+        return value if isinstance(value, (str, int, float, bool, type(None))) else UNKNOWN_VALUE
+    try:
+        return ast.literal_eval(expression)
+    except (ValueError, TypeError):
+        pass
+    if isinstance(expression, ast.UnaryOp) and isinstance(expression.op, ast.Not):
+        value = static_value(expression.operand, arguments)
+        return not value if value is not UNKNOWN_VALUE else UNKNOWN_VALUE
+    if isinstance(expression, ast.BoolOp):
+        values = [static_value(child, arguments) for child in expression.values]
+        if isinstance(expression.op, ast.And) and any(value is not UNKNOWN_VALUE and not value for value in values):
+            return False
+        if isinstance(expression.op, ast.Or) and any(value is not UNKNOWN_VALUE and value for value in values):
+            return True
+        if all(value is not UNKNOWN_VALUE for value in values):
+            return all(values) if isinstance(expression.op, ast.And) else any(values)
+    if isinstance(expression, ast.Compare) and len(expression.ops) == 1:
+        left = static_value(expression.left, arguments)
+        right = static_value(expression.comparators[0], arguments)
+        if left is not UNKNOWN_VALUE and right is not UNKNOWN_VALUE:
+            operations = {ast.Eq: lambda: left == right, ast.NotEq: lambda: left != right, ast.In: lambda: left in right, ast.NotIn: lambda: left not in right, ast.Lt: lambda: left < right, ast.LtE: lambda: left <= right, ast.Gt: lambda: left > right, ast.GtE: lambda: left >= right, ast.Is: lambda: left is right, ast.IsNot: lambda: left is not right}
+            callback = operations.get(type(expression.ops[0]))
+            if callback is not None:
+                try:
+                    return callback()
+                except TypeError:
+                    return UNKNOWN_VALUE
+    return UNKNOWN_VALUE
+
+
+def selected_statements(statements, arguments):
+    """/** @param statements\t函数语句 @param arguments\t已绑定参数 @return 当前分支可能执行的语句 */"""
+    result = []
+    for statement in statements:
+        if isinstance(statement, ast.If):
+            value = static_value(statement.test, arguments)
+            if value is not UNKNOWN_VALUE:
+                selected = selected_statements(statement.body if value else statement.orelse, arguments)
+                result.extend(selected)
+                if selected and isinstance(selected[-1], (ast.Return, ast.Raise)):
+                    break
+                continue
+        result.append(statement)
+        if isinstance(statement, (ast.Return, ast.Raise)):
+            break
+    return result
 
 
 def dependency_status(requirements, unreal_module):
@@ -266,7 +334,10 @@ def mcp_tool(method):
 
     @wraps(function)
     def invoke(*args, **kwargs):
-        status = dependency_status(requirements, unreal)
+        arguments = inspect.signature(function).bind(*args, **kwargs)
+        arguments.apply_defaults()
+        selected = _walk_native_requirements(module_name, function.__name__, set(), arguments.arguments) if requirements else {}
+        status = dependency_status(selected, unreal)
         if not status["native_dependencies_ready"]:
             return json.dumps(McpExecutionError("rejected", "NATIVE_DEPENDENCY_MISSING", "原生依赖待准备", status).value, ensure_ascii=False)
         try:
@@ -282,192 +353,16 @@ def mcp_tool(method):
 
 
 
-QUERY_TOOLS = {
-    "AssetTools": {"list_folders", "exists", "find_assets", "get_asset_tags", "get_asset_class", "can_edit_asset", "is_checked_out", "is_dirty", "get_referencers", "get_dependencies"},
-    "ObjectTools": {"search_subclasses", "get_class", "list_properties", "get_properties"},
-    "EditorAppToolset": {"IsPIERunning", "GetSelectedActors", "GetSelectedAssets", "GetCameraTransform", "GetContentBrowserPath", "GetOpenAssets"},
-    "BBBMcpRuntimeToolset": {"inspect_mcp_performance", "inspect_mcp_dependencies"},
-    "BBBGenericEditorToolset": {
-        "inspect_skeletal_mesh_skinning",
-        "inspect_material_statistics",
-        "inspect_dirty_packages", "inspect_pie_characters", "inspect_pie_player_control", "inspect_pie_actor_properties",
-        "inspect_pie_actor_skeletal_bones", "inspect_pie_hand_attachments", "inspect_pie_bone_alignment", "inspect_pie_static_mesh_instances",
-        "inspect_static_mesh_bounds", "inspect_animation_notifies", "inspect_animation_notify_properties", "inspect_sound_assets",
-        "inspect_animation_float_curves", "inspect_animation_montage_segments", "inspect_asset_properties", "inspect_blueprint_class_defaults",
-        "inspect_niagara_graphs", "inspect_pie_niagara_system", "inspect_control_rig_graphs", "get_niagara_capture_status",
-        "probe_pie_character_ground_contacts",
-    },
-    "BBBBlueprintGraphToolset": {"inspect_blueprint_graph_logic", "inspect_blueprint_graph", "inspect_owned_objects"},
-    "BBBAnimationMigrationToolset": {"get_pie_input_sequence_status", "get_pie_montage_motion_capture_status", "get_pie_character_motion_capture_status", "export_animation_blueprint_graphs", "inspect_backward_recoil_context", "inspect_animation_bone_track_keys", "inspect_pie_arm_pose", "probe_python_api", "probe_animation_assets", "probe_animation_blueprint", "probe_animation_bone_trajectories", "probe_animation_component_poses", "probe_animation_instance_runtime", "probe_animation_property_access_paths", "probe_pie_character_animation_runtime"},
-    "BBBAnimationPreviewToolset": {"inspect_animation_transition_capture", "inspect_mass_population_benchmark"},
-    "BBBHitReactionToolset": {"inspect_skeletal_hit_reaction_capture", "inspect_zombie_gib_presentation", "inspect_pie_audio_device", "inspect_blood_residue", "inspect_player_weapon_hit_state", "inspect_physics_asset_constraints", "inspect_skeletal_physics_state"},
-    "BBBAssetMaintenanceToolset": {"inspect_external_object_package_metadata", "inspect_external_actor_package_metadata", "inspect_external_actor_packages", "inspect_physics_asset_material_bindings", "inspect_package_objects", "inspect_pose_asset_source_guids", "inspect_animation_access_errors", "inspect_content_dependency_integrity", "inspect_loaded_package_soft_paths", "inspect_native_dependency_packages", "inspect_native_package_referencers", "inspect_asset_packages", "inspect_foliage_base_cache"},
-    "BBBControlRigAuthoringToolset": {"inspect_mesh_bounds", "inspect_authoring_api", "inspect_control_rig_reference", "inspect_control_rig_graph", "inspect_control_rig_controls", "inspect_sequence_bindings"},
-    "BBBAnimationGraphToolset": {"inspect_mass_scene_population", "inspect_mass_variation_network"},
-    "BBBMeleeToolset": {"inspect_upper_body_mask", "inspect_melee_sources"},
-    "BBBRigidPartToolset": {"inspect_reference_attachment", "inspect_static_mesh_geometry"},
-    "BBBTraversalToolset": {"get_pie_traversal_samples", "inspect_pie_traversal_contact_points", "inspect_traversal_montage_windows", "inspect_pie_traversal_network", "inspect_traversal_editing_schema"},
-    "BBBRetargetAssetAuditToolset": {"inspect_retargeter", "inspect_animation_poses"},
-}
 
-EXTERNAL_QUERIES = {
-    "animation": {"find_socket", "get_anim_sequence_info", "get_skeletal_mesh_info", "get_skeleton_info", "list_curves", "list_notifies", "list_notify_tracks", "list_sockets", "list_sync_markers"},
-    "control_rig": {"get_control_rig_info"},
-    "data_table": {"does_row_exist", "get_column_names", "get_row_names", "get_rows_as_json"},
-    "editor": {"get_open_assets", "get_selected_assets"},
-    "layer": {"get_actors_in_layer", "list_layers"},
-    "level": {"get_current_level_path", "list_level_actors"},
-    "level_sequence": {"get_sequence_info"},
-    "retarget": {"get_ik_rig_info"},
-    "util": {"is_in_pie", "get_output_log", "get_cvar", "get_project_info", "list_class_properties", "list_enum_values", "get_viewport_camera"},
-}
 
 BLOCKED_TOOLS = {
     "execute_tool_script", "execute_python_command", "execute_python_script", "execute_editor_script",
     "execute_console_command", "execute_script",
 }
 
-PIE_TOOLS = {
-    "BBBAnimationMigrationToolset": {"sample_weapon_handling_runtime", "sample_backward_recoil_runtime", "start_locomotion_runtime_probe", "stop_locomotion_runtime_probe", "submit_character_diagnostic_inputs", "capture_animation_pose", "capture_backward_recoil_alpha_samples"},
-    "BBBGenericEditorToolset": {"capture_niagara_preview"},
-    "BBBControlRigAuthoringToolset": {"capture_attachment_pose"},
-    "BBBAnimationGraphToolset": {"capture_monster_stagger_samples"},
-    "BBBHitReactionToolset": {"preview_blood_residue", "spawn_inspection_projectile", "spawn_mass_hit_acceptance_population", "start_blood_residue_capture", "start_player_weapon_hit_capture", "start_skeletal_hit_reaction_capture"},
-}
 
 
-WRITE_TARGET_FIELDS = {
-    "assets.remap_missing_soft_object_paths": ("referencer_paths",),
-    "assets.fixup_redirector_references_batch": ("referencer_paths",),
-    "hud.set_input_action_keys": ('mapping_context_path',),
-    "traversal.configure_character_movement_input": ('main_path',),
-    "traversal.configure_character_traversal_exits": ('main_path',),
-    "traversal.configure_character_traversal_state": ('main_path', 'interface_path', 'base_path', 'child_paths'),
-    "traversal.configure_traversal_montages": ('destination_paths',),
-    "animation.bind_backward_recoil_additive_inputs": ('blueprint_path',),
-    "animation.configure_weapon_recoil_animation_source": ('blueprint_path',),
-    "animation.simplify_animation_data_accesses": ('blueprint_paths',),
-    "animation.migrate_animation_data_accesses": ('blueprint_paths',),
-    "animation.repair_raise_weapon_after_firing_transition": ('blueprint_path',),
-    "animation.apply_try_weapon_animation_fallbacks": ('blueprint_paths',),
-    "animation.repair_main_anim_instance_accesses": ('blueprint_path',),
-    "animation.configure_character_rifle_actions": ('character_blueprint_path',),
-    "animation.create_equipment_action_montages": ('target_paths',),
-    "animation.configure_control_rig_anim_graph_node": ('blueprint_path',),
-    "animation.add_animation_layer_boolean_input": ('blueprint_path',),
-    "animation.create_control_rig_anim_graph_node": ('blueprint_path',),
-    "animation.rebuild_ik_foot_tracks": ('animation_paths',),
-    "animation.rewrite_animation_node_binding_paths": ('blueprint_path',),
-    "animation.rewrite_animation_property_access_paths": ('blueprint_paths',),
-    "animation.rename_animation_blueprint_variables": ('blueprint_path',),
-    "animation.set_animation_blueprint_skeletons": ('blueprint_paths',),
-    "animation.set_animation_blueprint_preview_mesh": ('blueprint_path',),
-    "animation.set_animation_sequence_preview_meshes": ('animation_paths',),
-    "animation.set_animation_folder_preview_meshes": ('folder_path',),
-    "animation.restore_lyra_stop_pose": ('blueprint_path',),
-    "animation.build_weapon_animation_graph": ('blueprint_path',),
-    "animation.remap_animation_blueprint_blend_profiles": ('blueprint_path',),
-    "animation.rebuild_blend_space_skeleton": ('blend_space_path',),
-    "animation.copy_animation_skeleton_metadata": ('target_skeleton_path',),
-    "animation.rebind_animation_blueprint_interface": ('blueprint_path',),
-    "animation.remap_animation_blueprint_class_references": ('blueprint_path',),
-    "animation.remap_animation_sequence_notify_classes": ('animation_path',),
-    "animation.rebuild_arm_twist_tracks": ('animation_paths',),
-    "animation.limit_hand_swing_tracks": ('animation_paths',),
-    "animation.restore_animation_from_source": ('destination_path',),
-    "animation.replace_montage_animation_references": ('montage_path',),
-    "animation.hold_animation_bone_tracks": ('animation_path',),
-    "animation.configure_continuous_bone_rotation": ('blueprint_path',),
-    "animation.configure_weapon_handling_graphs": ('blueprint_path',),
-    "animation.create_backward_additive_animation": ('destination_path',),
-    "animation.create_animation_slice": ('destination_path',),
-    "editor.create_primitive_texture_blend_material": ('material_path',),
-    "editor.import_skeletal_animation_set": ('destination_path',),
-    "editor.create_animation_set_retargeter": ('source_rig_path', 'retargeter_path'),
-    "editor.create_channel_sprite_system": ('channel_path', 'system_path'),
-    "editor.set_struct_array_object": ('object_path',),
-    "editor.configure_persistent_projectile_tracer": ('channel_path', 'system_path'),
-    "editor.configure_projectile_tracer_finish": ('channel_path', 'system_path'),
-    "editor.configure_projectile_impact_system": ('channel_path', 'system_path', 'material_path'),
-    "editor.create_projectile_sprite_material": ('material_path',),
-    "assets.configure_monster_blood_residue": ('settings_path',),
-    "assets.refresh_asset_registry_folders": ('folder_paths',),
-    "assets.repair_foliage_base_cache": ('world_package',),
-    "assets.create_missing_path_recovery_redirector": ('source_package',),
-    "control_rig.remap_animation_bone_times": ('animation_path',),
-    "control_rig.build_pose_control_keys": ('animation_path',),
-    "control_rig.prepare_animation_sequence": ('sequence_path',),
-    "control_rig.bake_control_rig_animation": ('animation_path',),
-    "animation_graph.configure_character_continuous_locomotion": ("asset_path", "base_layer_path", "child_layer_paths", "output_directory"),
-    "external.game.add_input_action": ("asset_path",),
-    "external.game.add_input_mapping": ("mapping_context_path",),
-    "blueprint.optimize_blueprint_node_layout": ("graph_path",),
-    "blueprint.set_blueprint_node_positions": ("graph_path",),
-    "blueprint.edit_blueprint_graph_comments": ("graph_path",),
-    "blueprint.add_blueprint_comment_node": ("graph_path",),
-    "blueprint.remove_blueprint_comment_node": ("graph_path",),
-    "blueprint.annotate_blueprint_graph": ("graph_path",),
-    "blueprint.write_graph": ("graph_path",),
-    "blueprint.configure_control_rig_curve_alpha": ("blueprint_path",),
-    "blueprint.configure_blueprint_function_thread_safety": ("blueprint_path",),
-    "editor.replace_animation_float_curve": ("asset_path",),
-    "editor.set_instanced_struct_array": ("asset_path",),
-    "editor.create_asset_with_factory": ("asset_path",),
-    "editor.reimport_texture": ("asset_path",),
-    "editor.import_animation_fbx": ("asset_path",),
-    "editor.remove_empty_animation_notify_track": ("asset_path",),
-    "editor.resave_asset": ("asset_path",),
-    "hit.normalize_zombie_gib_material_bindings": ("mesh_paths",),
-    "editor.retime_single_action_montage": ("asset_path",),
-    "editor.add_animation_notify_events": ("asset_path",),
-    "editor.replace_animation_notify_track": ("asset_path",),
-    "editor.move_animation_notify_event": ("asset_path",),
-    "editor.set_asset_object_property": ("asset_path",),
-    "editor.set_asset_transform_property": ("asset_path",),
-    "editor.set_blueprint_class_defaults": ("asset_path",),
-    "editor.frame_texture_thumbnails": ("asset_paths",),
-    "editor.refresh_material_instances": ("asset_paths",),
-    "editor.reload_assets_from_disk": ("asset_paths",),
-    "editor.remove_input_action_mappings": ("mapping_context_path",),
-    "editor.set_niagara_spawn_update_mode": ("system_path",),
-    "editor.set_niagara_pin_default": ("system_path",),
-    "editor.bind_niagara_channel_reader": ("system_path",),
-    "editor.set_niagara_channel_reader_frame_mode": ("system_path",),
-    "editor.create_static_mesh_grid_graph": ("graph_path",),
-    "editor.create_static_mesh_points_graph": ("graph_path",),
-    "editor.configure_static_mesh_surface_collision": ("mesh_path",),
-    "assets.repair_missing_animation_skeleton": ("asset_path",),
-    "assets.refresh_blueprint_reflection_metadata": ("asset_path",),
-    "assets.modernize_deprecated_blueprint_nodes": ("asset_path",),
-    "assets.normalize_material_auxiliary_data": ("asset_paths",),
-    "assets.resave_assets": ("asset_paths",),
-    "assets.delete_asset_redirectors": ("asset_paths",),
-    "assets.remove_unreferenced_loaded_redirectors": ("asset_paths",),
-    "assets.delete_metadata_only_package": ("package_path",),
-    "assets.remap_package_metadata_owner_paths": ("package_path",),
-    "control_rig.create_control_rig": ("asset_path",),
-    "control_rig.configure_control_rig_graph": ("asset_path",),
-    "control_rig.add_pose_controls": ("asset_path",),
-    "control_rig.set_sequence_attachment_transform": ("sequence_path",),
-    "control_rig.normalize_authoring_bindings": ("sequence_path",),
-    "control_rig.set_sequence_spawn_range": ("sequence_path",),
-    "control_rig.create_control_rig_sequence": ("sequence_path",),
-    "control_rig.configure_sequence_rig": ("sequence_path",),
-    "control_rig.configure_sequence_animation_source": ("sequence_path",),
-    "control_rig.create_sequence_attachment": ("sequence_path",),
-    "control_rig.configure_sequence_attachment_animation": ("sequence_path",),
-    "control_rig.convert_component_mesh_grips": ("mesh_path",),
-    "control_rig.create_attachment_preview_animation": ("destination_path",),
-    "control_rig.apply_baked_bone_deltas": ("baked_path",),
-    "asset.save_assets": ("asset_paths",),
-}
 
-WRITE_TARGET_JSON_FIELDS = {
-    "assets.repair_pose_asset_source_guids": ('expected_reports_json', 'asset'),
-    "assets.update_pose_assets_from_source": ('expected_reports_json', 'asset'),
-    "assets.repair_animation_property_queries": ('operations_json', 'asset'),
-    "traversal.configure_traversal_contact_points": ('points_json', 'montage'),
-}
 
 
 
@@ -478,13 +373,11 @@ def clean_schema(value, fields=False):
     if isinstance(value, dict):
         result = {key: clean_schema(item, key in {"properties", "$defs", "definitions", "patternProperties", "dependentSchemas"})
             for key, item in value.items() if fields or key not in {"title", "examples", "$schema"}}
-        if isinstance(result.get("description"), str):
-            result["description"] = result["description"][:180]
         return result
     return value
 
 
-def validate_arguments(value, schema, path="arguments", root=None):
+def validate_arguments(value, schema, path="/arguments", root=None):
     """/** @param value 参数值 @param schema 参数结构 @param path 字段路径 @return 参数核验完成 */"""
     if root is None:
         root = schema
@@ -522,24 +415,34 @@ def validate_arguments(value, schema, path="arguments", root=None):
             raise ValueError(path + ": expected " + str(expected))
     if "enum" in schema and value not in schema["enum"]:
         raise ValueError(path + ": enum")
+    if "const" in schema and value != schema["const"]:
+        raise ValueError(path + ": const")
+    if "if" in schema:
+        branch = "then"
+        try:
+            validate_arguments(value, schema["if"], path, root)
+        except ValueError:
+            branch = "else"
+        if branch in schema:
+            validate_arguments(value, schema[branch], path, root)
     if isinstance(value, dict):
         properties = schema.get("properties", {})
         missing = set(schema.get("required", [])) - set(value)
         if missing:
-            raise ValueError(path + ": required " + ",".join(sorted(missing)))
+            raise ValueError(path + "/" + sorted(missing)[0] + ": required")
         if schema.get("additionalProperties") is False and set(value) - set(properties):
-            raise ValueError(path + ": additionalProperties")
+            raise ValueError(path + "/" + sorted(set(value) - set(properties))[0] + ": additionalProperties")
         for key, item in value.items():
             child = properties.get(key)
             if child is None and isinstance(schema.get("additionalProperties"), dict):
                 child = schema["additionalProperties"]
             if child is not None:
-                validate_arguments(item, child, path + "." + key, root)
+                validate_arguments(item, child, path + "/" + key.replace("~", "~0").replace("/", "~1"), root)
     if isinstance(value, list):
         if len(value) < schema.get("minItems", 0) or len(value) > schema.get("maxItems", len(value)):
             raise ValueError(path + ": items")
         for index, item in enumerate(value):
-            validate_arguments(item, schema.get("items", {}), path + "[" + str(index) + "]", root)
+            validate_arguments(item, schema.get("items", {}), path + "/" + str(index), root)
     if isinstance(value, str):
         if len(value) < schema.get("minLength", 0) or len(value) > schema.get("maxLength", len(value)):
             raise ValueError(path + ": length")
@@ -561,12 +464,14 @@ def tool_contract(toolset, name, schema, description=""):
     domain = TOOL_DOMAINS.get(definition)
     if domain is None and not definition.startswith("BBB") and definition != "ProgrammaticToolset":
         domain = re.sub(r"(?<!^)(?=[A-Z])", "_", definition.removesuffix("Tools")).lower()
-    if domain is None or name in BLOCKED_TOOLS:
+    if domain is None or name in BLOCKED_TOOLS or definition == "BBBExternalToolset":
         return None
     parameters = clean_schema(schema)
     parameters.setdefault("additionalProperties", False)
     if definition.startswith("BBB"):
         function = source_index(definition)["functions"].get(name)
+        if function is None or name.startswith("_"):
+            return None
         if function is not None:
             for argument, value in zip(function.args.args[-len(function.args.defaults):], function.args.defaults):
                 try:
@@ -574,21 +479,36 @@ def tool_contract(toolset, name, schema, description=""):
                 except (ValueError, TypeError):
                     continue
                 parameters.get("properties", {}).get(argument.arg, {}).setdefault("default", default)
-    access = "read" if name in QUERY_TOOLS.get(definition, set()) else "write"
+            if "action" in parameters.get("properties", {}):
+                actions = set()
+                for node in ast.walk(function):
+                    if isinstance(node, ast.Compare) and isinstance(node.left, ast.Name) and node.left.id == "action":
+                        for child in node.comparators:
+                            if isinstance(child, ast.Constant) and isinstance(child.value, str):
+                                actions.add(child.value)
+                            if isinstance(child, (ast.Tuple, ast.List, ast.Set)):
+                                actions.update(value.value for value in child.elts if isinstance(value, ast.Constant) and isinstance(value.value, str))
+                if actions:
+                    parameters["properties"]["action"]["enum"] = sorted(actions)
+    access = TOOL_POLICIES.get(domain + "." + name, {}).get("access", "write")
+    if "access" not in TOOL_POLICIES.get(domain + "." + name, {}) and name.startswith(("audit_", "validate_", "verify_", "export_")):
+        access = "read"
     if not definition.startswith("BBB") and (name.startswith(("get_", "list_", "find_", "is_", "has_", "search_", "read_")) or name in {"can_edit", "load_asset", "trace_world"}):
+        access = "read"
+    if not definition.startswith("BBB") and name.startswith(("Get", "Is", "Has", "Search", "List", "WorldPosTo", "ScreenCoordsTo")):
         access = "read"
     if name in {"get_actor_transform_at_frame", "get_node_type_pins"}:
         access = "write"
     world = "any" if access == "read" else "editor"
-    if "pie" in name.lower().split("_") or definition == "BBBAnimationPreviewToolset" or name in PIE_TOOLS.get(definition, set()):
+    if "pie" in name.lower().split("_") or definition == "BBBAnimationPreviewToolset" or TOOL_POLICIES.get(domain + "." + name, {}).get("world") == "pie":
         world = "pie" if access == "write" else "any"
     if definition == "EditorAppToolset" and name in {"StartPIE", "StopPIE"}:
         access, world = "pie", "any"
     if definition == "BBBAnimationMigrationToolset" and name in {"start_locomotion_runtime_probe", "stop_locomotion_runtime_probe"}:
         access, world = "pie", "any"
     summary = re.sub(r"/\*\*|\*/|^\s*\*", "", description, flags=re.M).strip().split("\n")[0][:100]
-    return {"id": domain + "." + name, "toolset": toolset, "name": name, "parameters": parameters,
-        "summary": summary or name, "access": access, "world": world, "definition": definition}
+    return compile_contract({"id": domain + "." + name, "toolset": toolset, "name": name, "parameters": parameters,
+        "summary": summary or name, "access": access, "world": world, "definition": definition})
 
 
 def resolve_access(contract, arguments):
@@ -609,19 +529,23 @@ def write_scope(contract, arguments, access=None, world=None):
     """/** @param contract 契约 @param arguments 本次参数 @param access 权限 @param world 世界 @return 目标字段值与范围证据 */"""
     if access is None:
         access, world = resolve_access(contract, arguments)
-    json_fields = WRITE_TARGET_JSON_FIELDS.get(contract["id"])
-    if json_fields is not None:
-        field, key = json_fields
-        rows = json.loads(arguments.get(field, "[]"))
+    scope = contract.get("scope", TOOL_POLICIES.get(contract["id"], {}).get("scope", {}))
+    if scope.get("kind") == "session":
+        return [], True
+    row_fields = scope.get("rows")
+    if row_fields is not None:
+        field, key = row_fields
+        rows = arguments.get(field, [])
         if not isinstance(rows, list) or not rows or any(not isinstance(row, dict) or not isinstance(row.get(key), str) or not asset_targets(row[key]) for row in rows):
             return [], False
         return [row[key] for row in rows], True
-    fields = WRITE_TARGET_FIELDS.get(contract["id"])
-    if fields is None and contract["definition"] in {"ObjectTools", "BlueprintTools", "ControlRigTools", "SequencerTools"}:
-        roles = {"ObjectTools": ("instance",), "BlueprintTools": ("blueprint", "graph", "node", "nodes"), "ControlRigTools": ("control_rig",), "SequencerTools": ("sequence",)}
-        fields = tuple(field for field in roles[contract["definition"]] if field in arguments)
+    if scope.get("join"):
+        parent, name = scope["join"]
+        path = str(arguments.get(parent, "")).rstrip("/") + "/" + str(arguments.get(name, ""))
+        return [path], bool(asset_targets(path))
+    fields = scope.get("fields")
     targets = [arguments.get(field, contract["parameters"].get("properties", {}).get(field, {}).get("default")) for field in fields or ()]
-    scoped = access == "read" or world == "pie" or access == "pie" or contract["id"] == "runtime.configure_mcp_performance" or bool(fields and all(target is not None for target in targets) and asset_targets(targets))
+    scoped = access == "read" or world == "pie" or access == "pie" or contract["id"] == "runtime.configure_mcp_resources" or bool(fields and all(target is not None for target in targets) and asset_targets(targets))
     if access != "read" and any(":PersistentLevel." in str(target) for target in targets):
         scoped = False
     return targets, scoped
@@ -648,27 +572,83 @@ class ToolCatalog:
         """/** @param contract 已核实契约 @return 登记完成 */"""
         if contract["id"] in self.tools:
             raise ValueError("DUPLICATE_TOOL_ID")
-        self.tools[contract["id"]] = contract
+        item = contract if "codecs" in contract else compile_contract(contract)
+        item["dependencies"] = []
+        if item["definition"] in TOOL_DOMAINS and item["definition"].startswith("BBB"):
+            item["dependencies"] = sorted(library + "." + function for library, functions in native_requirements(item["definition"], item["name"]).items() for function in functions)
+        self.tools[item["id"]] = item
 
-    def find(self, query, limit=8):
+    def version(self):
+        """/** @return 当前注册契约集合的确定版本 */"""
+        return hashlib.sha256(json.dumps(sorted((identity, item["version"]) for identity, item in self.tools.items())).encode()).hexdigest()[:12]
+
+    def find(self, query, limit=3):
         """/** @param query 目标关键字 @param limit 结果上限 @return 候选工具 */"""
-        tokens = query.casefold().split()
+        aliases = {
+            "蓝图": ("blueprint", "graph"), "逻辑": ("logic",), "图表": ("graph",),
+            "注释": ("annotate", "comment"), "节点": ("node",), "区块": ("annotate", "comment"),
+            "整理": ("layout", "optimize"), "排版": ("layout", "optimize"),
+            "布局": ("layout",), "优化": ("optimize", "layout"),
+            "读取": ("inspect", "read", "get"), "查询": ("inspect", "get", "find"),
+            "检查": ("inspect", "read", "get"), "获取": ("inspect", "read", "get"),
+            "动画": ("animation",), "蒙太奇": ("montage",), "换弹": ("reload",),
+            "运行时": ("runtime", "pie"), "验收": ("runtime", "sample", "capture"),
+            "测试": ("runtime", "sample", "capture"), "截图": ("capture", "render"),
+            "材质": ("material",), "属性": ("property", "properties"), "保存": ("save", "resave"),
+            "导入": ("import",), "骨骼": ("bone", "skeletal"), "重定向": ("retarget",),
+            "重定向器": ("retargeter",), "姿态": ("pose", "poses"), "片段": ("segment", "segments"),
+            "占用": ("activity", "task"), "删除": ("delete", "remove"), "移动": ("move",),
+            "碰撞": ("collision", "physics"), "通知": ("notify", "notifies"),
+        }
+        normalized = query.casefold().strip()
+        groups = [values for word, values in aliases.items() if word in normalized]
+        groups.extend((token,) for token in re.findall(r"[a-z][a-z0-9]*(?:\.[a-z_]+)*", normalized) if token not in {"the", "a", "of", "for", "to", "and"} and not re.search(r"\d", token))
+        hints = {"animation.sample_weapon_handling_runtime": "reload equip runtime", "animation.run_pie_input_sequence": "reload input runtime", "blueprint.annotate_blueprint_graph": "node comment annotate layout optimize", "object.get_properties": "material asset properties inspect", "object.list_properties": "material asset properties fields", "object.set_properties": "material asset properties edit"}
         candidates = []
         for contract in self.tools.values():
-            text = (contract["id"] + " " + contract["summary"]).casefold()
-            score = sum(token in text for token in tokens)
-            if score:
+            identity = contract["id"].casefold()
+            words = set((identity.replace(".", " ").replace("_", " ") + " " + hints.get(identity, "")).split())
+            text = (identity + " " + contract["summary"] + " " + hints.get(identity, "")).casefold()
+            text += " " + " ".join(str(value) for field in contract["parameters"].get("properties", {}).values() for value in field.get("enum", []))
+            if identity == "blueprint.inspect_blueprint_graph":
+                words.update({"logic", "geometry", "overview"})
+            score = 1000 if normalized == identity or normalized == contract["name"].casefold() else 0
+            matched = 0
+            for values in groups:
+                weight = max((12 if value in words else 6 if value in text else 0 for value in values), default=0)
+                score += weight
+                matched += bool(weight)
+            for word in re.findall(r"[\u4e00-\u9fff]{2,}", normalized):
+                if word in contract["summary"]:
+                    score += 8
+            if matched:
+                score += 16 * matched / max(1, len(groups))
+            if any(word in normalized for word in ("读取", "查询", "检查", "获取", "inspect", "get", "read")):
+                score += 8 if contract["access"] == "read" else -8
+            if {"remove", "delete"} & words and not any(value in {"remove", "delete"} for group in groups for value in group):
+                score -= 12
+            if score and (not groups or matched >= min(2, len(groups)) or score >= 1000):
                 candidates.append((score, contract["id"], contract))
         candidates.sort(key=lambda item: (-item[0], item[1]))
-        return [{key: item[key] for key in ("id", "summary", "access")} for score, identity, item in candidates[:limit]]
+        result = [{key: item[key] for key in ("id", "summary", "access")} for score, identity, item in candidates[:min(limit, 3)]]
+        if result:
+            result[0] = self.describe(result[0]["id"])
+        if not result and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*\d[A-Za-z0-9_]*", query.strip()) and "asset.find_assets" in self.tools:
+            result = [self.describe("asset.find_assets")]
+            result[0]["arguments"] = {"folder_path": "/Game", "name": query.strip()}
+        return result
 
     def describe(self, identity):
         """/** @param identity 工具 ID @return 单工具契约 */"""
         item = self.tools[identity]
         result = {key: item[key] for key in ("id", "summary", "parameters", "access", "world")}
+        result.update({key: item[key] for key in ("scope", "completion", "version")})
+        if item["dependencies"]:
+            result["dependencies"] = item["dependencies"]
         result["environments"] = ["editor"]
         if item["access"] in {"read", "pie"} or item["world"] == "pie" or "dry_run" in item["parameters"].get("properties", {}):
             result["environments"].append("test")
+        result["next"] = "submit_batch"
         return result
 
     def prepare(self, operations):
@@ -684,6 +664,7 @@ class ToolCatalog:
                 raise ValueError("TOOL_UNKNOWN")
             arguments = copy.deepcopy(operation["arguments"])
             validate_arguments(arguments, contract["parameters"])
+            arguments = default_arguments(contract, arguments)
             access, world = resolve_access(contract, arguments)
             if contract["id"] == "asset.save_assets" and not arguments.get("asset_paths"):
                 raise ValueError("SAVE_REQUIRES_EXPLICIT_ASSETS")

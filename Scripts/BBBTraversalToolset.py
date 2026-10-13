@@ -15,6 +15,47 @@ _sample_until = 0.0
 _play_settings_snapshot = None
 
 
+
+
+MCP_INPUTS = {
+    'configure_traversal_contact_points': {
+        'points_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {'montage': {'type': 'string'}, 'point': {'$ref': '#/$defs/Vector3'}, 'time': {'type': 'number'}},
+                'required': ['montage', 'point', 'time'],
+                'additionalProperties': False,
+            },
+            'minItems': 1,
+            'maxItems': 8,
+        },
+    },
+    'configure_traversal_montages': {
+        'windows_json': {
+            'type': 'array',
+            'items': {
+                'type': 'array',
+                'items': {
+                    'type': 'object',
+                    'properties': {
+                        'target': {'type': 'string'},
+                        'start': {'type': 'number'},
+                        'end': {'type': 'number'},
+                        'rotation': {'type': 'boolean'},
+                        'bone': {'type': 'string'},
+                    },
+                    'required': ['target', 'start', 'end'],
+                    'additionalProperties': False,
+                },
+                'minItems': 1,
+            },
+            'minItems': 0,
+        },
+    },
+}
+
+
 def _player_id(character):
     """/** @param character 角色副本 @return 复制的玩家标识 */"""
     return json.loads(unreal.ToolsetLibrary.get_object_properties(character.player_state, ["PlayerId"]))["PlayerId"]

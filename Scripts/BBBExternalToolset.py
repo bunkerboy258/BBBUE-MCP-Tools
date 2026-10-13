@@ -57,7 +57,7 @@ _DOMAIN_ACTIONS = {
         "get_row_names",
         "get_rows_as_json",
         "remove_row",
-        "set_rows_from_json",
+        "replace_rows",
     },
     "editor": {
         "close_asset_editor",

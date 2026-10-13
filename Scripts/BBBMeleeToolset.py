@@ -12,6 +12,38 @@ from editor_toolset.toolsets.blueprint import BlueprintTools
 
 _staging_root = None
 
+
+
+MCP_INPUTS = {
+    'create_rigid_equipment_mesh': {
+        'sockets_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {'name': {'type': 'string'}, 'position': {'$ref': '#/$defs/Vector3'}},
+                'required': ['name', 'position'],
+                'additionalProperties': False,
+            },
+            'minItems': 1,
+        },
+    },
+    'create_melee_equipment': {
+        'settings_json': {
+            'type': 'object',
+            'properties': {
+                'position': {'$ref': '#/$defs/Vector3'},
+                'rotation': {'$ref': '#/$defs/Vector3'},
+                'damage': {'type': 'number'},
+                'radius': {'type': 'number'},
+                'interval': {'type': 'number'},
+            },
+            'required': ['position', 'rotation', 'damage', 'radius', 'interval'],
+            'additionalProperties': False,
+        },
+    },
+}
+
+
 def _new_targets(paths):
     """/** @param paths 尚不存在的目标包 @return 无 隔离任务允许重写已打开添加的本任务半成品 */"""
     if _staging_root is None:

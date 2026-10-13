@@ -45,7 +45,7 @@ def main():
         assert state["dirty"] == 0 and state["queued"] == 0 and state["activities"] == 0 and not state["pie"] and state.get("tests", {}).get("running", 0) == 0, state
         (task / "recovery.json").write_text(json.dumps({"url": args.url, "keys": [first.client_key, second.client_key], "assets": paths, "batches": batches}), encoding="utf-8")
 
-        def submit(session, operations, label):
+        def submit(session, operations, label, completion="save"):
             """
             /**
              * @param session	所属客户端
@@ -54,7 +54,7 @@ def main():
              * @return 可恢复批次身份
              */
             """
-            batch = session.submit_batch(operations, label=label)["batch"]
+            batch = session.submit_batch(operations, label=label, completion=completion)["batch"]
             batches.append({"client": 0 if session is first else 1, "batch": batch})
             recovery = {"url": args.url, "keys": [first.client_key, second.client_key], "assets": paths, "batches": batches}
             (task / "recovery.json").write_text(json.dumps(recovery), encoding="utf-8")
@@ -75,7 +75,8 @@ def main():
 
         fixture = submit(first, [operation("editor.create_asset_with_factory", asset_path=path, asset_class_path="/Script/Engine.Material", factory_class_path="/Script/UnrealEd.MaterialFactoryNew") for path in paths], "Dirty scope fixtures")
         complete(first, fixture)
-        dirty_batch = submit(first, [operation("object.set_properties", instance={"refPath": paths[0] + ".A"}, values=json.dumps({"TwoSided": True}))], "Dirty scope owner")
+        fields = complete(first, submit(first, [operation("object.list_properties", instance=paths[0] + ".A", query="two_sided")], "Dirty scope property"))["results"][0]["properties"]
+        dirty_batch = submit(first, [operation("object.set_properties", instance=paths[0] + ".A", values={next(iter(fields)): True})], "Dirty scope owner", completion="review")
         dirty = first.wait_batch(dirty_batch, 60)
         assert dirty["status"] == "review" and dirty["code"] == "DIRTY_ASSETS" and dirty["dirty"] == [paths[0]], dirty
         assert dirty["pending_save"]["packages"] == [paths[0]], dirty

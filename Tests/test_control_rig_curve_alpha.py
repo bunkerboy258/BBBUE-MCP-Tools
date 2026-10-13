@@ -52,7 +52,7 @@ class ControlRigCurveAlphaTests(unittest.TestCase):
         self.inspector = Mock(side_effect=lambda path: json.dumps(self.function if path.endswith(":Old") else self.main_snapshot))
         self.tools = Mock()
         namespace = {"json": json, "unreal": self.engine, "require_write_access": self.access,
-                     "BlueprintTools": self.tools, "BBBBlueprintGraphToolset": types.SimpleNamespace(inspect_blueprint_graph_logic=self.inspector)}
+                     "BlueprintTools": self.tools, "BBBBlueprintGraphToolset": types.SimpleNamespace(_graph_snapshot=self.inspector)}
         exec(compile(ast.Module(body=[method], type_ignores=[]), "curve_alpha_test", "exec"), namespace)
         self.configure = namespace["configure_control_rig_curve_alpha"]
         self.args = ("/Game/Test/ABP", "/Game/Test/ABP.ABP:AnimGraph.Rig", "Old", "NewAlpha", "UseIK", "DisableIK", "snap")

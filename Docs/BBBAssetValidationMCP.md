@@ -18,4 +18,4 @@ create_animation_slice(source_path, destination_path, start_frame, end_frame) �
 
 ## PIE 组件反射验证
 
-invoke_pie_object_function(object_path, function_name, arguments_json="[]") 调用正在运行的任意 PIE 世界中的 Actor 或 ActorComponent 反射函数，支持主客机组件的公开状态 getter；不接受普通资产、编辑器世界或非反射函数，不保存资产。返回目标世界路径及实际结果，日志使用 [BBBPIEObjectCall]。有副作用的调用仍需处于用户批准的任务范围，失败后检查实际状态，不自动重复提交。
+invoke_pie_object_function(object_path, function_name, arguments="[]") 调用正在运行的任意 PIE 世界中的 Actor 或 ActorComponent 反射函数，支持主客机组件的公开状态 getter；不接受普通资产、编辑器世界或非反射函数，不保存资产。返回目标世界路径及实际结果，日志使用 [BBBPIEObjectCall]。有副作用的调用仍需处于用户批准的任务范围，失败后检查实际状态，不自动重复提交。

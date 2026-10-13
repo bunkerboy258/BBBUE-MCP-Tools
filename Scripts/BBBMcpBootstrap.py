@@ -129,7 +129,7 @@ def _register_repository_toolsets():
             if not unreal.ToolsetRegistry.is_toolset_registered(get_toolset_name(module_name)):
                 raise RuntimeError("工具类注册失败 " + module_name)
         if not runtime_loaded:
-            sys.modules["BBBMcpRuntimeToolset"].configure_startup_performance()
+            sys.modules["BBBMcpRuntimeToolset"].configure_startup_resources()
         report = inspect_dependencies()
         for module_name, status in report["modules"].items():
             if not status["native_dependencies_ready"]:

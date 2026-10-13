@@ -9,7 +9,8 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "Scripts"))
 
-from BBBMcpCapabilities import TOOL_DOMAINS, WRITE_TARGET_FIELDS, WRITE_TARGET_JSON_FIELDS, write_scope
+from BBBMcpCapabilities import TOOL_DOMAINS, write_scope
+from MCP.mcp_contracts import TOOL_POLICIES
 from MCP.mcp_asset_scope import asset_targets, conflicting_packages
 from Tests.test_mcp_task_gateway import fixtures, operation
 
@@ -137,10 +138,10 @@ class DirtyScopeTests(unittest.TestCase):
          */
         """
         contract = {"id": "assets.repair_animation_property_queries", "definition": "BBBAssetMaintenanceToolset", "parameters": {}, "access": "write", "world": "editor"}
-        targets, scoped = write_scope(contract, {"operations_json": json.dumps([{"asset": "/Game/A", "paths": [{"old": "/Game/ReadOnly"}]}])})
+        targets, scoped = write_scope(contract, {"operations": [{"asset": "/Game/A", "paths": [{"old": "/Game/ReadOnly"}]}]})
         self.assertTrue(scoped)
         self.assertEqual(asset_targets(targets), {"/Game/A"})
-        self.assertEqual(write_scope(contract, {"operations_json": '[{"paths": []}]'}), ([], False))
+        self.assertEqual(write_scope(contract, {"operations": [{"paths": []}]}), ([], False))
 
     def test_empty_optional_target_list_keeps_known_scope(self):
         """
@@ -160,7 +161,8 @@ class DirtyScopeTests(unittest.TestCase):
          */
         """
         definitions = {domain: name for name, domain in TOOL_DOMAINS.items() if domain}
-        for tool, fields in WRITE_TARGET_FIELDS.items():
+        for tool, policy in TOOL_POLICIES.items():
+            fields = policy.get("scope", {}).get("fields", [])
             if tool.startswith("external."):
                 continue
             domain, method = tool.split(".", 1)
@@ -173,7 +175,7 @@ class DirtyScopeTests(unittest.TestCase):
             functions = [node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == method]
             self.assertTrue(functions, tool)
             self.assertTrue(set(fields) <= {arg.arg for arg in functions[0].args.args}, tool)
-        self.assertTrue(all(field.endswith("_json") for field, key in WRITE_TARGET_JSON_FIELDS.values()))
+        self.assertTrue(all(not field.endswith("_json") for policy in TOOL_POLICIES.values() if "rows" in policy.get("scope", {}) for field, key in [policy["scope"]["rows"]]))
 
 
 class DomainDirtyScopeTests(unittest.TestCase):

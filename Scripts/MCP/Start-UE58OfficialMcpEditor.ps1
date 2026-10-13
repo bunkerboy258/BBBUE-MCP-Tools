@@ -17,8 +17,8 @@ param(
     [switch]$EnableAudio,
     [switch]$MuteAudioOutput,
     [switch]$EnableSlateInspector,
-    [ValidateSet('Speed', 'Balanced', 'Economy', 'GamingBackground')]
-    [string]$PerformanceProfile = 'Speed',
+    [ValidateSet('HighThroughput', 'Balanced', 'Economy', 'GamingBackground')]
+    [string]$PerformanceProfile = 'Economy',
     [ValidateRange(-1, 240)]
     [int]$MaxFPS = -1,
     [ValidatePattern('^[A-Za-z0-9-]*$')]
@@ -64,14 +64,14 @@ if (-not (Test-Path -LiteralPath $editorPath))
 }
 
 $PerformanceProfile = @{
-    Speed = 'Speed'
+    HighThroughput = 'HighThroughput'
     Balanced = 'Balanced'
     Economy = 'Economy'
     GamingBackground = 'GamingBackground'
 }[$PerformanceProfile]
 
 $profileFrames = @{
-    Speed = 120
+    HighThroughput = 120
     Balanced = 60
     Economy = 30
     GamingBackground = 15
@@ -83,7 +83,7 @@ if ([System.IO.Path]::GetExtension($projectPath) -ne '.uproject')
 }
 
 $profilePriorities = @{
-    Speed = 'Normal'
+    HighThroughput = 'Normal'
     Balanced = 'Normal'
     Economy = 'BelowNormal'
     GamingBackground = 'BelowNormal'
@@ -356,7 +356,7 @@ try
                     throw '性能工具集未唯一注册 不猜测工具命名空间'
                 }
 
-                $inspectBody = @{ jsonrpc = '2.0'; id = 3; method = 'tools/call'; params = @{ name = 'call_tool'; arguments = @{ toolset_name = $runtimeNames[0]; tool_name = 'inspect_mcp_performance'; arguments = @{} } } } | ConvertTo-Json -Depth 8 -Compress
+                $inspectBody = @{ jsonrpc = '2.0'; id = 3; method = 'tools/call'; params = @{ name = 'call_tool'; arguments = @{ toolset_name = $runtimeNames[0]; tool_name = 'inspect_mcp_resources'; arguments = @{} } } } | ConvertTo-Json -Depth 8 -Compress
                 $inspectResponse = Invoke-WebRequest -UseBasicParsing -Uri $endpoint -Method Post -ContentType 'application/json' -Headers $sessionHeaders -Body $inspectBody -TimeoutSec 5 -ErrorAction Stop
                 $inspectText = $inspectResponse.Content
                 if ($inspectResponse.Headers['Content-Type'] -match 'text/event-stream')

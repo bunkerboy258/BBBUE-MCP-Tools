@@ -14,11 +14,11 @@
 - `configure_sequence_rig` 向该序列加入控制绑定与显式关键帧。无父级和偏移的 `source_` 控制器采用局部接口并逐键验证。
 - `bake_control_rig_animation` 使用官方 Sequencer 导出器，将指定序列唯一的网格绑定烘焙到明确的动画路径；已有目标必须取得写入权限。只保存目标动画，不创建诊断备份或改写来源。
 
-`create_control_rig` 的 `graph_json` 与 `configure_control_rig_graph` 的 `request_json` 支持 `variables` 数组。每项使用 `name`、`type`、可选 `typeObject`、`default`、`node` 与 `position`，创建公开输入变量及读取节点。结构体例：`{"name":"TargetPosition","type":"FVector","typeObject":"/Script/CoreUObject.Vector","default":"(X=0,Y=0,Z=0)","node":"ReadPosition"}`。变量重名、类型缺失或节点创建失败立即报错；不静默复用未知变量。
+`create_control_rig` 的 `graph` 与 `configure_control_rig_graph` 的 `request` 支持 `variables` 数组。每项使用 `name`、`type`、可选 `typeObject`、`default`、`node` 与 `position`，创建公开输入变量及读取节点。结构体例：`{"name":"TargetPosition","type":"FVector","typeObject":"/Script/CoreUObject.Vector","default":"(X=0,Y=0,Z=0)","node":"ReadPosition"}`。变量重名、类型缺失或节点创建失败立即报错；不静默复用未知变量。
 
 动画迁移工具的 `configure_control_rig_anim_graph_node` 仅设置 Rig 和公开输入并重建引脚，保留已有 Alpha 类型、缩放偏差及姿势传递配置。需要 Float 权重时先通过 ObjectTools 设置 Node，再调用该工具生成 Alpha 引脚。不得隐式强制 Bool、反相 Alpha 或重置输入姿势。
 
-`evaluate_rig_pose` 可选 `variables_json` 接受公开变量名到 Unreal 文本值的对象，如 `{"TargetPosition":"(X=1,Y=2,Z=3)","TargetRotation":"(Pitch=0,Yaw=0,Roll=0)"}`。在瞬态实例上、输入原动画姿势之后赋值，任一赋值失败立即报错。不保存或重定向源动画。
+`evaluate_rig_pose` 可选 `variables` 接受公开变量名到 Unreal 文本值的对象，如 `{"TargetPosition":"(X=1,Y=2,Z=3)","TargetRotation":"(Pitch=0,Yaw=0,Roll=0)"}`。在瞬态实例上、输入原动画姿势之后赋值，任一赋值失败立即报错。不保存或重定向源动画。
 
 工具文件：`Scripts/BBBControlRigAuthoringToolset.py`。Bootstrap 统一注册，通过 `find_tools` 搜索 `control_rig`，描述选中工具后提交批次。
 
@@ -90,7 +90,7 @@
 
 末帧秒值跨 Python 反射进入 C++ 时允许至多一微秒的舍入误差 仅该误差范围内使用实际动画末帧 返回时间为实际求值时间 其它越界请求仍拒绝
 
-首次创建控制绑定轨道时，先以 `keys_json="[]"` 调用 `configure_sequence_rig`，让编辑器完成轨道初始化，再在下一次调用写入真实关键帧。只打开序列不能代替轨道初始化。
+首次创建控制绑定轨道时，先以 `keys="[]"` 调用 `configure_sequence_rig`，让编辑器完成轨道初始化，再在下一次调用写入真实关键帧。只打开序列不能代替轨道初始化。
 
 `create_control_rig_sequence` 接受不存在的资产包，也接受当前工作区已经打开添加但尚未创建的包；两种情况都重新验证 Perforce 状态，拒绝其它工作区持有或无效的状态。重复生成轨道会影响官方烘焙器建立临时演员，创建器使用唯一生成轨道和明确的开始、结束关键帧。
 
@@ -121,7 +121,7 @@ MCP 调用须显式传入 `controller_path` 使用默认玩家时传空字符串
 
 姿势截图以 `focus_bone` 为画面中心 默认 `spine_03` 与动作轨迹采样共用固定曝光和临时补光 `exposure_compensation` 与 `fill_light_intensity` 可调 截图完成销毁临时相机和补光 不写入正式场景
 
-动作轨迹的 `views_json` 可指定一到八个命名取景 例如 `[{"name":"reverse","offset":[0,-130,-30]},{"name":"under","offset":[100,60,-50]}]` 偏移相对关注骨骼使用世界空间厘米 名称只允许英文数字和下划线且不得重复 留空使用正面和侧面 每个采样时刻依次通过同一截图实现输出全部取景 报告保留视角名称和实际偏移 不用原始动画的预览图代替角色最终姿势
+动作轨迹的 `views` 可指定一到八个命名取景 例如 `[{"name":"reverse","offset":[0,-130,-30]},{"name":"under","offset":[100,60,-50]}]` 偏移相对关注骨骼使用世界空间厘米 名称只允许英文数字和下划线且不得重复 留空使用正面和侧面 每个采样时刻依次通过同一截图实现输出全部取景 报告保留视角名称和实际偏移 不用原始动画的预览图代替角色最终姿势
 
 持枪探针的 `ammoEvents` 按游戏时间记录当前实际装备的弹量 容量与换弹状态变化 包含实例身份 用于验证逐发装入 满弹收束和换枪中断 `samples` 按 `sampleColumns` 读取 无弹量接口的装备输出空值 不把 MCP 查询完成时刻当作动画通知发生时刻
 

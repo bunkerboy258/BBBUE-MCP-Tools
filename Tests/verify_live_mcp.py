@@ -51,7 +51,7 @@ def main():
                 count += 1
         operations = [
             {"tool": "runtime.inspect_mcp_dependencies", "arguments": {"tool": "blueprint.inspect_blueprint_graph"}},
-            {"tool": "runtime.inspect_mcp_performance", "arguments": {}},
+            {"tool": "runtime.inspect_mcp_resources", "arguments": {}},
             {"tool": "editor.inspect_dirty_packages", "arguments": {}},
         ]
         identity = session.submit_batch(operations, "公开契约只读验收")["batch"]

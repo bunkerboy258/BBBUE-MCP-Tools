@@ -17,6 +17,164 @@ from toolset_registry.registration import Registration
 _pie_audio_capture = None
 
 
+
+
+MCP_INPUTS = {
+    'migrate_actor_blueprint': {'defaults_json': {'$ref': '#/$defs/Properties'}},
+    'replace_animation_float_curve': {
+        'keys_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {'time': {'type': 'number'}, 'value': {'type': 'number'}},
+                'required': ['time', 'value'],
+                'additionalProperties': False,
+            },
+            'minItems': 2,
+        },
+    },
+    'set_instanced_struct_array': {
+        'instances_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {'class': {'type': 'string'}, 'properties': {'$ref': '#/$defs/Properties'}},
+                'required': ['class'],
+                'additionalProperties': False,
+            },
+            'minItems': 0,
+        },
+    },
+    'create_asset_with_factory': {'factory_properties_json': {'$ref': '#/$defs/Properties'}},
+    'import_files_from_directory': {'extensions_json': {'type': 'array', 'items': {'type': 'string'}, 'minItems': 1}},
+    'import_skeletal_animation_set': {'source_files_json': {'type': 'array', 'items': {'type': 'string'}, 'minItems': 1}},
+    'render_asset_thumbnails': {
+        'requests_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {
+                    'source': {'type': 'string'},
+                    'destination': {'type': 'string'},
+                    'diagnostic_only': {'type': 'boolean'},
+                    'scalar_parameters': {'type': 'object', 'additionalProperties': {'type': 'number'}},
+                    'material_overrides': {'$ref': '#/$defs/StringMap'},
+                    'yaw': {'type': 'number'},
+                    'excluded_material_slots': {'type': 'string'},
+                    'output_directory': {'type': 'string'},
+                    'orthographic': {'type': 'boolean'},
+                    'pack_sides': {'type': 'boolean'},
+                },
+                'required': ['source', 'destination'],
+                'additionalProperties': False,
+            },
+            'minItems': 1,
+            'maxItems': 100,
+        },
+    },
+    'add_animation_notify_events': {
+        'events_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {
+                    'class_path': {'type': 'string'},
+                    'time': {'type': 'number'},
+                    'duration': {'type': 'number'},
+                    'properties': {'$ref': '#/$defs/Properties'},
+                },
+                'required': ['class_path', 'time'],
+                'additionalProperties': False,
+            },
+            'minItems': 1,
+        },
+    },
+    'replace_animation_notify_track': {
+        'events_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {
+                    'class_path': {'type': 'string'},
+                    'time': {'type': 'number'},
+                    'duration': {'type': 'number'},
+                    'properties': {'$ref': '#/$defs/Properties'},
+                },
+                'required': ['class_path', 'time'],
+                'additionalProperties': False,
+            },
+            'minItems': 0,
+        },
+    },
+    'spawn_configured_pie_actor': {'properties_json': {'$ref': '#/$defs/Properties'}},
+    'invoke_pie_actor_function': {'arguments_json': {'type': 'array', 'items': {}, 'minItems': 0}},
+    'set_asset_transform_property': {'transform_json': {'$ref': '#/$defs/TransformEuler'}},
+    'set_blueprint_class_defaults': {'values_json': {'$ref': '#/$defs/Properties'}},
+    'set_struct_array_object': {'properties_json': {'$ref': '#/$defs/Properties'}},
+    'invoke_pie_object_function': {'arguments_json': {'type': 'array', 'items': {}, 'minItems': 0}},
+    'create_static_mesh_points_graph': {
+        'points_json': {
+            'anyOf': [
+                {'type': 'array', 'items': {'$ref': '#/$defs/TransformEuler'}, 'minItems': 1, 'maxItems': 12000},
+                {
+                    'type': 'object',
+                    'properties': {'file': {'type': 'string'}, 'group': {'type': 'string'}},
+                    'required': ['file', 'group'],
+                    'additionalProperties': False,
+                },
+            ],
+        },
+    },
+    'spawn_static_mesh_batch': {
+        'items_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {
+                    'name': {'type': 'string'},
+                    'mesh': {'type': 'string'},
+                    'material': {'type': 'string'},
+                    'location': {'$ref': '#/$defs/Vector3'},
+                    'rotation': {'$ref': '#/$defs/Vector3'},
+                    'scale': {'$ref': '#/$defs/Vector3'},
+                    'folder': {'type': 'string'},
+                    'collision': {'type': 'boolean'},
+                },
+                'required': ['name', 'mesh', 'location', 'rotation', 'scale'],
+                'additionalProperties': False,
+            },
+            'minItems': 1,
+            'maxItems': 400,
+        },
+    },
+    'import_font_faces': {
+        'requests_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {'source': {'type': 'string'}, 'destination': {'type': 'string'}},
+                'required': ['source', 'destination'],
+                'additionalProperties': False,
+            },
+            'minItems': 1,
+        },
+    },
+    'rebind_asset_import_sources': {
+        'requests_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {'source': {'type': 'string'}, 'asset': {'type': 'string'}},
+                'required': ['source', 'asset'],
+                'additionalProperties': False,
+            },
+            'minItems': 1,
+            'maxItems': 100,
+        },
+    },
+}
+
+
 def _serialize_value(value):
     if value is None:
         return None
@@ -3087,10 +3245,17 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         """
         target = unreal.find_object(None, object_path)
         owner = target
-        if isinstance(target, unreal.ActorComponent):
-            owner = target.get_owner()
-
-        if not isinstance(owner, unreal.Actor) or owner.get_world() not in unreal.EditorLevelLibrary.get_pie_worlds(False):
+        worlds = unreal.EditorLevelLibrary.get_pie_worlds(False)
+        world = None
+        while owner is not None:
+            if owner in worlds:
+                world = owner
+                break
+            if hasattr(owner, "get_world") and owner.get_world() in worlds:
+                world = owner.get_world()
+                break
+            owner = owner.get_outer()
+        if target is None or world is None or object_path.rsplit(".", 1)[-1].startswith("Default__"):
             raise RuntimeError("目标必须是 PIE 世界的演员或其组件")
 
         arguments = json.loads(arguments_json)
@@ -3098,7 +3263,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             raise RuntimeError("函数名或位置参数数组无效")
 
         result = target.call_method(function_name, tuple(_function_argument(value) for value in arguments))
-        report = {"object": object_path, "world": owner.get_world().get_path_name(), "function": function_name, "result": _serialize_value(result)}
+        report = {"object": object_path, "world": world.get_path_name(), "function": function_name, "result": _serialize_value(result)}
         unreal.log("[BBBPIEObjectCall] " + object_path + " " + function_name)
         return json.dumps(report, ensure_ascii=False)
 

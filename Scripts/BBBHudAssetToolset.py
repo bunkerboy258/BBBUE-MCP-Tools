@@ -4,6 +4,47 @@ from BBBMcpCapabilities import mcp_tool
 from toolset_registry.registration import Registration
 
 
+
+
+MCP_INPUTS = {
+    'render_mesh_silhouettes': {
+        'requests_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {
+                    'mesh': {'type': 'string'},
+                    'output': {'type': 'string'},
+                    'horizontal_axis': {'type': 'integer'},
+                    'vertical_axis': {'type': 'integer'},
+                    'flip_horizontal': {'type': 'boolean'},
+                    'excluded_material_slots': {'type': 'string'},
+                    'line_art': {'type': 'boolean'},
+                    'pack_sides': {'type': 'boolean'},
+                },
+                'required': ['mesh', 'output'],
+                'additionalProperties': False,
+            },
+            'minItems': 1,
+            'maxItems': 100,
+        },
+    },
+    'set_input_action_keys': {
+        'mappings_json': {
+            'type': 'array',
+            'items': {
+                'type': 'object',
+                'properties': {'action': {'type': 'string'}, 'key': {'type': 'string'}},
+                'required': ['action', 'key'],
+                'additionalProperties': False,
+            },
+            'minItems': 1,
+            'maxItems': 100,
+        },
+    },
+}
+
+
 @unreal.uclass()
 class BBBHudAssetToolset(unreal.ToolsetDefinition):
     """按真实网格生成透明白色正投影图标 不依赖渲染宿主"""
