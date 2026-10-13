@@ -7646,6 +7646,42 @@
         ]
       }
     },
+    "configure_sequence_animation_source": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sequence_path": {
+            "type": "string",
+            "description": "保留的矫正序列 *"
+          },
+          "animation_path": {
+            "type": "string",
+            "description": "新源动作 *"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "角色网格 *"
+          }
+        },
+        "required": [
+          "sequence_path",
+          "animation_path",
+          "mesh_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "已保存的源动作与播放区间 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
     "configure_sequence_rig": {
       "inputSchema": {
         "type": "object",
