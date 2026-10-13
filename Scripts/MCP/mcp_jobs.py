@@ -5,20 +5,7 @@ import threading
 import time
 
 from MCP.mcp_result import McpBusinessError
-
-
-def asset_targets(value, normalize=True):
-    """/** @param value	操作参数 @param normalize	规范化为包路径 @return 明确的目标集合 */"""
-    targets = set()
-    if isinstance(value, str) and value.startswith("/Game/"):
-        targets.add(value.split(".", 1)[0].split(":", 1)[0] if normalize else value)
-    if isinstance(value, dict):
-        for item in value.values():
-            targets.update(asset_targets(item, normalize))
-    if isinstance(value, list):
-        for item in value:
-            targets.update(asset_targets(item, normalize))
-    return targets
+from MCP.mcp_asset_scope import asset_targets, conflicting_packages
 
 
 class JobConflict(McpBusinessError):
@@ -127,6 +114,16 @@ class JobQueue:
                     self._signal()
                 active = {item["id"] if isinstance(item, dict) else item for item in business.get("activities", [])}
                 self.activity_owners = {key: owner for key, owner in self.activity_owners.items() if key in active}
+                if not self.draining:
+                    for job in self.jobs.values():
+                        if job["status"] == "review" and job["code"] == "DIRTY_ASSETS" and job["completed"] == len(job["operations"]):
+                            remaining = conflicting_packages(business.get("dirty_packages", []), job["owned_dirty"])
+                            if not remaining and not job["activities"] & active:
+                                job["status"] = "completed"
+                                job["code"] = None
+                                job["dirty"] = []
+                                job["execution"] = "completed"
+                                self._signal()
                 if not self.pie_pending and not business.get("pie_active") and not business.get("worlds"):
                     self.pie_owner = None
                     self.pie_batch = None
@@ -158,6 +155,7 @@ class JobQueue:
             return self._job_view(job)
 
     def _reason(self, job, activity):
+        job.pop("blocked", None)
         if self.draining:
             return "HOST_DRAINING"
         active_ids = {item["id"] if isinstance(item, dict) else item for item in activity.get("activities", [])}
@@ -173,9 +171,11 @@ class JobQueue:
             if pending["status"] != "review" or pending["access"] == "read":
                 continue
             scope = set(pending["targets"]) | set(pending["dirty"])
-            if corrective and pending["owner"] == job["owner"] and job["targets"] <= scope:
+            if corrective and pending["owner"] == job["owner"] and conflicting_packages(job["targets"], scope) == job["targets"]:
                 continue
-            if not scope or not job["targets"] or scope & job["targets"]:
+            conflicts = conflicting_packages(scope, job["targets"])
+            if not pending["scoped"] or not scope or not job["scoped"] or conflicts:
+                job["blocked"] = {"batch": pending["id"], "mine": pending["owner"] == job["owner"], "packages": sorted(conflicts)[:8], "next": "owner_review"}
                 return "RESULT_REVIEW_REQUIRED"
         blocking_activities = [item for item in activity.get("activities", []) if not isinstance(item, dict) or item.get("blocking", True)]
         if blocking_activities:
@@ -192,9 +192,12 @@ class JobQueue:
         dirty = set(activity.get("dirty_packages", [])) - job["owned_dirty"]
         if job.get("yield_dirty") is not None:
             dirty.intersection_update(job["yield_dirty"])
-        if dirty & job["targets"] and not corrective:
+        conflicts = conflicting_packages(dirty, job["targets"])
+        if conflicts and not corrective:
+            job["blocked"] = {"packages": sorted(conflicts)[:8], "count": len(conflicts), "next": "owner_save"}
             return "TARGET_ALREADY_DIRTY"
         if dirty and not job["targets"] and not job["scoped"] and not corrective:
+            job["blocked"] = {"next": "scope_required"}
             return "DIRTY_BASELINE_UNSCOPED"
         return None
 
@@ -231,7 +234,10 @@ class JobQueue:
                 selected["started"] = True
                 selected["started_at"] = self.clock()
             if selected.get("yield_dirty") is not None:
-                selected["owned_dirty"].update(set(activity.get("dirty_packages", [])) - set(selected.pop("yield_dirty")))
+                appeared = set(activity.get("dirty_packages", [])) - set(selected.pop("yield_dirty"))
+                if selected["scoped"]:
+                    appeared = conflicting_packages(appeared, selected["targets"])
+                selected["owned_dirty"].update(appeared)
             selected["await_activity"].clear()
             if selected["access"] != "read":
                 self.writer = selected["id"]
@@ -519,10 +525,15 @@ class JobQueue:
         result = {"batch": job["id"], "status": job["status"], "completed": job["completed"]}
         if job["code"]:
             result["code"] = job["code"]
+        if job.get("blocked"):
+            result["blocked"] = copy.deepcopy(job["blocked"])
         if job["status"] == "queued":
             result["ahead"] = self.queue.index(job["id"])
         if job["status"] == "review":
             result["next"] = "control_task"
+            if job["code"] == "DIRTY_ASSETS":
+                result["next"] = "submit_batch"
+                result["pending_save"] = {"packages": job["dirty"][:8], "count": len(job["dirty"])}
         if detail:
             result.update({"results": copy.deepcopy(job["results"]), "dirty": list(job["dirty"]), "failed_index": job["failed_index"]})
             result["elapsed_seconds"] = int(self.clock() - job.get("started_at", job["submitted_at"]))

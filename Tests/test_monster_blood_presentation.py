@@ -36,7 +36,7 @@ class MonsterBloodPresentationTests(unittest.TestCase):
         self.settings.set_editor_property.side_effect = self.values.__setitem__
         self.settings.get_editor_property.side_effect = self.values.get
         self.access = Mock()
-        scope = {"unreal": self.engine, "json": json, "_move_dirty_packages": lambda: [],
+        scope = {"unreal": self.engine, "json": json, "_move_dirty_packages": lambda scope=None: [],
                  "_move_path": lambda value: value, "require_asset_write": self.access}
         exec(compile(ast.Module(body=[method], type_ignores=[]), "blood_presentation_test", "exec"), scope)
         self.call = scope[method.name]

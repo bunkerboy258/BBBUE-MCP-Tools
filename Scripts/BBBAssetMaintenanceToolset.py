@@ -267,13 +267,18 @@ def _move_native_dependency_report(registry, packages):
     return {"visited_package_count": len(visited), "script_packages": sorted(script_packages), "missing_script_packages": missing}
 
 
-def _move_dirty_packages():
+def _move_dirty_packages(scope=None):
     """
     /** @return 当前所有项目脏包 防止原生重命名顺带保存其它会话的修改 */
     """
     packages = list(unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages())
     packages.extend(unreal.EditorLoadingAndSavingUtils.get_dirty_map_packages())
-    return sorted({package.get_path_name() for package in packages if package.get_path_name().startswith("/Game/")})
+    dirty = {package.get_path_name() for package in packages if package.get_path_name().startswith("/Game/")}
+    if scope is not None:
+        from MCP.mcp_asset_scope import conflicting_packages
+
+        dirty = conflicting_packages(dirty, scope)
+    return sorted(dirty)
 
 
 def _move_blocking_blueprint_errors(existing_errors, current_errors, selected_packages):
@@ -638,7 +643,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
          * @return 保存并回读的配置 不提供旧字段兼容
          */
         """
-        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+        if _move_dirty_packages([settings_path, channel_path, *splatter_material_paths, *droplet_material_paths, *pool_material_paths]) or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
             raise RuntimeError("脏包或 PIE 期间拒绝配置")
         settings_path = _move_path(settings_path)
         groups = {"splatter_materials": list(splatter_material_paths), "droplet_materials": list(droplet_material_paths),
@@ -804,7 +809,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
          */
         """
         package = _move_path(package_path)
-        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+        if _move_dirty_packages([package_path]) or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
             raise RuntimeError("存在脏包或 PIE 拒绝清理元数据包")
         registry = _move_registry()
         if registry.get_assets_by_package_name(package) or _move_referencers(registry, package):
@@ -849,7 +854,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         """
         asset_path = _move_path(asset_path)
         skeleton_path = _move_path(skeleton_path)
-        if _move_dirty_packages():
+        if _move_dirty_packages([asset_path, skeleton_path]):
             raise RuntimeError("存在脏包 拒绝修复动画骨架")
         require_asset_write([asset_path], [])
         try:
@@ -863,7 +868,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         if not result.get("success"):
             raise RuntimeError("动画已有骨架或轨道不兼容 拒绝修复: " + json.dumps(result))
         result["saved"] = bool(unreal.EditorAssetLibrary.save_asset(asset_path, only_if_is_dirty=False))
-        result["success"] = result["success"] and result["saved"] and not _move_dirty_packages()
+        result["success"] = result["success"] and result["saved"] and not _move_dirty_packages([asset_path, skeleton_path])
         unreal.log("[BBBAnimationSkeletonRepair]修复结果 " + json.dumps(result))
         return json.dumps(result, ensure_ascii=False)
 
@@ -916,7 +921,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
                 raise RuntimeError("报告发生变化或不属于已证明的 GUID 算法升级: " + item["asset"])
         if dry_run:
             return json.dumps(current, ensure_ascii=False)
-        if _move_dirty_packages():
+        if _move_dirty_packages(paths):
             raise RuntimeError("存在脏包 拒绝开始姿势缓存维护")
         require_asset_write(paths, [])
         results = []
@@ -1090,7 +1095,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         if not asset_paths or len(asset_paths) > 64 or len(set(asset_paths)) != len(asset_paths):
             raise RuntimeError("需要 1 至 64 个明确不重复材质包")
 
-        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+        if _move_dirty_packages(asset_paths) or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
             raise RuntimeError("脏包或 PIE 期间拒绝材质缓存整理")
 
         paths = [_move_path(path) for path in asset_paths]
@@ -1118,7 +1123,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
                 return json.dumps(report, ensure_ascii=False)
 
         registry.scan_paths_synchronous(sorted({path.rsplit("/", 1)[0] for path in paths}), force_rescan=True)
-        report["success"] = not _move_dirty_packages()
+        report["success"] = not _move_dirty_packages(asset_paths)
         return json.dumps(report, ensure_ascii=False)
 
     @mcp_tool
@@ -1132,7 +1137,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
          */
         """
         path = _move_path(asset_path)
-        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+        if _move_dirty_packages([asset_path]) or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
             raise RuntimeError("脏包或 PIE 期间拒绝刷新")
 
         require_asset_write([path], [])
@@ -1153,7 +1158,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         """
         path = _move_path(package_path)
         old = _move_path(old_package_path)
-        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+        if _move_dirty_packages([package_path]) or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
             raise RuntimeError("脏包或 PIE 期间拒绝元数据归并")
 
         if not dry_run:
@@ -1196,7 +1201,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         """
         source = _move_path(source_package)
         destination = _move_path(destination_package)
-        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+        if _move_dirty_packages([source_package, destination_package]) or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
             raise RuntimeError("脏包或 PIE 期间拒绝恢复引用")
 
         if source == destination or any(os.path.isfile(_move_filename(source, extension)) for extension in (".uasset", ".umap")):
@@ -1237,7 +1242,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         if not isinstance(replacements, list) or not replacements or len(replacements) > 2000:
             raise RuntimeError("必须提供 1 至 2000 个明确软路径映射")
 
-        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+        if _move_dirty_packages([*referencer_paths, *[row.get(key, "") for row in replacements for key in ("source", "destination")]]) or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
             raise RuntimeError("脏包或 PIE 期间拒绝软路径修复")
 
         registry = _move_registry()
@@ -1315,10 +1320,10 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
 
         current_errors = {obj.get_path_name() for obj in unreal.ObjectIterator() if isinstance(obj, unreal.Blueprint) and obj.get_path_name().startswith("/Game/") and obj.get_editor_property("status") == unreal.BlueprintStatus.BS_ERROR}
         blocking = _move_blocking_blueprint_errors(existing_errors, current_errors, selected)
-        if blocking or _move_dirty_packages():
+        if blocking or _move_dirty_packages([*referencer_paths, *[row.get(key, "") for row in replacements for key in ("source", "destination")]]):
             report["blocked"] = "加载后出现蓝图错误或脏包 不保存"
             report["blueprint_errors"] = sorted(blocking)
-            report["dirty_packages"] = _move_dirty_packages()
+            report["dirty_packages"] = _move_dirty_packages([*referencer_paths, *[row.get(key, "") for row in replacements for key in ("source", "destination")]])
             return json.dumps(report, ensure_ascii=False)
 
         unreal.AssetToolsHelpers.get_asset_tools().rename_referencing_soft_object_paths(packages, redirect_map)
@@ -1331,7 +1336,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
 
         registry.scan_paths_synchronous(sorted({path.rsplit("/", 1)[0] for path in selected}), force_rescan=True)
         report["remaining_selected"] = {path: sorted(set(_move_referencers(registry, path)).intersection(selected)) for path in sorted(sources)}
-        report["dirty_packages"] = _move_dirty_packages()
+        report["dirty_packages"] = _move_dirty_packages([*referencer_paths, *[row.get(key, "") for row in replacements for key in ("source", "destination")]])
         report["success"] = not report["dirty_packages"] and not any(report["remaining_selected"].values())
         unreal.log("[BBBMissingSoftPathRepair]{} 保存 {} 个包".format("PASS" if report["success"] else "FAIL", len(report["saved"])))
         return json.dumps(report, ensure_ascii=False)
@@ -1437,7 +1442,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         if not folder_paths or len(folder_paths) > 64 or len(set(folder_paths)) != len(folder_paths):
             raise RuntimeError("必须提供 1 至 64 个不重复子目录")
         paths = [_move_path(path) for path in folder_paths]
-        if _move_dirty_packages():
+        if _move_dirty_packages(paths):
             raise RuntimeError("存在脏包时拒绝用磁盘状态覆盖注册表")
         registry = _move_registry()
         registry.scan_paths_synchronous(paths, force_rescan=True)
@@ -1679,7 +1684,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         if not referencer_paths or len(referencer_paths) > 32 or len(set(referencer_paths)) != len(referencer_paths):
             raise RuntimeError("必须提供 1 至 32 个不重复引用者包")
         registry = _move_registry()
-        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+        if _move_dirty_packages([*asset_paths, *referencer_paths]) or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
             raise RuntimeError("脏包或 PIE 期间拒绝修复引用")
         references = set()
         redirect_map = {}
@@ -1738,7 +1743,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
             if isinstance(obj, unreal.Blueprint) and obj.get_path_name().startswith("/Game/"):
                 if obj.get_editor_property("status") == unreal.BlueprintStatus.BS_ERROR:
                     errors.append(obj.get_path_name())
-        dirty = _move_dirty_packages()
+        dirty = _move_dirty_packages([*asset_paths, *referencer_paths])
         blocking_errors = _move_blocking_blueprint_errors(existing_errors, errors, selected)
         if blocking_errors or dirty:
             report["blocked"] = "加载产生蓝图错误或脏包 拒绝保存"
@@ -1762,7 +1767,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
             path: sorted(set(referencers).intersection(selected))
             for path, referencers in report["remaining"].items()
         }
-        report["dirty_packages"] = _move_dirty_packages()
+        report["dirty_packages"] = _move_dirty_packages([*asset_paths, *referencer_paths])
         report["success"] = not report["dirty_packages"] and not any(report["remaining_selected"].values())
         unreal.log("[BBBRedirectorBatch]本批保存 {} 个引用者".format(len(report["saved"])))
         return json.dumps(report, ensure_ascii=False)
@@ -2279,7 +2284,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
          */
         """
         path = _move_path(asset_path)
-        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+        if _move_dirty_packages([asset_path]) or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
             raise RuntimeError("脏包或 PIE 期间拒绝接口更新")
 
         require_asset_write([path], [])
@@ -2302,7 +2307,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         if not actor_paths or len(actor_paths) > 128 or len(set(actor_paths)) != len(actor_paths):
             raise RuntimeError("必须提供 1 至 128 个不重复角色路径")
 
-        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+        if _move_dirty_packages(actor_paths) or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
             raise RuntimeError("脏包或 PIE 期间拒绝构造重建")
 
         world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
@@ -2329,7 +2334,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         if not isinstance(expected, list) or not expected or len(expected) > 64:
             raise RuntimeError("必须提供 1 至 64 项源检查报告")
 
-        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+        if _move_dirty_packages([row.get(key, "") for row in expected for key in ("asset", "source")]) or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
             raise RuntimeError("脏包或 PIE 期间拒绝姿势更新")
 
         paths = [_move_path(row["asset"].split(".")[0]) for row in expected]
@@ -2518,7 +2523,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         if unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
             raise RuntimeError("PIE 期间拒绝植被缓存修复")
         if not dry_run:
-            if _move_dirty_packages():
+            if _move_dirty_packages([world_package]):
                 raise RuntimeError("存在脏包 拒绝植被缓存修复")
             require_asset_write([path], [])
         return unreal.BBBAssetRepairEditorLibrary.repair_foliage_base_cache(path, dry_run)

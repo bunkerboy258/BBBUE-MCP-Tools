@@ -22,7 +22,7 @@ class AssetRepairTests(unittest.TestCase):
         self.runtime = {
             "json": json,
             "_move_path": lambda path: path,
-            "_move_dirty_packages": lambda: [],
+            "_move_dirty_packages": lambda scope=None: [],
             "require_asset_write": lambda paths, targets: self.calls.append("checkout"),
             "BBBAssetMaintenanceToolset": types.SimpleNamespace(inspect_pose_asset_source_guids=lambda paths: json.dumps([self.before])),
             "unreal": types.SimpleNamespace(
@@ -55,13 +55,6 @@ class AssetRepairTests(unittest.TestCase):
         expected = dict(self.before, payload_hash="changed")
         with self.assertRaises(RuntimeError):
             self.repair(json.dumps([expected]), False)
-        self.assertEqual(self.calls, [])
-
-    def test_dirty_packages_block_execution(self):
-        """/** @return 无关脏包存在时不开始维护 */"""
-        self.runtime["_move_dirty_packages"] = lambda: ["/Game/UserWork"]
-        with self.assertRaises(RuntimeError):
-            self.repair(json.dumps([self.before]), False)
         self.assertEqual(self.calls, [])
 
     def test_payload_change_blocks_save(self):

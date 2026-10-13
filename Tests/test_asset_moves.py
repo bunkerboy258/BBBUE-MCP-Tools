@@ -419,7 +419,7 @@ class AssetMoveTests(unittest.TestCase):
         referencer = types.SimpleNamespace(asset_name="Reference", asset_class_path=types.SimpleNamespace(package_name="/Script/Engine", asset_name="AnimSequence"), is_u_asset=lambda: True)
         registry = types.SimpleNamespace(get_assets_by_package_name=lambda path: [redirector] if path == "/Game/Old" else [referencer])
         self.runtime["_move_registry"] = lambda: registry
-        self.runtime["_move_dirty_packages"] = lambda: []
+        self.runtime["_move_dirty_packages"] = lambda scope=None: []
         self.runtime["_move_referencers"] = lambda registry, path: ["/Game/Reference"]
         self.runtime["unreal"] = types.SimpleNamespace(LevelEditorSubsystem=object(), get_editor_subsystem=lambda subsystem: types.SimpleNamespace(is_in_play_in_editor=lambda: False), SoftObjectPath=lambda path: path)
         result = json.loads(self.runtime["fixup_redirector_references_batch"](["/Game/Old"], ["/Game/Reference"], True))

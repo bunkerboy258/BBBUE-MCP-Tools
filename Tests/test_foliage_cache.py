@@ -18,7 +18,7 @@ class FoliageCacheTests(unittest.TestCase):
         self.dirty = []
         self.runtime = {
             "_move_path": lambda path: path,
-            "_move_dirty_packages": lambda: self.dirty,
+            "_move_dirty_packages": lambda scope=None: self.dirty,
             "require_asset_write": lambda paths, targets: self.calls.append("checkout"),
             "unreal": types.SimpleNamespace(
                 LevelEditorSubsystem=object,
@@ -37,13 +37,6 @@ class FoliageCacheTests(unittest.TestCase):
     def test_pie_blocks_native_call(self):
         """/** @return PIE 期间禁止修改编辑器世界 */"""
         self.pie = True
-        with self.assertRaises(RuntimeError):
-            self.repair("/Game/World", False)
-        self.assertEqual(self.calls, [])
-
-    def test_dirty_packages_block_checkout(self):
-        """/** @return 无关未保存工作阻止修复 */"""
-        self.dirty = ["/Game/OtherWork"]
         with self.assertRaises(RuntimeError):
             self.repair("/Game/World", False)
         self.assertEqual(self.calls, [])

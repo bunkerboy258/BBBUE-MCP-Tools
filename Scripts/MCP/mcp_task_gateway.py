@@ -17,7 +17,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from BBBMcpCapabilities import ToolCatalog, TOOL_DOMAINS, EXTERNAL_QUERIES, validate_arguments, write_scope
 from MCP.mcp_call import McpSession
-from MCP.mcp_jobs import JobQueue, JobConflict, asset_targets
+from MCP.mcp_jobs import JobQueue, JobConflict
+from MCP.mcp_asset_scope import asset_targets
 from MCP.mcp_project_host import ProjectHostGuard, project_identity
 from MCP.mcp_result import McpBusinessError
 from MCP.mcp_test_hosts import ProjectJobs, TestHost, project_version

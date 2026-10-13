@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 
 from MCP.mcp_result import require_business_success, McpExecutionError
+from MCP.mcp_asset_scope import asset_targets
 
 
 TOOL_DOMAINS = {
@@ -334,6 +335,67 @@ PIE_TOOLS = {
 
 
 WRITE_TARGET_FIELDS = {
+    "assets.remap_missing_soft_object_paths": ("referencer_paths",),
+    "assets.fixup_redirector_references_batch": ("referencer_paths",),
+    "hud.set_input_action_keys": ('mapping_context_path',),
+    "traversal.configure_character_movement_input": ('main_path',),
+    "traversal.configure_character_traversal_exits": ('main_path',),
+    "traversal.configure_character_traversal_state": ('main_path', 'interface_path', 'base_path', 'child_paths'),
+    "traversal.configure_traversal_montages": ('destination_paths',),
+    "animation.bind_backward_recoil_additive_inputs": ('blueprint_path',),
+    "animation.configure_weapon_recoil_animation_source": ('blueprint_path',),
+    "animation.simplify_animation_data_accesses": ('blueprint_paths',),
+    "animation.migrate_animation_data_accesses": ('blueprint_paths',),
+    "animation.repair_raise_weapon_after_firing_transition": ('blueprint_path',),
+    "animation.apply_try_weapon_animation_fallbacks": ('blueprint_paths',),
+    "animation.repair_main_anim_instance_accesses": ('blueprint_path',),
+    "animation.configure_character_rifle_actions": ('character_blueprint_path',),
+    "animation.create_equipment_action_montages": ('target_paths',),
+    "animation.configure_control_rig_anim_graph_node": ('blueprint_path',),
+    "animation.add_animation_layer_boolean_input": ('blueprint_path',),
+    "animation.create_control_rig_anim_graph_node": ('blueprint_path',),
+    "animation.rebuild_ik_foot_tracks": ('animation_paths',),
+    "animation.rewrite_animation_node_binding_paths": ('blueprint_path',),
+    "animation.rewrite_animation_property_access_paths": ('blueprint_paths',),
+    "animation.rename_animation_blueprint_variables": ('blueprint_path',),
+    "animation.set_animation_blueprint_skeletons": ('blueprint_paths',),
+    "animation.set_animation_blueprint_preview_mesh": ('blueprint_path',),
+    "animation.set_animation_sequence_preview_meshes": ('animation_paths',),
+    "animation.set_animation_folder_preview_meshes": ('folder_path',),
+    "animation.restore_lyra_stop_pose": ('blueprint_path',),
+    "animation.build_weapon_animation_graph": ('blueprint_path',),
+    "animation.remap_animation_blueprint_blend_profiles": ('blueprint_path',),
+    "animation.rebuild_blend_space_skeleton": ('blend_space_path',),
+    "animation.copy_animation_skeleton_metadata": ('target_skeleton_path',),
+    "animation.rebind_animation_blueprint_interface": ('blueprint_path',),
+    "animation.remap_animation_blueprint_class_references": ('blueprint_path',),
+    "animation.remap_animation_sequence_notify_classes": ('animation_path',),
+    "animation.rebuild_arm_twist_tracks": ('animation_paths',),
+    "animation.limit_hand_swing_tracks": ('animation_paths',),
+    "animation.restore_animation_from_source": ('destination_path',),
+    "animation.replace_montage_animation_references": ('montage_path',),
+    "animation.hold_animation_bone_tracks": ('animation_path',),
+    "animation.configure_continuous_bone_rotation": ('blueprint_path',),
+    "animation.configure_weapon_handling_graphs": ('blueprint_path',),
+    "animation.create_backward_additive_animation": ('destination_path',),
+    "animation.create_animation_slice": ('destination_path',),
+    "editor.create_primitive_texture_blend_material": ('material_path',),
+    "editor.import_skeletal_animation_set": ('destination_path',),
+    "editor.create_animation_set_retargeter": ('source_rig_path', 'retargeter_path'),
+    "editor.create_channel_sprite_system": ('channel_path', 'system_path'),
+    "editor.set_struct_array_object": ('object_path',),
+    "editor.configure_persistent_projectile_tracer": ('channel_path', 'system_path'),
+    "editor.configure_projectile_tracer_finish": ('channel_path', 'system_path'),
+    "editor.configure_projectile_impact_system": ('channel_path', 'system_path', 'material_path'),
+    "editor.create_projectile_sprite_material": ('material_path',),
+    "assets.configure_monster_blood_residue": ('settings_path',),
+    "assets.refresh_asset_registry_folders": ('folder_paths',),
+    "assets.repair_foliage_base_cache": ('world_package',),
+    "assets.create_missing_path_recovery_redirector": ('source_package',),
+    "control_rig.remap_animation_bone_times": ('animation_path',),
+    "control_rig.build_pose_control_keys": ('animation_path',),
+    "control_rig.prepare_animation_sequence": ('sequence_path',),
+    "control_rig.bake_control_rig_animation": ('animation_path',),
     "animation_graph.configure_character_continuous_locomotion": ("asset_path", "base_layer_path", "child_layer_paths", "output_directory"),
     "external.game.add_input_action": ("asset_path",),
     "external.game.add_input_mapping": ("mapping_context_path",),
@@ -396,6 +458,14 @@ WRITE_TARGET_FIELDS = {
     "control_rig.apply_baked_bone_deltas": ("baked_path",),
     "asset.save_assets": ("asset_paths",),
 }
+
+WRITE_TARGET_JSON_FIELDS = {
+    "assets.repair_pose_asset_source_guids": ('expected_reports_json', 'asset'),
+    "assets.update_pose_assets_from_source": ('expected_reports_json', 'asset'),
+    "assets.repair_animation_property_queries": ('operations_json', 'asset'),
+    "traversal.configure_traversal_contact_points": ('points_json', 'montage'),
+}
+
 
 
 def clean_schema(value, fields=False):
@@ -536,12 +606,19 @@ def write_scope(contract, arguments, access=None, world=None):
     """/** @param contract 契约 @param arguments 本次参数 @param access 权限 @param world 世界 @return 目标字段值与范围证据 */"""
     if access is None:
         access, world = resolve_access(contract, arguments)
+    json_fields = WRITE_TARGET_JSON_FIELDS.get(contract["id"])
+    if json_fields is not None:
+        field, key = json_fields
+        rows = json.loads(arguments.get(field, "[]"))
+        if not isinstance(rows, list) or not rows or any(not isinstance(row, dict) or not isinstance(row.get(key), str) or not asset_targets(row[key]) for row in rows):
+            return [], False
+        return [row[key] for row in rows], True
     fields = WRITE_TARGET_FIELDS.get(contract["id"])
     if fields is None and contract["definition"] in {"ObjectTools", "BlueprintTools", "ControlRigTools", "SequencerTools"}:
         roles = {"ObjectTools": ("instance",), "BlueprintTools": ("blueprint", "graph", "node", "nodes"), "ControlRigTools": ("control_rig",), "SequencerTools": ("sequence",)}
         fields = tuple(field for field in roles[contract["definition"]] if field in arguments)
     targets = [arguments.get(field, contract["parameters"].get("properties", {}).get(field, {}).get("default")) for field in fields or ()]
-    scoped = access == "read" or world == "pie" or access == "pie" or contract["id"] == "runtime.configure_mcp_performance" or bool(fields and all(targets))
+    scoped = access == "read" or world == "pie" or access == "pie" or contract["id"] == "runtime.configure_mcp_performance" or bool(fields and all(target is not None for target in targets) and asset_targets(targets))
     if access != "read" and any(":PersistentLevel." in str(target) for target in targets):
         scoped = False
     return targets, scoped

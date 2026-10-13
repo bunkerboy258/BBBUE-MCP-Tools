@@ -42,6 +42,12 @@ PIE 输入、采样和停止操作属于发起客户端。同一宿主上的多�
 
 已有脏包保留自身归属；批次记录本次新增内容。范围明确且相互独立的编辑可以继续。结果核实释放执行槽，同时保护受影响范围。
 
+目标范围同时支持明确包和内容目录，目录只覆盖自身及子包。JSON 修复计划从声明的资产字段提取写入范围。单资产维护按目标与直接使用的输入核对；广泛引用迁移等范围待定操作采用完整基线核验。
+
+编辑批次按“修改、编译、验证、保存”组织，保存使用明确的 `asset_paths`。仅因待保存内容进入 `DIRTY_ASSETS` 的完整批次返回 `pending_save`，所属客户端保存后，网关回读确认并自动完成原批次，队列中的相关任务继续执行。执行失败和结果不确定的批次沿下方核实流程处理。
+
+等待结果中的 `blocked` 提供相关包、占用批次与下一步，包清单最多八项，完整自有结果通过 `detail=true` 读取。`owner_save` 表示等待所属任务保存，`owner_review` 表示等待所属任务核实，`scope_required` 表示工具需要完整修改范围。
+
 ## 核实与恢复
 
 1. `inspect_tasks(batch=..., detail=true)` 读取完成范围、错误和待保存包。
@@ -61,5 +67,7 @@ PIE 输入、采样和停止操作属于发起客户端。同一宿主上的多�
 独立测试结束后退出所属宿主并核实进程。结果与输出保留至交付关闭；清理逐项核对目录身份与链接。测试失败和输入变化只影响所属测试结果。
 
 `Tests/test_mcp_task_gateway.py`、`Tests/test_mcp_task_recovery.py` 验证隔离调度。`Tests/verify_mcp_task_protection.py --run-pie` 在专用空闲窗口验证真实双客户端共享读取与 PIE 交接。
+
+`Tests/verify_mcp_dirty_scope.py --url <公开入口> --project-root <项目根> --task-directory <Saved/temp下的本次新目录>` 创建两份临时材质，验证独立维护、同资产等待和保存后自动交接，随后原生清理测试资产。验收凭证与临时原件位于指定任务目录，完成后按项目规则清理。
 
 `Tests/test_mcp_test_hosts.py` 验证并行、权限与资源回收。`Tests/verify_mcp_parallel_tests.py` 验证同一原项目的两个测试 PIE 与主宿主操作同时进行。

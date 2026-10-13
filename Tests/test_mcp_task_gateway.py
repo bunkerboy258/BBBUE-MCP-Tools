@@ -252,8 +252,8 @@ class JobTests(unittest.TestCase):
         save = self.submit(self.first, operation("save_assets", asset_paths=["/Game/A"]))
         self.manager.run_once()
         self.assertEqual(self.manager.jobs[save]["status"], "completed")
-        review = self.manager.control(self.first, "review", identity)
-        self.assertEqual(self.manager.control(self.first, "resume", identity, review["confirmation"])["status"], "closed")
+        self.assertEqual(self.manager.inspect(self.first, identity)["status"], "completed")
+        self.assertEqual(self.manager.control(self.first, "close", identity)["status"], "closed")
 
     def test_rejection_releases_without_unknown_result(self):
         identity = self.submit(self.first, operation("reject", asset="/Game/A"))
