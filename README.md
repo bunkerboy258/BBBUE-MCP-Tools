@@ -1,5 +1,7 @@
 # BBBUE MCP Tools
 
+更新 2026-10-13: 失败批次的所有者可以使用 `editor.reload_assets_from_disk` 收尾 明确传入完全相同的 `asset_paths` 与 `discard_dirty_packages` 并设置 `dry_run=false` 仅允许处理原批次范围内的包 其他客户端仍不得重载该批次的脏包 重载不保存磁盘资产 收尾后仍须复核确认关闭失败批次
+
 更新 2026-10-12: 僵尸踉跄构图使用 `animation_graph.configure_fact_body_stagger_state` 干净替换旧三分支入口 重建头部 左臂 右臂 左腿 右腿五分支 保留现有行为转换链 完整原片时长与子弹踉跄值规则见 `Docs/BBBZombieStaggerMCP.md`。
 
 UE5.8 编辑器工具。多个 AI 客户端共用原项目的资产编辑宿主，测试批次按需使用独立宿主。通过五个接口发现工具、提交批次和读取结果。
