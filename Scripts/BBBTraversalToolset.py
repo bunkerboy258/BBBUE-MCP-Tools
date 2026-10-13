@@ -353,14 +353,14 @@ class BBBTraversalToolset(unreal.ToolsetDefinition):
             center = player.get_actor_location()
             root = mesh.get_socket_location("root")
             current = animation.get_current_active_montage()
-            equipment = player.get_active_equipment()
+            equipment = player.get_held_equipment()
             sample = {"time": now - start, "absoluteTime": now, "location": [center.x, center.y, center.z], "feetZ": center.z - player.capsule_component.get_scaled_capsule_half_height(), "rootZ": root.z, "yaw": player.get_actor_rotation().yaw, "mode": str(player.character_movement.get_editor_property("movement_mode")), "montage": current.get_path_name() if current else None, "traversing": animation.is_traversing(), "equipment": equipment.get_path_name() if equipment else None}
             velocity = player.get_velocity()
             sample["velocity"] = [velocity.x, velocity.y, velocity.z]
             sample["deltaSeconds"] = unreal.GameplayStatics.get_world_delta_seconds(world)
             sample["animationState"] = json.loads(unreal.BBBAnimationGraphEditorLibrary.inspect_character_traversal_playback(mesh))
             sample["aiming"] = animation.is_aiming()
-            sample["equipmentUsable"] = player.is_equipment_usable()
+            sample["equipmentUsable"] = player.is_item_usable()
             sample["equipmentHidden"] = json.loads(unreal.ToolsetLibrary.get_object_properties(
                 equipment, ["bHidden"]))["bHidden"] if equipment else None
             if len(worlds) > 1:
@@ -652,7 +652,7 @@ class BBBTraversalToolset(unreal.ToolsetDefinition):
                 center = character.get_actor_location()
                 animation = character.mesh.get_anim_instance()
                 montage = animation.get_current_active_montage() if animation else None
-                equipment = character.get_active_equipment()
+                equipment = character.get_held_equipment()
                 actors.append({"path": character.get_path_name(), "local": character.is_locally_controlled(),
                                "playerId": _player_id(character) if character.player_state else None,
                                "role": str(character.get_local_role()), "location": [center.x, center.y, center.z],
@@ -663,7 +663,7 @@ class BBBTraversalToolset(unreal.ToolsetDefinition):
                                "montage": montage.get_path_name() if montage else None,
                                "position": animation.montage_get_position(montage) if montage else None,
                                "animationState": json.loads(unreal.BBBAnimationGraphEditorLibrary.inspect_character_traversal_playback(character.mesh)),
-                               "equipmentUsable": character.is_equipment_usable(),
+                               "equipmentUsable": character.is_item_usable(),
                                "velocity": [character.get_velocity().x, character.get_velocity().y, character.get_velocity().z],
                                "facts": json.loads(unreal.ToolsetLibrary.get_object_properties(animation,
                                    ["SourceVelocity", "SourceAcceleration", "SourceMovementInput", "SourceLifePhase"])) if animation else None,

@@ -6415,6 +6415,179 @@
           "returnValue"
         ]
       }
+    },
+    "inspect_pie_character_runtime": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "player_index": {
+            "type": "integer",
+            "description": "本地玩家索引",
+            "default": 0
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "角色动画和实际物品只读快照"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_data_asset": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          },
+          "properties_json": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_path",
+          "properties_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "repair_blueprint_function_references": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          },
+          "replacements_json": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_path",
+          "replacements_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_boolean_pose_overlay": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_path": {
+            "type": "string"
+          },
+          "animation_path": {
+            "type": "string"
+          },
+          "layer_name": {
+            "type": "string"
+          },
+          "getter_name": {
+            "type": "string"
+          },
+          "root_bone": {
+            "type": "string"
+          },
+          "blend_duration": {
+            "type": "number",
+            "default": 0.12
+          },
+          "sequence_property": {
+            "type": "string",
+            "default": ""
+          }
+        },
+        "required": [
+          "blueprint_path",
+          "animation_path",
+          "layer_name",
+          "getter_name",
+          "root_bone"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_monster_director_assets": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "asset_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "validate_monster_director_assets": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBLevelEditingToolset": {

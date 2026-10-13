@@ -368,3 +368,15 @@ PIE 反射调用中的 Guid 返回值按标准字符串序列化 位置参数可
 `weights` 为字符串顶点编号到 `骨名: 权重` 的完整字典，编号属于 LOD0 MeshDescription 源顶点，不等同于渲染顶点或重新导入后的 DCC 编号。不补全、不归一化、不过滤零值或空权重。缺少任一官方 modifier 类时返回 `supported=false`、`SKELETAL_MESH_MODIFIERS_UNAVAILABLE`、`missingClasses` 与空 `meshes`，不伪造数据。
 
 读取失败、空参考骨架、无效顶点数或无法序列化的非有限源数据明确失败。该检查可在 editor/test 与 NullRHI 中运行，前提是插件已加载且资产具有 LOD0 MeshDescription；它用于参考骨架和蒙皮归因，不代表动态姿势或肉眼变形验收。
+
+# 嵌套属性读取
+
+`editor.configure_data_asset` 保存明确的数据资产属性 支持 `structType` 加 `properties` 的结构描述 `enumType` 加 `value` 的枚举 `classPath` 与 `refPath` 的引用 以及 `mapValues` 映射 数组逐项转换
+
+`editor.inspect_pie_character_runtime` 只读当前 PIE 玩家动画与真实物品状态 `items` 返回实际主手实例 数量 使用序号 当前使用状态 两类快捷选择和有物品的格子 不更新角色或物品
+
+`editor.repair_blueprint_function_references` 接受旧函数名到新函数名的明确映射 直接更新节点并编译保存 不创建运行时兼容函数
+
+`editor.configure_boolean_pose_overlay` 在实际编译动画图的基础层前端插入混合 按线程安全布尔函数将非循环序列平滑混合到指定骨骼分支 下半身继续来自输入姿势 原有骨骼控制节点与连接完整保留 拒绝只继承资产覆盖的派生动画蓝图 避免图存在但不参与运行 可选 `sequence_property` 将序列引脚绑定到已有动画配置变量 派生层只覆盖该变量的默认序列
+
+`editor.inspect_asset_properties` 的 `property_names` 支持点分隔路径 例如 `items.definition` 和 `items.appearance.mesh` 遇到数组时逐项读取剩余路径并保留原索引 不改变资产 数组和映射以 JSON 容器返回

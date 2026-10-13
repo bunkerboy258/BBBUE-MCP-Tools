@@ -20,6 +20,8 @@ _pie_audio_capture = None
 
 
 MCP_INPUTS = {
+    'configure_data_asset': {'properties_json': {'type': 'object', 'additionalProperties': True}},
+    'repair_blueprint_function_references': {'replacements_json': {'$ref': '#/$defs/StringMap'}},
     'migrate_actor_blueprint': {'defaults_json': {'$ref': '#/$defs/Properties'}},
     'replace_animation_float_curve': {
         'keys_json': {
@@ -188,10 +190,10 @@ def _serialize_value(value):
     if isinstance(value, unreal.Guid):
         return value.to_string()
 
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, (list, tuple, unreal.Array, unreal.Set)):
         return [_serialize_value(item) for item in value]
 
-    if isinstance(value, dict):
+    if isinstance(value, (dict, unreal.Map)):
         return {
             str(key): _serialize_value(item)
             for key, item in value.items()
@@ -232,6 +234,11 @@ def _load_blueprint_default_object(asset_path):
 def _apply_editor_property(target, property_name, requested_value):
     current_value = target.get_editor_property(property_name)
 
+    if isinstance(requested_value, list) or (isinstance(requested_value, dict) and any(
+        name in requested_value for name in ('structType', 'enumType', 'classPath', 'mapValues'))):
+        target.set_editor_property(property_name, _materialize_property_value(requested_value))
+        return
+
     if isinstance(requested_value, dict) and "refPath" in requested_value:
         reference_path = requested_value["refPath"]
         loaded_object = unreal.load_asset(reference_path) if reference_path else None
@@ -247,7 +254,8 @@ def _apply_editor_property(target, property_name, requested_value):
         for child_name, child_value in requested_value.items():
             _apply_editor_property(current_value, str(child_name), child_value)
 
-        target.set_editor_property(property_name, current_value)
+        if not isinstance(current_value, unreal.Object):
+            target.set_editor_property(property_name, current_value)
         return
 
     if isinstance(current_value, unreal.Object) and isinstance(requested_value, str):
@@ -260,9 +268,166 @@ def _apply_editor_property(target, property_name, requested_value):
     target.set_editor_property(property_name, requested_value)
 
 
+def _read_asset_property_path(value, path):
+    """/** @param value\t当前属性对象 @param path\t点分隔的属性路径 @return\t保留数组顺序的只读属性结果 */"""
+    if not path:
+        return _serialize_value(value)
+
+    if isinstance(value, (list, tuple, unreal.Array, unreal.Set)):
+        return [_read_asset_property_path(item, path) for item in value]
+
+    name, _, remainder = path.partition(".")
+    child = value.get_editor_property(name)
+    return _read_asset_property_path(child, remainder)
+
+
+
+def _materialize_property_value(value):
+    """/** @param value\t结构 数组 枚举或引用描述 @return\t可直接写入编辑器属性的值 */"""
+    if isinstance(value, list):
+        return [_materialize_property_value(item) for item in value]
+
+    if not isinstance(value, dict):
+        return value
+
+    if 'refPath' in value:
+        path = value['refPath']
+        result = unreal.load_asset(path) if path else None
+        if path and result is None:
+            raise RuntimeError('引用资产不存在: ' + path)
+        return result
+
+    if 'classPath' in value:
+        path = value['classPath']
+        result = unreal.load_class(None, path) if path else None
+        if path and result is None:
+            raise RuntimeError('引用类不存在: ' + path)
+        return result
+
+    if 'enumType' in value:
+        return getattr(getattr(unreal, value['enumType']), value['value'])
+
+    if 'mapValues' in value:
+        return {key: _materialize_property_value(item) for key, item in value['mapValues'].items()}
+
+    if 'structType' in value:
+        result = getattr(unreal, value['structType'])()
+        for name, child in value.get('properties', {}).items():
+            _apply_editor_property(result, name, child)
+        return result
+
+    return {key: _materialize_property_value(item) for key, item in value.items()}
+
+
+
 @unreal.uclass()
 class BBBGenericEditorToolset(unreal.ToolsetDefinition):
     """提供不绑定具体领域的官方 UE 编辑器工具"""
+
+    @mcp_tool
+    @staticmethod
+    def inspect_pie_character_runtime(player_index: int = 0) -> str:
+        """
+        /**
+         * 只读当前 PIE 玩家的动画与真实物品状态
+         * @param player_index 本地玩家索引
+         * @return 角色动画和实际物品只读快照
+         */
+        """
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        pawn = unreal.GameplayStatics.get_player_pawn(world, player_index) if world else None
+        if pawn is None or player_index < 0:
+            raise RuntimeError('当前 PIE 玩家不存在')
+        return unreal.BBBBlueprintEditorLibrary.probe_character_animation_runtime(pawn)
+
+
+    @mcp_tool
+    @staticmethod
+    def configure_data_asset(asset_path: str, properties_json: str) -> str:
+        """
+        /**
+         * 配置并保存明确的数据资产 支持结构数组和类型引用
+         * @param asset_path\t目标数据资产
+         * @param properties_json\t属性描述 structType enumType classPath refPath mapValues 提供明确类型
+         * @return 保存路径与已配置属性名
+         */
+        """
+        from BBBAssetWritePolicy import require_write_access
+        asset = unreal.load_asset(asset_path)
+        if not isinstance(asset, unreal.DataAsset):
+            raise RuntimeError('目标不是数据资产')
+        require_write_access(asset)
+        properties = json.loads(properties_json)
+        with unreal.ScopedEditorTransaction('配置数据资产'):
+            asset.modify()
+            for name, value in properties.items():
+                _apply_editor_property(asset, name, value)
+        if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
+            raise RuntimeError('数据资产保存失败')
+        return json.dumps({'asset': asset_path, 'properties': list(properties), 'saved': True}, ensure_ascii=False)
+
+
+    @mcp_tool
+    @staticmethod
+    def repair_blueprint_function_references(asset_path: str, replacements_json: str) -> str:
+        """
+        /**
+         * 修复明确蓝图的函数名称引用 并编译保存
+         * @param asset_path\t目标蓝图
+         * @param replacements_json\t旧名称到新名称的映射
+         * @return 修复数量与保存结果
+         */
+        """
+        from BBBAssetWritePolicy import require_write_access
+        asset = unreal.load_asset(asset_path)
+        if not isinstance(asset, unreal.Blueprint):
+            raise RuntimeError('目标不是蓝图')
+        require_write_access(asset)
+        changed = unreal.BBBBlueprintEditorLibrary.replace_blueprint_function_references(asset, replacements_json)
+        if changed < 0:
+            raise RuntimeError('函数引用替换失败')
+        unreal.BlueprintEditorLibrary.compile_blueprint(asset)
+        if asset.get_editor_property('status') == unreal.BlueprintStatus.BS_ERROR:
+            raise RuntimeError('蓝图编译失败 禁止保存')
+        if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
+            raise RuntimeError('蓝图保存失败')
+        return json.dumps({'asset': asset_path, 'changed': changed, 'saved': True})
+
+
+    @mcp_tool
+    @staticmethod
+    def configure_boolean_pose_overlay(blueprint_path: str, animation_path: str, layer_name: str,
+                                       getter_name: str, root_bone: str, blend_duration: float = 0.12,
+                                       sequence_property: str = "") -> str:
+        """
+        /**
+         * 在基础层按安全布尔事实平滑混合上半身单次动画
+         * @param blueprint_path\t实际编译动画图的基础层
+         * @param animation_path\t同骨架序列
+         * @param layer_name\t一个输入姿势的层函数
+         * @param getter_name\t线程安全事实函数
+         * @param root_bone\t混合起始骨骼
+         * @param blend_duration\t渐入渐出秒数
+         * @param sequence_property\t已有序列配置变量 可由派生层覆盖 空值使用指定固定序列
+         * @return 编译和保存结果
+         */
+        """
+        from BBBAssetWritePolicy import require_write_access
+        blueprint = unreal.load_asset(blueprint_path)
+        animation = unreal.load_asset(animation_path)
+        if not isinstance(blueprint, unreal.AnimBlueprint) or not isinstance(animation, unreal.AnimSequence):
+            raise RuntimeError('动画层或序列类型无效')
+        require_write_access(blueprint)
+        if not unreal.BBBBlueprintEditorLibrary.configure_boolean_pose_overlay(
+                blueprint, layer_name, animation, getter_name, root_bone, blend_duration, sequence_property):
+            raise RuntimeError('布尔姿势混合构图失败')
+        unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
+        if blueprint.get_editor_property('status') == unreal.BlueprintStatus.BS_ERROR:
+            raise RuntimeError('动画层编译失败 禁止保存')
+        if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
+            raise RuntimeError('动画层保存失败')
+        return json.dumps({'asset': blueprint_path, 'layer': layer_name, 'saved': True})
+
 
     @mcp_tool
     @staticmethod
@@ -2041,7 +2206,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
                 montage = animation.get_current_active_montage() if animation else None
                 actors.append({"path": actor.get_path_name(), "local": actor.is_locally_controlled(),
                                "role": str(actor.get_local_role()), "phase": str(actor.get_life_phase()),
-                               "health": actor.get_health(), "equipmentUsable": actor.is_equipment_usable(),
+                               "health": actor.get_health(), "equipmentUsable": actor.is_item_usable(),
                                "location": _serialize_value(actor.get_actor_location()),
                                "velocity": _serialize_value(actor.get_velocity()),
                                "capsuleRadius": actor.capsule_component.get_unscaled_capsule_radius(),
@@ -2416,8 +2581,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
                     continue
 
                 try:
-                    value = asset.get_editor_property(property_name)
-                    properties[property_name] = _serialize_value(value)
+                    properties[property_name] = _read_asset_property_path(asset, property_name)
                 except Exception as error:
                     property_errors[property_name] = str(error)
 
@@ -2709,7 +2873,6 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
     def set_blueprint_class_defaults(asset_path: str, values_json: str) -> str:
         """校验后更新蓝图生成类默认对象属性并编译保存"""
         from BBBAssetWritePolicy import require_write_access
-        from editor_toolset.toolsets.asset import AssetTools
 
         if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
             raise RuntimeError("PIE 运行期间禁止修改蓝图默认值")
@@ -2720,8 +2883,6 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
         blueprint, generated_class, default_object = _load_blueprint_default_object(asset_path)
         require_write_access(blueprint)
-        if not AssetTools.is_checked_out(asset_path):
-            raise RuntimeError("修改前必须独占签出目标蓝图")
 
         for property_name in values:
             default_object.get_editor_property(str(property_name))

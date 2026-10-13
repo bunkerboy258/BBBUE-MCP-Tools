@@ -440,12 +440,14 @@ class BBBMeleeToolset(unreal.ToolsetDefinition):
         mesh = unreal.load_asset(mesh_path)
         montage = unreal.load_asset(montage_path)
         layer = unreal.load_asset(character_layer_path)
-        catalog = unreal.load_asset(catalog_path)
+        catalog = unreal.load_asset(catalog_path) if register_catalog else None
         tools = unreal.AssetToolsHelpers.get_asset_tools()
-        classes = list(catalog.get_editor_property("equipment_classes"))
-        for entry in classes:
-            definition = unreal.get_default_object(entry).get_editor_property("definition")
-            if definition and str(definition.get_editor_property("equipment_id")) == equipment_id:
+        if register_catalog and not isinstance(catalog, unreal.BBBEquipmentCatalog):
+            raise RuntimeError("登记目标必须为装备类别目录")
+        entries = list(catalog.get_editor_property("items")) if catalog else []
+        for entry in entries:
+            definition = entry.get_editor_property("definition")
+            if definition and str(definition.get_editor_property("item_id")) == equipment_id:
                 raise RuntimeError("装备目录已经包含同名标识")
         factory = unreal.AnimBlueprintFactory()
         factory.set_editor_properties({"parent_class": unreal.load_class(None, "/Script/ABBB_Evac.BBBMeleeAnimInstance"),
@@ -471,8 +473,8 @@ class BBBMeleeToolset(unreal.ToolsetDefinition):
         definition = tools.create_asset(name, folder, None, factory)
         offset = unreal.Transform(location=unreal.Vector(*settings["position"]),
             rotation=unreal.Rotator(*settings["rotation"]))
-        definition.set_editor_properties({"equipment_id": unreal.Name(equipment_id), "display_name": unreal.Text(display_name),
-            "description": unreal.Text("单次近战攻击 装备通知控制伤害窗口"), "equipment_mesh": mesh,
+        definition.set_editor_properties({"item_id": unreal.Name(equipment_id), "display_name": unreal.Text(display_name),
+            "description": unreal.Text("单次近战攻击 角色通知控制伤害窗口"), "equipment_mesh": mesh,
             "equipment_animation_class": animation.generated_class(), "character_animation_layer_class": layer.generated_class(),
             "attack_montage": montage, "spawn_offset": offset, "damage": settings["damage"],
             "trace_radius": settings["radius"], "attack_interval": settings["interval"]})
@@ -491,11 +493,13 @@ class BBBMeleeToolset(unreal.ToolsetDefinition):
             raise RuntimeError("近战装备演员蓝图编译未通过")
         _save(blueprint, True)
         if register_catalog:
-            classes.append(blueprint.generated_class())
-            catalog.set_editor_property("equipment_classes", classes)
+            entry = unreal.BBBEquipmentCatalogEntry()
+            entry.set_editor_properties({"definition": definition, "actor_class": blueprint.generated_class()})
+            entries.append(entry)
+            catalog.set_editor_property("items", entries)
             _save(catalog)
         return json.dumps({"definition": definition_path, "blueprint": blueprint_path,
-            "animation": animation_blueprint_path, "catalogCount": len(classes), "saved": True}, ensure_ascii=False)
+            "animation": animation_blueprint_path, "catalogCount": len(entries), "saved": True}, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod
@@ -579,14 +583,18 @@ class BBBMeleeToolset(unreal.ToolsetDefinition):
         definition = unreal.get_default_object(entry).get_editor_property("definition")
         if not definition or definition.get_class().get_path_name() != "/Script/ABBB_Evac.BBBMeleeDefinition":
             raise RuntimeError("登记对象不是具体近战装备")
-        classes = list(catalog.get_editor_property("equipment_classes"))
-        identity = definition.get_editor_property("equipment_id")
-        if any(unreal.get_default_object(value).get_editor_property("definition").get_editor_property("equipment_id") == identity for value in classes):
+        if not isinstance(catalog, unreal.BBBEquipmentCatalog):
+            raise RuntimeError("登记目标必须为装备类别目录")
+        entries = list(catalog.get_editor_property("items"))
+        identity = definition.get_editor_property("item_id")
+        if any(value.get_editor_property("definition").get_editor_property("item_id") == identity for value in entries):
             raise RuntimeError("装备目录已包含同名标识")
-        classes.append(entry)
-        catalog.set_editor_property("equipment_classes", classes)
+        registered = unreal.BBBEquipmentCatalogEntry()
+        registered.set_editor_properties({"definition": definition, "actor_class": entry})
+        entries.append(registered)
+        catalog.set_editor_property("items", entries)
         _save(catalog)
-        return json.dumps({"registered": True, "catalogCount": len(classes), "id": str(identity)})
+        return json.dumps({"registered": True, "catalogCount": len(entries), "id": str(identity)})
 
 
 _registration = Registration([BBBMeleeToolset])
