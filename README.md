@@ -1,5 +1,7 @@
 # BBBUE MCP Tools
 
+更新 2026-10-13: `animation.sample_weapon_handling_runtime` 的 `equip` 通过玩家公开物品 API 查找稳定物品身份 每次只提交当前事实所需的一步 `injected` 表示已请求入包 `move_submitted` 表示已请求移入首个快捷格 `select_submitted` 表示快捷格已有目标并已请求选择 等待游戏更新后再次调用 返回 `equipped` 才证明实际手持目标类型 不依赖同帧包处理顺序 不直接写入背包或装备状态
+
 更新 2026-10-13: `preview.capture_animation_views` 在截图证据中记录现成原生整帧 GPU/游戏线程/渲染线程计时；使用网格变形器时在首个同姿势同相机视角比较临时组件关闭变形器与资产默认变形器，各预热 12 帧并采样 32 帧。仅更改自有临时组件，不改资产或全局渲染设置。无原生接口或 GPU 计时为零时明确返回空值；这些是包含诊断 SceneCapture 的整帧数据，不能当作角色独占 GPU 成本。独立测试批次须等待上一异步截图批次完成再提交下一批，避免交叉采样。
 
 更新 2026-10-13: 失败批次的所有者可以使用 `editor.reload_assets_from_disk` 收尾 明确传入完全相同的 `asset_paths` 与 `discard_dirty_packages` 并设置 `dry_run=false` 仅允许处理原批次范围内的包 其他客户端仍不得重载该批次的脏包 重载不保存磁盘资产 收尾后仍须复核确认关闭失败批次

@@ -59,14 +59,47 @@ def sample_runtime(action, seconds, equipment_class_path):
         equipment_class = unreal.load_class(None, equipment_class_path)
         if equipment_class is None:
             raise RuntimeError("装备类不存在")
-        debug_class = unreal.load_class(None, "/Game/BBBC_UA/Debug/Equipment/BP_EquipmentDebug.BP_EquipmentDebug_C")
+        definition = unreal.get_default_object(equipment_class).get_editor_property("Definition")
+        if not isinstance(definition, unreal.BBBEquipmentDefinition):
+            raise RuntimeError("装备类缺少正式物品定义")
+        controller = unreal.GameplayStatics.get_player_controller(world, 0)
+        if controller is None or not hasattr(controller, "get_item_slot_count"):
+            raise RuntimeError("本地玩家缺少公开物品 API")
+        active = controller.get_active_item()
+        if active is not None and active.get_class() == equipment_class:
+            return {"state": "equipped", "actor": active.get_path_name(), "equipment": equipment_class_path}
+        item_id = definition.get_editor_property("item_id")
+        for slot in range(controller.get_item_slot_count()):
+            current = controller.get_item_definition(slot)
+            if current is None or current.get_editor_property("item_id") != item_id:
+                continue
+            if controller.get_quick_access_slot_count() <= 0:
+                raise RuntimeError("玩家没有有效快捷格")
+            if slot != 0:
+                if not controller.submit_item_move(slot, 0, controller.get_item_instance_id(slot)):
+                    raise RuntimeError("玩家物品移动输入未接受")
+                unreal.log("[BBBWeaponHandling] 已提交物品移动 等待快捷格事实 " + equipment_class_path)
+                return {"state": "move_submitted", "source_slot": slot, "target_slot": 0, "equipment": equipment_class_path}
+            if not controller.submit_item_select(0):
+                raise RuntimeError("玩家物品选择输入未接受")
+            unreal.log("[BBBWeaponHandling] 已提交物品选择 等待实际手持事实 " + equipment_class_path)
+            return {"state": "select_submitted", "source_slot": slot, "target_slot": 0, "equipment": equipment_class_path}
+        debug_class = unreal.load_class(None, "/Game/_Project/Characters/BBBC_UA/Debug/Item/BP_ItemDebug.BP_ItemDebug_C")
         if debug_class is None:
-            raise RuntimeError("现有装备注入调试蓝图不存在")
-        actor = unreal.BBBBlueprintEditorLibrary.spawn_transient_pie_actor(world, debug_class, unreal.Transform())
+            raise RuntimeError("现有物品调试蓝图不存在")
+        transform = unreal.Transform()
+        actor = unreal.BBBBlueprintEditorLibrary.begin_transient_pie_actor(world, debug_class, transform)
         if actor is None:
-            raise RuntimeError("PIE 装备注入演员创建失败")
-        actor.set_editor_property("EquipmentClass", equipment_class)
-        return {"actor": actor.get_path_name(), "equipment": equipment_class_path}
+            raise RuntimeError("PIE 物品调试演员创建失败")
+        try:
+            actor.set_editor_property("item_definitions", [definition])
+            actor.set_editor_property("player_index", 0)
+            if unreal.BBBBlueprintEditorLibrary.finish_transient_pie_actor(actor, transform) is None:
+                raise RuntimeError("PIE 物品调试演员完成生成失败")
+        except Exception:
+            actor.destroy_actor()
+            raise
+        return {"state": "injected", "actor": actor.get_path_name(), "equipment": equipment_class_path}
     if action != "start" or seconds <= 0 or seconds > 60:
         raise RuntimeError("采样动作或时长无效")
     if state and state.get("state") == "running":
