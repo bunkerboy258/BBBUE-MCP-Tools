@@ -585,7 +585,7 @@ class JobQueue:
                         owned = [job for job in self.jobs.values() if job["owner"] == client]
                     if owned:
                         result["batch"] = self._job_view(owned[-1])
-                        result["next"] = "inspect_tasks" if owned[-1]["status"] in {"queued", "running"} else "control_task"
+                        result["next"] = "inspect_tasks" if owned[-1]["status"] in {"queued", "running"} else result["batch"].get("next", "control_task")
                     if detail:
                         result["evidence"] = copy.deepcopy(self.activity)
                         result["batches"] = [{**self._job_view(job), "label": job["label"]} for job in self.jobs.values() if job["owner"] == client]

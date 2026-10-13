@@ -52,6 +52,7 @@ class DirtyScopeTests(unittest.TestCase):
         self.assertEqual(blocked["blocked"]["batch"], original)
         self.assertFalse(blocked["blocked"]["mine"])
         self.assertEqual(self.queue.inspect(self.first, original)["pending_save"]["packages"], ["/Game/A"])
+        self.assertEqual(self.queue.inspect(self.first)["next"], "submit_batch")
         self.submit(self.first, operation("save_assets", asset_paths=["/Game/A"]))
         self.queue.run_once()
         self.assertEqual(self.queue.jobs[original]["status"], "completed")
