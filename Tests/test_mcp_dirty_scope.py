@@ -103,7 +103,7 @@ class DirtyScopeTests(unittest.TestCase):
         batch = self.queue.submit(self.second, [{"tool": "scene.unknown", "arguments": {}}])["batch"]
         self.assertFalse(self.queue.run_once())
         view = self.queue.inspect(self.second, batch)
-        self.assertEqual(view["blocked"], {"next": "scope_required"})
+        self.assertEqual(view["blocked"], {"next": "submit_batch"})
         self.assertLess(len(json.dumps(view)), 512)
 
     def test_async_resume_claims_only_its_scope(self):
@@ -142,6 +142,14 @@ class DirtyScopeTests(unittest.TestCase):
         self.assertTrue(scoped)
         self.assertEqual(asset_targets(targets), {"/Game/A"})
         self.assertEqual(write_scope(contract, {"operations": [{"paths": []}]}), ([], False))
+
+    def test_pie_runtime_objects_do_not_become_saved_asset_targets(self):
+        """/** @return PIE 临时演员不参与磁盘版本检查 正式地图仍在范围中 */"""
+        actor = "/Game/Maps/UEDPIE_1_Main.Main:PersistentLevel.PlayerController_0"
+        self.assertEqual(asset_targets({"actor_path": actor}), set())
+        self.assertEqual(asset_targets([actor, "/Game/Maps/Main.Main"]), {"/Game/Maps/Main"})
+        self.assertEqual(asset_targets(actor, normalize=False), set())
+        self.assertEqual(asset_targets("/Game/Maps/MyUEDPIE_1_Main.MyUEDPIE_1_Main"), {"/Game/Maps/MyUEDPIE_1_Main"})
 
     def test_empty_optional_target_list_keeps_known_scope(self):
         """

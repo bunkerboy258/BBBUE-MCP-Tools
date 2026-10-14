@@ -446,7 +446,7 @@ class BBBMeleeToolset(unreal.ToolsetDefinition):
             raise RuntimeError("登记目标必须为装备类别目录")
         entries = list(catalog.get_editor_property("items")) if catalog else []
         for entry in entries:
-            definition = entry.get_editor_property("definition")
+            definition = unreal.get_default_object(entry).get_editor_property("definition")
             if definition and str(definition.get_editor_property("item_id")) == equipment_id:
                 raise RuntimeError("装备目录已经包含同名标识")
         factory = unreal.AnimBlueprintFactory()
@@ -493,9 +493,7 @@ class BBBMeleeToolset(unreal.ToolsetDefinition):
             raise RuntimeError("近战装备演员蓝图编译未通过")
         _save(blueprint, True)
         if register_catalog:
-            entry = unreal.BBBEquipmentCatalogEntry()
-            entry.set_editor_properties({"definition": definition, "actor_class": blueprint.generated_class()})
-            entries.append(entry)
+            entries.append(blueprint.generated_class())
             catalog.set_editor_property("items", entries)
             _save(catalog)
         return json.dumps({"definition": definition_path, "blueprint": blueprint_path,
@@ -587,11 +585,9 @@ class BBBMeleeToolset(unreal.ToolsetDefinition):
             raise RuntimeError("登记目标必须为装备类别目录")
         entries = list(catalog.get_editor_property("items"))
         identity = definition.get_editor_property("item_id")
-        if any(value.get_editor_property("definition").get_editor_property("item_id") == identity for value in entries):
+        if any(unreal.get_default_object(value).get_editor_property("definition").get_editor_property("item_id") == identity for value in entries):
             raise RuntimeError("装备目录已包含同名标识")
-        registered = unreal.BBBEquipmentCatalogEntry()
-        registered.set_editor_properties({"definition": definition, "actor_class": entry})
-        entries.append(registered)
+        entries.append(entry)
         catalog.set_editor_property("items", entries)
         _save(catalog)
         return json.dumps({"registered": True, "catalogCount": len(entries), "id": str(identity)})

@@ -8,6 +8,7 @@ import secrets
 import threading
 import time
 import unittest
+from unittest.mock import Mock
 
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "Scripts"))
@@ -101,6 +102,38 @@ class TestHostRoutingTests(unittest.TestCase):
         self.assertEqual(error.exception.value["code"], "TEST_HOST_READ_ONLY")
         self.assertEqual(self.hosts, [])
         self.assertEqual(self.jobs.tests, {})
+
+    def test_completed_actions_can_recheck_evidence_without_replaying(self):
+        """/** @return 完成核实委托给原队列 输入变化禁止接续 */"""
+        batch = "e" * 16
+        queue = Mock()
+        queue.control.return_value = {"status": "review", "confirmation": "proof"}
+        record = {"owner": self.first, "status": "review", "code": "EXECUTION_UNVERIFIED",
+                  "completed": 1, "operations": [operation("StartPIE")], "input_version": copy.deepcopy(self.version),
+                  "test_host": batch, "child": "child", "finished": True}
+        self.jobs.tests[batch] = record
+        self.jobs.contexts[batch] = {"id": batch, "owner": self.first, "state": "running", "queue": queue,
+                                    "host": 100, "input_version": copy.deepcopy(self.version), "input_record": record}
+        try:
+            view = self.jobs.control(self.first, "review", batch)
+            self.assertEqual(view["batch"], batch)
+            self.assertEqual(view["confirmation"], "proof")
+            queue.control.assert_called_once_with(self.first, "review", "child", None)
+            self.version["digest"] = "changed"
+            with self.assertRaises(JobConflict) as error:
+                self.jobs.control(self.first, "resume", batch, "proof")
+            self.assertEqual(error.exception.value["code"], "TEST_RERUN_REQUIRED")
+            self.assertEqual(queue.control.call_count, 1)
+            self.version["digest"] = "saved-one"
+            record["outcome"] = {"failure": {"error": "HOST_UNVERIFIED"}}
+            queue.control.return_value = {"status": "completed", "completed": 1, "results": []}
+            self.jobs.control(self.first, "resume", batch, "proof")
+            queue.control.assert_called_with(self.first, "resume", "child", "proof")
+            self.assertEqual(record["status"], "completed")
+            self.assertNotIn("failure", record["outcome"])
+        finally:
+            del self.jobs.tests[batch]
+            del self.jobs.contexts[batch]
 
     def test_entire_batch_validates_before_host_launch(self):
         with self.assertRaises(ValueError):

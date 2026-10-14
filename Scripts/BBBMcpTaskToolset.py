@@ -98,6 +98,13 @@ class BBBMcpTaskToolset(unreal.ToolsetDefinition):
         expected = "RunUnderOneProcess=True,ServerPort=" + str(server_port) + ",PlayNumberOfClients=" + str(players) + ",PlayNetMode=" + modes[net_mode] + ",bLaunchSeparateServer=False"
         if expected not in unreal.SystemLibrary.get_command_line():
             raise RuntimeError("TEST_CONFIGURATION_IDENTITY")
+        # 显式应用多玩家设置 不依赖命令行中的多字段覆盖是否被引擎逐项解析
+        settings_class = unreal.load_class(None, "/Script/UnrealEd.LevelEditorPlaySettings")
+        settings = unreal.get_default_object(settings_class)
+        properties = {"PlayNetMode": modes[net_mode], "PlayNumberOfClients": players,
+                      "RunUnderOneProcess": True, "ServerPort": server_port, "bLaunchSeparateServer": False}
+        if not unreal.ToolsetLibrary.set_object_properties(settings, json.dumps(properties)):
+            raise RuntimeError("TEST_PLAY_SETTINGS_FAILED")
         world = unreal.EditorLoadingAndSavingUtils.load_map(map_path)
         if world is None:
             raise RuntimeError("TEST_MAP_LOAD_FAILED")

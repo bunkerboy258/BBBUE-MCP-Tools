@@ -514,6 +514,23 @@ class ProjectJobs:
                 if record["owner"] != client:
                     raise JobConflict("BATCH_OWNERSHIP")
                 context = self.contexts[record["test_host"]]
+                # 操作已全部执行时只重新核实完成证据 不重放测试动作
+                if (action in {"review", "resume"} and record["status"] == "review"
+                        and record["code"] in {"EXECUTION_UNVERIFIED", "READ_FAILED"}
+                        and record["completed"] == len(record["operations"])
+                        and context["state"] == "running"):
+                    if self.version(record) != record.get("input_version"):
+                        raise JobConflict("TEST_RERUN_REQUIRED", {"next": "submit_batch"})
+                    queue = context.get("queue")
+                    if queue is None:
+                        raise JobConflict("TEST_HOST_CLOSED")
+                    view = queue.control(client, action, record["child"], confirmation)
+                    if action == "resume":
+                        record["finished"] = False
+                        record.pop("outcome", None)
+                        self._publish(record, view, context)
+                        self.condition.notify_all()
+                    return {**view, "batch": batch, "test_host": context["id"], "environment": "test"}
                 if action == "cancel" and record["status"] == "queued" and "child" in record:
                     queue = context.get("queue")
                     if queue is None:
