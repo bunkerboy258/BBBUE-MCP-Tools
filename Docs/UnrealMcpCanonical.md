@@ -22,6 +22,14 @@
 
 `inspect_tasks()` 返回紧凑占用。`inspect_tasks(batch=...)` 的 `revision` 属于该批次；项目总览的版本覆盖项目活动。`detail=true` 展开错误、范围、版本与分段耗时。
 
+## 保存冲突恢复
+
+`DIRTY_ASSETS` 返回 `pending_save.packages` 与 `hint`。AI 使用 `editor.save_assets` 保存这些明确包路径，再检查原批次；脏包清空后该批次自动完成。
+
+`RESULT_REVIEW_REQUIRED` 返回占用批次、归属与冲突包。`mine=true` 时先读取原批次的 `failure`；同一客户端可提交仅包含当前脏包的 `editor.save_assets` 批次解开自身保存阻塞。保存后调用 `control_task(action="review")` 检查回执，再以回执的 `confirmation` 调用 `control_task(action="resume")` 确认关闭原审阅批次，然后用新批次继续。`mine=false` 时等待所属客户端完成保存与核实。
+
+`TARGET_ALREADY_DIRTY` 提示 AI 等待当前修改所属任务保存，并继续只读准备。`ARGUMENT_INVALID` 保留字段路径并提示调用 `describe_tool` 查看完整参数定义。失败批次若处于 `review`，先保存返回的脏包，再对原批次执行 `review` 与 `resume` 完成核实，最后用新批次提交修正后的操作。
+
 ## 世界与测试
 
 权限：`read`、`write`、`pie`。世界：`any`、`editor`、`pie`。预览和状态动作按实际参数解析权限与依赖。

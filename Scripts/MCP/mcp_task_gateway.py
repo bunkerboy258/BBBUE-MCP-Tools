@@ -28,6 +28,19 @@ from MCP.mcp_result import McpBusinessError, public_value, requested_values_matc
 from MCP.mcp_test_hosts import ProjectJobs, TestHost, project_version
 
 
+def _argument_error_hint(details):
+    """/** @param details 参数核验原因 @return 面向 AI 的修正步骤 */"""
+    text = str(details)
+    if text.endswith(": required"):
+        field = text[:-len(": required")]
+        return f"补齐必填字段 {field}；先调用 describe_tool 查询该工具完整参数定义，再重新提交。"
+    if text.endswith(": additionalProperties"):
+        field = text[:-len(": additionalProperties")]
+        return f"移除未声明字段 {field}；调用 describe_tool 核对允许的字段，再重新提交。"
+
+    return "按 details 指出的字段位置修正参数；调用 describe_tool 查询完整参数定义，再重新提交。"
+
+
 def public_tools():
     """/** @return 唯一公开工具目录 */"""
     schemas = [
@@ -181,7 +194,8 @@ class UnrealBackend:
             try:
                 validate_arguments(arguments["factory_properties"], {"type": "object", "properties": property_schema(properties), "additionalProperties": False}, "/arguments/factory_properties")
             except ValueError as error:
-                raise McpBusinessError({"execution": {"state": "rejected"}, "code": "ARGUMENT_INVALID", "details": str(error), "next": "describe_tool"}) from error
+                details = str(error)
+                raise McpBusinessError({"execution": {"state": "rejected"}, "code": "ARGUMENT_INVALID", "details": details, "hint": _argument_error_hint(details), "next": "describe_tool"}) from error
             arguments = copy.deepcopy(arguments)
             arguments["factory_properties"] = native_property_values(arguments["factory_properties"], {"properties": properties})
         if requested is not None:
@@ -189,7 +203,8 @@ class UnrealBackend:
             try:
                 validate_arguments(requested["values"], {"type": "object", "properties": property_schema(properties), "additionalProperties": False}, "/arguments/values")
             except ValueError as error:
-                raise McpBusinessError({"execution": {"state": "rejected"}, "code": "ARGUMENT_INVALID", "details": str(error), "next": "describe_tool"}) from error
+                details = str(error)
+                raise McpBusinessError({"execution": {"state": "rejected"}, "code": "ARGUMENT_INVALID", "details": details, "hint": _argument_error_hint(details), "next": "describe_tool"}) from error
             arguments = copy.deepcopy(arguments)
             arguments["values"] = native_property_values(requested["values"], {"properties": properties})
         if contract["id"] == "object.list_properties":
@@ -314,9 +329,15 @@ class TaskGateway:
             identity = parameters.get("_meta", {}).get("bbb/request_id", session_id + ":" + str(request_id))
             return reply(self.clients.replay(client, identity, {"name": name, "arguments": arguments}, lambda: self.jobs.control(client, **arguments)))
         except McpBusinessError as error:
-            return reply(error.value, True)
+            value = copy.deepcopy(error.value)
+            if isinstance(value, dict) and value.get("code") == "ARGUMENT_INVALID":
+                details = value.get("details", value.get("error", ""))
+                value.setdefault("hint", _argument_error_hint(details))
+                value.setdefault("next", "describe_tool")
+            return reply(value, True)
         except (ValueError, KeyError, TypeError) as error:
-            return reply({"status": "rejected", "code": "ARGUMENT_INVALID", "details": str(error)}, True)
+            details = str(error)
+            return reply({"status": "rejected", "code": "ARGUMENT_INVALID", "details": details, "hint": _argument_error_hint(details), "next": "describe_tool"}, True)
         except Exception:
             return reply({"status": "review", "code": "HOST_UNVERIFIED", "next": "inspect_tasks"}, True)
 

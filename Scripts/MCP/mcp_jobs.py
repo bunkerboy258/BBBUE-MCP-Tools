@@ -244,15 +244,21 @@ class JobQueue:
         if job["access"] == "read":
             return None
         corrective = all(self._is_corrective(item) for item in operations)
+        save_targets = self._explicit_save_targets(operations)
+        dirty_packages = set(activity.get("dirty_packages", []))
+        normalized_dirty = {package.casefold() for package in dirty_packages}
+        normalized_save_targets = {package.casefold() for package in save_targets}
         for pending in self.jobs.values():
             if pending["status"] != "review" or pending["access"] == "read":
                 continue
             scope = set(pending["targets"]) | set(pending["dirty"])
-            if corrective and pending["owner"] == job["owner"] and conflicting_packages(job["targets"], scope) == job["targets"]:
+            same_owner_save = pending["owner"] == job["owner"] and bool(save_targets) and save_targets == job["targets"] and normalized_save_targets <= normalized_dirty
+            same_owner_correction = corrective and pending["owner"] == job["owner"] and bool(job["targets"]) and conflicting_packages(job["targets"], scope) == job["targets"]
+            if same_owner_save or same_owner_correction:
                 continue
             conflicts = conflicting_packages(scope, job["targets"])
             if not pending["scoped"] or not scope or not job["scoped"] or conflicts:
-                job["blocked"] = {"batch": pending["id"], "mine": pending["owner"] == job["owner"], "packages": sorted(conflicts)[:8], "next": "owner_review"}
+                job["blocked"] = {"batch": pending["id"], "mine": pending["owner"] == job["owner"], "packages": sorted(conflicts)[:8], "next": "inspect_tasks"}
                 return "RESULT_REVIEW_REQUIRED"
         blocking_activities = [item for item in activity.get("activities", []) if not isinstance(item, dict) or item.get("blocking", True)]
         if blocking_activities:
@@ -271,12 +277,19 @@ class JobQueue:
             dirty.intersection_update(job["yield_dirty"])
         conflicts = conflicting_packages(dirty, job["targets"])
         if conflicts and not corrective:
-            job["blocked"] = {"packages": sorted(conflicts)[:8], "count": len(conflicts), "next": "owner_save"}
+            job["blocked"] = {"packages": sorted(conflicts)[:8], "count": len(conflicts), "next": "inspect_tasks"}
             return "TARGET_ALREADY_DIRTY"
         if dirty and not job["targets"] and not job["scoped"] and not corrective:
-            job["blocked"] = {"next": "scope_required"}
+            job["blocked"] = {"next": "submit_batch"}
             return "DIRTY_BASELINE_UNSCOPED"
         return None
+
+    def _explicit_save_targets(self, operations):
+        """/** @param operations 待执行操作 @return 仅由明确保存操作声明的资产包 */"""
+        if not operations or any(item["contract"]["id"] != "asset.save_assets" for item in operations):
+            return set()
+
+        return set().union(*(asset_targets(item["arguments"].get("asset_paths", [])) for item in operations))
 
     def _is_corrective(self, operation):
         """/** @param operation 已校验操作 @return 保存 停止或明确授权丢弃的重载收尾操作 */"""
@@ -656,15 +669,39 @@ class JobQueue:
             result["code"] = job["code"]
         if job.get("blocked"):
             result["blocked"] = copy.deepcopy(job["blocked"])
-        if job.get("failure"):
-            result["failure"] = copy.deepcopy(job["failure"])
+        failure = job.get("failure")
+        if failure:
+            result["failure"] = copy.deepcopy(failure)
+            if isinstance(failure, dict) and failure.get("code") == "ARGUMENT_INVALID":
+                result["hint"] = "按 failure.details 指出的字段路径补齐参数；调用 describe_tool 查询完整字段定义，再重新提交。"
+                result["next"] = "describe_tool"
         if job["status"] == "queued":
             result["ahead"] = self.queue.index(job["id"])
+            if job["code"] == "RESULT_REVIEW_REQUIRED":
+                blocker = job.get("blocked", {})
+                if blocker.get("mine"):
+                    result["hint"] = f"调用 inspect_tasks(batch={blocker.get('batch')}, detail=true) 读取 failure；调用 editor.inspect_dirty_packages 获取脏包并提交 editor.save_assets。保存后对原批次执行 control_task(action=review)，再将回执 confirmation 传给 resume。"
+                else:
+                    result["hint"] = f"批次 {blocker.get('batch')} 属于另一客户端并处于审阅状态。等待所属客户端核实保存；当前可继续只读分析。"
+            if job["code"] == "TARGET_ALREADY_DIRTY":
+                packages = ", ".join(job.get("blocked", {}).get("packages", []))
+                result["hint"] = f"目标包已有未保存修改：{packages}。属于当前客户端时提交 editor.save_assets 保存；属于其他任务时等待所属客户端保存，本批次自动继续。"
+            if job["code"] == "DIRTY_BASELINE_UNSCOPED":
+                result["hint"] = "先检查脏包并为写入操作填写明确资产路径，再重新提交。"
         if job["status"] == "review":
             result["next"] = "control_task"
-            if job["code"] == "DIRTY_ASSETS":
-                result["next"] = "submit_batch"
+            if job["dirty"]:
                 result["pending_save"] = {"packages": job["dirty"][:8], "count": len(job["dirty"])}
+                result["next"] = "submit_batch"
+                if job["code"] == "DIRTY_ASSETS":
+                    result["hint"] = "调用 editor.save_assets 保存 pending_save.packages，再检查此批次；所有脏包清除后批次自动完成。"
+                elif isinstance(failure, dict) and failure.get("code") == "ARGUMENT_INVALID":
+                    result["hint"] = "按 failure.details 指出的字段路径补齐参数，并调用 describe_tool 核对定义；先用 editor.save_assets 保存 pending_save.packages，再调用 control_task(action=review)，核对回执后用 confirmation 调用 resume 关闭原批次。修正后的操作使用新批次提交。"
+                else:
+                    result["hint"] = "先检查 failure 并保存 pending_save.packages；随后调用 control_task(action=review)，核对回执后用返回的 confirmation 调用 resume 关闭原批次，再用新批次继续。"
+            elif job["code"] == "ARGUMENT_INVALID":
+                result["hint"] = "按 failure.details 指出的字段路径补齐参数；调用 describe_tool 查询完整字段定义，再调用 control_task(action=review) 并用回执 confirmation 调用 resume 关闭原批次，最后用新批次继续。"
+                result["next"] = "describe_tool"
         if detail or job["status"] == "completed":
             result["results"] = copy.deepcopy(job["results"])
         if detail:
