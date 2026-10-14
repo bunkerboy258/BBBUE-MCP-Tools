@@ -176,7 +176,9 @@ class WeaponHandlingScopeTests(unittest.TestCase):
             "ammoCapacity": 8, "reloading": reloading, "actualAim": [640, 360], "viewport": [1280, 720],
             "viewRotation": [1, 2, 3], "viewFOV": 90, "muzzleRotation": [4, 5], "targetRotation": [6, 7],
             "aimOffset": [8, 9], "healthFraction": 1, "sourceAimAlpha": 1,
-            "poseState": [0.5, 0.1, True, 0.8, False, 2]}
+            "poseState": [0.5, 0.1, True, 0.8, False, 2],
+            "presentation": {"heldObjects": [], "physicsObjects": [], "niagaraComponents": [],
+                "magazineHidden": None, "mechanismPose": []}}
 
     def test_ammo_trace_records_each_load_and_reload_transition(self):
         """/** @return 重复帧不生成事件 每发装入与收束均保留实际时刻 */"""

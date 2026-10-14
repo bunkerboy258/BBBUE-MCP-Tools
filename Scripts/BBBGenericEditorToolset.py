@@ -15,6 +15,7 @@ from toolset_registry.registration import Registration
 
 
 _pie_audio_capture = None
+_pie_scheduled_actor_call = None
 
 
 
@@ -114,6 +115,9 @@ MCP_INPUTS = {
     'set_blueprint_class_defaults': {'values_json': {'$ref': '#/$defs/Properties'}},
     'set_struct_array_object': {'properties_json': {'$ref': '#/$defs/Properties'}},
     'invoke_pie_object_function': {'arguments_json': {'type': 'array', 'items': {}, 'minItems': 0}},
+    'schedule_pie_actor_function': {
+        'arguments_json': {'type': 'array', 'items': {}, 'minItems': 0},
+    },
     'create_static_mesh_points_graph': {
         'points_json': {
             'anyOf': [
@@ -2337,6 +2341,66 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def schedule_pie_actor_function(action: str, actor_path: str = "", function_name: str = "",
+        arguments_json: str = "[]", delay_seconds: float = 0.0) -> str:
+        """
+        /**
+         * 按 PIE 游戏时间调用公开 Actor 函数 避免网络往返改变测试动作时刻
+         * @param action		start 提交一次调用 status 回读实际结果
+         * @param actor_path		当前 PIE Actor 路径
+         * @param function_name	公开反射函数名称
+         * @param arguments_json	位置参数数组 支持显式 Guid 标记
+         * @param delay_seconds	游戏秒 延迟越大调用越晚 范围零至六十
+         * @return 实际调用时刻 返回值与失败原因 不保存资产
+         */
+        """
+        global _pie_scheduled_actor_call
+        if action == "status":
+            return json.dumps(_pie_scheduled_actor_call or {"state": "idle"}, ensure_ascii=False)
+        if action != "start":
+            raise RuntimeError("定时调用动作无效")
+        if _pie_scheduled_actor_call and _pie_scheduled_actor_call["state"] == "running":
+            raise RuntimeError("已有 PIE 定时调用尚未完成")
+        if not math.isfinite(delay_seconds) or not 0 <= delay_seconds <= 60:
+            raise RuntimeError("定时调用延迟必须为零至六十游戏秒")
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        actor = unreal.find_object(None, actor_path)
+        arguments = json.loads(arguments_json)
+        if world is None or not isinstance(actor, unreal.Actor) or actor.get_world() != world:
+            raise RuntimeError("目标必须是当前 PIE 世界中已存在的 Actor")
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", function_name) or not isinstance(arguments, list):
+            raise RuntimeError("函数名或位置参数数组无效")
+        values = tuple(_function_argument(value) for value in arguments)
+        start = unreal.GameplayStatics.get_time_seconds(world)
+        state = {"state": "running", "actor": actor_path, "function": function_name,
+            "requestedTime": start + delay_seconds, "executedTime": None, "result": None, "errors": []}
+        _pie_scheduled_actor_call = state
+
+        def tick(delta_seconds):
+            try:
+                current = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+                if current != world or actor.is_actor_being_destroyed():
+                    raise RuntimeError("定时调用期间 PIE 或目标 Actor 已结束")
+                now = unreal.GameplayStatics.get_time_seconds(world)
+                if now < state["requestedTime"]:
+                    return
+                state["executedTime"] = now
+                state["result"] = _serialize_value(actor.call_method(function_name, values))
+                state["state"] = "finished"
+                unreal.log("[BBBPIEScheduledCall] " + actor_path + " " + function_name + " Time=" + str(now))
+            except Exception as error:
+                state["state"] = "failed"
+                state["errors"].append(str(error))
+                unreal.log_error("[BBBPIEScheduledCall] " + str(error))
+            unreal.unregister_slate_post_tick_callback(handle)
+
+        handle = unreal.register_slate_post_tick_callback(tick)
+        from BBBMcpCapabilities import register_activity
+        register_activity("pie:actor-call", lambda: state, blocking=False, wait=False)
+        return json.dumps(state, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def capture_pie_player_view(file_name: str, width: int = 1280, height: int = 720, player_index: int = 0) -> str:
         """使用玩家实际视点与视野渲染截图 不包含界面 不修改资产"""
         if not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*\.png", file_name, re.IGNORECASE):
@@ -3409,7 +3473,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         worlds = unreal.EditorLevelLibrary.get_pie_worlds(False)
         world = None
         while owner is not None:
-            if owner in worlds:
+            if isinstance(owner, unreal.World) and owner in worlds:
                 world = owner
                 break
             if hasattr(owner, "get_world") and owner.get_world() in worlds:

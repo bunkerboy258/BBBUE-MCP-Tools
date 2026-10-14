@@ -7,6 +7,70 @@ from editor_toolset.toolsets.blueprint import BlueprintTools
 from BBBAssetWritePolicy import require_write_access
 
 
+def _presentation_sample(world, character_mesh, equipment_mesh):
+    """
+    /**
+     * 只读采样实际附着物 物理弹壳与池化特效状态
+     * @param world		当前 PIE 世界
+     * @param character_mesh	角色动画组件
+     * @param equipment_mesh	当前装备动画组件
+     * @return 对象身份与状态 不将池中组件数量解释为发射次数
+     */
+    """
+    held = []
+    for component in character_mesh.get_children_components(False):
+        if not isinstance(component, unreal.StaticMeshComponent):
+            continue
+        asset = component.get_editor_property("static_mesh")
+        held.append({"path": component.get_path_name(),
+            "mesh": asset.get_path_name() if asset else None,
+            "tags": [str(tag) for tag in component.get_editor_property("component_tags")]})
+
+    objects = []
+    for actor in unreal.GameplayStatics.get_all_actors_of_class(world, unreal.StaticMeshActor):
+        if not actor.is_actor_being_destroyed():
+            component = actor.get_component_by_class(unreal.StaticMeshComponent)
+            if component is None or not component.is_simulating_physics():
+                continue
+            velocity = component.get_physics_linear_velocity()
+            asset = component.get_editor_property("static_mesh")
+            objects.append({"path": actor.get_path_name(),
+                "mesh": asset.get_path_name() if asset else None,
+                "velocity": [velocity.x, velocity.y, velocity.z],
+                "remainingLife": actor.get_life_span()})
+
+    effects = []
+    for component in unreal.ObjectIterator(unreal.NiagaraComponent):
+        owner = component.get_owner()
+        belongs_to_world = owner is not None and owner.get_world() == world
+        if owner is None:
+            belongs_to_world = component.get_path_name().startswith(world.get_path_name() + ".")
+        if not belongs_to_world:
+            continue
+        asset = component.get_asset()
+        effects.append({"path": component.get_path_name(),
+            "asset": asset.get_path_name() if asset else None,
+            "active": component.is_active()})
+
+    hidden = None
+    mechanism = []
+    if equipment_mesh is not None and equipment_mesh.does_socket_exist("Magazine_joint"):
+        hidden = equipment_mesh.is_bone_hidden_by_name("Magazine_joint")
+    if equipment_mesh is not None:
+        for index in range(equipment_mesh.get_num_bones()):
+            name = equipment_mesh.get_bone_name(index)
+            transform = equipment_mesh.get_socket_transform(name, unreal.RelativeTransformSpace.RTS_COMPONENT)
+            position = transform.translation
+            rotation = transform.rotation.rotator()
+            mechanism.append({"bone": str(name),
+                "position": [position.x, position.y, position.z],
+                "rotation": [rotation.pitch, rotation.yaw, rotation.roll],
+                "hidden": equipment_mesh.is_bone_hidden_by_name(name)})
+    return {"heldObjects": held, "physicsObjects": objects,
+        "niagaraComponents": effects, "magazineHidden": hidden,
+        "mechanismPose": mechanism}
+
+
 def sample_runtime(action, seconds, equipment_class_path):
     """
     /**
@@ -42,6 +106,9 @@ def sample_runtime(action, seconds, equipment_class_path):
                     "aiming": sample["aiming"], "mode": sample["mode"],
                     "next": samples[min(index + 1, len(samples) - 1)]})
         return {"state": state["state"], "errors": state["errors"], "sampleCount": len(samples),
+            "presentation": [{"time": sample["time"],
+                "equipmentActor": sample.get("equipmentActor"),
+                **sample["presentation"]} for sample in samples],
             "first": samples[:1], "last": samples[-1:], "shotEvents": events, "ammoEvents": ammo_events, "modes": modes,
             "peakCharacter": [max((abs(s["characterOffset"][axis]) for s in samples), default=0) for axis in (0, 1)],
             "peakCamera": [max((abs(s["camera"][axis]) for s in samples), default=0) for axis in (0, 1)],
@@ -151,6 +218,7 @@ def sample_runtime(action, seconds, equipment_class_path):
             sample["muzzleRotation"] = [None, None]
             sample["targetRotation"] = [None, None]
             sample["aimOffset"] = [None, None]
+            equipment_mesh = None
             if isinstance(weapon, unreal.BBBEquipmentAnimInstance):
                 sample.update({"weapon": weapon.get_path_name(), "shot": weapon.get_fire_sequence(), "shotTime": weapon.get_time_since_last_fire_seconds()})
                 equipment = weapon.get_owning_actor()
@@ -183,6 +251,7 @@ def sample_runtime(action, seconds, equipment_class_path):
                 sample["poseState"] = [layer.get_editor_property("LocomotionAimIKAlpha"), layer.get_curve_value("DisableAimIK"),
                     layer.get_editor_property("RaiseWeaponAfterFiring"), layer.get_editor_property("HipFireUpperBodyOverrideWeight"),
                     layer.get_editor_property("WantsIdleBreak"), layer.get_editor_property("TimeUntilNextIdleBreak")]
+            sample["presentation"] = _presentation_sample(world, mesh, equipment_mesh)
             state["samples"].append(sample)
             if time >= seconds:
                 state["state"] = "finished"

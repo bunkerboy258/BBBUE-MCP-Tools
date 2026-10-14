@@ -287,6 +287,18 @@ IK 重建通过网格查询真实父骨名，使用 FK 脚组件变换相对于�
 
 `sample_backward_recoil_runtime` 以 `start` 和 `status` 在 PIE 中只读采样自然更新完成的游戏帧，不主动推进被测动画。报告位于 `Saved/temp/<file_prefix>/runtime.json`。`capture_backward_recoil_alpha_samples` 在内存中的 `/Engine/Transient` 普通序列复现完整持枪姿势，避免把加法差值直接叠到参考 A 姿势上；渲染宿主及 PIE 必须存在。截图位于 `Saved/temp/<file_prefix>/`，临时演员会销毁，验证序列不保存到磁盘，宿主退出时释放。任务收尾删除自己的临时报告和截图。
 
+## 武器表现运行时采样
+
+`sample_weapon_handling_runtime` 的 `status` 同时返回按游戏时间排列的 `presentation` 采样 包含角色直接附着的静态网格及标签 当前世界物理静态网格的身份 速度与剩余寿命 Niagara 组件身份与激活状态 以及当前装备 `Magazine_joint` 的隐藏状态
+
+用于检查切枪或解除装备之后手持弹匣与弹匣隐藏是否清理 弹壳是否按寿命退出 同一对象在多个采样中不得重复计数 池化 Niagara 组件总数不代表开火次数 短于采样间隔的特效也不能以缺少采样判定未生成
+
+`mechanismPose` 记录装备各骨骼更新后的组件空间位置厘米与旋转度 用于对照枪机 拉栓 转轮和弹匣动作及动作结束后的恢复 不修改或手动推进被测姿势
+
+隔离测试可通过 `spawn_configured_pie_actor` 创建瞬态地面并配置 `StaticMeshComponent` 网格 生成后通过 `invoke_pie_actor_function` 调用 `SetActorScale3D` 与 `SetActorEnableCollision` 更新实际物理状态 必须回读角色稳定处于 Walking 才能计入验收 不修改默认对象或保存关卡
+
+切换测试必须遵循当前物品快捷槽规则 通过公开物品移动与选择 API 提交输入并确认实际手持 Actor 已改变 不得将无效快捷槽脉冲或输入序列完成当作切换成功
+
 ## 下蹲倍率接入
 
 `configure_weapon_handling_graphs` 从角色主动画实例读取 `bSourceCrouching` 作为实际下蹲事实 不使用下蹲输入意图 不让装备读取角色姿态

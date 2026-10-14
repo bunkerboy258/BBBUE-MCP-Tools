@@ -4281,6 +4281,26 @@
         ]
       }
     },
+    "schedule_pie_actor_function": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {"type": "string", "description": "start 提交一次调用 status 回读实际结果"},
+          "actor_path": {"type": "string", "default": "", "description": "当前 PIE Actor 路径"},
+          "function_name": {"type": "string", "default": "", "description": "公开反射函数名称"},
+          "arguments_json": {"type": "string", "default": "[]", "description": "位置参数数组 支持显式 Guid 标记"},
+          "delay_seconds": {"type": "number", "default": 0.0, "description": "游戏秒 延迟越大调用越晚 范围零至六十"}
+        },
+        "required": ["action"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {"type": "string", "description": "实际调用时刻 返回值与失败原因 不保存资产"}
+        },
+        "required": ["returnValue"]
+      }
+    },
     "invoke_pie_object_function": {
       "inputSchema": {
         "type": "object",

@@ -369,6 +369,8 @@ class ProjectJobs:
                 with self.condition:
                     records = self._records(context)
                 for record in records:
+                    if record.get("finished") and "outcome" in record:
+                        continue
                     if "child" not in record:
                         continue
                     with queue.changed:

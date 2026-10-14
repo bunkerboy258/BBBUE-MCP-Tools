@@ -268,6 +268,10 @@ UE5.8 以 `DefaultKeyMappings` 为实际映射来源 工具调用引擎的 `unma
 
 `invoke_pie_object_function(object_path, function_name, arguments)` 用于运行时蓝图接口验证，支持组件、控件和子系统持有的对象。目标或其所有者链必须属于当前 PIE 世界，否则拒绝。参数为 位置参数数组，结果会返回。此工具会改变运行时状态，调用前必须核对函数语义；不得用于编辑器资产编辑。
 
+`schedule_pie_actor_function(action, actor_path, function_name, arguments, delay_seconds)` 在当前 PIE 世界按游戏秒提交一次公开 Actor 函数调用 同一宿主仅保留一项定时调用 `start` 返回请求时刻 `status` 返回实际执行时刻与返回值 游戏暂停时延迟不推进 PIE 或 Actor 结束时明确失败并注销回调 支持 `{"$guid":"明确的实例 Guid"}` 参数标记 不修改资产或私有黑板
+
+阶段中断测试将定时调用与输入序列放在同一批次 请求时刻必须包含序列中开火与换弹前的游戏帧时长 完成后同时检查定时调用成功 实际手持对象变化 输入释放以及表现收尾 不将跨批次调用产生的等待解释为目标动作阶段
+
 ## 扩展原则
 
 ### 显式点集 PCG 图

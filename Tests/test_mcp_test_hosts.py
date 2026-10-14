@@ -187,6 +187,23 @@ class TestHostRoutingTests(unittest.TestCase):
         self.jobs.control(self.first, "close", stop)
         self.assertEqual(self.jobs.contexts, {})
 
+    def test_completed_child_pruning_preserves_active_host_and_result(self):
+        """/** @return 内层回收已完成子批次不关闭 PIE 外层仍保留原结果 */"""
+        root = self.submit_test(self.first, [operation("StartPIE")])
+        self.wait_finished(self.first, root)
+        follow = self.jobs.submit(self.first, [operation("read")], environment="test", test_host=root)["batch"]
+        first_result = self.wait_finished(self.first, follow)
+        context = self.jobs.contexts[root]
+        queue = context["queue"]
+        with queue.changed:
+            del queue.jobs[self.jobs.tests[follow]["child"]]
+        next_batch = self.jobs.submit(self.first, [operation("read")], environment="test", test_host=root)["batch"]
+        self.assertEqual(self.wait_finished(self.first, next_batch)["status"], "completed")
+        self.assertTrue(self.hosts[0].backend.state["pie_active"])
+        self.assertFalse(self.hosts[0].closed)
+        self.assertEqual(self.jobs.inspect(self.first, follow, True)["results"], first_result["results"])
+        self.jobs.control(self.first, "close", root)
+
     def test_continuation_ownership_and_explicit_owned_host_close(self):
         root = self.submit_test(self.first, [operation("StartPIE")])
         self.wait_finished(self.first, root)

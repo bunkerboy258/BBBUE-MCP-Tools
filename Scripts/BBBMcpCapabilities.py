@@ -516,6 +516,8 @@ def tool_contract(toolset, name, schema, description=""):
 def resolve_access(contract, arguments):
     """/** @param contract 工具契约 @param arguments 本次参数 @return 权限与世界约束 */"""
     access, world = contract["access"], contract["world"]
+    if contract["definition"] == "BBBGenericEditorToolset" and contract["name"] == "schedule_pie_actor_function" and arguments.get("action") == "status":
+        return "read", "any"
     if "dry_run" in contract["parameters"].get("properties", {}) and arguments.get("dry_run", contract["parameters"]["properties"]["dry_run"].get("default", False)) is True:
         access, world = "read", "any"
     if contract["definition"] == "BBBAnimationPreviewToolset" and contract["name"] == "inspect_mass_inspection_population" and arguments.get("pause_game", False) is False:
