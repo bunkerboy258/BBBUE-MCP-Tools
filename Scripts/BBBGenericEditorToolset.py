@@ -4069,12 +4069,11 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         requests = json.loads(requests_json)
         if not isinstance(requests, list) or not 1 <= len(requests) <= 100:
             raise RuntimeError("源文件绑定请求必须为一至一百项")
-        root = os.path.realpath(unreal.Paths.project_content_dir())
         prepared = []
         for request in requests:
             source = os.path.realpath(request["source"])
-            if os.path.commonpath([root, source]) != root or not os.path.isfile(source):
-                raise RuntimeError("源文件必须位于项目 Content 内且确实存在")
+            if not os.path.isfile(source):
+                raise RuntimeError("永久源文件必须确实存在")
             asset = unreal.EditorAssetLibrary.load_asset(request["asset"])
             if asset is None:
                 raise RuntimeError("需要绑定源文件的资产不存在")

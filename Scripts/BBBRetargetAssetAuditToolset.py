@@ -177,6 +177,103 @@ class BBBRetargetAssetAuditToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def configure_fk_retargeter(asset_path: str, align_source_pose: bool = True) -> str:
+        """
+        /**
+         * @param asset_path\t已建立身体与手指链的重定向器
+         * @param align_source_pose\t按目标参考姿势自动对齐源姿势
+         * @return\t精确链映射 根骨模式及辅助骨配置 不导出动画
+         */
+        """
+        from BBBAssetWritePolicy import require_asset_write
+
+        asset = _asset(asset_path, unreal.IKRetargeter)
+        require_asset_write([asset])
+        controller = unreal.IKRetargeterController.get_controller(asset)
+        source_side = unreal.RetargetSourceOrTarget.SOURCE
+        target_side = unreal.RetargetSourceOrTarget.TARGET
+        source_rig = controller.get_ik_rig(source_side)
+        target_rig = controller.get_ik_rig(target_side)
+        if source_rig is None or target_rig is None:
+            raise RuntimeError("源或目标 Rig 缺失")
+        source = unreal.IKRigController.get_controller(source_rig)
+        target = unreal.IKRigController.get_controller(target_rig)
+        source_mesh = source.get_skeletal_mesh()
+        target_mesh = target.get_skeletal_mesh()
+        def bones(mesh):
+            pose = unreal.AnimPoseExtensions.get_reference_pose(mesh.get_editor_property("skeleton"))
+            return {str(name).casefold(): str(name) for name in unreal.AnimPoseExtensions.get_bone_names(pose)}
+        source_bones = bones(source_mesh)
+        target_bones = bones(target_mesh)
+        source_chains = {str(chain.chain_name) for chain in source.get_retarget_chains()}
+        target_chains = [str(chain.chain_name) for chain in target.get_retarget_chains()]
+        missing = set(target_chains) - source_chains
+        if missing:
+            raise RuntimeError("目标链缺少同名源链: " + str(sorted(missing)))
+        pairs = (("root", "ik_foot_root"), ("root", "ik_hand_root"), ("hand_r", "ik_hand_gun"), ("foot_l", "ik_foot_l"), ("foot_r", "ik_foot_r"), ("hand_l", "ik_hand_l"), ("hand_r", "ik_hand_r"))
+        for parent, helper in pairs:
+            if parent not in target_bones or helper not in target_bones:
+                raise RuntimeError("目标缺少身体或辅助骨: " + helper)
+        asset.modify()
+        controller.set_preview_mesh(source_side, source_mesh)
+        controller.set_preview_mesh(target_side, target_mesh)
+        controller.auto_map_chains(unreal.AutoMapChainType.EXACT, True)
+        mappings = {name: str(controller.get_source_chain(name)) for name in target_chains}
+        if any(name != value for name, value in mappings.items()):
+            raise RuntimeError("精确链映射回读失败")
+        if align_source_pose:
+            controller.auto_align_all_bones(source_side, unreal.RetargetAutoAlignMethod.CHAIN_TO_CHAIN)
+        for index in reversed(range(controller.get_num_retarget_ops())):
+            op = controller.get_op_controller(index)
+            if op.get_class().get_name() in {"IKRetargetRunIKRigController", "IKRetargetPinBoneController"}:
+                controller.remove_retarget_op(index)
+        root_mode = None
+        fk_count = 0
+        for index in range(controller.get_num_retarget_ops()):
+            op = controller.get_op_controller(index)
+            kind = op.get_class().get_name()
+            if kind == "IKRetargetFKChainsController":
+                settings = op.get_settings()
+                chains = list(settings.chains_to_retarget)
+                for chain in chains:
+                    chain.enable_fk = True
+                    chain.rotation_alpha = 1.0
+                    chain.translation_mode = unreal.FKChainTranslationMode.NONE
+                    chain.rotation_mode = unreal.FKChainRotationMode.ONE_TO_ONE
+                    if str(chain.target_chain_name) == "Spine":
+                        chain.rotation_mode = unreal.FKChainRotationMode.INTERPOLATED
+                settings.chains_to_retarget = chains
+                op.set_settings(settings)
+                fk_count += 1
+            if kind == "IKRetargetRootMotionController":
+                source_root = source_bones.get("root", str(source.get_retarget_root()))
+                op.set_source_root_bone(source_root)
+                op.set_target_root_bone(target_bones["root"])
+                op.set_target_pelvis_bone(target.get_retarget_root())
+                settings = op.get_settings()
+                settings.root_motion_source = unreal.RootMotionSource.COPY_FROM_SOURCE_ROOT
+                settings.root_height_source = unreal.RootMotionHeightSource.COPY_HEIGHT_FROM_SOURCE
+                if "root" not in source_bones:
+                    settings.root_motion_source = unreal.RootMotionSource.GENERATE_FROM_TARGET_PELVIS
+                    settings.root_height_source = unreal.RootMotionHeightSource.SNAP_TO_GROUND
+                op.set_settings(settings)
+                root_mode = str(op.get_settings().root_motion_source)
+        if fk_count != 1 or root_mode is None:
+            raise RuntimeError("需要唯一 FK 链操作和根骨操作")
+        index = controller.add_retarget_op("/Script/IKRig.IKRetargetPinBoneOp")
+        controller.set_op_name("Utility IK Bones", index)
+        pin = controller.get_op_controller(index)
+        for parent, helper in pairs:
+            pin.set_bone_pair(target_bones[parent], target_bones[helper])
+        actual_pairs = {str(key): str(value) for key, value in pin.get_all_bone_pairs().items()}
+        if len(actual_pairs) != len(pairs):
+            raise RuntimeError("辅助 IK 骨配置不完整")
+        if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
+            raise RuntimeError("重定向器保存失败")
+        return json.dumps({"asset": asset_path, "saved": True, "mappings": mappings, "sourcePelvis": str(source.get_retarget_root()), "alignedSource": align_source_pose, "rootMode": root_mode, "ikPairs": actual_pairs, "exportedAnimations": 0}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def inspect_retargeter(asset_path: str) -> str:
         """
         /**
