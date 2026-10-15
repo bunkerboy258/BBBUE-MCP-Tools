@@ -6688,6 +6688,104 @@
           "returnValue"
         ]
       }
+    },
+    "import_animation_library_batch": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "requests_json": {
+            "type": "string",
+            "description": "源文件 明确新动画路径 骨架 网格和旋转"
+          }
+        },
+        "required": [
+          "requests_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "逐项保存结果"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "clone_retargeter_for_source_mesh": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "template_path": {
+            "type": "string",
+            "description": "审核模板"
+          },
+          "source_mesh_path": {
+            "type": "string",
+            "description": "新源网格"
+          },
+          "source_rig_path": {
+            "type": "string",
+            "description": "新 Rig"
+          },
+          "retargeter_path": {
+            "type": "string",
+            "description": "新重定向器"
+          }
+        },
+        "required": [
+          "template_path",
+          "source_mesh_path",
+          "source_rig_path",
+          "retargeter_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "克隆与链映射"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "audit_animation_library_batch": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "pairs_json": {
+            "type": "string",
+            "description": "源目标动画对"
+          },
+          "mesh_path": {
+            "type": "string",
+            "description": "目标网格"
+          }
+        },
+        "required": [
+          "pairs_json",
+          "mesh_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "全帧 IK 和元数据检查"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBLevelEditingToolset": {

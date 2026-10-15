@@ -36,6 +36,9 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
+    'editor.audit_animation_library_batch': {'access': 'read', 'world': 'any'},
+    'editor.clone_retargeter_for_source_mesh': {'scope': {'fields': ['source_rig_path', 'retargeter_path']}},
+    'editor.import_animation_library_batch': {'scope': {'rows': ['requests', 'asset_path']}},
     'editor.set_pie_player_view': {'world': 'pie'},
     'editor.configure_data_asset': {'scope': {'fields': ['asset_path']}, 'completion': 'verified_save'},
     'editor.refresh_montage_links': {'scope': {'fields': ['asset_path']}, 'completion': 'verified_save'},

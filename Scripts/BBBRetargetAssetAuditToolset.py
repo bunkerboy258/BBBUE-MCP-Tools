@@ -88,9 +88,6 @@ class BBBRetargetAssetAuditToolset(unreal.ToolsetDefinition):
             asset.set_preview_skeletal_mesh(target_mesh)
             if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
                 raise RuntimeError("重定向动画保存失败: " + path)
-        for path in destinations:
-            if not unreal.SourceControl.mark_file_for_add(path, silent=True):
-                raise RuntimeError("目标未打开添加: " + path)
         return json.dumps({"saved": created, "mesh": target_mesh.get_path_name()}, ensure_ascii=False)
 
     @mcp_tool

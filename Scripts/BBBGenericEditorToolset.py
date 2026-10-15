@@ -22,6 +22,8 @@ _pie_view_camera = None
 
 
 MCP_INPUTS = {
+    'audit_animation_library_batch': {'pairs_json': {'type': 'array', 'minItems': 1, 'maxItems': 16, 'items': {'type': 'object', 'properties': {'source': {'type': 'string'}, 'target': {'type': 'string'}}, 'required': ['source', 'target'], 'additionalProperties': False}}},
+    'import_animation_library_batch': {'requests_json': {'type': 'array', 'minItems': 1, 'maxItems': 16, 'items': {'type': 'object', 'properties': {'source_file': {'type': 'string'}, 'asset_path': {'type': 'string'}, 'skeleton_path': {'type': 'string'}, 'mesh_path': {'type': 'string'}, 'import_pitch': {'type': 'number'}, 'import_yaw': {'type': 'number'}, 'import_roll': {'type': 'number'}}, 'required': ['source_file', 'asset_path', 'skeleton_path', 'mesh_path'], 'additionalProperties': False}}},
     'configure_data_asset': {'properties_json': {'type': 'object', 'additionalProperties': True}},
     'repair_blueprint_function_references': {'replacements_json': {'$ref': '#/$defs/StringMap'}},
     'migrate_actor_blueprint': {'defaults_json': {'$ref': '#/$defs/Properties'}},
@@ -1416,6 +1418,49 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def import_animation_library_batch(requests_json: str) -> str:
+        """
+        /**
+         * @param requests_json	源文件 明确新动画路径 骨架 网格和旋转
+         * @return	逐项保存结果
+         */
+        """
+        from BBBAnimationLibraryImport import import_animation_library_batch
+        return import_animation_library_batch(requests_json)
+
+
+    @mcp_tool
+    @staticmethod
+    def clone_retargeter_for_source_mesh(template_path: str, source_mesh_path: str, source_rig_path: str, retargeter_path: str) -> str:
+        """
+        /**
+         * @param template_path	审核模板
+         * @param source_mesh_path	新源网格
+         * @param source_rig_path	新 Rig
+         * @param retargeter_path	新重定向器
+         * @return	克隆与链映射
+         */
+        """
+        from BBBAnimationLibraryImport import clone_retargeter_for_source_mesh
+        return clone_retargeter_for_source_mesh(template_path, source_mesh_path, source_rig_path, retargeter_path)
+
+
+    @mcp_tool
+    @staticmethod
+    def audit_animation_library_batch(pairs_json: str, mesh_path: str) -> str:
+        """
+        /**
+         * @param pairs_json	源目标动画对
+         * @param mesh_path	目标网格
+         * @return	全帧 IK 和元数据检查
+         */
+        """
+        from BBBAnimationLibraryImport import audit_animation_library_batch
+        return audit_animation_library_batch(pairs_json, mesh_path)
+
+
+    @mcp_tool
+    @staticmethod
     def import_skeletal_animation_set(source_files_json: str, destination_path: str, mesh_name: str) -> str:
         """
         /**
@@ -1482,7 +1527,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         import_angles = (import_pitch, import_yaw, import_roll)
         if not all(math.isfinite(value) for value in import_angles):
             raise RuntimeError("导入角度必须为有限数值")
-        options.anim_sequence_import_data.import_rotation = unreal.Rotator(import_pitch, import_yaw, import_roll)
+        options.anim_sequence_import_data.import_rotation = unreal.Rotator(pitch=import_pitch, yaw=import_yaw, roll=import_roll)
 
         task = unreal.AssetImportTask()
         task.set_editor_property("filename", source_file)
