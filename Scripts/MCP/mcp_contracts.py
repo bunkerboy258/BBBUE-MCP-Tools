@@ -392,6 +392,8 @@ TOOL_POLICIES = {
     'melee.create_rigid_equipment_mesh': {'scope': {'fields': ['mesh_path']}},
     'melee.stage_character_aim_gate': {'scope': {'fields': ['blueprint_path', 'node_path']}},
     'retarget.retarget_sequences': {'scope': {'fields': ['target_folder']}},
+    'external.retarget.add_retarget_chain': {'scope': {'fields': ['ik_rig_path']}},
+    'external.retarget.auto_map_chains': {'scope': {'fields': ['retargeter_path']}},
     'retarget.open_new_assets_for_add': {'scope': {'fields': ['asset_paths']}},
     'hud.render_mesh_silhouettes': {'scope': {'kind': 'session'}},
     'editor.capture_niagara_asset': {'scope': {'kind': 'session'}},
