@@ -982,6 +982,38 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def create_blueprint_graph_node(graph_path: str, node_type_id: str, position_x: int, position_y: int) -> str:
+        """
+        /**
+         * 在项目图表创建明确节点 支持状态转换等嵌套图 不依赖直属蓝图缓存
+         * @param graph_path	目标图表的完整对象路径
+         * @param node_type_id	编辑器可用节点的完整类型名称
+         * @param position_x	节点横坐标
+         * @param position_y	节点纵坐标
+         * @return 新节点路径 类型及实际引脚索引
+         */
+        """
+        graph = unreal.load_object(None, graph_path)
+        if not graph_path.startswith("/Game/") or not isinstance(graph, unreal.EdGraph):
+            raise RuntimeError("需要明确的项目蓝图图表")
+        require_write_access(graph)
+        editor = unreal.BlueprintGraphEditor.get_graph_editor(graph)
+        available = list(editor.list_available_nodes([]))
+        matches = [str(value) for value in available if str(value).casefold() == node_type_id.casefold()]
+        if len(matches) != 1:
+            leaf = node_type_id.rsplit("|", 1)[-1].casefold()
+            candidates = [str(value) for value in available if leaf in str(value).replace(" ", "").casefold()]
+            raise RuntimeError("节点类型必须唯一且可用: " + json.dumps(candidates[:20], ensure_ascii=False))
+        node = editor.create_node_from_name(matches[0], unreal.Vector2D(position_x, position_y), [])
+        if node is None:
+            raise RuntimeError("节点创建失败")
+        info = BlueprintTools._get_node_info(node)
+        return json.dumps({"node": node.get_path_name(), "type": matches[0],
+            "inputs": [{"name": pin.name, "index": pin.pin_id.index_id} for pin in info.input_pins],
+            "outputs": [{"name": pin.name, "index": pin.pin_id.index_id} for pin in info.output_pins]}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def write_graph(graph_path: str, code: str, node_aliases_json: str, pin_aliases_json: str) -> str:
         """写入指定项目蓝图图表并编译 不自动保存 失败时保留撤销记录并明确报警"""
         if not graph_path.startswith("/Game/"):

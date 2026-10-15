@@ -176,6 +176,7 @@ TOOL_POLICIES = {
     'assets.resave_assets': {'scope': {'fields': ['asset_paths']}},
     'assets.update_pose_assets_from_source': {'scope': {'rows': ['expected_reports', 'asset']}},
     'blueprint.add_blueprint_comment_node': {'scope': {'fields': ['graph_path']}},
+    'blueprint.create_blueprint_graph_node': {'scope': {'fields': ['graph_path']}},
     'blueprint.annotate_blueprint_graph': {'scope': {'fields': ['graph_path']}},
     'blueprint.configure_blueprint_function_thread_safety': {'scope': {'fields': ['blueprint_path']}},
     'blueprint.configure_control_rig_curve_alpha': {'scope': {'fields': ['blueprint_path']}},

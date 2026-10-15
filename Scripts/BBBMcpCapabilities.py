@@ -550,7 +550,8 @@ def write_scope(contract, arguments, access=None, world=None):
         return [path], bool(asset_targets(path))
     fields = scope.get("fields")
     targets = [arguments.get(field, contract["parameters"].get("properties", {}).get(field, {}).get("default")) for field in fields or ()]
-    scoped = access == "read" or world == "pie" or access == "pie" or contract["id"] == "runtime.configure_mcp_resources" or bool(fields and all(target is not None for target in targets) and asset_targets(targets))
+    targets = [target for target in targets if target is not None]
+    scoped = access == "read" or world == "pie" or access == "pie" or contract["id"] == "runtime.configure_mcp_resources" or bool(fields and targets and asset_targets(targets))
     return targets, scoped
 
 

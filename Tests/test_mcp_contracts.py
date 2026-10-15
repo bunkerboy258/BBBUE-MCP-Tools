@@ -26,6 +26,20 @@ def response(value):
 class McpContractTests(unittest.TestCase):
     """/** 公共失败边界与能力发现回归 */"""
 
+    def test_optional_graph_does_not_hide_blueprint_write_scope(self):
+        """/** @return 成员变量以蓝图定界 局部变量追加图表 无实际目标时仍拒绝 */"""
+        schema = {"type": "object", "properties": {"blueprint": {"type": "string"},
+            "graph": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None}}, "required": ["blueprint"]}
+        contract = capabilities.tool_contract("BlueprintTools", "add_variable", schema)
+        path = "/Game/Animation/Main.Main"
+        for arguments in ({"blueprint": path}, {"blueprint": path, "graph": None}):
+            targets, scoped = capabilities.write_scope(contract, arguments)
+            self.assertTrue(scoped)
+            self.assertEqual(targets, [path])
+        graph = path + ":Update"
+        self.assertEqual(capabilities.write_scope(contract, {"blueprint": path, "graph": graph}), ([path, graph], True))
+        self.assertEqual(capabilities.write_scope(contract, {"graph": None}), ([], False))
+
     def test_character_locomotion_authoring_and_observation_boundaries(self):
         """/** @return 连续循环构图需要原生依赖和明确写入范围 运动状态查询保持只读 */"""
         requirements = capabilities.native_requirements("BBBAnimationGraphToolset", "configure_character_continuous_locomotion")
