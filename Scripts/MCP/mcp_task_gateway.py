@@ -46,9 +46,9 @@ def public_tools():
     schemas = [
         ("find_tools", "按中英文目标搜索 最多三项 首项包含调用参数", {"query": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1, "maximum": 3, "default": 3}}, ["query"]),
         ("describe_tool", "读取一个工具的参数与权限", {"tool": {"type": "string"}}, ["tool"]),
-        ("submit_batch", "执行有序操作 短调用直接返回结果 长调用返回批次和下一步", {"operations": {"type": "array", "minItems": 1, "maxItems": 16, "items": {"type": "object", "properties": {"tool": {"type": "string"}, "arguments": {"type": "object"}}, "required": ["tool", "arguments"], "additionalProperties": False}}, "completion": {"type": "string", "enum": ["save", "review"], "default": "save"}, "await_seconds": {"type": "number", "minimum": 0, "maximum": 10, "default": 2}, "label": {"type": "string", "maxLength": 120}, "environment": {"type": "string", "enum": ["editor", "test"], "default": "editor"}, "test_host": {"type": "string", "pattern": "^[0-9a-f]{16}$"}, "test_options": {"type": "object", "properties": {"map": {"type": "string", "pattern": "^/(Game|Engine)/[A-Za-z0-9_/]+$"}, "rendering": {"type": "boolean"}, "audio": {"type": "boolean"}, "players": {"type": "integer", "minimum": 1, "maximum": 8}, "net_mode": {"type": "string", "enum": ["standalone", "listen", "client"]}}, "required": ["map"], "additionalProperties": False}}, ["operations"]),
+        ("submit_batch", "执行有序操作 短调用直接返回结果 长调用返回批次和下一步", {"operations": {"type": "array", "minItems": 1, "maxItems": 16, "items": {"type": "object", "properties": {"tool": {"type": "string"}, "arguments": {"type": "object"}}, "required": ["tool", "arguments"], "additionalProperties": False}}, "await_seconds": {"type": "number", "minimum": 0, "maximum": 10, "default": 2}, "label": {"type": "string", "maxLength": 120}, "environment": {"type": "string", "enum": ["editor", "test"], "default": "editor"}, "test_host": {"type": "string", "pattern": "^[0-9a-f]{16}$"}, "test_options": {"type": "object", "properties": {"map": {"type": "string", "pattern": "^/(Game|Engine)/[A-Za-z0-9_/]+$"}, "rendering": {"type": "boolean"}, "audio": {"type": "boolean"}, "players": {"type": "integer", "minimum": 1, "maximum": 8}, "net_mode": {"type": "string", "enum": ["standalone", "listen", "client"]}}, "required": ["map"], "additionalProperties": False}}, ["operations"]),
         ("inspect_tasks", "读取占用与批次结果，支持按业务版本等待", {"batch": {"type": "string"}, "detail": {"type": "boolean"}, "after_revision": {"type": "integer", "minimum": 0}, "wait_seconds": {"type": "number", "minimum": 0, "maximum": 60}}, []),
-        ("control_task", "取消、核实、恢复或关闭批次，空闲时退出宿主", {"action": {"type": "string", "enum": ["cancel", "review", "resume", "close", "shutdown_host"]}, "batch": {"type": "string"}, "confirmation": {"type": "string"}}, ["action"]),
+        ("control_task", "取消排队、交付结果或退出空闲宿主", {"action": {"type": "string", "enum": ["cancel", "close", "shutdown_host"]}, "batch": {"type": "string"}}, ["action"]),
     ]
     return [{"name": name, "description": description, "inputSchema": {"type": "object", "properties": properties, "required": required, "additionalProperties": False}} for name, description, properties, required in schemas]
 
@@ -241,24 +241,73 @@ class UnrealBackend:
         self._call("call_tool", {"toolset_name": self.external_name, "tool_name": "util", "arguments": {"action": "execute_console_command", "params_json": json.dumps({"command": "QUIT_EDITOR"})}})
 
     def finalize(self, packages):
-        """/** @param packages\t本批次拥有的脏包 @return 编译 回读与保存证据 */"""
-        inspect = self.catalog.tools["editor.inspect_asset_properties"]
-        before = self.invoke(inspect, {"asset_paths": sorted(packages), "property_names": []})
-        compiled = []
-        for asset in before["assets"]:
-            path = asset["assetPath"]
-            if asset["classPath"].endswith((".Blueprint", ".AnimBlueprint", ".ControlRigBlueprint")):
-                self.invoke(self.catalog.tools["blueprint_base.compile_blueprint"], {"blueprint": path, "warnings_as_errors": False})
-                status = self.invoke(inspect, {"asset_paths": [path], "property_names": ["status"]})["assets"][0]
-                if status["propertyErrors"] or "BS_UP_TO_DATE" not in str(status["properties"].get("status", "")):
-                    raise McpBusinessError({"execution": {"state": "partial"}, "code": "COMPILE_VALIDATION_FAILED", "asset": path})
-                compiled.append(path)
+        """/** @param packages	本批次自有包 @return 逐包编译 保存 回读与失败证据 */"""
+        inspector = self.catalog.tools["editor.inspect_asset_properties"]
+        proof = {"saved": [], "compiled": [], "failures": [], "readback": True}
         for package in sorted(packages):
-            self.invoke(self.catalog.tools["editor.resave_asset"], {"asset_path": package})
-        after = self.invoke(inspect, {"asset_paths": sorted(packages), "property_names": []})
-        if {asset["assetPath"] for asset in after["assets"]} != {asset["assetPath"] for asset in before["assets"]}:
-            raise McpBusinessError({"execution": {"state": "partial"}, "code": "SAVE_READBACK_CHANGED"})
-        return {"saved": sorted(packages), "compiled": compiled, "readback": True}
+            try:
+                before = self.invoke(inspector, {"asset_paths": [package], "property_names": []})["assets"][0]
+                if before["classPath"].endswith((".Blueprint", ".AnimBlueprint", ".ControlRigBlueprint")):
+                    self.invoke(self.catalog.tools["blueprint_base.compile_blueprint"], {"blueprint": package, "warnings_as_errors": False})
+                    status = self.invoke(inspector, {"asset_paths": [package], "property_names": ["status"]})["assets"][0]
+                    if status["propertyErrors"] or "BS_UP_TO_DATE" not in str(status["properties"].get("status", "")):
+                        raise McpBusinessError({"code": "COMPILE_VALIDATION_FAILED", "asset": package})
+                    proof["compiled"].append(package)
+                self.invoke(self.catalog.tools["editor.resave_asset"], {"asset_path": package})
+                after = self.invoke(inspector, {"asset_paths": [package], "property_names": []})["assets"][0]
+                if after["assetPath"] != before["assetPath"]:
+                    raise McpBusinessError({"code": "SAVE_READBACK_CHANGED", "asset": package})
+                proof["saved"].append(package)
+            except Exception as error:
+                evidence = copy.deepcopy(error.value) if isinstance(error, McpBusinessError) else {"error": str(error)}
+                proof["failures"].append({"package": package, "failure": evidence})
+                proof["readback"] = False
+        return proof
+
+    def expand_scope(self, operation):
+        """/** @param operation\t引用改写操作 @return 磁盘及内存引用者的写入范围 */"""
+        if not operation["contract"].get("scope", {}).get("referencers"):
+            return set()
+        packages = set()
+        content = Path(self.project) / "Content"
+        for target in asset_targets(operation["targets"]):
+            directory = content / target.removeprefix("/Game/")
+            if directory.is_dir():
+                packages.update("/Game/" + path.relative_to(content).with_suffix("").as_posix()
+                    for path in directory.rglob("*") if path.suffix in {".uasset", ".umap"})
+            if not directory.is_dir():
+                packages.add(target)
+        if len(packages) > 5000:
+            raise JobConflict("ASSET_SCOPE_TOO_LARGE", {"next": "split_batch"})
+        if not packages:
+            return set()
+        result = self.invoke(self.catalog.tools["assets.inspect_asset_packages"], {"asset_paths": sorted(packages), "include_soft_referencers": True})
+        return asset_targets([row[key] for row in result["packages"] for key in ("referencers", "soft_referencers")])
+
+    def reconcile(self, packages):
+        """/** @param packages	待核实包或目录 @return 当前磁盘与可加载资产证据 保留原操作的不确定结果 */"""
+        evidence = []
+        content = Path(self.project) / "Content"
+        for package in packages:
+            base = content / package.removeprefix("/Game/")
+            files = [base.with_suffix(extension) for extension in (".uasset", ".umap") if base.with_suffix(extension).is_file()]
+            if base.is_dir():
+                files = sorted(path for path in base.rglob("*") if path.suffix in {".uasset", ".umap"})
+            if len(files) > 256:
+                raise McpBusinessError({"code": "RECOVERY_SCOPE_TOO_LARGE", "package": package})
+            assets = []
+            for file in files:
+                if file.is_symlink() or not file.resolve().is_relative_to(content.resolve()):
+                    raise McpBusinessError({"code": "RECOVERY_PATH_INVALID", "package": package})
+                asset_path = "/Game/" + file.relative_to(content).with_suffix("").as_posix()
+                asset = self.invoke(self.catalog.tools["editor.inspect_asset_properties"], {"asset_paths": [asset_path], "property_names": []})["assets"][0]
+                if asset["classPath"].endswith((".Blueprint", ".AnimBlueprint", ".ControlRigBlueprint")):
+                    status = self.invoke(self.catalog.tools["editor.inspect_asset_properties"], {"asset_paths": [asset_path], "property_names": ["status"]})["assets"][0]
+                    if status["propertyErrors"] or "BS_UP_TO_DATE" not in str(status["properties"].get("status", "")):
+                        raise McpBusinessError({"code": "COMPILE_VALIDATION_FAILED", "asset": asset_path})
+                assets.append({"asset": asset, "size": file.stat().st_size, "mtime_ns": file.stat().st_mtime_ns})
+            evidence.append({"package": package, "assets": assets, "exists_on_disk": bool(files)})
+        return {"observed": evidence, "operation_replayed": False}
 
     def close(self):
         """/** @return 关闭本后端连接 */"""
@@ -299,7 +348,7 @@ class TaskGateway:
                 client = self.jobs.connect(resume_key)
                 session_id = self.clients.bind(client)
                 response_headers["Mcp-Session-Id"] = session_id
-                return 200, response_headers, {"jsonrpc": "2.0", "id": request_id, "result": {"protocolVersion": "2025-11-25", "capabilities": {"tools": {}}, "serverInfo": {"name": "BBB-MCP", "version": "3"}, "_meta": {"bbb/client_key": client, "bbb/client_recovered": recovered, "bbb/catalog_version": self.catalog.version()}}}
+                return 200, response_headers, {"jsonrpc": "2.0", "id": request_id, "result": {"protocolVersion": "2025-11-25", "capabilities": {"tools": {}}, "serverInfo": {"name": "BBB-MCP", "version": "4"}, "_meta": {"bbb/client_key": client, "bbb/client_recovered": recovered, "bbb/catalog_version": self.catalog.version()}}}
             client = self.clients.resolve(session_id)
             if client is None:
                 return 404, {}, {"error": "SESSION_REQUIRED"}
@@ -320,7 +369,7 @@ class TaskGateway:
             if name == "find_tools":
                 return reply(self.catalog.find(**arguments))
             if name == "describe_tool":
-                return reply(self.catalog.describe(arguments["tool"]))
+                return reply(self.tools[arguments["tool"]] if arguments["tool"] in self.tools else self.catalog.describe(arguments["tool"]))
             if name == "submit_batch":
                 identity = parameters.get("_meta", {}).get("bbb/request_id", session_id + ":" + str(request_id))
                 return reply(self.clients.replay(client, identity, {"name": name, "arguments": arguments}, lambda: self.submit(client, **arguments)))
@@ -339,11 +388,11 @@ class TaskGateway:
             details = str(error)
             return reply({"status": "rejected", "code": "ARGUMENT_INVALID", "details": details, "hint": _argument_error_hint(details), "next": "describe_tool"}, True)
         except Exception:
-            return reply({"status": "review", "code": "HOST_UNVERIFIED", "next": "inspect_tasks"}, True)
+            return reply({"status": "failed", "code": "HOST_UNVERIFIED", "next": "inspect_tasks"}, True)
 
-    def submit(self, client, operations, label="", environment="editor", test_options=None, test_host=None, await_seconds=2, completion="save"):
+    def submit(self, client, operations, label="", environment="editor", test_options=None, test_host=None, await_seconds=2):
         """/** @param client\t客户端 @param operations\t有序操作 @param label\t用途 @param environment\t宿主类别 @param test_options\t测试配置 @param test_host\t所属测试宿主 @param await_seconds\t短等待时间 @return 执行结果或唯一继续动作 */"""
-        accepted = self.jobs.submit(client, operations, label, environment, test_options, test_host, completion)
+        accepted = self.jobs.submit(client, operations, label, environment, test_options, test_host)
         if not await_seconds:
             return accepted
         deadline = time.monotonic() + await_seconds

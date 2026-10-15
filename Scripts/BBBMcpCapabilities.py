@@ -534,15 +534,16 @@ def write_scope(contract, arguments, access=None, world=None):
     if access is None:
         access, world = resolve_access(contract, arguments)
     scope = contract.get("scope", TOOL_POLICIES.get(contract["id"], {}).get("scope", {}))
-    if scope.get("kind") == "session":
+    if scope.get("kind") in {"session", "world"}:
         return [], True
     row_fields = scope.get("rows")
     if row_fields is not None:
         field, key = row_fields
+        keys = key if isinstance(key, list) else [key]
         rows = arguments.get(field, [])
-        if not isinstance(rows, list) or not rows or any(not isinstance(row, dict) or not isinstance(row.get(key), str) or not asset_targets(row[key]) for row in rows):
+        if not isinstance(rows, list) or not rows or any(not isinstance(row, dict) or not isinstance(row.get(name), str) or not asset_targets(row[name]) for row in rows for name in keys):
             return [], False
-        return [row[key] for row in rows], True
+        return [row[name] for row in rows for name in keys], True
     if scope.get("join"):
         parent, name = scope["join"]
         path = str(arguments.get(parent, "")).rstrip("/") + "/" + str(arguments.get(name, ""))
@@ -550,8 +551,6 @@ def write_scope(contract, arguments, access=None, world=None):
     fields = scope.get("fields")
     targets = [arguments.get(field, contract["parameters"].get("properties", {}).get(field, {}).get("default")) for field in fields or ()]
     scoped = access == "read" or world == "pie" or access == "pie" or contract["id"] == "runtime.configure_mcp_resources" or bool(fields and all(target is not None for target in targets) and asset_targets(targets))
-    if access != "read" and any(":PersistentLevel." in str(target) for target in targets):
-        scoped = False
     return targets, scoped
 
 

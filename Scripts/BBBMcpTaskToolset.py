@@ -153,12 +153,14 @@ class BBBMcpTaskToolset(unreal.ToolsetDefinition):
         """
         worlds = _observe_worlds()
         subsystem = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
+        editor_world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
         return json.dumps({
             "process_id": os.getpid(),
             "host_role": os.environ.get("BBB_MCP_HOST_ROLE", "editor"),
             "saved_directory": os.path.realpath(unreal.Paths.project_saved_dir()),
             "project_root": os.path.realpath(unreal.Paths.project_dir()),
             "host_instance": _host_state["host_instance"],
+            "editor_world": editor_world.get_path_name() if editor_world is not None else None,
             "pie_active": bool(subsystem.is_in_play_in_editor()),
             "pie_generation": _host_state["pie_generation"],
             "worlds": [world.get_path_name() for world in worlds],

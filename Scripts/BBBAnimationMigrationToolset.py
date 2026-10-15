@@ -2759,6 +2759,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
     @staticmethod
     def set_animation_asset_preview_meshes(
         mesh_path: str,
+        asset_root: str,
         dry_run: bool = True,
     ) -> str:
         """按骨架匹配批量设置 UA 动画预览网格 不编译动画蓝图"""
@@ -2784,7 +2785,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
         counts_by_class = {}
 
         for asset_path in unreal.EditorAssetLibrary.list_assets(
-            "/Game/BBBC_UA",
+            asset_root,
             True,
             False,
         ):

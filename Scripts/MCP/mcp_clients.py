@@ -154,7 +154,7 @@ class ClientRegistry(MutableMapping):
                 stored = self.database.execute("SELECT fingerprint,outcome,finished FROM requests WHERE owner=? AND identity=? AND finished>=?", (self.digest(owner), identity, time.time() - 3600)).fetchone()
                 if stored is not None:
                     record = {"fingerprint": stored[0], "finished": self.clock()}
-                    outcome = json.loads(stored[1]) if stored[1] else {"error": {"status": "review", "code": "GATEWAY_RESTARTED", "next": "inspect_tasks"}}
+                    outcome = json.loads(stored[1]) if stored[1] else {"error": {"status": "failed", "code": "GATEWAY_RESTARTED", "next": "inspect_tasks"}}
                     record.update(outcome)
                     self.requests[key] = record
             if record is not None:
@@ -180,7 +180,7 @@ class ClientRegistry(MutableMapping):
             result = invoke()
         except BaseException as error:
             with self.condition:
-                record["error"] = copy.deepcopy(error.value) if isinstance(error, McpBusinessError) else {"status": "review", "code": "EXECUTION_UNVERIFIED", "next": "inspect_tasks"}
+                record["error"] = copy.deepcopy(error.value) if isinstance(error, McpBusinessError) else {"status": "failed", "code": "EXECUTION_UNVERIFIED", "next": "inspect_tasks"}
                 if isinstance(error, (ValueError, KeyError, TypeError)):
                     record["error"] = {"status": "rejected", "code": "ARGUMENT_INVALID", "details": str(error), "next": "describe_tool"}
                 record["finished"] = self.clock()

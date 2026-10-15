@@ -63,6 +63,15 @@ class FakeBackend:
                 raise RuntimeError("test deadline")
         return {"ok": name}
 
+    def finalize(self, packages):
+        """/** @param packages	自有包 @return 隔离保存及回读证据 */"""
+        self.state["dirty_packages"] = [path for path in self.state["dirty_packages"] if path not in packages]
+        return {"saved": list(packages), "readback": True}
+
+    def reconcile(self, packages):
+        """/** @param packages	待核实范围 @return 当前状态证据 */"""
+        return {"observed": list(packages), "operation_replayed": False}
+
     def shutdown(self):
         self.calls.append(("shutdown", {}))
 
@@ -130,7 +139,7 @@ class JobTests(unittest.TestCase):
         self.submit(self.first, operation("StopPIE"))
         self.assertTrue(self.manager.run_once())
         self.manager.run_once()
-        self.assertEqual(self.manager.jobs[edit]["status"], "review")
+        self.assertEqual(self.manager.jobs[edit]["status"], "completed")
 
     def test_other_client_stop_pie_stays_queued(self):
         self.submit(self.first, operation("StartPIE"))
@@ -167,9 +176,9 @@ class JobTests(unittest.TestCase):
     def test_failed_read_after_mutation_keeps_partial_result(self):
         identity = self.submit(self.first, operation("write", asset="/Game/A"), operation("read", asset="raise"))
         self.manager.run_once()
-        self.assertEqual(self.manager.jobs[identity]["status"], "review")
+        self.assertEqual(self.manager.jobs[identity]["status"], "failed")
         self.assertEqual(self.manager.jobs[identity]["execution"], "partial")
-        self.assertEqual(self.manager.jobs[identity]["dirty"], ["/Game/A"])
+        self.assertEqual(self.manager.jobs[identity]["dirty"], [])
 
     def test_owner_activity_does_not_own_unrelated_records(self):
         self.submit(self.first, operation("StartPIE"))
@@ -210,11 +219,10 @@ class JobTests(unittest.TestCase):
     def test_source_assets_never_define_mutation_scope(self):
         schema = {"type": "object", "properties": {"source_path": {"type": "string"}}}
         self.catalog.add({"id": "scene.copy", "name": "copy", "definition": "Scene", "toolset": "Scene", "parameters": schema, "summary": "copy", "access": "write", "world": "editor"})
-        self.backend.state["dirty_packages"] = ["/Game/CurrentMap"]
-        self.manager.observe(force=True)
-        identity = self.manager.submit(self.first, [{"tool": "scene.copy", "arguments": {"source_path": "/Game/Source"}}])["batch"]
-        self.assertFalse(self.manager.run_once())
-        self.assertEqual(self.manager.jobs[identity]["code"], "DIRTY_BASELINE_UNSCOPED")
+        with self.assertRaises(JobConflict) as failure:
+            self.manager.submit(self.first, [{"tool": "scene.copy", "arguments": {"source_path": "/Game/Source"}}])
+        self.assertEqual(failure.exception.value["code"], "ASSET_SCOPE_REQUIRED")
+        self.assertEqual(self.manager.queue, [])
 
     def test_continuous_recording_allows_its_owner_to_continue_and_stop(self):
         self.submit(self.first, operation("StartPIE"))
@@ -236,15 +244,22 @@ class JobTests(unittest.TestCase):
             self.manager.probe_lock.release()
 
     def test_unsaved_result_read_and_unrelated_write_pass(self):
+        finalize = self.backend.finalize
+        def save(packages):
+            if "/Game/A" in packages:
+                raise McpBusinessError({"code": "SAVE_FAILED"})
+            return finalize(packages)
+        self.backend.finalize = save
         identity = self.submit(self.first, operation("write", asset="/Game/A"))
         self.manager.run_once()
-        self.assertEqual(self.manager.jobs[identity]["status"], "review")
+        self.assertEqual(self.manager.jobs[identity]["status"], "failed")
         read = self.submit(self.second, operation("read"))
         self.manager.run_once()
         self.assertEqual(self.manager.jobs[read]["status"], "completed")
-        other = self.submit(self.second, operation("write", asset="/Game/B"), operation("save_assets", asset_paths=["/Game/B"]))
+        other = self.submit(self.second, operation("write", asset="/Game/B"))
         self.manager.run_once()
         self.assertEqual(self.manager.jobs[other]["status"], "completed")
+        self.assertEqual(self.backend.state["dirty_packages"], ["/Game/A"])
 
     def test_owner_corrective_save_and_verified_close(self):
         identity = self.submit(self.first, operation("write", asset="/Game/A"))
@@ -263,22 +278,9 @@ class JobTests(unittest.TestCase):
                 "discard_dirty_packages": {"type": "array", "items": {"type": "string"}},
                 "dry_run": {"type": "boolean", "default": True}}, "additionalProperties": False}})
 
-    def test_owner_explicit_reload_resolves_failed_review(self):
-        self.add_reload_contract()
-        identity = self.submit(self.first, operation("write", asset="/Game/A"), operation("unknown", asset="/Game/A"))
-        self.manager.run_once()
-        reload = {"tool": "editor.reload_assets_from_disk", "arguments": {
-            "asset_paths": ["/Game/A"], "discard_dirty_packages": ["/Game/A"], "dry_run": False}}
-        foreign = self.submit(self.second, reload)
-        self.assertFalse(self.manager.run_once())
-        self.assertEqual(self.manager.jobs[foreign]["code"], "RESULT_REVIEW_REQUIRED")
-        own = self.submit(self.first, reload)
-        self.manager.run_once()
-        self.assertEqual(self.manager.jobs[own]["status"], "completed")
-        review = self.manager.control(self.first, "review", identity)
-        self.assertEqual(self.manager.control(self.first, "resume", identity, review["confirmation"])["status"], "closed")
 
     def test_reload_requires_exact_explicit_discard_scope(self):
+        self.backend.reconcile = lambda packages: (_ for _ in ()).throw(RuntimeError("readback unavailable"))
         self.add_reload_contract()
         identity = self.submit(self.first, operation("write", asset="/Game/A"), operation("unknown", asset="/Game/A"))
         self.manager.run_once()
@@ -287,11 +289,11 @@ class JobTests(unittest.TestCase):
                 batch = self.submit(self.first, {"tool": "editor.reload_assets_from_disk", "arguments": {
                     "asset_paths": ["/Game/A"], "discard_dirty_packages": discard, "dry_run": dry_run}})
                 self.assertFalse(self.manager.run_once())
-                self.assertEqual(self.manager.jobs[batch]["code"], "RESULT_REVIEW_REQUIRED")
+                self.assertEqual(self.manager.jobs[batch]["code"], "ASSET_BUSY")
         outside = self.submit(self.first, {"tool": "editor.reload_assets_from_disk", "arguments": {
             "asset_paths": ["/Game/A", "/Game/B"], "discard_dirty_packages": ["/Game/A", "/Game/B"], "dry_run": False}})
         self.assertFalse(self.manager.run_once())
-        self.assertEqual(self.manager.jobs[outside]["code"], "RESULT_REVIEW_REQUIRED")
+        self.assertEqual(self.manager.jobs[outside]["code"], "ASSET_BUSY")
         dry = self.submit(self.first, {"tool": "editor.reload_assets_from_disk", "arguments": {
             "asset_paths": ["/Game/A"], "discard_dirty_packages": ["/Game/A"], "dry_run": True}})
         self.manager.run_once()
@@ -307,25 +309,19 @@ class JobTests(unittest.TestCase):
     def test_completed_effect_then_rejected_is_partial(self):
         identity = self.submit(self.first, operation("write", asset="/Game/A"), operation("reject", asset="/Game/A"))
         self.manager.run_once()
-        self.assertEqual(self.manager.jobs[identity]["status"], "review")
+        self.assertEqual(self.manager.jobs[identity]["status"], "failed")
         self.assertEqual(self.manager.jobs[identity]["execution"], "partial")
         self.assertEqual(self.manager.jobs[identity]["completed"], 1)
 
     def test_unknown_effect_blocks_only_scope(self):
+        self.backend.reconcile = lambda packages: (_ for _ in ()).throw(RuntimeError("readback unavailable"))
         identity = self.submit(self.first, operation("unknown", asset="/Game/A"))
         self.manager.run_once()
         same = self.submit(self.second, operation("write", asset="/Game/A"))
         self.assertFalse(self.manager.run_once())
         self.assertEqual(self.manager.jobs[identity]["execution"], "unknown")
-        self.assertEqual(self.manager.jobs[same]["code"], "RESULT_REVIEW_REQUIRED")
+        self.assertEqual(self.manager.jobs[same]["code"], "ASSET_BUSY")
 
-    def test_confirmation_rejects_changed_snapshot(self):
-        identity = self.submit(self.first, operation("unknown", asset="/Game/A"))
-        self.manager.run_once()
-        review = self.manager.control(self.first, "review", identity)
-        self.backend.state["dirty_packages"] = ["/Game/A"]
-        with self.assertRaises(JobConflict):
-            self.manager.control(self.first, "resume", identity, review["confirmation"])
 
     def test_foreign_client_cannot_cancel_or_read_result(self):
         identity = self.submit(self.first, operation("read"))
@@ -363,7 +359,7 @@ class JobTests(unittest.TestCase):
         self.backend.probe = previous
         self.manager.observe(force=True)
         self.assertTrue(self.manager.run_once())
-        self.assertEqual(self.manager.jobs[identity]["status"], "review")
+        self.assertEqual(self.manager.jobs[identity]["status"], "completed")
 
     def test_default_context_budget_and_private_keys(self):
         value = self.manager.inspect(self.second)

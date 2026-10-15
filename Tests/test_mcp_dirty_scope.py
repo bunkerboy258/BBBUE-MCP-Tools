@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "Scripts"))
 from BBBMcpCapabilities import TOOL_DOMAINS, write_scope
 from MCP.mcp_contracts import TOOL_POLICIES
 from MCP.mcp_asset_scope import asset_targets, conflicting_packages
+from MCP.mcp_result import McpBusinessError
 from Tests.test_mcp_task_gateway import fixtures, operation
 
 
@@ -40,26 +41,15 @@ class DirtyScopeTests(unittest.TestCase):
         return self.queue.submit(owner, list(operations))["batch"]
 
     def test_saved_owner_releases_waiter_automatically(self):
-        """
-        /**
-         * @return 核验资产范围与批次交接
-         */
-        """
         original = self.submit(self.first, operation("write", asset="/Game/A"))
-        self.queue.run_once()
-        waiter = self.submit(self.second, operation("write", asset="/Game/A"), operation("save_assets", asset_paths=["/Game/A"]))
-        self.assertFalse(self.queue.run_once())
-        blocked = self.queue.inspect(self.second, waiter)
-        self.assertEqual(blocked["blocked"]["batch"], original)
-        self.assertFalse(blocked["blocked"]["mine"])
-        self.assertEqual(self.queue.inspect(self.first, original)["pending_save"]["packages"], ["/Game/A"])
-        self.assertEqual(self.queue.inspect(self.first)["next"], "submit_batch")
-        self.submit(self.first, operation("save_assets", asset_paths=["/Game/A"]))
+        waiter = self.submit(self.second, operation("write", asset="/Game/A"))
         self.queue.run_once()
         self.assertEqual(self.queue.jobs[original]["status"], "completed")
+        self.assertEqual(self.queue.jobs[waiter]["status"], "queued")
         self.queue.run_once()
         self.assertEqual(self.queue.jobs[waiter]["status"], "completed")
-        self.assertNotIn("blocked", self.queue.inspect(self.second, waiter))
+        self.assertEqual(self.backend.state["dirty_packages"], [])
+        self.assertEqual(self.queue.assets.claims, {})
 
     def test_unknown_effect_keeps_review_after_package_is_clean(self):
         """
@@ -67,10 +57,11 @@ class DirtyScopeTests(unittest.TestCase):
          * @return 核验资产范围与批次交接
          */
         """
+        self.backend.reconcile = lambda packages: (_ for _ in ()).throw(RuntimeError("readback unavailable"))
         original = self.submit(self.first, operation("unknown", asset="/Game/A"))
         self.queue.run_once()
         self.queue.observe(force=True)
-        self.assertEqual(self.queue.jobs[original]["status"], "review")
+        self.assertEqual(self.queue.jobs[original]["status"], "failed")
         other = self.submit(self.second, operation("write", asset="/Game/B"), operation("save_assets", asset_paths=["/Game/B"]))
         self.queue.run_once()
         self.assertEqual(self.queue.jobs[other]["status"], "completed")
@@ -86,25 +77,19 @@ class DirtyScopeTests(unittest.TestCase):
         batch = self.submit(self.second, operation("write", asset="/Game/Pack"))
         self.assertFalse(self.queue.run_once())
         blocked = self.queue.inspect(self.second, batch)
-        self.assertEqual(blocked["code"], "TARGET_ALREADY_DIRTY")
+        self.assertEqual(blocked["code"], "ASSET_SAVE_REQUIRED")
         self.assertEqual(blocked["blocked"]["packages"], ["/Game/Pack/A"])
         self.assertEqual(blocked["blocked"]["count"], 1)
         self.assertEqual(conflicting_packages(self.backend.state["dirty_packages"], ["/Game/PackExtra"]), {"/Game/PackExtra/B"})
 
     def test_unknown_scope_reports_action_without_dumping_all_dirty_packages(self):
-        """
-        /**
-         * @return 核验资产范围与批次交接
-         */
-        """
         self.backend.state["dirty_packages"] = ["/Game/A" + str(index) for index in range(191)]
         self.catalog.add({"id": "scene.unknown", "name": "unknown", "definition": "Scene", "toolset": "Scene", "parameters": {"type": "object"}, "access": "write", "world": "editor"})
-        self.queue.observe(force=True)
-        batch = self.queue.submit(self.second, [{"tool": "scene.unknown", "arguments": {}}])["batch"]
-        self.assertFalse(self.queue.run_once())
-        view = self.queue.inspect(self.second, batch)
-        self.assertEqual(view["blocked"], {"next": "submit_batch"})
-        self.assertLess(len(json.dumps(view)), 512)
+        with self.assertRaises(McpBusinessError) as failure:
+            self.queue.submit(self.second, [{"tool": "scene.unknown", "arguments": {}}])
+        self.assertEqual(failure.exception.value["code"], "ASSET_SCOPE_REQUIRED")
+        self.assertEqual(self.queue.queue, [])
+        self.assertLess(len(json.dumps(failure.exception.value)), 512)
 
     def test_async_resume_claims_only_its_scope(self):
         """
@@ -120,7 +105,8 @@ class DirtyScopeTests(unittest.TestCase):
         self.queue.observe(force=True)
         self.queue.run_once()
         self.assertEqual(job["owned_dirty"], {"/Game/A"})
-        self.assertEqual(job["dirty"], ["/Game/A"])
+        self.assertEqual(job["dirty"], [])
+        self.assertEqual(self.backend.state["dirty_packages"], ["/Game/Other"])
 
     def test_package_normalization_respects_case_and_subobjects(self):
         """

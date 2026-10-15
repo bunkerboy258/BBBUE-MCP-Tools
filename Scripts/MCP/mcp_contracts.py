@@ -353,6 +353,65 @@ TOOL_POLICIES = {
     'traversal.inspect_pie_traversal_network': {'access': 'read'},
     'traversal.inspect_traversal_editing_schema': {'access': 'read'},
     'traversal.inspect_traversal_montage_windows': {'access': 'read'},
+    'animation.set_animation_asset_preview_meshes': {'scope': {'fields': ['asset_root']}},
+    'animation.replace_lyra_animation_references': {'scope': {'fields': ['source_root', 'target_root'], 'referencers': True}},
+    'animation.clean_retargeted_animation_dependencies': {'scope': {'fields': ['root_path', 'compression_target_path']}},
+    'animation.finalize_animation_runtime_assets': {'scope': {'fields': ['notify_source_paths', 'notify_target_paths', 'rebuild_animation_paths']}},
+    'editor.migrate_actor_blueprint': {'scope': {'fields': ['source_path', 'destination_path', 'level_paths'], 'referencers': True}},
+    'editor.spawn_static_mesh_batch': {'scope': {'fields': ['expected_level']}},
+    'editor.remove_scene_mesh_actors': {'scope': {'fields': ['expected_level', 'actor_paths']}},
+    'editor.set_scene_actor_collision': {'scope': {'fields': ['expected_level', 'actor_paths']}},
+    'editor.generate_and_inspect_pcg': {'scope': {'fields': ['actor_path', 'expected_level']}},
+    'editor.duplicate_loaded_actors_to_current_level': {'scope': {'fields': ['actor_paths']}},
+    'editor.reimport_sound_waves': {'scope': {'fields': ['destination_path']}},
+    'level.break_level_instance_to_current_level': {'scope': {'fields': ['level_instance_path']}},
+    'level.configure_mass_display_spawners': {'scope': {'fields': ['expected_level']}},
+    'rigid.configure_rigid_blueprint_part': {'scope': {'fields': ['leader_node_path', 'slot_node_path']}},
+    'assets.delete_unreferenced_asset_packages': {'scope': {'fields': ['asset_paths']}},
+    'assets.rebuild_loaded_actor_construction': {'scope': {'fields': ['actor_paths']}},
+    'assets.clean_unreferenced_redirectors_in_folder': {'scope': {'fields': ['folder_path']}},
+    'assets.make_current_editor_level_explicit': {'scope': {'fields': ['expected_package']}},
+    'assets.move_partitioned_world': {'scope': {'fields': ['source_package', 'destination_package']}},
+    'assets.fixup_external_actor_redirector_references': {'scope': {'fields': ['asset_paths', 'referencer_paths']}},
+    'assets.fixup_redirector_references': {'scope': {'fields': ['asset_paths'], 'referencers': True}},
+    'assets.delete_ownerless_external_object_packages': {'scope': {'fields': ['package_paths']}},
+    'assets.delete_ownerless_external_actor_packages': {'scope': {'fields': ['package_paths']}},
+    'animation_graph.configure_actor_animation_blueprint': {'scope': {'fields': ['actor_blueprint_path']}},
+    'hit.rebuild_zombie_wound_cut_geometry': {'scope': {'fields': ['mesh_paths']}},
+    'hit.finalize_zombie_wound_material_masks': {'scope': {'fields': ['material_paths']}},
+    'hit.bake_zombie_wound_presentation_set': {'scope': {'fields': ['body_mesh_path', 'definition_path', 'output_folder']}},
+    'hit.create_zombie_sealed_part_meshes': {'scope': {'fields': ['output_folder']}},
+    'hit.configure_monster_severing_parts': {'scope': {'fields': ['definition_path']}},
+    'hit.create_blood_residue_material': {'scope': {'fields': ['material_path']}},
+    'hit.rebuild_monster_blood_system': {'scope': {'fields': ['channel_path', 'system_path', 'spray_material_path', 'splash_material_path', 'mist_material_path']}},
+    'melee.stage_upper_body_blend': {'scope': {'fields': ['blueprint_path']}},
+    'melee.register_melee_equipment': {'scope': {'fields': ['catalog_path']}},
+    'melee.create_melee_equipment': {'scope': {'fields': ['definition_path', 'blueprint_path', 'animation_blueprint_path', 'character_layer_path', 'catalog_path']}},
+    'melee.create_melee_attack': {'scope': {'fields': ['sequence_path', 'montage_path']}},
+    'melee.create_rigid_equipment_mesh': {'scope': {'fields': ['mesh_path']}},
+    'melee.stage_character_aim_gate': {'scope': {'fields': ['blueprint_path', 'node_path']}},
+    'retarget.retarget_sequences': {'scope': {'fields': ['target_folder']}},
+    'retarget.open_new_assets_for_add': {'scope': {'fields': ['asset_paths']}},
+    'hud.render_mesh_silhouettes': {'scope': {'kind': 'session'}},
+    'editor.capture_niagara_asset': {'scope': {'kind': 'session'}},
+    'editor.render_asset_thumbnails': {'scope': {'kind': 'session'}},
+    'editor.capture_editor_screenshot': {'scope': {'kind': 'session'}},
+    'editor.dispatch_slate_key': {'scope': {'kind': 'session'}},
+    'editor.activate_slate_button': {'scope': {'kind': 'session'}},
+    'control_rig.inspect_sequence_pose': {'scope': {'kind': 'session'}},
+    'control_rig.compute_attachment_contacts': {'scope': {'kind': 'session'}},
+    'control_rig.sample_animation_poses': {'scope': {'kind': 'session'}},
+    'control_rig.set_background_budget': {'scope': {'kind': 'session'}},
+    'control_rig.compute_palm_contact': {'scope': {'kind': 'session'}},
+    'control_rig.sample_sequence_controls': {'scope': {'kind': 'session'}},
+    'hit.run_monster_hit_reaction_regressions': {'scope': {'kind': 'session'}},
+    'editor.rebind_asset_import_sources': {'scope': {'rows': ['requests', 'asset']}},
+    'editor.import_font_faces': {'scope': {'rows': ['requests', 'destination']}},
+    'assets.delete_unreferenced_uncontrolled_assets': {'scope': {'rows': ['expected_files', 'package']}},
+    'assets.move_assets_preserving_external_actor_references': {'scope': {'rows': ['moves', ['source', 'destination']], 'referencers': True}},
+    'assets.move_assets_batch': {'scope': {'rows': ['moves', ['source', 'destination']], 'referencers': True}},
+    'assets.consolidate_verified_asset_copies': {'scope': {'rows': ['moves', ['source', 'destination']], 'referencers': True}},
+    'hit.plan_zombie_wound_presentation_set': {'access': 'read'},
 }
 
 @lru_cache(maxsize=None)
@@ -398,6 +457,15 @@ def compile_contract(contract):
         fields = [field for field in roles.get(item["definition"], ()) if field in properties]
         if fields:
             item["scope"] = {"fields": fields}
+        if item["definition"] in {"ActorTools", "LevelTools", "LandscapeTools", "FoliageTools"}:
+            item["scope"] = {"kind": "world"}
+            paths = [field for field in ("level_path", "map_path", "expected_level") if field in properties]
+            if paths:
+                item["scope"] = {"fields": paths}
+        if item["id"].startswith(("external.actor.", "external.light.", "external.level.", "external.layer.")) and item["access"] != "read":
+            item["scope"] = {"kind": "world"}
+            if "level_path" in properties:
+                item["scope"] = {"fields": ["level_path"]}
         if "folder_path" in properties and "asset_name" in properties and item["access"] != "read":
             item["scope"] = {"join": ["folder_path", "asset_name"]}
             if item["name"] == "import_file":

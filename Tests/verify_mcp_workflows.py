@@ -39,7 +39,7 @@ def main():
                 value = session.wait_batch(value["batch"], 180)
                 rounds += 1
             measurements.append({"tool": tool, "seconds": time.perf_counter() - started, "rounds": rounds, "status": value["status"]})
-            if value["status"] not in {"completed", "review"}:
+            if value["status"] not in {"completed"}:
                 raise AssertionError(value)
             return value
 
@@ -61,11 +61,10 @@ def main():
         changed = call(first, "object.set_properties", {"instance": instances[0], "values": {two_sided: True}})
         assert changed["status"] == "completed" and changed["proof"]["saved"] == [assets[0]], changed
         assert first.inspect_tasks()["dirty"] == 0
-        staged = call(first, "object.set_properties", {"instance": instances[0], "values": {two_sided: False}}, completion="review")
-        assert staged["status"] == "review" and staged["code"] == "DIRTY_ASSETS", staged
+        staged = call(first, "object.set_properties", {"instance": instances[0], "values": {two_sided: False}})
+        assert staged["status"] == "completed" and first.inspect_tasks()["dirty"] == 0, staged
         independent = call(second, "object.set_properties", {"instance": instances[1], "values": {two_sided: True}})
         assert independent["status"] == "completed", independent
-        call(first, "asset.save_assets", {"asset_paths": [assets[0]]})
         assert first.inspect_tasks(staged["batch"])["status"] == "completed"
         graph = assets[2] + ".BP:EventGraph"
         before = call(first, "blueprint.inspect_blueprint_graph", {"graph_path": graph, "view": "logic"})["results"][0]

@@ -45,7 +45,7 @@ def main():
         assert state["dirty"] == 0 and state["queued"] == 0 and state["activities"] == 0 and not state["pie"] and state.get("tests", {}).get("running", 0) == 0, state
         (task / "recovery.json").write_text(json.dumps({"url": args.url, "keys": [first.client_key, second.client_key], "assets": paths, "batches": batches}), encoding="utf-8")
 
-        def submit(session, operations, label, completion="save"):
+        def submit(session, operations, label):
             """
             /**
              * @param session	所属客户端
@@ -54,7 +54,7 @@ def main():
              * @return 可恢复批次身份
              */
             """
-            batch = session.submit_batch(operations, label=label, completion=completion)["batch"]
+            batch = session.submit_batch(operations, label=label)["batch"]
             batches.append({"client": 0 if session is first else 1, "batch": batch})
             recovery = {"url": args.url, "keys": [first.client_key, second.client_key], "assets": paths, "batches": batches}
             (task / "recovery.json").write_text(json.dumps(recovery), encoding="utf-8")
@@ -76,23 +76,11 @@ def main():
         fixture = submit(first, [operation("editor.create_asset_with_factory", asset_path=path, asset_class_path="/Script/Engine.Material", factory_class_path="/Script/UnrealEd.MaterialFactoryNew") for path in paths], "Dirty scope fixtures")
         complete(first, fixture)
         fields = complete(first, submit(first, [operation("object.list_properties", instance=paths[0] + ".A", query="two_sided")], "Dirty scope property"))["results"][0]["properties"]
-        dirty_batch = submit(first, [operation("object.set_properties", instance=paths[0] + ".A", values={next(iter(fields)): True})], "Dirty scope owner", completion="review")
-        dirty = first.wait_batch(dirty_batch, 60)
-        assert dirty["status"] == "review" and dirty["code"] == "DIRTY_ASSETS" and dirty["dirty"] == [paths[0]], dirty
-        assert dirty["pending_save"]["packages"] == [paths[0]], dirty
-        independent = submit(second, [operation("assets.normalize_material_auxiliary_data", asset_paths=[paths[1]], dry_run=False)], "Dirty scope independent material")
-        result = complete(second, independent)
-        assert first.inspect_tasks()["dirty"] == 1, result
-        same = submit(second, [operation("assets.resave_assets", asset_paths=[paths[0]])], "Dirty scope same asset waiter")
-        deadline = time.monotonic() + 30
-        waiting = second.inspect_tasks(same)
-        while waiting.get("code") != "RESULT_REVIEW_REQUIRED" and time.monotonic() < deadline:
-            waiting = second.inspect_tasks(same, after_revision=waiting["revision"], wait_seconds=1)
-        assert waiting["status"] == "queued" and waiting["blocked"]["batch"] == dirty_batch and not waiting["blocked"]["mine"], waiting
-        complete(first, submit(first, [operation("asset.save_assets", asset_paths=[paths[0]])], "Dirty scope owner save"))
-        settled = first.wait_batch(dirty_batch, 60)
-        assert settled["status"] == "completed", settled
-        first.control_task("close", dirty_batch)
+        owner = submit(first, [operation("object.set_properties", instance=paths[0] + ".A", values={next(iter(fields)): True})], "Automatic scope owner")
+        complete(first, owner)
+        independent = submit(second, [operation("assets.normalize_material_auxiliary_data", asset_paths=[paths[1]], dry_run=False)], "Automatic scope independent material")
+        complete(second, independent)
+        same = submit(second, [operation("assets.resave_assets", asset_paths=[paths[0]])], "Automatic scope same asset successor")
         complete(second, same)
         assert first.inspect_tasks()["dirty"] == 0
         files = []
@@ -111,7 +99,7 @@ def main():
         assert all(not path.exists() for path in files), files
         final = first.inspect_tasks()
         assert final["dirty"] == 0 and final["queued"] == 0 and final["activities"] == 0 and not final["pie"], final
-        print(json.dumps({"status": "PASS", "process_id": final["host"]["process_id"], "clients": 2, "independent_material": True, "same_asset_waited": True, "save_released_waiter": True, "dirty_packages": 0, "asset_directory": str(files[0].parent), "task_directory": str(task)}, ensure_ascii=False))
+        print(json.dumps({"status": "PASS", "process_id": final["host"]["process_id"], "clients": 2, "independent_material": True, "same_asset_progressed": True, "automatic_save": True, "dirty_packages": 0, "asset_directory": str(files[0].parent), "task_directory": str(task)}, ensure_ascii=False))
 
 
 if __name__ == "__main__":

@@ -6,29 +6,34 @@
 | --- | --- | --- |
 | `find_tools` | `query`；`limit=3` | 首项完整契约，其余候选简述 |
 | `describe_tool` | `tool` | 参数、默认值、权限、范围、依赖、完成条件与版本 |
-| `submit_batch` | `operations`；`await_seconds=2`；`completion="save"` | 已完成结果或待继续的批次 |
+| `submit_batch` | `operations`；`await_seconds=2` | 已完成结果或待继续的批次 |
 | `inspect_tasks` | `batch`、`after_revision`、`wait_seconds`；`detail=false` | 占用、进度、结果与唯一下一步 |
-| `control_task` | `action`、`batch`、`confirmation` | 取消、核实、接续、输出交付与宿主收尾 |
+| `control_task` | `action`、`batch` | 取消排队、交付输出与宿主收尾 |
 
 操作格式：`{"tool":"领域.函数","arguments":{}}`，每批一至十六项。参数校验一次覆盖完整批次。对象和数组直接提交；对象引用使用路径字符串。
 
-短等待范围零至十秒。`queued`、`running` 按批次版本等待；`completed` 直接读取 `results` 和 `proof`；`rejected` 根据字段位置修正；`review` 回读并处理实际执行范围。
+短等待范围零至十秒。`queued`、`running` 按批次版本等待；`completed` 直接读取 `results` 和 `proof`；`rejected` 根据字段位置修正；`failed` 读取实际执行范围、错误和资产故障。
 
 ## 完成条件
 
-编辑默认采用验证保存。保存范围由契约声明的目标与本批次新增脏包确定。编译、回读或范围核验需要处理时，证据保留在 `review`。分阶段编辑显式设置 `completion="review"`。
+编辑批次自动校验、执行、编译、保存、回读并释放资产。执行槽随实际操作结束释放，结果记录独立保留。修改范围由契约目标、本批次新增脏包以及引用改写操作的实际引用者确定。
 
+异常结果由网关自动核实。原操作保留执行边界与错误；已知修改完成保存后发布结果。保存或回读故障登记在具体资产，后台退避恢复，独立资产继续执行。客户端离线和结果交付均保持后台收尾。
 普通结果保留用于短期重放；完成记录自动回收。文件、PIE 和持续活动沿所属任务交付。测试输出交付后对首次批次使用 `close`。
 
 `inspect_tasks()` 返回紧凑占用。`inspect_tasks(batch=...)` 的 `revision` 属于该批次；项目总览的版本覆盖项目活动。`detail=true` 展开错误、范围、版本与分段耗时。
 
-## 保存冲突恢复
+## 资产协调
 
-`DIRTY_ASSETS` 返回 `pending_save.packages` 与 `hint`。AI 使用 `editor.save_assets` 保存这些明确包路径，再检查原批次；脏包清空后该批次自动完成。
+`ASSET_BUSY` 返回实际冲突包、占用阶段和原因；队列在资产交接后自动继续。`asset_occupancy` 提供有界摘要，`detail=true` 展开完整范围。`phase="fault"` 表示资产保存或回读故障，网关自动重试。
 
-`RESULT_REVIEW_REQUIRED` 返回占用批次、归属与冲突包。`mine=true` 时先读取原批次的 `failure`；同一客户端可提交仅包含当前脏包的 `editor.save_assets` 批次解开自身保存阻塞。保存后调用 `control_task(action="review")` 检查回执，再以回执的 `confirmation` 调用 `control_task(action="resume")` 确认关闭原审阅批次，然后用新批次继续。`mine=false` 时等待所属客户端完成保存与核实。
+`ASSET_SAVE_REQUIRED` 表示目标包在任务开始前已有编辑器修改；核实归属后以 `asset.save_assets` 保存明确包。其余资产继续推进。同一客户端对故障范围提交修正操作时，已登记修改随新批次完成验证保存。
 
-`TARGET_ALREADY_DIRTY` 提示 AI 等待当前修改所属任务保存，并继续只读准备。`ARGUMENT_INVALID` 保留字段路径并提示调用 `describe_tool` 查看完整参数定义。失败批次若处于 `review`，先保存返回的脏包，再对原批次执行 `review` 与 `resume` 完成核实，最后用新批次提交修正后的操作。
+`ASSET_SCOPE_REQUIRED` 在派发前指出范围缺失的工具。地图演员按地图及外部 Actor/Object 包协调；当前地图改变时返回 `EDITOR_WORLD_CHANGED`。
+
+`ARGUMENT_INVALID` 返回具体字段位置。校验阶段实际修改为零的批次立即结束；部分成功的批次保存已知修改并保留 `failure`。执行结果不确定时，自动核实证据写入 `proof.reconciled`，原执行状态继续标为 `unknown`。
+
+`control_task` 使用 `cancel`、`close`、`shutdown_host`。`close` 交付结果及所属测试输出；资产收尾由网关独立完成。读取结果和保留结果记录均保持资产可用。
 
 ## 世界与测试
 
@@ -66,5 +71,3 @@
 # PIE 临时对象范围
 
 `/Game/.../UEDPIE_<编号>_<地图>` 是测试宿主中的临时包 其 Actor 与组件路径不作为磁盘资产或源控写入目标 正式地图通过测试配置继续参与资产版本检查。
-
-测试批次所有操作已经执行且只因完成证据暂时未核实时 可用 `control_task review` 获取凭证并用 `resume` 重新核实 该路径不重放任何动作 未执行完的失败批次与输入资产已变化的批次仍须重跑。

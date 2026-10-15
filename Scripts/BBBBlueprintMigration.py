@@ -5,10 +5,10 @@ import unreal
 from BBBAssetWritePolicy import require_asset_write
 
 
-def _dirty_content():
+def _dirty_content(scope):
     """/** @return 尚未保存的持久内容包 不包含其它测试的临时世界 */"""
     from BBBAssetMaintenanceToolset import _move_dirty_packages
-    return [path for path in _move_dirty_packages() if path.startswith("/Game/")]
+    return [path for path in _move_dirty_packages(scope) if path.startswith("/Game/")]
 
 
 def _value(value):
@@ -45,7 +45,7 @@ def migrate_blueprint(source_path, destination_path, parent_class_path, defaults
     if source == destination or not levels or len(set(levels)) != len(levels):
         raise RuntimeError("必须提供不同的源目标和不重复关卡")
     editor = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
-    if editor.is_in_play_in_editor() or _dirty_content():
+    if editor.is_in_play_in_editor() or _dirty_content([source, destination] + levels):
         raise RuntimeError("PIE 或脏包期间禁止迁移蓝图")
     registry = unreal.AssetRegistryHelpers.get_asset_registry()
     references = _move_referencers(registry, source)
@@ -80,7 +80,7 @@ def migrate_blueprint(source_path, destination_path, parent_class_path, defaults
         sources = [actor for actor in actors.get_all_level_actors() if actor.get_class() == blueprint.generated_class()]
         if not sources or any(actor.get_outermost() != world.get_outermost() for actor in sources):
             raise RuntimeError("引用关卡没有内部目标演员 外部演员需要专用迁移流程")
-        if _dirty_content():
+        if _dirty_content([source, destination] + levels):
             raise RuntimeError("加载引用关卡产生脏包 禁止迁移")
     unreal.BlueprintEditorLibrary.reparent_blueprint(blueprint, parent)
     unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
@@ -126,11 +126,11 @@ def migrate_blueprint(source_path, destination_path, parent_class_path, defaults
         if not isinstance(redirector, unreal.ObjectRedirector) or redirector.get_path_name() != redirector_path:
             raise RuntimeError("旧路径不是精确跳转 拒绝删除")
         require_asset_write([source])
-        if _dirty_content() or _move_referencers(registry, source):
+        if _dirty_content([source, destination] + levels) or _move_referencers(registry, source):
             raise RuntimeError("清理前出现未保存内容或新增引用")
         if not unreal.BBBAssetRepairEditorLibrary.delete_redirector_packages([redirector]):
             raise RuntimeError("旧跳转清理失败")
     report["saved"] = True
     report["old_path_exists"] = unreal.EditorAssetLibrary.does_asset_exist(source)
-    report["dirty_packages"] = _dirty_content()
+    report["dirty_packages"] = _dirty_content([source, destination] + levels)
     return json.dumps(report, ensure_ascii=False)

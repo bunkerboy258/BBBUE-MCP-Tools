@@ -112,23 +112,24 @@ class ClientTests(unittest.TestCase):
         unused.close()
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "clients.sqlite"
+            backend.reconcile = lambda packages: (_ for _ in ()).throw(RuntimeError("readback unavailable"))
             first = JobQueue(backend, catalog, start_worker=False, state_path=path)
             key = first.connect()
-            batch = first.submit(key, [operation("write", asset="/Game/A")])["batch"]
+            batch = first.submit(key, [operation("unknown", asset="/Game/A")])["batch"]
             first.run_once()
             first.close()
             first.clients.close()
             second = JobQueue(backend, catalog, start_worker=False, state_path=path)
             try:
                 self.assertEqual(second.connect(key), key)
-                self.assertEqual(second.inspect(key, batch)["code"], "GATEWAY_RESTARTED")
+                self.assertEqual(second.inspect(key, batch)["code"], "EXECUTION_UNVERIFIED")
                 other = second.connect()
                 independent = second.submit(other, [operation("write", asset="/Game/B")])["batch"]
                 self.assertTrue(second.run_once())
-                self.assertEqual(second.inspect(other, independent)["status"], "review")
+                self.assertEqual(second.inspect(other, independent)["status"], "completed")
                 same = second.submit(other, [operation("write", asset="/Game/A")])["batch"]
                 self.assertFalse(second.run_once())
-                self.assertEqual(second.inspect(other, same)["code"], "RESULT_REVIEW_REQUIRED")
+                self.assertEqual(second.inspect(other, same)["code"], "ASSET_BUSY")
             finally:
                 second.close()
                 second.clients.close()

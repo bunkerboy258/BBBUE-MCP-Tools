@@ -175,9 +175,9 @@ class McpSession:
             self._cache[tool] = self.request("describe_tool", {"tool": tool})
         return json.loads(json.dumps(self._cache[tool]))
 
-    def submit_batch(self, operations, label="", environment="editor", test_options=None, test_host=None, await_seconds=2, completion="save"):
+    def submit_batch(self, operations, label="", environment="editor", test_options=None, test_host=None, await_seconds=2):
         """/** @param operations 有序操作 @param label 阶段用途 @return 即时批次编号 */"""
-        arguments = {"operations": operations, "label": label, "environment": environment, "await_seconds": await_seconds, "completion": completion}
+        arguments = {"operations": operations, "label": label, "environment": environment, "await_seconds": await_seconds}
         if test_options is not None:
             arguments["test_options"] = test_options
         if test_host is not None:
@@ -193,13 +193,11 @@ class McpSession:
             arguments["after_revision"] = after_revision
         return self.request("inspect_tasks", arguments)
 
-    def control_task(self, action, batch=None, confirmation=None):
-        """/** @param action 控制动作 @param batch 批次 @param confirmation 核实凭证 @return 控制结果 */"""
+    def control_task(self, action, batch=None):
+        """/** @param action 控制动作 @param batch 批次 @return 控制结果 */"""
         arguments = {"action": action}
         if batch is not None:
             arguments["batch"] = batch
-        if confirmation is not None:
-            arguments["confirmation"] = confirmation
         return self.request("control_task", arguments)
 
     def wait_batch(self, batch, timeout_seconds=600):
@@ -208,7 +206,7 @@ class McpSession:
         revision = None
         while time.monotonic() < deadline:
             value = self.inspect_tasks(batch, True, revision, min(30, max(0, deadline - time.monotonic())))
-            if value["status"] in {"completed", "rejected", "review", "cancelled", "closed"}:
+            if value["status"] in {"completed", "rejected", "failed", "cancelled", "closed"}:
                 return value
             revision = value["revision"]
         raise TimeoutError("BATCH_WAIT_TIMEOUT: inspect_tasks")

@@ -1777,10 +1777,14 @@
           "dry_run": {
             "type": "boolean",
             "default": true
+          },
+          "asset_root": {
+            "type": "string"
           }
         },
         "required": [
-          "mesh_path"
+          "mesh_path",
+          "asset_root"
         ]
       },
       "outputSchema": {
@@ -9649,6 +9653,10 @@
               "type": "string"
             },
             "description": "明确包路径列表 *"
+          },
+          "include_soft_referencers": {
+            "type": "boolean",
+            "default": false
           }
         },
         "required": [

@@ -312,7 +312,7 @@ def _delete_ownerless_external_packages(package_paths, backup_directory, dry_run
 
     if not package_paths or len(package_paths) > 2048 or len(set(package_paths)) != len(package_paths):
         raise RuntimeError("必须提供 1 至 2048 个不重复历史外部包")
-    if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+    if _move_dirty_packages(package_paths) or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
         raise RuntimeError("存在脏包或 PIE 拒绝清理历史外部包")
     if not unreal.SourceControl.is_enabled() or not unreal.SourceControl.is_available() or unreal.SourceControl.current_provider() != "Perforce":
         raise RuntimeError("历史外部包清理必须使用可用的 Perforce")
@@ -360,7 +360,7 @@ def _delete_ownerless_external_packages(package_paths, backup_directory, dry_run
     filenames = [_move_filename(path) for path in selected]
     report["engine_success"] = bool(unreal.SourceControl.mark_files_for_delete(filenames, silent=True))
     report["remaining_files"] = [path for path, filename in zip(selected, filenames) if os.path.isfile(filename)]
-    report["dirty_packages"] = _move_dirty_packages()
+    report["dirty_packages"] = _move_dirty_packages(package_paths)
     report["success"] = report["engine_success"] and not report["remaining_files"] and not report["dirty_packages"]
     unreal.log("[BBBOwnerlessExternalDelete]{} {} 个包 原件永久保留 删除后须重启宿主刷新注册表".format("PASS" if report["success"] else "FAIL", len(selected)))
     return json.dumps(report, ensure_ascii=False)
@@ -719,7 +719,7 @@ def _build_asset_move_plan(requests, registry):
             _move_path(package)
         except RuntimeError:
             blockers.append({"package": package, "reason": "存在项目外或关卡外部数据引用者 需专用迁移"})
-    dirty_packages = _move_dirty_packages()
+    dirty_packages = _move_dirty_packages(list(referencers) + [item[key] for item in assets for key in ("source", "destination")])
     if dirty_packages:
         blockers.append({"packages": dirty_packages, "reason": "项目存在未保存修改 原生移动可能触及脏包"})
     native_dependencies = _move_native_dependency_report(registry, referencers | {item["source"] for item in assets})
@@ -794,7 +794,7 @@ def _execute_asset_moves(report):
                 new_package_path=item["destination"].rsplit("/", 1)[0],
                 new_name=item["destination"].rsplit("/", 1)[-1],
             ))
-        if _move_dirty_packages():
+        if _move_dirty_packages([item[key] for item in report["assets"] for key in ("source", "destination")] + [ref for item in report["assets"] for ref in item.get("referencers", [])]):
             raise RuntimeError("加载后出现脏包 已中止移动 请先检查并保存")
 
     unreal.log("[BBBAssetMove]开始原生批量移动 {} 个资产".format(len(renames)))
@@ -1590,7 +1590,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def inspect_asset_packages(asset_paths: list[str]) -> str:
+    def inspect_asset_packages(asset_paths: list[str], include_soft_referencers: bool = False) -> str:
         """
         /**
          * 只读检查明确包的注册对象与已加载对象 不跟随重定向加载目标
@@ -1624,6 +1624,13 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
                     "primary": data.is_u_asset(),
                     "destination": str(data.get_tag_value("DestinationObject") or ""),
                 })
+            soft_referencers = set()
+            if include_soft_referencers:
+                asset_tools = unreal.AssetToolsHelpers.get_asset_tools()
+                for data in registry.get_assets_by_package_name(package):
+                    object_path = package + "." + str(data.asset_name)
+                    for obj in asset_tools.find_soft_references_to_object(unreal.SoftObjectPath(object_path)):
+                        soft_referencers.add(obj.get_outermost().get_path_name())
             results.append({
                 "package": package,
                 "records": records,
@@ -1631,6 +1638,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
                 "loaded_child_count": len(loaded_children[package]),
                 "loaded_children": sorted(loaded_children[package])[:64],
                 "referencers": _move_referencers(registry, package),
+                "soft_referencers": sorted(soft_referencers),
                 "dirty": package in dirty,
                 "file_exists": any(os.path.isfile(_move_filename(package, extension)) for extension in (".uasset", ".umap")),
             })
@@ -1670,7 +1678,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         if len(requests) > 64:
             raise RuntimeError("副本合并单批最多 64 项")
         registry = _move_registry()
-        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+        if _move_dirty_packages([item[key] for item in requests for key in ("source", "destination")] + [ref for item in requests for ref in _move_referencers(registry, item["source"])]) or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
             raise RuntimeError("脏包或 PIE 期间拒绝合并")
         pairs = []
         affected = set()
@@ -1703,7 +1711,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
             affected.update((source, destination))
             affected.update(_move_referencers(registry, source))
             pairs.append((item, objects[0], objects[1]))
-        if _move_dirty_packages():
+        if _move_dirty_packages([item[key] for item in requests for key in ("source", "destination")] + [ref for item in requests for ref in _move_referencers(registry, item["source"])]):
             raise RuntimeError("预检加载产生脏包 拒绝合并")
         report = {"dry_run": dry_run, "count": len(pairs), "affected": sorted(affected), "completed": []}
         if dry_run:
@@ -1716,7 +1724,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
                 report["failed_source"] = item["source"]
                 return json.dumps(report, ensure_ascii=False)
             report["completed"].append(item["source"])
-        report["success"] = not _move_dirty_packages()
+        report["success"] = not _move_dirty_packages([item[key] for item in requests for key in ("source", "destination")] + [ref for item in requests for ref in _move_referencers(registry, item["source"])])
         unreal.log("[BBBAssetConsolidate]完成 {} 个旧副本".format(len(report["completed"])))
         return json.dumps(report, ensure_ascii=False)
 
@@ -1734,7 +1742,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         if not asset_paths or len(asset_paths) > 64 or len(set(asset_paths)) != len(asset_paths):
             raise RuntimeError("必须提供 1 至 64 个不重复重定向包")
         registry = _move_registry()
-        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+        if _move_dirty_packages(asset_paths) or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
             raise RuntimeError("脏包或 PIE 期间拒绝修复引用")
         references = set()
         redirect_map = {}
@@ -1765,14 +1773,14 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
             if package is None or package.get_path_name() != path:
                 raise RuntimeError("无法加载精确引用者包: " + path)
             packages.append(package)
-        if _move_dirty_packages():
+        if _move_dirty_packages(list(asset_paths) + list(references)):
             raise RuntimeError("加载引用者产生脏包 拒绝保存 请先检查")
         if packages:
             unreal.AssetToolsHelpers.get_asset_tools().rename_referencing_soft_object_paths(packages, redirect_map)
             if not unreal.EditorLoadingAndSavingUtils.save_packages(packages, False):
                 raise RuntimeError("引用者保存失败 请核对已保存包 不自动重试")
         report["remaining"] = {path: _move_referencers(registry, path) for path in asset_paths}
-        report["success"] = not any(report["remaining"].values()) and not _move_dirty_packages()
+        report["success"] = not any(report["remaining"].values()) and not _move_dirty_packages(list(asset_paths) + list(references))
         unreal.log("[BBBRedirectorReferences]引用修复 {}".format("PASS" if report["success"] else "FAIL"))
         return json.dumps(report, ensure_ascii=False)
 
@@ -1793,7 +1801,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         if not referencer_paths or len(referencer_paths) > 32 or len(set(referencer_paths)) != len(referencer_paths):
             raise RuntimeError("必须提供 1 至 32 个不重复外部 Actor 包")
         registry = _move_registry()
-        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+        if _move_dirty_packages(list(asset_paths) + list(referencer_paths)) or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
             raise RuntimeError("脏包或 PIE 期间拒绝修复外部 Actor 引用")
         references = set()
         redirect_map = {}
@@ -1853,14 +1861,14 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
             if not records or any(not isinstance(record.get_asset(), unreal.Actor) for record in records):
                 raise RuntimeError("外部包未完整加载实际 Actor 拒绝保存: " + path)
             packages.append(package)
-        if _move_dirty_packages():
+        if _move_dirty_packages(list(asset_paths) + list(referencer_paths)):
             raise RuntimeError("加载外部 Actor 包产生脏包 拒绝保存 请先检查")
         unreal.AssetToolsHelpers.get_asset_tools().rename_referencing_soft_object_paths(packages, redirect_map)
         for package in packages:
             path = package.get_path_name()
             if not unreal.EditorLoadingAndSavingUtils.save_packages([package], False):
                 report["blocked"] = "保存失败 请核对已保存包 不自动重试: " + path
-                report["dirty_packages"] = _move_dirty_packages()
+                report["dirty_packages"] = _move_dirty_packages(list(asset_paths) + list(referencer_paths))
                 unreal.log_error("[BBBExternalActorRedirectorFixup]保存失败 不自动重试")
                 return json.dumps(report, ensure_ascii=False)
             report["saved"].append(path)
@@ -1869,7 +1877,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         for path in asset_paths:
             remaining = set(_move_referencers(registry, path))
             report.setdefault("remaining_selected", {})[path] = sorted(remaining.intersection(selected))
-        report["dirty_packages"] = _move_dirty_packages()
+        report["dirty_packages"] = _move_dirty_packages(list(asset_paths) + list(referencer_paths))
         report["success"] = not report["dirty_packages"] and not any(report["remaining_selected"].values())
         unreal.log("[BBBExternalActorRedirectorFixup]{} 保存 {} 个外部 Actor 包".format("PASS" if report["success"] else "FAIL", len(report["saved"])))
         return json.dumps(report, ensure_ascii=False)
@@ -1993,7 +2001,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         if not asset_paths or len(asset_paths) > 5000 or len(set(asset_paths)) != len(asset_paths):
             raise RuntimeError("必须提供 1 至 5000 个不重复包")
         registry = _move_registry()
-        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+        if _move_dirty_packages(asset_paths) or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
             raise RuntimeError("脏包或 PIE 期间拒绝删除")
         object_paths = []
         for requested in asset_paths:
@@ -2023,7 +2031,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
             if obj not in objects:
                 objects.append(obj)
         report["object_count"] = len(objects)
-        if _move_dirty_packages() or any(_move_referencers(registry, path) for path in asset_paths):
+        if _move_dirty_packages(asset_paths) or any(_move_referencers(registry, path) for path in asset_paths):
             raise RuntimeError("加载后出现脏包或新增引用 拒绝删除")
         native = getattr(unreal, "BBBAssetRepairEditorLibrary", None)
         if native is None:
@@ -2031,7 +2039,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         report["engine_success"] = bool(native.delete_redirector_packages(objects))
         report["remaining_files"] = [path for path in asset_paths if any(os.path.isfile(_move_filename(path, extension)) for extension in (".uasset", ".umap"))]
         report["remaining_packages"] = [path for path in asset_paths if registry.get_assets_by_package_name(path)]
-        report["unsaved_packages"] = _move_dirty_packages()
+        report["unsaved_packages"] = _move_dirty_packages(asset_paths)
         report["success"] = report["engine_success"] and not report["remaining_files"] and not report["remaining_packages"] and not report["unsaved_packages"]
         unreal.log("[BBBRedirectorDelete]{} {} 个包".format("PASS" if report["success"] else "FAIL", len(asset_paths)))
         return json.dumps(report, ensure_ascii=False)
@@ -2134,7 +2142,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         destination = _move_path(destination_package)
         if source.casefold() == destination.casefold():
             raise RuntimeError("源和目标关卡不能相同")
-        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+        if _move_dirty_packages([source, destination]) or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
             raise RuntimeError("脏包或 PIE 期间拒绝迁移关卡")
         registry = _move_registry()
         records = _move_primary_assets(registry.get_assets_by_package_name(source))
@@ -2186,7 +2194,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
             entry["remaining_source_files"] = sorted(os.path.join(root, name) for root, directories, names in os.walk(entry["source_directory"], followlinks=False) for name in names if name.endswith(".uasset"))
             entry["destination_files"] = sorted(os.path.join(root, name) for root, directories, names in os.walk(entry["destination_directory"], followlinks=False) for name in names if name.endswith(".uasset"))
             entry["counts_match"] = len(entry["source_files"]) == len(entry["destination_files"]) and not entry["remaining_source_files"]
-        report["dirty_packages"] = _move_dirty_packages()
+        report["dirty_packages"] = _move_dirty_packages([source, destination])
         report["success"] = report["native"].get("success", False) and report["destination_registered"] and report["destination_file_exists"] and all(entry["counts_match"] for entry in external.values()) and not report["dirty_packages"]
         if not report["success"]:
             unreal.log_error("[BBBWorldMove]磁盘或外部包核验未完整通过 必须检查结果 禁止盲重试")
@@ -2590,7 +2598,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         if not asset_paths or len(asset_paths) > 64 or len(set(asset_paths)) != len(asset_paths):
             raise RuntimeError("必须提供 1 至 64 个不重复包")
 
-        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+        if _move_dirty_packages(asset_paths) or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
             raise RuntimeError("脏包或 PIE 期间拒绝资产隔离")
 
         paths = [_move_path(path) for path in asset_paths]
@@ -2657,7 +2665,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         requests = json.loads(expected_files_json)
         if not isinstance(requests, list) or not requests or len(requests) > 32:
             raise RuntimeError("必须提供 1 至 32 个精确资产")
-        if _move_dirty_packages() or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+        if _move_dirty_packages([row["package"] for row in requests]) or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
             raise RuntimeError("脏包或 PIE 期间拒绝删除")
         if len({row["package"] for row in requests}) != len(requests):
             raise RuntimeError("删除清单包含重复包")

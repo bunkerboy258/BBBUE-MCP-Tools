@@ -27,7 +27,15 @@ def conflicting_packages(packages, scope):
      */
     """
     roots = {path.casefold() for path in asset_targets(scope)}
+    candidates = asset_targets(packages)
+    def variants(path):
+        values = {path.casefold()}
+        for prefix in ("/Game/__ExternalActors__/", "/Game/__ExternalObjects__/"):
+            if path.casefold().startswith(prefix.casefold()):
+                values.add(("/Game/" + path[len(prefix):]).casefold())
+        return values
     return {
-        package for package in asset_targets(packages)
-        if any(package.casefold() == root or package.casefold().startswith(root + "/") or root.startswith(package.casefold() + "/") for root in roots)
+        package for package in candidates
+        if any(candidate == target or candidate.startswith(target + "/") or target.startswith(candidate + "/")
+            for candidate in variants(package) for root in roots for target in variants(root))
     }

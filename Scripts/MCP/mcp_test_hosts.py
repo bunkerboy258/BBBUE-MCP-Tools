@@ -232,7 +232,7 @@ class ProjectJobs:
             record.update(owner=owner, queue=None, finished=True, submitted_at=time.monotonic())
             record.pop("id")
             if record["status"] in {"queued", "running"}:
-                record.update(status="review", code="TEST_INTERRUPTED")
+                record.update(status="failed", code="TEST_INTERRUPTED")
             self.tests[record["batch"]] = record
             self.contexts.setdefault(record["test_host"], {"id": record["test_host"], "owner": owner, "label": record["label"],
                 "options": record["options"], "state": "closed", "queue": None, "host": record["host"], "close_requested": True})
@@ -251,7 +251,7 @@ class ProjectJobs:
     def touch(self, client):
         self.editor.touch(client)
 
-    def submit(self, client, operations, label="", environment="editor", test_options=None, test_host=None, completion="save"):
+    def submit(self, client, operations, label="", environment="editor", test_options=None, test_host=None):
         """/** @param client\t客户端 @param operations\t有序操作 @param label\t用途 @param environment\t运行环境 @param test_options\t首次测试参数 @param test_host\t继续所属测试流程 @return 即时批次身份 */"""
         self.touch(client)
         if self.closed or self.stopping:
@@ -259,7 +259,7 @@ class ProjectJobs:
         if environment == "editor":
             if test_options is not None or test_host is not None:
                 raise JobConflict("TEST_OPTIONS_REQUIRE_TEST_ENVIRONMENT")
-            return {**self.editor.submit(client, operations, label, completion), "environment": "editor"}
+            return {**self.editor.submit(client, operations, label), "environment": "editor"}
         if environment != "test":
             raise JobConflict("ENVIRONMENT_INVALID")
         if self.factory is None:
@@ -326,8 +326,10 @@ class ProjectJobs:
     def _publish(self, record, view, context):
         record.update(completed=view["completed"], results=view.get("results", []),
             status=view["status"], code=view.get("code"), host=context["host"])
-        if view["status"] in {"queued", "running"}:
+        if view["status"] in {"queued", "running"} or (view["status"] == "failed" and view.get("next") == "inspect_tasks"):
+            record["next"] = "inspect_tasks"
             return
+        record.pop("next", None)
         if "outcome" in record:
             return
         after = self.version(record)
@@ -335,8 +337,8 @@ class ProjectJobs:
         record["input_stable"] = stable
         record["outcome"] = copy.deepcopy(view)
         if not stable:
-            record["outcome"].update(status="review", code="TEST_INPUT_CHANGED")
-            record.update(status="review", code="TEST_INPUT_CHANGED")
+            record["outcome"].update(status="failed", code="TEST_INPUT_CHANGED")
+            record.update(status="failed", code="TEST_INPUT_CHANGED")
 
     def _run(self, context):
         host = None
@@ -408,12 +410,12 @@ class ProjectJobs:
                 except Exception as error:
                     failure = {"type": type(error).__name__, "error": str(error)}
             with self.condition:
-                context.update(queue=None, state="closed" if failure is None else "review")
+                context.update(queue=None, state="closed" if failure is None else "failed")
                 for record in self._records(context):
                     if "outcome" not in record:
                         record.update(status="cancelled", code="GATEWAY_CLOSED" if self.closed else "CLIENT_EXPIRED")
                     if failure is not None:
-                        record.update(status="review", code="TEST_HOST_EXIT_UNVERIFIED",
+                        record.update(status="failed", code="TEST_HOST_EXIT_UNVERIFIED",
                             outcome={**record.get("outcome", {}), "failure": failure})
                     record.update(queue=None, finished=True)
                 self._dispatch()
@@ -427,7 +429,7 @@ class ProjectJobs:
             self._checkpoint_test(record)
         result = {key: record[key] for key in ("batch", "environment", "test_host", "status", "completed")}
         result["revision"] = record.get("revision", 0)
-        result["next"] = "inspect_tasks" if record["status"] in {"queued", "running"} else "submit_batch"
+        result["next"] = record.get("next", "inspect_tasks" if record["status"] in {"queued", "running"} else "submit_batch")
         context = self.contexts[record["test_host"]]
         result["host_status"] = context["state"]
         if record["code"]:
@@ -495,7 +497,7 @@ class ProjectJobs:
                         editor["test_batches"] = [{**self._view(record, True), "label": record["label"], "mine": True}
                             for record in self.tests.values() if record["owner"] == client]
                     owned = [record for record in self.tests.values() if record["owner"] == client and record["status"] in {"queued", "running"}]
-                    if not owned and editor.get("batch", {}).get("status") not in {"queued", "running", "review"}:
+                    if not owned and editor.get("batch", {}).get("status") not in {"queued", "running", "failed"}:
                         owned = [record for record in self.tests.values() if record["owner"] == client]
                     if owned:
                         editor["batch"] = self._view(owned[-1])
@@ -503,8 +505,8 @@ class ProjectJobs:
                     return editor
                 self.condition.wait(min(0.5, max(0, deadline - time.monotonic())))
 
-    def control(self, client, action, batch=None, confirmation=None):
-        """/** @param client\t客户端 @param action\t控制动作 @param batch\t批次 @param confirmation\t核实凭证 @return 归属范围内的控制结果 */"""
+    def control(self, client, action, batch=None):
+        """/** @param client\t客户端 @param action\t控制动作 @param batch\t批次 @return 归属范围内的控制结果 */"""
         self.touch(client)
         closing = None
         context = None
@@ -514,23 +516,6 @@ class ProjectJobs:
                 if record["owner"] != client:
                     raise JobConflict("BATCH_OWNERSHIP")
                 context = self.contexts[record["test_host"]]
-                # 操作已全部执行时只重新核实完成证据 不重放测试动作
-                if (action in {"review", "resume"} and record["status"] == "review"
-                        and record["code"] in {"EXECUTION_UNVERIFIED", "READ_FAILED"}
-                        and record["completed"] == len(record["operations"])
-                        and context["state"] == "running"):
-                    if self.version(record) != record.get("input_version"):
-                        raise JobConflict("TEST_RERUN_REQUIRED", {"next": "submit_batch"})
-                    queue = context.get("queue")
-                    if queue is None:
-                        raise JobConflict("TEST_HOST_CLOSED")
-                    view = queue.control(client, action, record["child"], confirmation)
-                    if action == "resume":
-                        record["finished"] = False
-                        record.pop("outcome", None)
-                        self._publish(record, view, context)
-                        self.condition.notify_all()
-                    return {**view, "batch": batch, "test_host": context["id"], "environment": "test"}
                 if action == "cancel" and record["status"] == "queued" and "child" in record:
                     queue = context.get("queue")
                     if queue is None:
@@ -569,7 +554,7 @@ class ProjectJobs:
                         thread.join(30)
                         if thread.is_alive():
                             raise RuntimeError("TEST_HOST_EXIT_WAITING")
-                    if context["state"] == "review":
+                    if context["state"] == "failed":
                         context["handle"].close()
                         context["state"] = "closed"
                     if self.output_root is not None:
@@ -590,7 +575,7 @@ class ProjectJobs:
                 self.condition.notify_all()
                 return {"batch": batch, "status": "closed"}
         try:
-            return self.editor.control(client, action, batch, confirmation)
+            return self.editor.control(client, action, batch)
         finally:
             with self.condition:
                 self.stopping = False

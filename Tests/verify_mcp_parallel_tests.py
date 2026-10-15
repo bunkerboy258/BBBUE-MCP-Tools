@@ -77,7 +77,7 @@ def main():
                     value = session.inspect_tasks(batch)
                     if value["status"] == "queued":
                         session.control_task("cancel", batch)
-                    if value["status"] in {"completed", "rejected", "review", "cancelled"}:
+                    if value["status"] in {"completed", "rejected", "failed", "cancelled"}:
                         session.control_task("close", batch)
                 except Exception:
                     pass

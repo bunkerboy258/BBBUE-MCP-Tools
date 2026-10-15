@@ -34,7 +34,7 @@ class CompletionTests(unittest.TestCase):
             return {"saved": packages, "readback": True}
 
         self.backend.finalize = finalize
-        batch = self.queue.submit(self.first, [operation("write", asset="/Game/A")], completion="save")["batch"]
+        batch = self.queue.submit(self.first, [operation("write", asset="/Game/A")])["batch"]
         self.queue.run_once()
         view = self.queue.inspect(self.first, batch)
         self.assertEqual(view["status"], "completed")
@@ -49,24 +49,23 @@ class CompletionTests(unittest.TestCase):
             raise McpBusinessError({"execution": {"state": "partial"}, "code": "SAVE_FAILED"})
 
         self.backend.finalize = finalize
-        batch = self.queue.submit(self.first, [operation("write", asset="/Game/A")], completion="save")["batch"]
+        batch = self.queue.submit(self.first, [operation("write", asset="/Game/A")])["batch"]
         self.queue.run_once()
-        self.assertEqual(self.queue.inspect(self.first, batch)["status"], "review")
+        self.assertEqual(self.queue.inspect(self.first, batch)["status"], "failed")
         self.assertEqual(self.backend.state["dirty_packages"], ["/Game/A"])
 
-    def test_unexpected_dirty_scope_preserves_review(self):
-        """/** @return 超出声明范围的变化进入核实 */"""
+    def test_actual_new_dirty_dependencies_are_saved_with_owner(self):
         original = self.backend.invoke
         def invoke(contract, arguments):
-            """/** @param contract\t契约 @param arguments\t参数 @return 带越界变化的执行结果 */"""
             result = original(contract, arguments)
             self.backend.state["dirty_packages"].append("/Game/Unexpected")
             return result
-
         self.backend.invoke = invoke
-        batch = self.queue.submit(self.first, [operation("write", asset="/Game/A")], completion="save")["batch"]
+        batch = self.queue.submit(self.first, [operation("write", asset="/Game/A")])["batch"]
         self.queue.run_once()
-        self.assertEqual(self.queue.inspect(self.first, batch)["code"], "WRITE_SCOPE_CHANGED")
+        self.assertEqual(self.queue.inspect(self.first, batch)["status"], "completed")
+        self.assertEqual(self.queue.jobs[batch]["owned_dirty"], {"/Game/A", "/Game/Unexpected"})
+        self.assertEqual(self.backend.state["dirty_packages"], [])
 
     def test_unrelated_batch_does_not_wake_selected_batch(self):
         """/** @return 等待按目标批次版本生效 */"""
