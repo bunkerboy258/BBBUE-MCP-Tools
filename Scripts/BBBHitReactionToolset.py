@@ -78,7 +78,7 @@ def _wound_asset_plan(body_mesh_path, definition_path, output_folder):
         outputs.append(output_folder + "/SK_" + body.get_name() + "_" + bone + "_PosePart")
     if any(unreal.EditorAssetLibrary.does_asset_exist(path) for path in outputs):
         raise RuntimeError("伤口或姿态部件已经存在 必须核实上次结果 不重复构造")
-    shared = "/Game/_Project/System/Mass/Monster/Zombie/Shared/Wounds"
+    shared = "/Game/_Project/Mass/Monster/Zombie/Shared/Wounds"
     materials = [shared + "/M_BBBZombieTissue", shared + "/M_BBBZombieWoundSurface"]
     for slot in body.get_editor_property("materials"):
         source = slot.get_editor_property("material_interface")
@@ -193,7 +193,7 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
             raise RuntimeError("PIE 期间禁止整理伤口材质")
         if not material_paths or len(material_paths) > 32 or len(set(material_paths)) != len(material_paths):
             raise RuntimeError("材质数量或唯一性无效")
-        root = "/Game/_Project/System/Mass/Monster/Zombie/Shared/Wounds/"
+        root = "/Game/_Project/Mass/Monster/Zombie/Shared/Wounds/"
         if any(not isinstance(path, str) or not re.fullmatch(re.escape(root) + r"M_[A-Za-z0-9_]+", path) for path in material_paths):
             raise RuntimeError("只允许明确的共享伤口主材质包")
         materials = [unreal.load_asset(path) for path in material_paths]
@@ -260,7 +260,7 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
             raise RuntimeError("部件资产已经存在 拒绝覆盖")
         if rebuild_existing and len(existing) != 2:
             raise RuntimeError("显式重建必须有完整的同名部件和封口")
-        material_path = "/Game/_Project/System/Mass/Monster/Zombie/Shared/Wounds/M_BBBZombieTissue"
+        material_path = "/Game/_Project/Mass/Monster/Zombie/Shared/Wounds/M_BBBZombieTissue"
         if not unreal.EditorAssetLibrary.does_asset_exist(material_path):
             destinations.append(material_path)
         require_asset_write(existing, [path for path in destinations if path not in existing])

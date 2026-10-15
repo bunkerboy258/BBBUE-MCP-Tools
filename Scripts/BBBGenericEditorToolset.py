@@ -16,6 +16,7 @@ from toolset_registry.registration import Registration
 
 _pie_audio_capture = None
 _pie_scheduled_actor_call = None
+_pie_view_camera = None
 
 
 
@@ -2398,6 +2399,40 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         from BBBMcpCapabilities import register_activity
         register_activity("pie:actor-call", lambda: state, blocking=False, wait=False)
         return json.dumps(state, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def set_pie_player_view(position: list[float], rotation: list[float], fov: float = 70.0) -> str:
+        """
+        /**
+         * 设置当前 PIE 临时玩家视点 不改光照 画质或资产
+         * @param position\t世界位置厘米 三个有限分量
+         * @param rotation\t俯仰 偏航 滚转角度 三个有限分量
+         * @param fov\t水平视野角度 十至一百五十
+         * @return 临时相机与当前世界路径 PIE 结束自动销毁
+         */
+        """
+        global _pie_view_camera
+        position = list(position)
+        rotation = list(rotation)
+        if len(position) != 3 or len(rotation) != 3 or not all(math.isfinite(value) for value in position + rotation):
+            raise RuntimeError("PIE 视点需要三个有限位置与旋转分量")
+        if not math.isfinite(fov) or not 10.0 <= fov <= 150.0:
+            raise RuntimeError("PIE 视野角度超出范围")
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        controller = unreal.GameplayStatics.get_player_controller(world, 0) if world else None
+        if controller is None:
+            raise RuntimeError("PIE 视点需要已生成的本地玩家")
+        if _pie_view_camera is None or not unreal.SystemLibrary.is_valid(_pie_view_camera) or _pie_view_camera.get_world() != world:
+            _pie_view_camera = unreal.BBBBlueprintEditorLibrary.spawn_transient_pie_actor(world, unreal.CameraActor, unreal.Transform())
+        if _pie_view_camera is None:
+            raise RuntimeError("PIE 临时相机生成失败")
+        _pie_view_camera.set_actor_location_and_rotation(unreal.Vector(*position),
+            unreal.Rotator(pitch=rotation[0], yaw=rotation[1], roll=rotation[2]), False, True)
+        _pie_view_camera.get_component_by_class(unreal.CameraComponent).set_field_of_view(fov)
+        controller.set_view_target_with_blend(_pie_view_camera, 0.0)
+        return json.dumps({"camera": _pie_view_camera.get_path_name(), "world": world.get_path_name(),
+            "position": position, "rotation": rotation, "fov": fov})
 
     @mcp_tool
     @staticmethod

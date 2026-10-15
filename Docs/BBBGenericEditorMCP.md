@@ -384,3 +384,5 @@ PIE 反射调用中的 Guid 返回值按标准字符串序列化 位置参数可
 `editor.configure_boolean_pose_overlay` 在实际编译动画图的基础层前端插入混合 按线程安全布尔函数将非循环序列平滑混合到指定骨骼分支 下半身继续来自输入姿势 原有骨骼控制节点与连接完整保留 拒绝只继承资产覆盖的派生动画蓝图 避免图存在但不参与运行 可选 `sequence_property` 将序列引脚绑定到已有动画配置变量 派生层只覆盖该变量的默认序列
 
 `editor.inspect_asset_properties` 的 `property_names` 支持点分隔路径 例如 `items.definition` 和 `items.appearance.mesh` 遇到数组时逐项读取剩余路径并保留原索引 不改变资产 数组和映射以 JSON 容器返回
+
+`editor.set_pie_player_view` 需要当前 PIE 存在本地玩家 `position` 是三分量世界厘米坐标 `rotation` 是俯仰 偏航 滚转角度 `fov` 是水平视野角度 临时相机在同一世界复用并随 PIE 回收 不修改源相机 光照 画质或资产 可结合 `editor.capture_pie_player_view` 检查原场景亮部和阴影表现

@@ -5285,6 +5285,44 @@
         ]
       }
     },
+    "set_pie_player_view": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "position": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "rotation": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "fov": {
+            "type": "number",
+            "default": 70
+          }
+        },
+        "required": [
+          "position",
+          "rotation"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
     "capture_pie_player_view": {
       "inputSchema": {
         "type": "object",
