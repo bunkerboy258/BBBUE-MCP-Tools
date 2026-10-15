@@ -21,7 +21,7 @@ class JobConflict(McpBusinessError):
 class JobQueue:
     """/** 原项目批次执行槽与活动归属 */"""
 
-    def __init__(self, backend, catalog, clock=time.monotonic, start_worker=True, state_path=None):
+    def __init__(self, backend, catalog, clock=time.monotonic, start_worker=True, state_path=None, clients=None):
         """/** @param backend 官方后端 @param catalog 契约目录 @param clock 时间来源 @param start_worker 启动执行循环 @return 批次调度 */"""
         self.backend = backend
         self.catalog = catalog
@@ -31,7 +31,7 @@ class JobQueue:
         self.jobs = {}
         self.assets = AssetCoordination()
         self.queue = []
-        self.clients = ClientRegistry(clock, state_path)
+        self.clients = clients if clients is not None else ClientRegistry(clock, state_path)
         self.client_owners = set()
         self.writer = None
         self.pie_owner = None
@@ -96,7 +96,7 @@ class JobQueue:
             operations=[{"tool": item["contract"]["id"], "arguments": item["arguments"]} for item in job["operations"]],
             targets=sorted(asset_targets(job["targets"])), owned_dirty=sorted(job["owned_dirty"]),
             coordination=self.assets.view(job["id"]), uncertain=sorted(job["uncertain"]),
-            activities=sorted(job["activities"]), pie=job["id"] == self.pie_batch, host=list(self.host_identity))
+            activities=sorted(job["activities"]), pie=job["id"] == self.pie_batch, host=list(job.get("host", self.host_identity)))
         for key in ("proof", "execution", "failure"):
             if key in job:
                 record[key] = copy.deepcopy(job[key])
@@ -124,6 +124,7 @@ class JobQueue:
                 prepared = [{"contract": {"id": item["tool"], "name": item["tool"].split(".")[-1]}, "arguments": item["arguments"], "access": record["access"], "world": "editor"} for item in record["operations"]]
             pie = record.pop("pie")
             host = tuple(record.pop("host"))
+            record["host"] = host
             record.update(owner=owner, operations=prepared, targets=set(record["targets"]), owned_dirty=set(record["owned_dirty"]), activities=set(record["activities"]),
                 await_activity=set(), started=True, submitted_at=self.clock(), started_at=self.clock(), uncertain=set(record.pop("uncertain")))
             record["segment_dirty"] = set(record["segment_dirty"])
@@ -144,6 +145,11 @@ class JobQueue:
                 record["owned_dirty"] = set()
                 record["dirty"] = []
                 record["uncertain"] = set()
+                if interrupted:
+                    try:
+                        record.setdefault("proof", {})["host_readback"] = self.backend.reconcile(set(claim["packages"]))
+                    except Exception as error:
+                        record.setdefault("proof", {})["host_readback"] = {"code": "HOST_READBACK_PENDING", "type": type(error).__name__}
             self.jobs[record["id"]] = record
             self.activity_owners.update({identity: owner for identity in record["activities"] & active})
             if pie and self.activity.get("pie_active"):
@@ -241,7 +247,7 @@ class JobQueue:
                 "scoped": all(item.get("scoped", item["access"] == "read") for item in prepared),
                 "baseline": [], "dirty": [], "owned_dirty": set(), "await_activity": set(), "started": False,
                 "activities": set(), "effects_completed": 0, "timings": {"operations_seconds": []},
-                "code": None, "failed_index": None, "uncertain": set()}
+                "code": None, "failed_index": None, "uncertain": set(), "host": self.host_identity}
             self.jobs[identity] = job
             self.queue.append(identity)
             self._signal()
@@ -263,7 +269,7 @@ class JobQueue:
         for conflict in self.assets.conflicts(job["id"], job["targets"]):
             holder = self.jobs[conflict["batch"]]
             correction = corrective and holder["owner"] == job["owner"] and bool(job["targets"]) and conflicting_packages(job["targets"], self.assets.view(holder["id"])["packages"]) == job["targets"]
-            continuation = conflict["phase"] == "fault" and holder["owner"] == job["owner"] and conflicting_packages(job["targets"], self.assets.view(holder["id"])["packages"]) == job["targets"]
+            continuation = conflict["phase"] == "fault" and holder["owner"] == job["owner"] and conflicting_packages(job["targets"], self.assets.view(holder["id"])["packages"]) == job["targets"] and all(item["contract"]["id"] != "editor.reload_assets_from_disk" for item in operations)
             if correction or continuation:
                 continue
             job["blocked"] = {**conflict, "mine": holder["owner"] == job["owner"], "next": "inspect_tasks"}

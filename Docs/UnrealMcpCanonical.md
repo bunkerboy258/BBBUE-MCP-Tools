@@ -68,6 +68,24 @@
 
 异步流程通过 `register_activity` 登记实际状态。隔离测试、固定任务语料和真实 UE 验收分别验证契约、调度与执行结果。任务总耗时评估分开记录发现、公共轮次、排队、UE 操作与收尾；模型决策耗时使用实际客户端时间线。
 
+## 独立服务与编辑器接入
+
+常驻服务运行于当前用户会话，固定入口默认 `http://127.0.0.1:8000/mcp`。多项目使用 `/projects/<project_key>/mcp`，项目身份由 `mcp_host_registry.project_key` 计算。协议版本为 5，公开工具保持五项。
+
+`Start-BBBMcpService.ps1 -ProjectPath <uproject> -InstallAtLogon` 配置登录启动与监督进程。监督进程持续核验服务；SDK 在本机连接失败时自动拉起已配置服务。直接 HTTP 客户端通过登录任务维持服务在线。
+
+`Content/Python/init_unreal.py` 注册工具后调用 `BBBMcpEditorStartup.start_editor_mcp()`，启动当前编辑器私有后端，并写入 `Saved/McpState/hosts` 的用户私有登记文件。后台心跳持续更新登记；服务恢复后重新接入。`BBBMcpServicePort` 与 `BBBMcpServicePython` 指定入口与外部 Python。
+
+服务通过项目路径、PID、进程创建时间与程序路径核验身份。系统扫描发现全部 UE，私有登记提供可操作连接。额外编辑器显示 `waiting_assignment`；资产宿主归属保持稳定。测试宿主通过批次身份与受限 Job 重新核验。
+
+`inspect_tasks` 的 `service` 表示服务状态，`connection` 使用 `offline`、`connecting`、`ready`、`unresponsive`。`hosts` 返回脱敏进程清单；`stale=true` 表示资产与活动来自最近快照。编辑器离线时提交返回 `EDITOR_OFFLINE` 或 `EDITOR_CONNECTING`，按 `retry_after_seconds` 与 `inspect_tasks` 等待后重新提交。响应中的 `batch` 才代表批次已被接受。
+
+上次核验的工具目录保存在 `Saved/McpState/catalog.json`，编辑器暂离线时继续支持发现；首次接入后建立目录。客户端身份与结果存储持续保留，编辑器切换后按原归属查询。
+
+服务重启后核验原测试进程，已派发且结果缺失的操作标记 `TEST_EXECUTION_UNCERTAIN`，实际 PIE 与后续批次沿原测试宿主接续。编辑器进程变化后保留原写入证据，重新回读当前资产。
+
+服务配置与有界日志位于当前用户 `%LOCALAPPDATA%/BBBMcp`。私有后端地址保存在用户私有登记目录，公开状态返回脱敏身份。`/health` 仅供本机服务核验。临时验收使用独立配置目录与端口。
+
 # PIE 临时对象范围
 
 `/Game/.../UEDPIE_<编号>_<地图>` 是测试宿主中的临时包 其 Actor 与组件路径不作为磁盘资产或源控写入目标 正式地图通过测试配置继续参与资产版本检查。

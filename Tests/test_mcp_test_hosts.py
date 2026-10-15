@@ -13,7 +13,8 @@ from unittest.mock import Mock
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "Scripts"))
 from MCP.mcp_jobs import JobConflict
-from MCP.mcp_project_host import ProjectHostGuard, project_identity
+from MCP.mcp_project_host import project_identity
+from MCP.mcp_host_registry import HostRegistry, RegistryGuard
 from MCP.mcp_test_hosts import ProjectJobs, clean_test_output, project_version
 from MCP.mcp_test_process import TestProcess
 from test_mcp_task_gateway import fixtures, operation, FakeBackend
@@ -104,6 +105,35 @@ class TestHostRoutingTests(unittest.TestCase):
         self.assertEqual(self.jobs.tests, {})
 
 
+    def test_finished_history_does_not_exhaust_pending_capacity(self):
+        """/** @return 保留六十四条历史结果仍可启动新测试 */"""
+        history = {"history-{}".format(index): {"finished": True, "test_host": "history",
+                   "status": "completed", "completed": 1, "code": None, "owner": "historical"}
+                   for index in range(64)}
+        self.jobs.tests.update(history)
+        try:
+            batch = self.submit_test(self.first)
+            self.wait_running(1)
+            self.assertTrue(all(self.jobs.tests[key] is value for key, value in history.items()))
+            self.hosts[0].backend.release.set()
+            self.assertEqual(self.wait_finished(self.first, batch)["status"], "completed")
+        finally:
+            for key in history:
+                self.jobs.tests.pop(key)
+
+    def test_unfinished_batches_still_enforce_pending_capacity(self):
+        """/** @return 未结束批次达到上限时仍拒绝启动新宿主 */"""
+        history = {"pending-{}".format(index): {"finished": False} for index in range(64)}
+        self.jobs.tests.update(history)
+        try:
+            with self.assertRaises(JobConflict) as error:
+                self.submit_test(self.first)
+            self.assertEqual(error.exception.value["code"], "QUEUE_CAPACITY")
+            self.assertEqual(self.hosts, [])
+        finally:
+            for key in history:
+                self.jobs.tests.pop(key)
+
     def test_entire_batch_validates_before_host_launch(self):
         with self.assertRaises(ValueError):
             self.submit_test(self.first, [operation("StartPIE"), operation("read", extra=True)])
@@ -161,15 +191,17 @@ class TestHostRoutingTests(unittest.TestCase):
         hosts = [{"process_id": 1, "project_root": project, "role": "editor"},
             {"process_id": 2, "project_root": project, "role": "test", "batch": "a" * 16},
             {"process_id": 3, "project_root": project, "role": "test", "batch": "b" * 16}]
-        guard = ProjectHostGuard(project, 1, lambda: hosts)
+        registry = HostRegistry([], inventory=lambda: hosts)
+        registry.discovered = hosts
+        registry.hosts = {row["process_id"]: {**row, "project": project, "created": str(row["process_id"])} for row in hosts}
+        registry.selected[project] = 1
+        guard = RegistryGuard(registry, project, 1)
         guard.register_test("a" * 16, 2)
         guard.register_test("b" * 16, 3)
         self.assertTrue(guard.inspect()["exclusive"])
-        hosts.append({"process_id": 4, "project_root": project, "role": "test", "batch": "c" * 16})
-        self.assertFalse(guard.inspect(force=True)["exclusive"])
-        hosts.pop()
-        hosts.append({"process_id": 4, "project_root": project, "role": "editor"})
-        self.assertFalse(guard.inspect(force=True)["exclusive"])
+        self.assertEqual(len(guard.inspect()["hosts"]), 3)
+        registry.error = "PROCESS_DISCOVERY_FAILED"
+        self.assertFalse(guard.inspect()["verified"])
 
     def test_pie_continues_across_batches_and_reclaims_after_stop(self):
         root = self.submit_test(self.first, [operation("StartPIE")])

@@ -11,7 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "Scripts"))
 from MCP.mcp_clients import ClientRegistry
 from MCP.mcp_result import McpBusinessError
 from MCP.mcp_call import McpSession
-from MCP.mcp_task_gateway import TaskGateway, make_server
+from MCP.mcp_task_gateway import TaskGateway
+from MCP.mcp_service import make_service_server
+from types import SimpleNamespace
 from MCP.mcp_jobs import JobQueue
 from Tests.test_mcp_task_gateway import fixtures, operation
 
@@ -60,7 +62,7 @@ class ClientTests(unittest.TestCase):
         backend, catalog, unused = fixtures()
         unused.close()
         gateway = TaskGateway(backend, catalog)
-        server = make_server(gateway, "127.0.0.1", 0)
+        server = make_service_server(SimpleNamespace(projects={"default": SimpleNamespace(protocol=gateway)}, default="default"), 0)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
@@ -106,7 +108,7 @@ class ClientTests(unittest.TestCase):
             second.close()
             self.assertNotIn(key.encode(), path.read_bytes())
 
-    def test_restarted_queue_recovers_scoped_review_for_original_owner(self):
+    def test_restarted_queue_recovers_scoped_fault_for_original_owner(self):
         """/** @return 恢复后的核实范围允许独立任务继续 */"""
         backend, catalog, unused = fixtures()
         unused.close()
@@ -128,7 +130,9 @@ class ClientTests(unittest.TestCase):
                 self.assertTrue(second.run_once())
                 self.assertEqual(second.inspect(other, independent)["status"], "completed")
                 same = second.submit(other, [operation("write", asset="/Game/A")])["batch"]
-                self.assertFalse(second.run_once())
+                calls_before = list(backend.calls)
+                second.run_once()
+                self.assertEqual(backend.calls, calls_before)
                 self.assertEqual(second.inspect(other, same)["code"], "ASSET_BUSY")
             finally:
                 second.close()

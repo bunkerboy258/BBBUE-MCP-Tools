@@ -119,10 +119,10 @@ class TestProcess:
             acl = ctypes.c_void_p()
             _checked(self.security.GetSecurityDescriptorDacl(descriptor, ctypes.byref(present), ctypes.byref(acl), ctypes.byref(defaulted)))
             _checked(self.security.SetTokenInformation(token, 6, ctypes.byref(acl), ctypes.sizeof(acl)))
-            self.job = self.kernel.CreateJobObjectW(None, None)
+            self.job = self.kernel.CreateJobObjectW(None, "Local\\BBBMcpTest_" + directory.name)
             _checked(self.job)
             limits = _ExtendedLimits()
-            limits.basic.flags = 0x2000
+            limits.basic.flags = 0
             _checked(self.kernel.SetInformationJobObject(self.job, 9, ctypes.byref(limits), ctypes.sizeof(limits)))
             startup = _StartupInfo()
             startup.size = ctypes.sizeof(startup)
@@ -143,6 +143,9 @@ class TestProcess:
             self.pid = process.process_id
             try:
                 _checked(self.kernel.AssignProcessToJobObject(self.job, self.process))
+                retained_job = wintypes.HANDLE()
+                _checked(self.kernel.DuplicateHandle(self.kernel.GetCurrentProcess(), self.job, self.process,
+                    ctypes.byref(retained_job), 0, False, 2))
                 if self.kernel.ResumeThread(process.thread) == 0xFFFFFFFF:
                     raise ctypes.WinError(ctypes.get_last_error())
             except Exception:
@@ -165,6 +168,7 @@ class TestProcess:
         bindings = [
             (self.kernel, "GetCurrentProcess", [], wintypes.HANDLE),
             (self.kernel, "CloseHandle", [wintypes.HANDLE], wintypes.BOOL),
+            (self.kernel, "DuplicateHandle", [wintypes.HANDLE, wintypes.HANDLE, wintypes.HANDLE, ctypes.POINTER(wintypes.HANDLE), wintypes.DWORD, wintypes.BOOL, wintypes.DWORD], wintypes.BOOL),
             (self.kernel, "LocalFree", [ctypes.c_void_p], ctypes.c_void_p),
             (self.kernel, "CreateJobObjectW", [ctypes.c_void_p, wintypes.LPCWSTR], wintypes.HANDLE),
             (self.kernel, "SetInformationJobObject", [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD], wintypes.BOOL),
@@ -215,6 +219,36 @@ class TestProcess:
         _checked(self.kernel.GetExitCodeProcess(self.process, ctypes.byref(code)))
         return code.value
 
+    @classmethod
+    def adopt(cls, pid, created, batch):
+        """/** @param pid 原测试进程 @param created 原创建时间 @param batch 原归属 @return 重新持有的受限测试进程 */"""
+        from MCP.mcp_host_registry import process_identity
+        identity = process_identity(pid)
+        if identity is None or identity["created"] != created:
+            raise RuntimeError("TEST_PROCESS_IDENTITY_CHANGED")
+        value = object.__new__(cls)
+        value.kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        value.security = ctypes.WinDLL("advapi32", use_last_error=True)
+        value.user = ctypes.WinDLL("user32", use_last_error=True)
+        value._declare()
+        value.kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        value.kernel.OpenProcess.restype = wintypes.HANDLE
+        value.kernel.OpenJobObjectW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
+        value.kernel.OpenJobObjectW.restype = wintypes.HANDLE
+        value.kernel.IsProcessInJob.argtypes = [wintypes.HANDLE, wintypes.HANDLE, ctypes.POINTER(wintypes.BOOL)]
+        value.job = value.kernel.OpenJobObjectW(0x1F003F, False, "Local\\BBBMcpTest_" + batch)
+        value.process = value.kernel.OpenProcess(0x1000 | 0x100000, False, pid)
+        value.desktop = None
+        value.pid = pid
+        belongs = wintypes.BOOL()
+        valid = value.job and value.process and value.kernel.IsProcessInJob(value.process, value.job, ctypes.byref(belongs)) and belongs.value
+        if not valid:
+            for handle in (value.job, value.process):
+                if handle:
+                    value.kernel.CloseHandle(handle)
+            raise RuntimeError("TEST_PROCESS_JOB_IDENTITY")
+        return value
+
     def wait(self, seconds):
         """/** @param seconds\t等待上限 @return 实际退出码或运行状态 */"""
         self.kernel.WaitForSingleObject(self.process, int(seconds * 1000))
@@ -223,6 +257,8 @@ class TestProcess:
     def close(self):
         """/** @return 回收所属测试进程与子进程 */"""
         if self.job:
+            self.kernel.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+            _checked(self.kernel.TerminateJobObject(self.job, 0))
             self.kernel.CloseHandle(self.job)
             self.job = None
         if self.process:

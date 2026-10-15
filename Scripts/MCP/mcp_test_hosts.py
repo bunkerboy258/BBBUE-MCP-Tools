@@ -1,4 +1,5 @@
 import copy
+import configparser
 import hashlib
 import json
 import os
@@ -11,6 +12,36 @@ import time
 
 from MCP.mcp_jobs import JobQueue, JobConflict
 from MCP.mcp_test_process import TestProcess
+
+
+def scene_performance_arguments(project_file, engine_root):
+    """
+    /**
+     * 为明确的场景性能测试恢复游戏渲染设置 不写入项目配置
+     * @param project_file\t原项目文件
+     * @param engine_root\t官方引擎目录
+     * @return 覆盖编辑器省资源设置的启动参数
+     */
+    """
+    config = configparser.ConfigParser(strict=False, interpolation=None)
+    config.optionxform = str
+    config.read(Path(project_file).parent / "Config" / "DefaultEngine.ini", encoding="utf-8-sig")
+    scalability = configparser.ConfigParser(strict=False, interpolation=None)
+    scalability.optionxform = str
+    scalability.read(Path(engine_root) / "Engine" / "Config" / "BaseScalability.ini", encoding="utf-8-sig")
+    renderer = "/Script/Engine.RendererSettings"
+    values = {"r.RayTracing": config.get(renderer, "r.RayTracing", fallback="0"),
+              "r.Lumen.DiffuseIndirect.Allow": "1", "r.Lumen.Reflections.Allow": "1",
+              "r.Streaming.MaxTempMemoryAllowed": "50", "r.HeterogeneousVolumes": "1",
+              "r.Shadow.Virtual.MaxPhysicalPages": scalability.get("ShadowQuality@3", "r.Shadow.Virtual.MaxPhysicalPages"),
+              "r.Streaming.PoolSize": "-1", "r.ScreenPercentage": "100", "r.ViewDistanceScale": "1"}
+    for name in values:
+        values[name] = config.get("SystemSettings", name, fallback=values[name])
+        if values[name].lower() in {"true", "false"}:
+            values[name] = str(int(values[name].lower() == "true"))
+        float(values[name])
+    override = ",".join("[SystemSettingsEditor]:" + name + "=" + value for name, value in values.items())
+    return ["-ini:Engine:" + override]
 
 
 def project_version(root, inputs=None):
@@ -108,6 +139,8 @@ class TestHost:
          * @return 已核实的测试宿主
          */
         """
+        if options.get("scene_performance", False) and not options.get("rendering", False):
+            raise ValueError("SCENE_PERFORMANCE_RENDERING_REQUIRED")
         self.batch = batch
         self.guard = guard
         self.backend = None
@@ -135,6 +168,8 @@ class TestHost:
             "-BBBMcpPerformanceProfile=Economy", "-BBBMcpMaxFPS=30",
             "-ExecCmds=t.MaxFPS 30,t.IdleWhenNotForeground 0",
             "-Unattended", "-Multiprocess", "-NoSplash", "-AutoDeclinePackageRecovery", "-RenderOffscreen", "-SCCProvider=None"]
+        if options.get("scene_performance", False):
+            arguments.extend(scene_performance_arguments(project_file, Path(editor).parents[3]))
         if not options.get("rendering", False):
             arguments.append("-NullRHI")
         if options.get("audio", False):
@@ -149,6 +184,12 @@ class TestHost:
                 self.process = TestProcess(arguments, self.directory, environment)
                 guard.register_test(batch, self.process.pid)
             self.backend = backend_type("http://127.0.0.1:" + str(port) + "/bbb-mcp-" + key, Path(project_file).parent, self.process.pid)
+            from MCP.mcp_host_registry import process_identity, write_host
+            registration = process_identity(self.process.pid)
+            if registration is None:
+                raise RuntimeError("TEST_PROCESS_IDENTITY_REQUIRED")
+            registration.update(project_file=str(Path(project_file).resolve()), backend_url=self.backend.url, role="test", batch=batch)
+            write_host(registration)
             self.backend.remap = True
             deadline = time.monotonic() + (900 if options.get("rendering", False) else 180)
             last_error = None
@@ -172,6 +213,26 @@ class TestHost:
             self.close()
             raise
 
+    @classmethod
+    def adopt(cls, registration, guard, backend_type):
+        """/** @param registration 已核实登记 @param guard 项目归属 @param backend_type 后端类型 @return 恢复的测试宿主 */"""
+        value = object.__new__(cls)
+        value.batch = registration["batch"]
+        value.guard = guard
+        value.directory = Path(registration["project_file"]).parent / "Saved/temp/McpTests" / value.batch
+        value.process = TestProcess.adopt(registration["process_id"], registration["created"], value.batch)
+        value.backend = backend_type(registration["backend_url"], Path(registration["project_file"]).parent, registration["process_id"])
+        value.backend.remap = True
+        try:
+            state = value.backend.probe()
+            if state.get("host_role") != "test" or Path(state["saved_directory"]).resolve() != (value.directory / "Saved").resolve():
+                raise RuntimeError("TEST_HOST_OUTPUT_IDENTITY")
+            guard.register_test(value.batch, value.process.pid)
+            return value
+        except Exception:
+            value.backend.close()
+            raise
+
     def close(self):
         """/** @return 正式退出并回收所属进程树 */"""
         if self.process is not None:
@@ -192,10 +253,11 @@ class TestHost:
 class ProjectJobs:
     """/** 一个公开入口协调资产编辑与并行测试流程 */"""
 
-    def __init__(self, editor_jobs, factory=None, version=None, limit=2, output_root=None):
+    def __init__(self, editor_jobs, factory=None, version=None, limit=2, output_root=None, restore_factory=None):
         """/** @param editor_jobs\t编辑调度 @param factory\t受限宿主工厂 @param version\t资产版本读取 @param limit\t测试并行上限 @param output_root\t测试输出根 @return 项目调度 */"""
         self.editor = editor_jobs
         self.factory = factory
+        self.restore_factory = restore_factory
         self.version = version
         self.limit = limit
         self.output_root = Path(output_root) if output_root is not None else None
@@ -205,6 +267,7 @@ class ProjectJobs:
         self.revision = 0
         self.signature = None
         self.closed = False
+        self.detaching = False
         self.stopping = False
         self._restore_tests()
 
@@ -218,6 +281,8 @@ class ProjectJobs:
             for context in self.contexts.values():
                 if context["owner"] == historical:
                     context["owner"] = key
+                    if context.get("queue") is not None:
+                        context["queue"].connect(key)
             if any(record["owner"] == key for record in self.tests.values()):
                 self.editor.client_owners.add(key)
         return key
@@ -231,11 +296,21 @@ class ProjectJobs:
             self.editor.clients[owner] = 0
             record.update(owner=owner, queue=None, finished=True, submitted_at=time.monotonic())
             record.pop("id")
+            recovering = self.restore_factory is not None and record.get("host") and record.get("host_active", False)
             if record["status"] in {"queued", "running"}:
-                record.update(status="failed", code="TEST_INTERRUPTED")
+                record.update(status="failed", code="TEST_EXECUTION_UNCERTAIN", execution="unknown")
+                recovering = self.restore_factory is not None and bool(record.get("host"))
             self.tests[record["batch"]] = record
             self.contexts.setdefault(record["test_host"], {"id": record["test_host"], "owner": owner, "label": record["label"],
-                "options": record["options"], "state": "closed", "queue": None, "host": record["host"], "close_requested": True})
+                "options": record["options"], "state": "recovering" if recovering else "closed", "queue": None,
+                "host": record["host"], "close_requested": not recovering, "recovering": recovering})
+        for context in self.contexts.values():
+            if context["state"] == "recovering":
+                self.editor.clients[context["owner"]] = time.monotonic() + 300
+                self.editor.client_owners.add(context["owner"])
+                thread = threading.Thread(target=self._run, args=(context,), daemon=True, name="BBB-test-recover-" + context["id"])
+                context["thread"] = thread
+                thread.start()
 
     def _checkpoint_test(self, record):
         """/** @param record\t测试批次 @return 输出与结果的恢复记录 */"""
@@ -246,6 +321,13 @@ class ProjectJobs:
         for key in ("outcome", "input_version", "input_stable"):
             if key in record:
                 value[key] = copy.deepcopy(record[key])
+        for key in ("input_files", "execution"):
+            if key in record:
+                value[key] = copy.deepcopy(record[key])
+        value["finished_before_restart"] = record["finished"]
+        context = self.contexts.get(record["test_host"], {})
+        value["host_active"] = context.get("state") in {"starting", "running", "finishing", "recovering"}
+        value["dispatched"] = "child" in record or record.get("dispatched", False)
         self.editor.clients.store_job(value)
 
     def touch(self, client):
@@ -270,7 +352,7 @@ class ProjectJobs:
         with self.condition:
             if self.closed or self.editor.draining:
                 raise JobConflict("HOST_DRAINING")
-            if len(self.tests) >= 64:
+            if sum(not record["finished"] for record in self.tests.values()) >= 64:
                 raise JobConflict("QUEUE_CAPACITY", {"next": "control_task.close"})
             batch = secrets.token_hex(8)
             if test_host is None:
@@ -305,7 +387,7 @@ class ProjectJobs:
     def _dispatch(self):
         if self.closed or self.stopping:
             return
-        active = sum(context["state"] in {"starting", "running", "finishing"} for context in self.contexts.values())
+        active = sum(context["state"] in {"starting", "running", "finishing", "recovering"} for context in self.contexts.values())
         for context in self.contexts.values():
             if active >= self.limit:
                 return
@@ -345,18 +427,32 @@ class ProjectJobs:
         queue = None
         try:
             root = self.tests[context["id"]]
-            root["input_version"] = self.version(root)
+            recovering = context.get("recovering", False)
+            if not recovering:
+                root["input_version"] = self.version(root)
             context.update(input_version=root["input_version"], input_record=root)
-            host = self.factory(context["id"], context["options"])
+            if recovering:
+                host = self.restore_factory(context["id"], context["options"], context["host"])
+            if not recovering:
+                host = self.factory(context["id"], context["options"])
             context["handle"] = host
             queue = JobQueue(host.backend, self.editor.catalog, start_worker=False)
             queue.clients = self.editor.clients
+            if recovering:
+                if queue.activity.get("pie_active"):
+                    queue.pie_owner = context["owner"]
+                queue.activity_owners = {item["id"] if isinstance(item, dict) else item: context["owner"]
+                    for item in queue.activity.get("activities", [])}
             with self.condition:
                 context.update(queue=queue, host=host.backend.process_id, state="running")
+                for record in self._records(context):
+                    record["host"] = host.backend.process_id
+                    self._checkpoint_test(record)
                 self.condition.notify_all()
             while not self.closed and not context["close_requested"]:
                 with self.editor.changed:
                     expires = self.editor.clients.get(context["owner"], 0)
+                    queue.clients[context["owner"]] = expires
                 if time.monotonic() >= expires:
                     context["close_requested"] = True
                     break
@@ -367,6 +463,7 @@ class ProjectJobs:
                     child = queue.submit(context["owner"], record["operations"], record["label"])["batch"]
                     with self.condition:
                         record.update(child=child, queue=queue, host=context["host"], code=None)
+                        self._checkpoint_test(record)
                 queue.run_once()
                 with self.condition:
                     records = self._records(context)
@@ -379,6 +476,7 @@ class ProjectJobs:
                         view = queue._job_view(queue.jobs[record["child"]], True)
                     with self.condition:
                         self._publish(record, view, context)
+                        self._checkpoint_test(record)
                         self.condition.notify_all()
                 state = queue.observe(force=True)
                 with self.condition:
@@ -404,22 +502,26 @@ class ProjectJobs:
             if queue is not None:
                 queue.close()
             failure = None
-            if host is not None:
+            if host is not None and not self.detaching:
                 try:
                     host.close()
                 except Exception as error:
                     failure = {"type": type(error).__name__, "error": str(error)}
             with self.condition:
-                context.update(queue=None, state="closed" if failure is None else "failed")
-                for record in self._records(context):
-                    if "outcome" not in record:
-                        record.update(status="cancelled", code="GATEWAY_CLOSED" if self.closed else "CLIENT_EXPIRED")
-                    if failure is not None:
-                        record.update(status="failed", code="TEST_HOST_EXIT_UNVERIFIED",
-                            outcome={**record.get("outcome", {}), "failure": failure})
-                    record.update(queue=None, finished=True)
-                self._dispatch()
-                self.condition.notify_all()
+                if self.detaching:
+                    for record in self._records(context):
+                        self._checkpoint_test(record)
+                if not self.detaching:
+                    context.update(queue=None, state="closed" if failure is None else "failed")
+                    for record in self._records(context):
+                        if "outcome" not in record:
+                            record.update(status="cancelled", code="GATEWAY_CLOSED" if self.closed else "CLIENT_EXPIRED")
+                        if failure is not None:
+                            record.update(status="failed", code="TEST_HOST_EXIT_UNVERIFIED",
+                                outcome={**record.get("outcome", {}), "failure": failure})
+                        record.update(queue=None, finished=True)
+                    self._dispatch()
+                    self.condition.notify_all()
 
     def _view(self, record, detail=False):
         signature = (record["status"], record["completed"], record["code"], record.get("input_stable"), record["finished"], self.contexts[record["test_host"]]["state"])
@@ -487,7 +589,7 @@ class ProjectJobs:
                     if batch:
                         return {**self.editor.inspect(client, batch, detail), "revision": self.revision, "environment": "editor"}
                     editor["revision"] = self.revision
-                    running = [context for context in self.contexts.values() if context["state"] in {"starting", "running", "finishing"}]
+                    running = [context for context in self.contexts.values() if context["state"] in {"starting", "running", "finishing", "recovering"}]
                     editor["tests"] = {"running": len(running), "queued": sum(context["state"] == "queued" for context in self.contexts.values()), "limit": self.limit}
                     if running:
                         editor["tests"]["occupants"] = [{"label": context["label"], "status": context["state"], "mine": context["owner"] == client} for context in running]
@@ -580,6 +682,16 @@ class ProjectJobs:
             with self.condition:
                 self.stopping = False
                 self.condition.notify_all()
+
+    def detach(self):
+        """/** @return 停止网关调度并保留测试进程及恢复证据 */"""
+        with self.condition:
+            self.detaching = True
+            self.closed = True
+            for record in self.tests.values():
+                self._checkpoint_test(record)
+            self.condition.notify_all()
+        self.editor.close()
 
     def close(self):
         """/** @return 回收所属测试宿主并结束调度 */"""

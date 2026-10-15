@@ -65,7 +65,14 @@ class McpSession:
 
     def __init__(self, url=None, timeout_seconds=600, client_key=None, private_backend=False):
         """/** @param url 公开入口 @param timeout_seconds 请求超时 @param client_key 原客户端凭证 @param private_backend 官方后端连接 @return 已连接会话 */"""
-        self.url = url or os.environ["BBB_MCP_URL"]
+        self.url = url or os.environ.get("BBB_MCP_URL", "http://127.0.0.1:8000/mcp")
+        if url is None and not os.environ.get("BBB_MCP_URL") and os.environ.get("BBB_MCP_PROJECT") and not private_backend:
+            from MCP.mcp_service import ensure_service
+            from MCP.mcp_host_registry import project_key
+            project = os.environ["BBB_MCP_PROJECT"]
+            port = int(os.environ.get("BBB_MCP_SERVICE_PORT", "8000"))
+            ensure_service(project, port, directory=os.environ.get("BBB_MCP_SERVICE_DIRECTORY"))
+            self.url = "http://127.0.0.1:" + str(port) + "/projects/" + project_key(project) + "/mcp"
         if timeout_seconds <= 0:
             raise ValueError("TIMEOUT_RANGE")
         self.client_key = client_key
@@ -141,6 +148,12 @@ class McpSession:
                         result = _parse_response(response, body["id"], self.invalidate_discovery)
                     break
                 except (requests.RequestException, RuntimeError) as error:
+                    endpoint = urlparse(self.url)
+                    if not attempt and not self.private_backend and method == "initialize" and isinstance(error, requests.ConnectionError) and endpoint.hostname in {"127.0.0.1", "localhost"}:
+                        from MCP.mcp_service import ensure_service
+                        ensure_service(os.environ.get("BBB_MCP_PROJECT"), endpoint.port or 8000,
+                            directory=os.environ.get("BBB_MCP_SERVICE_DIRECTORY"))
+                        continue
                     if attempt or self.private_backend or method == "initialize":
                         raise RuntimeError("TRANSPORT_UNCERTAIN: inspect_tasks") from error
                     self._initialize()

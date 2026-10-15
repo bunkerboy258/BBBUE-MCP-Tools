@@ -13,7 +13,9 @@ from BBBMcpCapabilities import ToolCatalog, validate_arguments, tool_contract
 from MCP.mcp_call import McpSession
 from MCP.mcp_jobs import JobQueue, JobConflict
 from MCP.mcp_result import McpBusinessError, McpExecutionError
-from MCP.mcp_task_gateway import TaskGateway, make_server, public_tools, UnrealBackend
+from MCP.mcp_task_gateway import TaskGateway, public_tools, UnrealBackend
+from MCP.mcp_service import make_service_server
+from types import SimpleNamespace
 
 
 class FakeBackend:
@@ -288,17 +290,22 @@ class JobTests(unittest.TestCase):
             with self.subTest(discard=discard, dry_run=dry_run):
                 batch = self.submit(self.first, {"tool": "editor.reload_assets_from_disk", "arguments": {
                     "asset_paths": ["/Game/A"], "discard_dirty_packages": discard, "dry_run": dry_run}})
-                self.assertFalse(self.manager.run_once())
+                calls_before = list(self.backend.calls)
+                self.manager.run_once()
+                self.assertEqual(self.backend.calls, calls_before)
                 self.assertEqual(self.manager.jobs[batch]["code"], "ASSET_BUSY")
         outside = self.submit(self.first, {"tool": "editor.reload_assets_from_disk", "arguments": {
             "asset_paths": ["/Game/A", "/Game/B"], "discard_dirty_packages": ["/Game/A", "/Game/B"], "dry_run": False}})
-        self.assertFalse(self.manager.run_once())
+        calls_before = list(self.backend.calls)
+        self.manager.run_once()
+        self.assertEqual(self.backend.calls, calls_before)
         self.assertEqual(self.manager.jobs[outside]["code"], "ASSET_BUSY")
+        dirty_before_preview = list(self.backend.state["dirty_packages"])
         dry = self.submit(self.first, {"tool": "editor.reload_assets_from_disk", "arguments": {
             "asset_paths": ["/Game/A"], "discard_dirty_packages": ["/Game/A"], "dry_run": True}})
         self.manager.run_once()
         self.assertEqual(self.manager.jobs[dry]["status"], "completed")
-        self.assertEqual(self.backend.state["dirty_packages"], ["/Game/A"])
+        self.assertEqual(self.backend.state["dirty_packages"], dirty_before_preview)
 
     def test_rejection_releases_without_unknown_result(self):
         identity = self.submit(self.first, operation("reject", asset="/Game/A"))
@@ -399,7 +406,7 @@ class HttpTests(unittest.TestCase):
         backend, catalog, unused = fixtures()
         unused.close()
         gateway = TaskGateway(backend, catalog)
-        server = make_server(gateway, "127.0.0.1", 0)
+        server = make_service_server(SimpleNamespace(projects={"default": SimpleNamespace(protocol=gateway)}, default="default"), 0)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         url = "http://127.0.0.1:" + str(server.server_port) + "/mcp"

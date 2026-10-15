@@ -30,17 +30,19 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(self.manager.inspect(self.owner, identity)["status"], "completed")
         self.assertEqual(len(self.backend.calls), 1)
 
-    def test_expired_dispatched_async_job_keeps_activity_and_partial_results(self):
+    def test_expired_dispatched_async_job_keeps_partial_results_after_cleanup(self):
         self.manager.submit(self.owner, [operation("StartPIE")])
         self.manager.run_once()
         identity = self.manager.submit(self.owner, [operation("activity"), operation("StopPIE")])["batch"]
         self.manager.run_once()
         self.now = 301
         self.manager.run_once()
+        self.manager.run_once()
         self.assertEqual(self.manager.jobs[identity]["status"], "failed")
         self.assertEqual(self.manager.jobs[identity]["completed"], 1)
-        self.assertEqual(self.manager.pie_owner, self.owner)
-        self.assertEqual(self.manager.activity_owners["capture:1"], self.owner)
+        self.assertIsNone(self.manager.pie_owner)
+        self.assertNotIn("capture:1", self.manager.activity_owners)
+        self.assertEqual(len(self.manager.jobs[identity]["results"]), 1)
 
 
 

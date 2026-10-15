@@ -1,18 +1,13 @@
-import argparse
 import ast
 import copy
 import hashlib
-import atexit
-import ctypes
 import json
-import os
 from pathlib import Path
 import re
 import secrets
 import sys
 import threading
 import time
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
 sys.dont_write_bytecode = True
@@ -23,9 +18,9 @@ from MCP.mcp_contracts import TOOL_POLICIES, backend_arguments
 from MCP.mcp_call import McpSession
 from MCP.mcp_jobs import JobQueue, JobConflict
 from MCP.mcp_asset_scope import asset_targets
-from MCP.mcp_project_host import ProjectHostGuard, project_identity
+from MCP.mcp_project_host import project_identity
+from MCP.mcp_test_hosts import ProjectJobs
 from MCP.mcp_result import McpBusinessError, public_value, requested_values_match, property_schema, native_property_values
-from MCP.mcp_test_hosts import ProjectJobs, TestHost, project_version
 
 
 def _argument_error_hint(details):
@@ -46,7 +41,7 @@ def public_tools():
     schemas = [
         ("find_tools", "按中英文目标搜索 最多三项 首项包含调用参数", {"query": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1, "maximum": 3, "default": 3}}, ["query"]),
         ("describe_tool", "读取一个工具的参数与权限", {"tool": {"type": "string"}}, ["tool"]),
-        ("submit_batch", "执行有序操作 短调用直接返回结果 长调用返回批次和下一步", {"operations": {"type": "array", "minItems": 1, "maxItems": 16, "items": {"type": "object", "properties": {"tool": {"type": "string"}, "arguments": {"type": "object"}}, "required": ["tool", "arguments"], "additionalProperties": False}}, "await_seconds": {"type": "number", "minimum": 0, "maximum": 10, "default": 2}, "label": {"type": "string", "maxLength": 120}, "environment": {"type": "string", "enum": ["editor", "test"], "default": "editor"}, "test_host": {"type": "string", "pattern": "^[0-9a-f]{16}$"}, "test_options": {"type": "object", "properties": {"map": {"type": "string", "pattern": "^/(Game|Engine)/[A-Za-z0-9_/]+$"}, "rendering": {"type": "boolean"}, "audio": {"type": "boolean"}, "players": {"type": "integer", "minimum": 1, "maximum": 8}, "net_mode": {"type": "string", "enum": ["standalone", "listen", "client"]}}, "required": ["map"], "additionalProperties": False}}, ["operations"]),
+        ("submit_batch", "执行有序操作 短调用直接返回结果 长调用返回批次和下一步", {"operations": {"type": "array", "minItems": 1, "maxItems": 16, "items": {"type": "object", "properties": {"tool": {"type": "string"}, "arguments": {"type": "object"}}, "required": ["tool", "arguments"], "additionalProperties": False}}, "await_seconds": {"type": "number", "minimum": 0, "maximum": 10, "default": 2}, "label": {"type": "string", "maxLength": 120}, "environment": {"type": "string", "enum": ["editor", "test"], "default": "editor"}, "test_host": {"type": "string", "pattern": "^[0-9a-f]{16}$"}, "test_options": {"type": "object", "properties": {"map": {"type": "string", "pattern": "^/(Game|Engine)/[A-Za-z0-9_/]+$"}, "rendering": {"type": "boolean"}, "scene_performance": {"type": "boolean"}, "audio": {"type": "boolean"}, "players": {"type": "integer", "minimum": 1, "maximum": 8}, "net_mode": {"type": "string", "enum": ["standalone", "listen", "client"]}}, "required": ["map"], "additionalProperties": False}}, ["operations"]),
         ("inspect_tasks", "读取占用与批次结果，支持按业务版本等待", {"batch": {"type": "string"}, "detail": {"type": "boolean"}, "after_revision": {"type": "integer", "minimum": 0}, "wait_seconds": {"type": "number", "minimum": 0, "maximum": 60}}, []),
         ("control_task", "取消排队、交付结果或退出空闲宿主", {"action": {"type": "string", "enum": ["cancel", "close", "shutdown_host"]}, "batch": {"type": "string"}}, ["action"]),
     ]
@@ -95,6 +90,8 @@ class UnrealBackend:
         self.remap = False
 
     def _call(self, name, arguments):
+        if self.guard is not None and hasattr(self.guard, "verify"):
+            self.guard.verify()
         inspection = name != "call_tool" or arguments.get("tool_name") in {"inspect_editor_activity", "inspect_saved_test_inputs"}
         channel = "inspection" if inspection else "operations"
         with self.session_lock:
@@ -311,19 +308,22 @@ class UnrealBackend:
 
     def close(self):
         """/** @return 关闭本后端连接 */"""
-        for session in self.sessions.values():
+        with self.session_lock:
+            sessions = list(self.sessions.values())
+            self.sessions.clear()
+        for session in sessions:
             session.close()
 
 
 class TaskGateway:
     """/** 五入口公开协议 */"""
 
-    def __init__(self, backend, catalog=None, start_worker=True, test_factory=None, version=None, test_limit=2, test_output_root=None):
+    def __init__(self, backend, catalog=None, start_worker=True, test_factory=None, version=None, test_limit=2, test_output_root=None, clients=None, test_restore=None):
         """/** @param backend 官方后端 @param catalog 测试目录 @param start_worker 启动执行循环 @return 网关 */"""
         self.catalog = catalog or ToolCatalog(backend)
         backend.catalog = self.catalog
         state_path = Path(backend.project) / "Saved" / "McpState" / "gateway.sqlite" if hasattr(backend, "project") else None
-        self.jobs = ProjectJobs(JobQueue(backend, self.catalog, start_worker=start_worker, state_path=state_path), test_factory, version, test_limit, test_output_root)
+        self.jobs = ProjectJobs(JobQueue(backend, self.catalog, start_worker=start_worker, state_path=state_path, clients=clients), test_factory, version, test_limit, test_output_root, test_restore)
         self.clients = self.jobs.editor.clients
         self.tools = {item["name"]: item for item in public_tools()}
 
@@ -348,7 +348,7 @@ class TaskGateway:
                 client = self.jobs.connect(resume_key)
                 session_id = self.clients.bind(client)
                 response_headers["Mcp-Session-Id"] = session_id
-                return 200, response_headers, {"jsonrpc": "2.0", "id": request_id, "result": {"protocolVersion": "2025-11-25", "capabilities": {"tools": {}}, "serverInfo": {"name": "BBB-MCP", "version": "4"}, "_meta": {"bbb/client_key": client, "bbb/client_recovered": recovered, "bbb/catalog_version": self.catalog.version()}}}
+                return 200, response_headers, {"jsonrpc": "2.0", "id": request_id, "result": {"protocolVersion": "2025-11-25", "capabilities": {"tools": {}}, "serverInfo": {"name": "BBB-MCP", "version": "5"}, "_meta": {"bbb/client_key": client, "bbb/client_recovered": recovered, "bbb/catalog_version": self.catalog.version()}}}
             client = self.clients.resolve(session_id)
             if client is None:
                 return 404, {}, {"error": "SESSION_REQUIRED"}
@@ -400,105 +400,3 @@ class TaskGateway:
         while view["status"] in {"queued", "running"} and time.monotonic() < deadline:
             view = self.jobs.inspect(client, accepted["batch"], after_revision=view["revision"], wait_seconds=max(0, deadline - time.monotonic()))
         return view
-
-
-def make_server(gateway, host, port):
-    """/** @param gateway 网关 @param host 本机地址 @param port 公开端口 @return HTTP 服务 */"""
-    if host not in {"127.0.0.1", "localhost"}:
-        raise ValueError("LOCALHOST_REQUIRED")
-    class Handler(BaseHTTPRequestHandler):
-        def do_POST(self):
-            self.dispatch()
-        def do_DELETE(self):
-            self.dispatch()
-        def dispatch(self):
-            if self.path != "/mcp" or self.headers.get("Origin"):
-                self.send_error(403)
-                return
-            length = int(self.headers.get("Content-Length", "0"))
-            if not 0 <= length <= 1048576:
-                self.send_error(413)
-                return
-            try:
-                body = json.loads(self.rfile.read(length)) if length else {}
-                if not isinstance(body, dict):
-                    raise ValueError("REQUEST_OBJECT")
-            except (ValueError, UnicodeError):
-                self.send_error(400)
-                return
-            status, headers, value = gateway.handle(self.command, self.headers, body)
-            data = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8") if value is not None else b""
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(data)))
-            for name, value in headers.items():
-                self.send_header(name, value)
-            self.end_headers()
-            self.wfile.write(data)
-        def log_message(self, format, *arguments):
-            pass
-    server = ThreadingHTTPServer((host, port), Handler)
-    server.daemon_threads = True
-    return server
-
-
-def main():
-    """/** @return 启动原项目唯一网关 */"""
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--backend-url", required=True)
-    parser.add_argument("--project-root", required=True)
-    parser.add_argument("--host-pid", type=int, required=True)
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, required=True)
-    parser.add_argument("--editor-path", required=True)
-    parser.add_argument("--project-file", required=True)
-    parser.add_argument("--test-hosts", type=int, choices=(1, 2), default=2)
-    arguments = parser.parse_args()
-    project_file = Path(arguments.project_file).resolve()
-    editor_path = Path(arguments.editor_path).resolve()
-    if project_identity(project_file) != project_identity(arguments.project_root) or not project_file.is_file() or project_file.suffix.lower() != ".uproject" or editor_path.name != "UnrealEditor.exe" or not editor_path.is_file():
-        raise ValueError("TEST_HOST_PATH_IDENTITY")
-    private = urlparse(arguments.backend_url)
-    if private.hostname not in {"127.0.0.1", "localhost"} or re.fullmatch(r"/bbb-mcp-[0-9a-f]{32}", private.path) is None or private.port == arguments.port:
-        raise ValueError("PRIVATE_BACKEND_REQUIRED")
-    guard = ProjectHostGuard(arguments.project_root, arguments.host_pid)
-    guard.acquire()
-    atexit.register(guard.close)
-    backend = UnrealBackend(arguments.backend_url, arguments.project_root, arguments.host_pid)
-    backend.guard = guard
-    def factory(batch, options):
-        return TestHost(batch, options, project_file, editor_path, guard, UnrealBackend)
-    def version(record):
-        if "input_files" not in record:
-            paths = sorted({record["options"]["map"]} | asset_targets(record["operations"]))
-            backend._toolsets()
-            record["input_files"] = backend._call("call_tool", {"toolset_name": backend.task_name,
-                "tool_name": "inspect_saved_test_inputs", "arguments": {"asset_paths": paths}})["files"]
-        return project_version(arguments.project_root, record["input_files"])
-    gateway = TaskGateway(backend, test_factory=factory, version=version, test_limit=arguments.test_hosts,
-        test_output_root=project_file.parent / "Saved" / "temp" / "McpTests")
-    atexit.register(backend.close)
-    atexit.register(gateway.jobs.close)
-    server = make_server(gateway, arguments.host, arguments.port)
-    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
-    kernel.OpenProcess.restype = ctypes.c_void_p
-    kernel.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
-    kernel.CloseHandle.argtypes = [ctypes.c_void_p]
-    handle = kernel.OpenProcess(0x00100000, False, arguments.host_pid)
-    if not handle:
-        raise RuntimeError("HOST_PROCESS_REQUIRED")
-    def watch():
-        kernel.WaitForSingleObject(handle, 0xFFFFFFFF)
-        kernel.CloseHandle(handle)
-        gateway.jobs.close()
-        server.shutdown()
-    threading.Thread(target=watch, daemon=True).start()
-    try:
-        server.serve_forever()
-    finally:
-        server.server_close()
-
-
-if __name__ == "__main__":
-    main()
