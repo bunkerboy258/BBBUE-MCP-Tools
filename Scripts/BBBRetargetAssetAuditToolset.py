@@ -300,9 +300,24 @@ class BBBRetargetAssetAuditToolset(unreal.ToolsetDefinition):
         for label, side in (("source", unreal.RetargetSourceOrTarget.SOURCE), ("target", unreal.RetargetSourceOrTarget.TARGET)):
             mesh = controller.get_preview_mesh(side)
             rig = controller.get_ik_rig(side)
+            reference_bones = {}
+            pose_rotations = {}
+            if mesh:
+                reference = mesh.skeleton.get_reference_pose()
+                for bone in reference.get_bone_names():
+                    name = str(bone)
+                    transform = reference.get_bone_pose(bone, unreal.AnimPoseSpaces.WORLD)
+                    position = transform.translation
+                    reference_bones[name] = [position.x, position.y, position.z]
+                    rotation = controller.get_rotation_offset_for_retarget_pose_bone(bone, side)
+                    if abs(rotation.w) < 0.999999:
+                        pose_rotations[name] = [rotation.x, rotation.y, rotation.z, rotation.w]
             meshes[label] = {
                 "mesh": mesh.get_path_name() if mesh else None,
                 "rig": rig.get_path_name() if rig else None,
+                "currentPose": str(controller.get_current_retarget_pose_name(side)),
+                "referencePositions": reference_bones,
+                "poseRotations": pose_rotations,
             }
         return json.dumps({
             "asset": asset_path,

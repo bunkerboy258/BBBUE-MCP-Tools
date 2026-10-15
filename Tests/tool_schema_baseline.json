@@ -5814,6 +5814,18 @@
           },
           "skeleton_path": {
             "type": "string"
+          },
+          "import_pitch": {
+            "type": "number",
+            "default": 0
+          },
+          "import_yaw": {
+            "type": "number",
+            "default": 0
+          },
+          "import_roll": {
+            "type": "number",
+            "default": 0
           }
         },
         "required": [

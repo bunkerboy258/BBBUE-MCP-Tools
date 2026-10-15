@@ -1447,10 +1447,9 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def import_animation_fbx(source_file: str, asset_path: str, skeleton_path: str) -> str:
+    def import_animation_fbx(source_file: str, asset_path: str, skeleton_path: str, import_pitch: float = 0.0, import_yaw: float = 0.0, import_roll: float = 0.0) -> str:
         """从单动作 FBX 精确覆盖已签出的动画 保持骨骼和资产路径不变"""
         from BBBAssetWritePolicy import require_write_access
-        from editor_toolset.toolsets.asset import AssetTools
 
         if not os.path.isfile(source_file) or not source_file.lower().endswith(".fbx"):
             raise RuntimeError("必须提供存在的 FBX 文件")
@@ -1467,9 +1466,6 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             raise RuntimeError("目标动画骨骼与指定骨骼不一致")
 
         require_write_access(asset)
-        if not AssetTools.is_checked_out(asset_path):
-            raise RuntimeError("覆盖前必须独占签出目标动画")
-
         if asset_path in {package.get_path_name() for package in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}:
             raise RuntimeError("目标动画存在未保存修改")
 
@@ -1483,6 +1479,10 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         options.set_editor_property("import_textures", False)
         options.set_editor_property("skeleton", skeleton)
         options.anim_sequence_import_data.set_editor_property("use_default_sample_rate", True)
+        import_angles = (import_pitch, import_yaw, import_roll)
+        if not all(math.isfinite(value) for value in import_angles):
+            raise RuntimeError("导入角度必须为有限数值")
+        options.anim_sequence_import_data.import_rotation = unreal.Rotator(import_pitch, import_yaw, import_roll)
 
         task = unreal.AssetImportTask()
         task.set_editor_property("filename", source_file)
@@ -1490,6 +1490,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         task.set_editor_property("destination_name", asset_path.rsplit("/", 1)[1])
         task.set_editor_property("automated", True)
         task.set_editor_property("replace_existing", True)
+        task.set_editor_property("replace_existing_settings", True)
         task.set_editor_property("save", False)
         task.set_editor_property("factory", unreal.FbxFactory())
         task.set_editor_property("options", options)
