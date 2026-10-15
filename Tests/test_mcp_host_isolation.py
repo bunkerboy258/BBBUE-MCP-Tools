@@ -29,7 +29,7 @@ class ProjectHostTests(unittest.TestCase):
         removed = {"prepare_test_snapshot", "start_test_run", "call_test_tool", "inspect_test_runs", "stop_test_run"}
         tools = {item["name"] for item in public_tools()}
         self.assertTrue(removed.isdisjoint(tools))
-        self.assertEqual(tools, {"find_tools", "describe_tool", "submit_batch", "inspect_tasks", "control_task"})
+        self.assertEqual(tools, {"manage_operator", "find_tools", "describe_tool", "submit_batch", "inspect_tasks", "control_task"})
         self.assertTrue(all(not hasattr(McpSession, name) for name in removed))
         self.assertFalse((SCRIPTS / "MCP" / "mcp_test_runner.py").exists())
 

@@ -56,6 +56,41 @@ def private_directory(path):
     return path
 
 
+def terminate_process(identity):
+    """/** @param identity 已登记的程序路径和创建时间 @return 同一进程句柄的终止结果 */"""
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel.OpenProcess.restype = wintypes.HANDLE
+    kernel.GetProcessTimes.argtypes = [wintypes.HANDLE, *([ctypes.POINTER(wintypes.FILETIME)] * 4)]
+    kernel.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)]
+    kernel.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    kernel.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    handle = kernel.OpenProcess(0x1000 | 0x100000 | 0x1, False, identity["process_id"])
+    if not handle:
+        raise RuntimeError("HOST_PROCESS_OPEN_FAILED")
+    try:
+        values = [wintypes.FILETIME() for _ in range(4)]
+        size = wintypes.DWORD(32768)
+        path = ctypes.create_unicode_buffer(size.value)
+        if not kernel.GetProcessTimes(handle, *(ctypes.byref(value) for value in values)):
+            raise RuntimeError("HOST_PROCESS_VERIFY_FAILED")
+        created = str((values[0].dwHighDateTime << 32) | values[0].dwLowDateTime)
+        if values[1].dwHighDateTime or values[1].dwLowDateTime:
+            return {"status": "exited"}
+        if not kernel.QueryFullProcessImageNameW(handle, 0, path, ctypes.byref(size)):
+            raise RuntimeError("HOST_PROCESS_VERIFY_FAILED")
+        if created != identity["created"] or os.path.normcase(str(Path(path.value).resolve())) != os.path.normcase(identity["editor_path"]):
+            raise RuntimeError("HOST_IDENTITY_CHANGED")
+        if not kernel.TerminateProcess(handle, 1):
+            raise RuntimeError("HOST_PROCESS_TERMINATE_FAILED")
+        if kernel.WaitForSingleObject(handle, 5000) != 0:
+            raise RuntimeError("HOST_PROCESS_EXIT_PENDING")
+        return {"status": "terminated"}
+    finally:
+        kernel.CloseHandle(handle)
+
+
 def atomic_json(path, value):
     """/** @param path 目标记录 @param value 可序列化状态 @return 已原子替换的记录 */"""
     path = Path(path)
@@ -184,6 +219,21 @@ class HostRegistry:
                 row.update(connection=connection, error=error)
                 self.revision += 1
 
+    def terminate(self, project, host):
+        """/** @param project 当前项目身份 @param host 进程代际标识 @return 指定宿主退出结果 */"""
+        with self.lock:
+            row = next((dict(item) for item in self.hosts.values() if self.host_id(item) == host and item["project"] == project), None)
+        if row is None:
+            raise ValueError("HOST_IDENTITY_REQUIRED")
+        result = terminate_process(row)
+        self.mark(row["process_id"], "terminated")
+        return {**result, "host": host, "process_id": row["process_id"]}
+
+    @staticmethod
+    def host_id(row):
+        """/** @param row 核实后的进程记录 @return 进程代际标识 */"""
+        return str(row["process_id"]) + ":" + row["created"]
+
     def public(self):
         """/** @return 适合面板与 AI 阅读的进程清单 */"""
         with self.lock:
@@ -197,6 +247,7 @@ class HostRegistry:
                     state = "waiting_assignment"
                 item = {"process_id": pid, "project": Path(project).name, "role": found.get("role", "editor"), "state": state}
                 if row:
+                    item["id"] = self.host_id(row)
                     item["created"] = row["created"]
                     if row.get("batch"):
                         item["batch"] = row["batch"]

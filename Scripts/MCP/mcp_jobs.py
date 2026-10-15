@@ -8,6 +8,8 @@ from pathlib import Path
 from MCP.mcp_asset_scope import asset_targets, conflicting_packages
 from MCP.mcp_clients import ClientRegistry
 from MCP.mcp_asset_coordination import AssetCoordination
+from MCP.mcp_scheduler import ordered
+from MCP.mcp_response import response
 
 
 class JobConflict(McpBusinessError):
@@ -15,7 +17,7 @@ class JobConflict(McpBusinessError):
 
     def __init__(self, code, details=None):
         """/** @param code 固定原因 @param details 必要证据 @return 拒绝结果 */"""
-        super().__init__({"status": "rejected", "code": code, "details": details or {}})
+        super().__init__(response({"status": "rejected", "code": code, "details": details or {}}))
 
 
 class JobQueue:
@@ -80,7 +82,7 @@ class JobQueue:
     def _signal(self):
         self.revision += 1
         for job in self.jobs.values():
-            signature = (job["owner"], job["status"], job["completed"], job["code"], tuple(job["dirty"]), repr(self.assets.view(job["id"])), repr(job.get("blocked")), job.get("execution"), tuple(sorted(job["activities"] & set(self.activity_owners))))
+            signature = (job["owner"], job["status"], job["completed"], job["code"], tuple(job["dirty"]), repr(self.assets.view(job["id"])), repr(job.get("blocked")), job.get("execution"), tuple(sorted(key for key, owner in self.activity_owners.items() if owner == job["owner"])), self.activity.get("host_verified", False))
             if signature != job.get("signature"):
                 job["signature"] = signature
                 job["revision"] = job.get("revision", 0) + 1
@@ -91,13 +93,14 @@ class JobQueue:
         """/** @param job\t当前批次 @return 单向身份与执行边界的恢复证据 */"""
         record = {key: copy.deepcopy(job[key]) for key in ("id", "label", "status", "completed", "results", "access", "scoped", "baseline", "dirty", "effects_completed", "code", "failed_index", "timings")}
         record.update(owner=job["owner"][1:] if job["owner"].startswith("@") else self.clients.digest(job["owner"]),
+            operator=job.get("operator"),
             segment_dirty=sorted(job.get("segment_dirty", set(job["baseline"]))), effect_scope=sorted(job.get("effect_scope", set())), save_pending=job.get("save_pending", False),
             environment="editor",
             operations=[{"tool": item["contract"]["id"], "arguments": item["arguments"]} for item in job["operations"]],
             targets=sorted(asset_targets(job["targets"])), owned_dirty=sorted(job["owned_dirty"]),
             coordination=self.assets.view(job["id"]), uncertain=sorted(job["uncertain"]),
             activities=sorted(job["activities"]), pie=job["id"] == self.pie_batch, host=list(job.get("host", self.host_identity)))
-        for key in ("proof", "execution", "failure"):
+        for key in ("proof", "execution", "failure", "yield_versions", "cancel_requested"):
             if key in job:
                 record[key] = copy.deepcopy(job[key])
         self.clients.store_job(record)
@@ -112,7 +115,7 @@ class JobQueue:
                 if record["status"] in {"completed", "rejected", "cancelled", "closed"}:
                     self.clients.delete_job(record["id"])
                     continue
-                raise JobConflict("STATE_HANDOVER_REQUIRED", {"batch": record["id"], "next": "finish_previous_gateway"})
+                raise JobConflict("STATE_HANDOVER_REQUIRED", {"batch": record["id"], "next": None})
             claim = record.pop("coordination")
             record.pop("environment")
             owner = "@" + record.pop("owner")
@@ -232,13 +235,13 @@ class JobQueue:
                 item["scoped"] = bool(item["targets"])
         for item in prepared:
             if item["access"] == "write" and item["world"] == "editor" and not item.get("scoped"):
-                raise JobConflict("ASSET_SCOPE_REQUIRED", {"tool": item["contract"]["id"], "next": "describe_tool"})
+                raise JobConflict("ASSET_SCOPE_REQUIRED", {"tool": item["contract"]["id"], "next": None})
         with self.changed:
             self._prune_results()
             if self.draining:
                 raise JobConflict("HOST_DRAINING")
             if len(self.queue) >= 64 or len(self.jobs) >= 256:
-                raise JobConflict("QUEUE_CAPACITY", {"next": "control_task.close"})
+                raise JobConflict("QUEUE_CAPACITY", {"next": None})
             identity = secrets.token_hex(8)
             job = {"id": identity, "owner": client, "label": label, "operations": prepared,
                 "status": "queued", "completed": 0, "results": [], "submitted_at": self.clock(),
@@ -247,7 +250,8 @@ class JobQueue:
                 "scoped": all(item.get("scoped", item["access"] == "read") for item in prepared),
                 "baseline": [], "dirty": [], "owned_dirty": set(), "await_activity": set(), "started": False,
                 "activities": set(), "effects_completed": 0, "timings": {"operations_seconds": []},
-                "code": None, "failed_index": None, "uncertain": set(), "host": self.host_identity}
+                "code": None, "failed_index": None, "uncertain": set(), "host": self.host_identity,
+                "operator": self.clients.operators.identity(client)}
             self.jobs[identity] = job
             self.queue.append(identity)
             self._signal()
@@ -255,6 +259,10 @@ class JobQueue:
 
     def _reason(self, job, activity):
         job.pop("blocked", None)
+        pause = self.clients.operators.paused(job["owner"])
+        if pause and not job.get("cancel_requested"):
+            job["blocked"] = {"operator": pause["by"], "until": pause["until"], "next": None}
+            return "OPERATOR_PAUSED"
         if self.draining:
             return "HOST_DRAINING"
         active_ids = {item["id"] if isinstance(item, dict) else item for item in activity.get("activities", [])}
@@ -272,7 +280,7 @@ class JobQueue:
             continuation = conflict["phase"] == "fault" and holder["owner"] == job["owner"] and conflicting_packages(job["targets"], self.assets.view(holder["id"])["packages"]) == job["targets"] and all(item["contract"]["id"] != "editor.reload_assets_from_disk" for item in operations)
             if correction or continuation:
                 continue
-            job["blocked"] = {**conflict, "mine": holder["owner"] == job["owner"], "next": "inspect_tasks"}
+            job["blocked"] = {**conflict, "mine": holder["owner"] == job["owner"], "next": None}
             return "ASSET_BUSY"
         blocking_activities = [item for item in activity.get("activities", []) if not isinstance(item, dict) or item.get("blocking", True)]
         if blocking_activities:
@@ -282,7 +290,8 @@ class JobQueue:
             if operations[0]["access"] != "read" and operations[0]["world"] == "editor":
                 return "ACTIVITY_RUNNING"
         if activity.get("pie_active") or activity.get("worlds"):
-            if self.pie_owner != job["owner"]:
+            privileged_stop = self.clients.operators.level(job["owner"]) == 0 and all(item["contract"]["name"] == "StopPIE" or item["contract"].get("action") == "stop_pie" for item in operations)
+            if self.pie_owner != job["owner"] and not privileged_stop:
                 return "PIE_OWNED"
             if operations[0]["access"] != "read" and operations[0]["world"] == "editor":
                 return "EDITOR_WORLD_REQUIRED"
@@ -294,7 +303,7 @@ class JobQueue:
             dirty.intersection_update(job["yield_dirty"])
         conflicts = conflicting_packages(dirty, job["targets"])
         if conflicts and not corrective:
-            job["blocked"] = {"packages": sorted(conflicts)[:8], "count": len(conflicts), "next": "inspect_tasks"}
+            job["blocked"] = {"packages": sorted(conflicts)[:8], "count": len(conflicts), "next": None}
             return "ASSET_SAVE_REQUIRED"
         return None
 
@@ -315,7 +324,7 @@ class JobQueue:
     def run_once(self):
         """/** @return 执行一个可调度批次 */"""
         activity = self.observe()
-        if self.pie_owner is not None and self.clock() >= self.clients.get(self.pie_owner, 0) and self.clock() >= self.activity_retry_at and not self.draining:
+        if self.pie_owner is not None and (self.clock() >= self.clients.get(self.pie_owner, 0) or self.clients.operators.ended(self.pie_owner)) and self.clock() >= self.activity_retry_at and not self.draining:
             self.activity_retry_at = self.clock() + 30
             try:
                 contract = next(item for item in self.catalog.tools.values() if item["name"] == "StopPIE" or item.get("action") == "stop_pie")
@@ -333,7 +342,7 @@ class JobQueue:
             now = self.clock()
             for identity in list(self.queue):
                 job = self.jobs[identity]
-                if now >= self.clients.get(job["owner"], 0):
+                if now >= self.clients.get(job["owner"], 0) or self.clients.operators.ended(job["owner"], job.get("operator")):
                     job["status"], job["code"] = "cancelled", "CLIENT_EXPIRED"
                     if job["completed"] or job["owned_dirty"] or job["activities"]:
                         job["status"], job["execution"] = "failed", "partial"
@@ -345,8 +354,7 @@ class JobQueue:
                     self.queue.remove(identity)
                     self._signal()
             selected = None
-            for identity in self.queue:
-                job = self.jobs[identity]
+            for job in ordered([self.jobs[identity] for identity in self.queue], self.clients.operators):
                 reason = self._reason(job, activity)
                 if reason is None:
                     selected = job
@@ -364,8 +372,11 @@ class JobQueue:
             self._reconcile(selected)
             return True
         with self.changed:
+            if selected["status"] != "queued" or selected["id"] not in self.queue:
+                return True
             self.queue.remove(selected["id"])
             selected["status"], selected["code"] = "running", None
+            selected.pop("blocked", None)
             if not selected["started"]:
                 selected["baseline"] = list(activity.get("dirty_packages", []))
                 selected["started"] = True
@@ -389,6 +400,13 @@ class JobQueue:
 
     def _execute(self, job):
         operation = {}
+        if job.get("yield_versions") is not None and job.pop("yield_versions") != self._saved_versions(job):
+            with self.changed:
+                job.update(status="failed", code="RESUME_ASSET_CHANGED", execution="partial")
+                self.assets.release(job["id"])
+                self.writer = None
+                self._signal()
+            return
         before_dirty = set(self.activity.get("dirty_packages", []))
         job["segment_dirty"] = before_dirty
         job["segment_activities"] = {item["id"] if isinstance(item, dict) else item for item in self.activity.get("activities", [])}
@@ -421,6 +439,8 @@ class JobQueue:
                     self.assets.hold(job["id"], job["targets"] | job["owned_dirty"], "executing")
                     self._checkpoint(job)
             for index in range(job["completed"], len(job["operations"])):
+                if self._yield_operator(job):
+                    return
                 operation = job["operations"][index]
                 job["failed_index"] = index
                 job["effect_scope"] = asset_targets(operation.get("targets", []))
@@ -507,6 +527,10 @@ class JobQueue:
                 self._signal()
         except McpBusinessError as error:
             job["failure"] = copy.deepcopy(error.value)
+            job["failure"]["operation"] = job["failed_index"]
+            for need in job["failure"].get("needs", []):
+                if need["path"].startswith("/arguments"):
+                    need["path"] = "/operations/" + str(job["failed_index"]) + need["path"]
             if operation.get("access") == "read" and job["effects_completed"]:
                 self._recover(job, "READ_FAILED", "partial")
                 return
@@ -576,6 +600,62 @@ class JobQueue:
             if self.writer == job["id"]:
                 self.writer = None
             self._signal()
+
+    def _saved_versions(self, job):
+        """/** @param job	当前批次 @return 让行范围的磁盘版本 */"""
+        if not hasattr(self.backend, "project"):
+            return None
+        content = Path(self.backend.project) / "Content"
+        values = []
+        for package in sorted(job["targets"]):
+            if not package.startswith("/Game/"):
+                continue
+            base = content / package.removeprefix("/Game/")
+            if base.is_dir():
+                for path in sorted(base.rglob("*")):
+                    if path.suffix not in {".uasset", ".umap"} or not path.is_file():
+                        continue
+                    state = path.stat()
+                    values.append((str(path), state.st_size, state.st_mtime_ns))
+                continue
+            for suffix in (".uasset", ".umap"):
+                path = base.with_suffix(suffix)
+                state = path.stat() if path.is_file() else None
+                values.append((str(path), state.st_size if state else None, state.st_mtime_ns if state else None))
+        return values
+
+    def _yield_operator(self, job):
+        """/** @param job	当前批次 @return 已保存并让出执行槽 */"""
+        operators = self.clients.operators
+        cancel = job.get("cancel_requested") or operators.ended(job["owner"], job.get("operator"))
+        pause = operators.paused(job["owner"])
+        higher = False
+        with self.changed:
+            for candidate in ordered([self.jobs[identity] for identity in self.queue], operators):
+                if operators.level(candidate["owner"]) >= operators.level(job["owner"]):
+                    break
+                if conflicting_packages(job["targets"], candidate["targets"]):
+                    continue
+                if self._reason(candidate, self.activity) is None:
+                    higher = True
+                    break
+        if not cancel and not pause and not higher:
+            return False
+        if not self._save_owned(job):
+            self._recover(job, job.get("save_code", "SAVE_FAILED"), "partial", settle=False)
+            return True
+        with self.changed:
+            self.assets.release(job["id"])
+            job.update(status="queued", code="OPERATOR_PAUSED" if pause else "PRIORITY_YIELD")
+            if cancel:
+                job.update(status="cancelled", code="OPERATOR_CANCELLED", execution="partial")
+            if not cancel:
+                job["yield_versions"] = self._saved_versions(job)
+                self.queue.append(job["id"])
+            if self.writer == job["id"]:
+                self.writer = None
+            self._signal()
+        return True
 
     def _save_owned(self, job, current=None):
         """/** @param job	所属批次 @return 自有修改完成保存与回读 */"""
@@ -726,6 +806,37 @@ class JobQueue:
     def control(self, client, action, batch=None):
         """/** @param client	客户端 @param action	控制动作 @param batch	所属批次 @return 控制结果或恢复请求 */"""
         self.touch(client)
+        if action == "cancel_blocker":
+            self.clients.operators.require(client, level=0)
+            with self.changed:
+                job = self.jobs.get(batch)
+                if job is None:
+                    raise JobConflict("BATCH_UNKNOWN")
+                if batch == self.pie_batch and self.activity.get("pie_active"):
+                    contract = next(item for item in self.catalog.tools.values() if item["name"] == "StopPIE" or item.get("action") == "stop_pie")
+                    self.submit(client, [{"tool": contract["id"], "arguments": {}}], "结束指定PIE")
+                    self.clients.operators.record(client, action, batch, result="pie_stop_queued")
+                    return {"batch": batch, "status": "cancelling", "next": None}
+                if job["status"] == "running":
+                    job["cancel_requested"] = True
+                    self._checkpoint(job)
+                    self.clients.operators.record(client, action, batch, result="boundary_requested")
+                    self._signal()
+                    return {"batch": batch, "status": "cancelling", "next": None}
+                if job["status"] == "queued":
+                    if job["owned_dirty"] or job["await_activity"]:
+                        job["cancel_requested"] = True
+                        self._checkpoint(job)
+                        self.clients.operators.record(client, action, batch, result="cleanup_requested")
+                        self._signal()
+                        return {"batch": batch, "status": "cancelling", "next": None, "hint": "活动完成后自动保存并取消剩余操作"}
+                    self.queue.remove(batch)
+                    job.update(status="cancelled", code="OPERATOR_CANCELLED")
+                    self.assets.release(batch)
+                    self.clients.operators.record(client, action, batch, result="cancelled")
+                    self._signal()
+                    return self._job_view(job)
+                raise JobConflict("BATCH_ALREADY_FINISHED", {"next": None})
         if action == "shutdown_host":
             self.observe(force=True)
             with self.changed:
@@ -772,7 +883,11 @@ class JobQueue:
 
     def _job_view(self, job, detail=False):
         result = {"batch": job["id"], "status": job["status"], "completed": job["completed"]}
+        result["operator"] = self.clients.operators.identity(job["owner"])
+        result["level"] = self.clients.operators.level(job["owner"])
         result["revision"] = job.get("revision", 0)
+        result["owned_activities"] = sorted(key for key, owner in self.activity_owners.items() if owner == job["owner"])
+        result["host"] = {"verified": self.activity.get("host_verified", False)}
         if job["code"]:
             result["code"] = job["code"]
         if job.get("blocked"):
@@ -780,14 +895,13 @@ class JobQueue:
         failure = job.get("failure")
         if failure:
             result["failure"] = copy.deepcopy(failure)
-            if isinstance(failure, dict) and failure.get("code") == "ARGUMENT_INVALID":
-                result["hint"] = "按 failure.details 指出的字段路径补齐参数；调用 describe_tool 查询完整字段定义，再重新提交。"
-                result["next"] = "describe_tool"
+            result["next"] = failure.get("next")
+            result["execution"] = job.get("execution", failure.get("execution", {}).get("state", "unknown"))
         claim = self.assets.view(job["id"])
         if claim["packages"]:
             result["assets"] = {**claim, "count": len(claim["packages"]), "packages": claim["packages"] if detail else claim["packages"][:8]}
         if job["status"] == "queued":
-            result["ahead"] = self.queue.index(job["id"])
+            result["ahead"] = [row["id"] for row in ordered([self.jobs[identity] for identity in self.queue], self.clients.operators)].index(job["id"])
             if job["code"] == "ASSET_BUSY":
                 result["hint"] = "冲突资产正在自动协调；本批次将在占用释放后继续。"
             if job["code"] == "ASSET_SAVE_REQUIRED":
@@ -798,7 +912,7 @@ class JobQueue:
                 result["save_failure"] = copy.deepcopy(job["save_failure"])
             if job.get("recovery_failure"):
                 result["recovery_failure"] = copy.deepcopy(job["recovery_failure"])
-        if detail or job["status"] in {"completed", "failed"}:
+        if detail or job["status"] == "completed":
             result["results"] = copy.deepcopy(job["results"])
         if detail:
             result.update({"dirty": list(job["dirty"]), "failed_index": job["failed_index"]})
@@ -811,8 +925,8 @@ class JobQueue:
         if job.get("proof"):
             result["proof"] = copy.deepcopy(job["proof"])
         if "next" not in result:
-            result["next"] = "submit_batch" if job["status"] in {"completed", "rejected", "failed", "cancelled", "closed"} else "inspect_tasks"
-        return result
+            result["next"] = None
+        return response(result)
 
     def inspect(self, client, batch=None, detail=False, after_revision=None, wait_seconds=0):
         """/** @param client 客户端 @param batch 批次 @param detail 完整证据 @param after_revision 业务版本 @param wait_seconds 等待上限 @return 状态与下一步 */"""
@@ -833,7 +947,8 @@ class JobQueue:
                         if job is None or job["owner"] != client:
                             raise JobConflict("BATCH_OWNERSHIP")
                         return self._job_view(job, detail)
-                    result = {"revision": self.revision, "host": {"process_id": self.activity["process_id"], "exclusive": self.activity["host_exclusive"], "verified": self.activity["host_verified"]}, "status": "draining" if self.draining else "ready", "available": ["read", "prepare"], "queued": len(self.queue), "pie": bool(self.activity.get("pie_active")), "activities": len(self.activity.get("activities", [])), "dirty": len(self.activity.get("dirty_packages", [])), "next": "submit_batch"}
+                    result = {"revision": self.revision, "host": {"process_id": self.activity["process_id"], "exclusive": self.activity["host_exclusive"], "verified": self.activity["host_verified"]}, "status": "draining" if self.draining else "ready", "available": ["read", "prepare"], "queued": len(self.queue), "pie": bool(self.activity.get("pie_active")), "activities": len(self.activity.get("activities", [])), "dirty": len(self.activity.get("dirty_packages", [])), "next": None}
+                    result["owned_activities"] = sorted(key for key, owner in self.activity_owners.items() if owner == client)
                     blockers = [job for job in self.jobs.values() if job["status"] in {"running"}]
                     blockers.sort(key=lambda job: job["status"] != "running")
                     if blockers:
@@ -874,8 +989,8 @@ class JobQueue:
                         result["evidence"] = copy.deepcopy(self.activity)
                         result["batches"] = [{**self._job_view(job), "label": job["label"]} for job in self.jobs.values() if job["owner"] == client]
                     if self.draining:
-                        result["next"] = "inspect_tasks"
-                    return result
+                        result["next"] = None
+                    return response(result)
                 self.changed.wait(min(1, max(0, deadline - self.clock())))
 
     def _loop(self):

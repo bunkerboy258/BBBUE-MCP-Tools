@@ -97,6 +97,29 @@ class TestHostRoutingTests(unittest.TestCase):
         self.assertEqual(self.wait_finished(self.second, two)["status"], "completed")
         self.assertEqual([name for name, arguments in self.backend.calls], ["write", "save_assets"])
 
+    def test_waiting_test_hosts_follow_operator_priority(self):
+        """/** @return 已运行测试保持归属 空出容量后高级干员优先 */"""
+        self.jobs.limit = 1
+        pool = self.jobs.editor.clients.operators
+        pool.manage(self.first, task="运行中的测试")
+        pool.manage(self.second, task="普通排队测试")
+        high = self.jobs.connect()
+        pool.manage(high, task="高级排队测试", level=0)
+        active = self.submit_test(self.first)
+        self.wait_running(1)
+        low_batch = self.submit_test(self.second)
+        high_batch = self.submit_test(high)
+        self.hosts[0].backend.release.set()
+        self.wait_finished(self.first, active)
+        self.wait_running(2)
+        self.assertEqual(self.jobs.tests[high_batch]["host"], self.hosts[1].backend.process_id)
+        self.assertIsNone(self.jobs.tests[low_batch]["host"])
+        self.hosts[1].backend.release.set()
+        self.wait_finished(high, high_batch)
+        self.wait_running(3)
+        self.hosts[2].backend.release.set()
+        self.assertEqual(self.wait_finished(self.second, low_batch)["status"], "completed")
+
     def test_asset_write_rejected_before_host_launch(self):
         with self.assertRaises(JobConflict) as error:
             self.submit_test(self.first, [operation("write", asset="/Game/A")])
@@ -220,6 +243,22 @@ class TestHostRoutingTests(unittest.TestCase):
         self.jobs.control(self.first, "close", follow)
         self.jobs.control(self.first, "close", stop)
         self.assertEqual(self.jobs.contexts, {})
+
+    def test_compact_test_activity_state_changes_revision(self):
+        """/** @return 测试根批次的所属活动与核验变化更新紧凑版本 */"""
+        root = self.submit_test(self.first, [operation("StartPIE")])
+        self.wait_finished(self.first, root)
+        with self.jobs.condition:
+            context = self.jobs.contexts[root]
+            context["host_state"]["owned_activities"] = ["weapon:probe"]
+            active = self.jobs._view(self.jobs.tests[root])
+            context["host_state"]["owned_activities"] = []
+            finished = self.jobs._view(self.jobs.tests[root])
+        self.assertEqual(active["owned_activities"], ["weapon:probe"])
+        self.assertEqual(finished["owned_activities"], [])
+        self.assertTrue(finished["host"]["verified"])
+        self.assertGreater(finished["revision"], active["revision"])
+        self.jobs.control(self.first, "close", root)
 
     def test_completed_child_pruning_preserves_active_host_and_result(self):
         """/** @return 内层回收已完成子批次不关闭 PIE 外层仍保留原结果 */"""

@@ -48,20 +48,26 @@
 
 2026-10-14 PIE 对象反射调用先确认所有者类型 再与 PIE World 比较 避免动画实例与组件被错误转换成 World 可用于只读核对实际蒙太奇
 
-UE5.8 编辑器操作与任务调度。AI 使用五个入口；工具契约按当前目标读取。
+UE5.8 编辑器操作与任务调度。AI 使用六个入口；工具契约按当前目标读取。
 
 ## 调用
 
+- 会话开始：`manage_operator(task="整理蓝图")`；默认二级，任务说明单行二十字以内。
+- 当前同事：`inspect_tasks(operators=True)` 返回干员、等级、任务和状态。
+- 会话结束：`manage_operator(action="finish")`。
+
 - 已知工具：直接 `submit_batch`。
 - 新目标：`find_tools(query)` 返回最多三项，首项附带参数、默认值和完成条件。
-- 参数细节：`describe_tool(tool)`。
+- 参数细节：`describe_tool(tool)`；SDK 复用同版发现契约，目录版本变化时更新缓存。
 - 短调用：提交响应包含结果和证据。
-- 长调用：按响应的 `batch`、`revision`、`next` 继续。
+- 长调用：`next` 为完整的 `{tool, arguments}` 调用或 `null`；按业务版本等待。
+- 补充参数：`needs` 给出操作序号、字段路径与准确类型。
+- 执行证据：终态保留结果、保存和回读；普通进度仅返回紧凑状态。
 
 ```python
 from MCP.mcp_call import McpSession
 
-with McpSession() as session:
+with McpSession(task="核对资产") as session:
     result = session.submit_batch([
         {"tool": "editor.inspect_dirty_packages", "arguments": {}}
     ])
@@ -71,6 +77,23 @@ with McpSession() as session:
 ```
 
 `BBB_MCP_URL` 由启动器返回，默认固定入口为 `http://127.0.0.1:8000/mcp`。连接层维护客户端归属、心跳、服务自动启动和请求重放。
+
+## 干员与调度
+
+零级最高，一级次之，二级默认。同级按提交顺序执行。零级可主动登记 `level=0`，面板也可授予；等级持续到逻辑会话结束。HTTP 连接关闭与短脚本退出保留身份，SDK 使用同一个 `conversation_id` 或私有 `client_key` 接续。每个聊天使用独立标识。Codex 中提供 `task` 时自动采用当前 `CODEX_THREAD_ID`，其它客户端可传入自己的 `conversation_id`。
+
+高等级排队任务在可执行的操作边界优先进行。编辑批次先保存和回读再让行；同一资产的连续操作保持顺序。无关资产继续执行。运行中的原生调用在返回后进入调度边界。
+
+零级控制：
+
+```python
+session.control_task("pause_operator", operator="干员ID", lease_seconds=60)
+session.control_task("resume_operator", operator="干员ID")
+session.control_task("cancel_blocker", batch="批次ID")
+session.control_task("terminate_host", host="inspect_tasks 返回的宿主ID")
+```
+
+暂停默认六十秒，最多三百秒，到期自动恢复。定向终止由常驻服务核验进程代际并记录审计；宿主内存中的未保存修改随进程终止丢失。正常任务采用自动保存与回读交接。
 
 ## 编辑与测试
 
@@ -145,5 +168,31 @@ python -B Tests/verify_mcp_workflows.py --url $hostInfo.Endpoint --project-root 
 
 - 写入统一自动保存与回读，结果记录与资产占用分开管理。
 - 异常结果由网关自动核实，保存故障按资产退避恢复；客户端离开后继续收尾。
-- 公开控制动作统一为 cancel、close、shutdown_host；结果交付与后台资产恢复各自推进。
+- 公开控制支持批次取消、关闭、宿主退出及零级定向管理；结果交付与后台资产恢复各自推进。
 - 补齐地图、外部包、导入和引用改写的写入范围，清理全局脏包与审阅阻塞。
+
+## 2026-10-15 干员池与调用效率
+
+六入口协议、逻辑会话归属、零至二级调度、限时暂停、定向取消与宿主终止。发现索引缓存区分读取与修改意图，补齐五十二个工具说明；自动收尾按蓝图实际编译状态执行编译。
+
+工具详情按需附带三类短路线：属性配置、蓝图注释排版、武器运行时验收。每类说明所需输入、相近工具区别与完成证据。
+
+异步采样与玩法输入分开提交。采样启动批次完成后继续注入输入，再等待所属活动并读取采样事实：
+
+```python
+session.wait_activity("weapon:probe", batch=test_host)
+# 随后提交 animation.sample_weapon_handling_runtime 的 action=status 读取实际证据。
+```
+
+`test_host` 使用首次独立测试返回的身份。共享编辑器可携带采样批次身份。等待按业务版本推进，并核验宿主连接与所属活动。
+
+固定五十条、自然表达二十条和独立验证十条均首项命中。自然表达经历一次改进；十条独立验证在改进后首次测试。实际注册目录为 728 项；各组发现响应中位数约 0.9 KB。搜索命中率受语料范围影响。
+
+二十类完整任务通过本机 HTTP 与模拟 UE 执行端比较：可省往返场景 30→20 次请求，整体 52→41 次，返回体积约下降 33%，实际保存调用 10→10 次。覆盖参数修正、双会话资产交接、无关脏包、执行中断核实、图表快照过期和长任务结果。指标衡量协议往返与上下文体积；AI 思考时间及真实 UE 操作耗时由实际客户端时间线衡量。
+
+```powershell
+python -B Tests/benchmark_mcp_pipeline.py --profile candidate --report '<本任务目录>/pipeline.json'
+python -B Tests/benchmark_mcp_workflows.py --catalog '<当前目录缓存>' --suite validation --report '<本任务目录>/validation.json'
+```
+
+2026-10-15 交接验收：协议 6 常驻服务上线，原 UE 进程自动接回；真实双客户端验证默认二级、高级任务先执行、暂停排队与到期自动恢复、契约缓存及准确补参。面板恢复在线，等级授予回读通过。隔离检查为 172 项 MCP、5 项启动及 2 项面板检查。

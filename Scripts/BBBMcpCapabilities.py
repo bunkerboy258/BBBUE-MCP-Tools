@@ -9,6 +9,8 @@ import re
 
 from MCP.mcp_result import require_business_success, McpExecutionError
 from MCP.mcp_asset_scope import asset_targets
+from MCP.mcp_discovery import ALIASES, HINTS, SUMMARIES
+from MCP.mcp_workflows import guidance, ROUTES, PURPOSES
 from MCP.mcp_contracts import TOOL_POLICIES, compile_contract, default_arguments
 
 
@@ -580,55 +582,63 @@ class ToolCatalog:
         item["dependencies"] = []
         if item["definition"] in TOOL_DOMAINS and item["definition"].startswith("BBB"):
             item["dependencies"] = sorted(library + "." + function for library, functions in native_requirements(item["definition"], item["name"]).items() for function in functions)
+        item.setdefault("summary", item["name"].replace("_", " "))
+        if item["summary"] == item["name"] and item["id"] in SUMMARIES:
+            item["summary"] = SUMMARIES[item["id"]]
         self.tools[item["id"]] = item
+        self._search_cache = None
 
     def version(self):
         """/** @return 当前注册契约集合的确定版本 */"""
-        return hashlib.sha256(json.dumps(sorted((identity, item["version"]) for identity, item in self.tools.items())).encode()).hexdigest()[:12]
+        return hashlib.sha256(json.dumps([sorted((identity, item["version"], item["summary"]) for identity, item in self.tools.items()), ROUTES, PURPOSES], ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:12]
 
     def find(self, query, limit=3):
         """/** @param query 目标关键字 @param limit 结果上限 @return 候选工具 */"""
-        aliases = {
-            "蓝图": ("blueprint", "graph"), "逻辑": ("logic",), "图表": ("graph",),
-            "注释": ("annotate", "comment"), "节点": ("node",), "区块": ("annotate", "comment"),
-            "整理": ("layout", "optimize"), "排版": ("layout", "optimize"),
-            "布局": ("layout",), "优化": ("optimize", "layout"),
-            "读取": ("inspect", "read", "get"), "查询": ("inspect", "get", "find"),
-            "检查": ("inspect", "read", "get"), "获取": ("inspect", "read", "get"),
-            "动画": ("animation",), "蒙太奇": ("montage",), "换弹": ("reload",),
-            "运行时": ("runtime", "pie"), "验收": ("runtime", "sample", "capture"),
-            "测试": ("runtime", "sample", "capture"), "截图": ("capture", "render"),
-            "材质": ("material",), "属性": ("property", "properties"), "保存": ("save", "resave"),
-            "导入": ("import",), "骨骼": ("bone", "skeletal"), "重定向": ("retarget",),
-            "重定向器": ("retargeter",), "姿态": ("pose", "poses"), "片段": ("segment", "segments"),
-            "占用": ("activity", "task"), "删除": ("delete", "remove"), "移动": ("move",),
-            "碰撞": ("collision", "physics"), "通知": ("notify", "notifies"),
-        }
         normalized = query.casefold().strip()
-        groups = [values for word, values in aliases.items() if word in normalized]
+        groups = [values for word, values in ALIASES.items() if word in normalized]
+        tokens = set(re.findall(r"[a-z]+", normalized))
+        reading = any(word in normalized for word in ("读取", "查询", "检查", "获取", "查看", "列出", "查一下")) or bool(tokens & {"inspect", "get", "read", "list", "check", "show"})
+        writing = any(word in normalized for word in ("修改", "改一下", "设置", "添加", "增加", "创建", "删除", "保存", "导入", "导出", "移动", "重建", "调整", "注释", "布局", "排版", "整理", "摆整齐", "排整齐")) or bool(tokens & {"set", "edit", "add", "create", "delete", "configure", "annotate", "layout", "write", "save", "resave", "import", "export", "move", "rebuild"})
         groups.extend((token,) for token in re.findall(r"[a-z][a-z0-9]*(?:\.[a-z_]+)*", normalized) if token not in {"the", "a", "of", "for", "to", "and"} and not re.search(r"\d", token))
-        hints = {"animation.sample_weapon_handling_runtime": "reload equip runtime", "animation.run_pie_input_sequence": "reload input runtime", "blueprint.annotate_blueprint_graph": "node comment annotate layout optimize", "object.get_properties": "material asset properties inspect", "object.list_properties": "material asset properties fields", "object.set_properties": "material asset properties edit"}
+        cache = getattr(self, "_search_cache", None)
+        if cache is None or cache[0] is not self.tools:
+            entries = []
+            for contract in self.tools.values():
+                identity = contract["id"].casefold()
+                hint = HINTS.get(identity, "")
+                words = set((identity.replace(".", " ").replace("_", " ") + " " + hint).split())
+                text = (identity + " " + contract["summary"] + " " + hint).casefold()
+                text += " " + " ".join(str(value) for field in contract["parameters"].get("properties", {}).values() for value in field.get("enum", []))
+                entries.append((contract, identity, words, text))
+            cache = (self.tools, entries)
+            self._search_cache = cache
         candidates = []
-        for contract in self.tools.values():
-            identity = contract["id"].casefold()
-            words = set((identity.replace(".", " ").replace("_", " ") + " " + hints.get(identity, "")).split())
-            text = (identity + " " + contract["summary"] + " " + hints.get(identity, "")).casefold()
-            text += " " + " ".join(str(value) for field in contract["parameters"].get("properties", {}).values() for value in field.get("enum", []))
-            if identity == "blueprint.inspect_blueprint_graph":
-                words.update({"logic", "geometry", "overview"})
+        for contract, identity, words, text in cache[1]:
             score = 1000 if normalized == identity or normalized == contract["name"].casefold() else 0
             matched = 0
             for values in groups:
                 weight = max((12 if value in words else 6 if value in text else 0 for value in values), default=0)
-                score += weight
+                score += weight + (3 if values[0] in words else 0)
                 matched += bool(weight)
             for word in re.findall(r"[\u4e00-\u9fff]{2,}", normalized):
                 if word in contract["summary"]:
                     score += 8
             if matched:
                 score += 16 * matched / max(1, len(groups))
-            if any(word in normalized for word in ("读取", "查询", "检查", "获取", "inspect", "get", "read")):
+            if reading:
                 score += 8 if contract["access"] == "read" else -8
+            if writing and not reading:
+                score += 8 if contract["access"] != "read" else -8
+            if not reading and not writing:
+                score += 8 if contract["access"] == "read" else 0
+            if any(word in normalized for word in ("注释", "comment", "annotate", "区块")) or any("annotate" in group for group in groups):
+                score += 18 if "annotate" in words else 0
+            if any(word in normalized for word in ("布局", "排版", "layout", "整理")) and not any(word in normalized for word in ("注释", "comment", "annotate", "区块")):
+                score += 18 if "layout" in words else 0
+            if "通知" in normalized and not any(word in normalized for word in ("添加", "修改", "删除", "设置", "创建")):
+                score += 16 if contract["access"] == "read" else -16
+            if "验收" in normalized and "换弹" in normalized:
+                score += 12 if "acceptance" in words else 0
             if {"remove", "delete"} & words and not any(value in {"remove", "delete"} for group in groups for value in group):
                 score -= 12
             if score and (not groups or matched >= min(2, len(groups)) or score >= 1000):
@@ -652,7 +662,7 @@ class ToolCatalog:
         result["environments"] = ["editor"]
         if item["access"] in {"read", "pie"} or item["world"] == "pie" or "dry_run" in item["parameters"].get("properties", {}):
             result["environments"].append("test")
-        result["next"] = "submit_batch"
+        result.update(guidance(item, self.tools))
         return result
 
     def prepare(self, operations):
@@ -660,14 +670,14 @@ class ToolCatalog:
         if not isinstance(operations, list) or not 1 <= len(operations) <= 16:
             raise ValueError("BATCH_SIZE")
         prepared = []
-        for operation in operations:
+        for index, operation in enumerate(operations):
             if not isinstance(operation, dict) or set(operation) != {"tool", "arguments"}:
                 raise ValueError("OPERATION_SCHEMA")
             contract = self.tools.get(operation["tool"])
             if contract is None:
-                raise ValueError("TOOL_UNKNOWN")
+                raise ValueError("/operations/" + str(index) + "/tool: unknown tool")
             arguments = copy.deepcopy(operation["arguments"])
-            validate_arguments(arguments, contract["parameters"])
+            validate_arguments(arguments, contract["parameters"], "/operations/" + str(index) + "/arguments")
             arguments = default_arguments(contract, arguments)
             access, world = resolve_access(contract, arguments)
             if contract["id"] == "asset.save_assets" and not arguments.get("asset_paths"):

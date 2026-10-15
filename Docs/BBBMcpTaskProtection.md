@@ -16,7 +16,7 @@
 
 ## 调用
 
-提交后按批次 `revision` 等待。`completed`、`failed`、`rejected`、`cancelled` 为任务终态。`control_task` 提供 `cancel`、`close` 与空闲时的 `shutdown_host`。
+会话先登记干员池，默认二级；等级与同级提交时间决定排队顺序，编辑操作在保存回读边界让行。提交后按批次 `revision` 与完整 `next` 调用等待。`completed`、`failed`、`rejected`、`cancelled` 为任务终态。`control_task` 提供 `cancel`、`close` 与空闲时的 `shutdown_host`；零级可定向暂停干员、恢复干员、取消批次与核验后终止宿主。暂停最长三百秒，到期恢复；零级权限持续至逻辑会话结束。
 
 结果交付后后台资产恢复继续推进。测试宿主沿所属批次运行，输出交付后回收；输入资产版本变化触发重新验收。
 

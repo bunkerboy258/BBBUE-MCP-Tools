@@ -46,6 +46,9 @@ class ServiceTests(unittest.TestCase):
     """/** 真实 HTTP 入口与独立执行端的生命周期验收 */"""
 
     def setUp(self):
+        environment = patch.dict(os.environ, {"CODEX_THREAD_ID": ""})
+        environment.start()
+        self.addCleanup(environment.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.project = Path(self.temp.name) / "Game.uproject"
@@ -89,8 +92,60 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(state["connection"], "offline")
             self.assertEqual(state["service"], "ready")
             self.assertIsNone(state["host"]["process_id"])
-            self.assertEqual(len(client._post("tools/list", {})["result"]["tools"]), 5)
-        self.assertEqual(service_health(self.url)["protocol"], 5)
+            self.assertEqual(len(client._post("tools/list", {})["result"]["tools"]), 6)
+        self.assertEqual(service_health(self.url)["protocol"], 6)
+
+    def test_operator_registration_and_panel_grant_survive_transport_close(self):
+        """/** @return 初始化登记与面板授予在短连接之间保持 */"""
+        with McpSession(self.url, 5, task="蓝图整理") as first:
+            key = first.client_key
+            identity = first.operator["id"]
+            self.assertEqual(first.operator["level"], 2)
+            with McpSession(self.url, 5, task="面板管理", level=0) as admin:
+                admin.manage_operator(action="update", operator=identity, level=0)
+                rows = admin.inspect_tasks(operators=True)["operators"]["items"]
+                self.assertEqual(len(rows), 2)
+                self.assertNotIn(key, json.dumps(rows))
+        with McpSession(self.url, 5, client_key=key) as resumed:
+            self.assertEqual(resumed.operator["id"], identity)
+            self.assertEqual(resumed.operator["level"], 0)
+            resumed.manage_operator(action="finish")
+        with McpSession(self.url, 5, client_key=key, task="新任务") as fresh:
+            self.assertEqual(fresh.operator["level"], 2)
+            self.assertNotEqual(fresh.operator["id"], identity)
+
+    def test_privileged_host_control_requires_grade_and_exact_project_identity(self):
+        """/** @return 宿主无响应时管理动作仍由独立服务核验 */"""
+        self.attach(101)
+        host_id = self.registry.public()[0]["id"]
+        with McpSession(self.url, 5, task="普通任务") as first:
+            with self.assertRaises(McpBusinessError) as error:
+                first.control_task("terminate_host", host=host_id)
+            self.assertEqual(error.exception.value["code"], "OPERATOR_LEVEL_REQUIRED")
+        with McpSession(self.url, 5, task="管理宿主", level=0) as admin:
+            self.runtime.state = "unresponsive"
+            with patch("MCP.mcp_host_registry.terminate_process", return_value={"status": "terminated"}) as terminate:
+                result = admin.control_task("terminate_host", host=host_id)
+                self.assertEqual(result["process_id"], 101)
+                self.assertEqual(terminate.call_count, 1)
+                self.assertEqual(terminate.call_args.args[0]["created"], "101")
+            with patch("MCP.mcp_host_registry.terminate_process") as terminate:
+                with self.assertRaises(McpBusinessError):
+                    admin.control_task("terminate_host", host="101:old")
+                terminate.assert_not_called()
+
+    def test_sdk_conversation_restores_private_key_and_grade(self):
+        """/** @return 同一聊天重建 SDK 时恢复干员 */"""
+        with patch("MCP.mcp_service.service_directory", return_value=Path(self.temp.name) / "service"):
+            with McpSession(self.url, 5, task="测试归属", level=0, conversation_id="chat-1") as first:
+                key = first.client_key
+                identity = first.operator["id"]
+            with McpSession(self.url, 5, conversation_id="chat-1") as second:
+                self.assertEqual(second.client_key, key)
+                self.assertEqual(second.operator["id"], identity)
+                self.assertEqual(second.operator["level"], 0)
+            with McpSession(self.url, 5, task="另一个聊天", conversation_id="chat-2") as third:
+                self.assertNotEqual(third.client_key, key)
 
     def test_same_client_survives_attach_detach_and_new_editor(self):
         with McpSession(self.url, 5) as client:
@@ -121,7 +176,7 @@ class ServiceTests(unittest.TestCase):
             with self.assertRaises(McpBusinessError) as raised:
                 client.submit_batch([operation("read", asset="/Game/A")])
             self.assertEqual(raised.exception.value["code"], "EDITOR_OFFLINE")
-            self.assertEqual(raised.exception.value["next"], "inspect_tasks")
+            self.assertEqual(raised.exception.value["next"]["tool"], "inspect_tasks")
             self.assertEqual(raised.exception.value["retry_after_seconds"], 2)
 
     def test_origin_requests_are_rejected(self):

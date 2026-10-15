@@ -24,6 +24,7 @@ from MCP.mcp_clients import ClientRegistry
 from MCP.mcp_host_registry import HostRegistry, RegistryGuard, atomic_json, private_directory, process_identity, project_key
 from MCP.mcp_project_host import project_identity
 from MCP.mcp_result import McpBusinessError
+from MCP.mcp_response import response
 from MCP.mcp_task_gateway import TaskGateway, UnrealBackend, public_tools
 from MCP.mcp_test_hosts import TestHost, project_version
 
@@ -65,7 +66,7 @@ def service_health(url):
     opener = build_opener(ProxyHandler({}))
     with opener.open(Request(endpoint._replace(path="/health", query="", fragment="").geturl()), timeout=2) as response:
         value = json.load(response)
-    if value.get("service") != "BBB-MCP" or value.get("protocol") != 5:
+    if value.get("service") != "BBB-MCP" or value.get("protocol") != 6:
         raise RuntimeError("SERVICE_HANDOVER_REQUIRED")
     return value
 
@@ -319,7 +320,7 @@ class ProjectRuntime:
         with self.lock:
             if self.gateway is None or self.state != "ready":
                 raise McpBusinessError({"status": "waiting", "code": "EDITOR_CONNECTING" if self.state == "connecting" else "EDITOR_OFFLINE",
-                    "next": "inspect_tasks", "retry_after_seconds": 2, "hint": "编辑器接入后重新提交；使用 inspect_tasks 等待状态变为 ready"})
+                    "next": None, "retry_after_seconds": 2, "hint": "编辑器接入后重新提交；使用 inspect_tasks 等待状态变为 ready"})
             return self.gateway.jobs.submit(client, operations, label, environment, test_options, test_host)
 
     def inspect(self, client, batch=None, detail=False, after_revision=None, wait_seconds=0):
@@ -328,43 +329,80 @@ class ProjectRuntime:
         while True:
             with self.lock:
                 gateway = self.gateway
-                if gateway:
-                    value = gateway.jobs.inspect(client, batch, detail)
+            if gateway:
+                value = gateway.jobs.inspect(client, batch, detail)
+            with self.lock:
+                if gateway is not self.gateway:
+                    continue
                 if gateway is None:
                     value = {"revision": 0, "host": {"process_id": None, "verified": False, "exclusive": False},
                         "queued": 0, "pie": False, "activities": 0, "dirty": 0, "asset_occupancy": [],
-                        "tests": {"running": 0, "queued": 0, "limit": self.test_limit}}
+                        "tests": {"running": 0, "queued": 0, "limit": self.test_limit}, "owned_activities": []}
                     if batch:
                         stored = next((item for item in self.clients.stored_jobs() if item["id"] == batch and item["owner"] == self.clients.digest(client)), None)
                         if stored is None:
                             raise McpBusinessError({"status": "rejected", "code": "BATCH_OWNERSHIP"})
-                        value = {"batch": batch, "status": stored["status"], "completed": stored["completed"], "results": stored["results"], "next": "inspect_tasks"}
+                        value = {"batch": batch, "status": stored["status"], "completed": stored["completed"], "results": stored["results"], "next": None}
                 if batch is None:
                     value["connection"] = self.state
                     value["service"] = "ready"
                     value["hosts"] = self.registry.public()
                     if self.state != "ready":
-                        value.update(status=self.state, available=["prepare", "inspect"], next="inspect_tasks", retry_after_seconds=2)
+                        value.update(status=self.state, available=["prepare", "inspect"], next=None, retry_after_seconds=2)
                         value["host"] = {**value["host"], "verified": False}
                         if self.state == "offline":
                             value["host"]["process_id"] = None
                         value["stale"] = gateway is not None
-                    signature = (value.get("revision", 0), self.revision, self.registry.revision)
+                    signature = (value.get("revision", 0), self.revision, self.registry.revision, self.clients.operators.revision)
                     if signature != self.view_signature:
                         self.view_signature = signature
                         self.view_revision += 1
                     value["revision"] = self.view_revision
                 revision = value.get("revision", 0)
             if after_revision is None or after_revision != revision or time.monotonic() >= deadline:
-                return value
+                return response(value)
             time.sleep(min(0.2, max(0, deadline - time.monotonic())))
 
-    def control(self, client, action, batch=None):
-        """/** @param client 所属客户端 @param action 控制动作 @param batch 批次 @return 归属范围内的结果 */"""
+    def wake(self):
+        """/** @return 唤醒已连接宿主调度 */"""
         with self.lock:
-            if self.gateway is None:
-                raise McpBusinessError({"status": "waiting", "code": "EDITOR_OFFLINE", "next": "inspect_tasks"})
-            return self.gateway.jobs.control(client, action, batch)
+            gateway = self.gateway
+        if gateway:
+            gateway.jobs.wake()
+
+    def operator_jobs(self):
+        """/** @return 已连接的当前干员任务 */"""
+        with self.lock:
+            gateway = self.gateway
+        return gateway.jobs.operator_jobs() if gateway else []
+
+    def control(self, client, action, batch=None, operator=None, lease_seconds=60, host=None):
+        """/** @param client 所属客户端 @param action 控制动作 @param batch 批次 @return 归属范围内的结果 */"""
+        pool = self.clients.operators
+        if action in {"pause_operator", "resume_operator", "cancel_blocker", "terminate_host"}:
+            pool.require(client, level=0)
+        if action == "pause_operator":
+            value = pool.pause(client, operator, lease_seconds)
+            self.wake()
+            return value
+        if action == "resume_operator":
+            value = pool.resume(client, operator)
+            self.wake()
+            return value
+        if action == "terminate_host":
+            pool.record(client, action, host, result="requested")
+            try:
+                value = self.registry.terminate(self.project, host)
+            except Exception as error:
+                pool.record(client, action, host, result="failed", code=str(error))
+                raise
+            pool.record(client, action, host, result=value["status"])
+            return value
+        with self.lock:
+            gateway = self.gateway
+        if gateway is None:
+            raise McpBusinessError({"status": "waiting", "code": "EDITOR_OFFLINE", "next": None})
+        return gateway.jobs.control(client, action, batch)
 
 
 class McpService:
@@ -419,7 +457,7 @@ def make_service_server(service, port):
             if self.path != "/health" or not self.local_request():
                 self.send_error(403)
                 return
-            self.send_value(200, {}, {"service": "BBB-MCP", "protocol": 5, "process_id": os.getpid(),
+            self.send_value(200, {}, {"service": "BBB-MCP", "protocol": 6, "process_id": os.getpid(),
                 "projects": list(service.projects), "default": service.default})
 
         def do_POST(self):

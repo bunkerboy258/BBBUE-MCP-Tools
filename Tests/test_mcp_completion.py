@@ -40,7 +40,7 @@ class CompletionTests(unittest.TestCase):
         self.assertEqual(view["status"], "completed")
         self.assertEqual(saved, ["/Game/A"])
         self.assertEqual(self.backend.state["dirty_packages"], ["/Game/Other"])
-        self.assertEqual(view["next"], "submit_batch")
+        self.assertIsNone(view["next"])
 
     def test_failed_save_keeps_review_evidence(self):
         """/** @return 保存失败保留资产和核实状态 */"""

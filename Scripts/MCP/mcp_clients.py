@@ -34,6 +34,8 @@ class ClientRegistry(MutableMapping):
             self.database.execute("CREATE TABLE IF NOT EXISTS requests (owner TEXT, identity TEXT, fingerprint TEXT, outcome TEXT, finished REAL, PRIMARY KEY(owner, identity))")
             self.database.execute("CREATE TABLE IF NOT EXISTS jobs (identity TEXT PRIMARY KEY, owner TEXT, payload TEXT, updated REAL)")
             self.database.commit()
+        from MCP.mcp_operators import OperatorPool
+        self.operators = OperatorPool(self)
 
     def digest(self, key):
         """/** @param key\t私有凭证 @return 日志与持久状态使用的单向身份 */"""
@@ -102,11 +104,12 @@ class ClientRegistry(MutableMapping):
                 if key != resume_key and key not in referenced and deadline + 86400 < self.clock():
                     del self.deadlines[key]
             if resume_key is not None and (not isinstance(resume_key, str) or re.fullmatch(r"[A-Za-z0-9_-]{32,128}", resume_key) is None):
-                raise McpBusinessError({"status": "rejected", "code": "CLIENT_KEY_INVALID", "next": "reconnect"})
+                raise McpBusinessError({"status": "rejected", "code": "CLIENT_KEY_INVALID", "next": None})
             if resume_key not in self.deadlines and len(self.deadlines) >= 4096:
                 raise McpBusinessError({"status": "rejected", "code": "CLIENT_CAPACITY"})
             key = resume_key or secrets.token_urlsafe(32)
             self.deadlines[key] = self.clock() + 300
+            self.operators.touch(key)
             if self.database is not None:
                 self.database.execute("INSERT OR REPLACE INTO clients VALUES (?,?)", (self.digest(key), time.time()))
                 self.database.execute("DELETE FROM clients WHERE touched < ? AND digest NOT IN (SELECT owner FROM jobs)", (time.time() - 86400,))
@@ -117,8 +120,9 @@ class ClientRegistry(MutableMapping):
         """/** @param key\t客户端凭证 @return 续期完成 */"""
         with self.condition:
             if key not in self.deadlines:
-                raise McpBusinessError({"status": "rejected", "code": "CLIENT_KEY_INVALID", "next": "reconnect"})
+                raise McpBusinessError({"status": "rejected", "code": "CLIENT_KEY_INVALID", "next": None})
             self.deadlines[key] = self.clock() + 300
+            self.operators.touch(key)
             if self.database is not None:
                 self.database.execute("UPDATE clients SET touched=? WHERE digest=? AND touched < ?", (time.time(), self.digest(key), time.time() - 60))
                 self.database.commit()
@@ -154,7 +158,7 @@ class ClientRegistry(MutableMapping):
                 stored = self.database.execute("SELECT fingerprint,outcome,finished FROM requests WHERE owner=? AND identity=? AND finished>=?", (self.digest(owner), identity, time.time() - 3600)).fetchone()
                 if stored is not None:
                     record = {"fingerprint": stored[0], "finished": self.clock()}
-                    outcome = json.loads(stored[1]) if stored[1] else {"error": {"status": "failed", "code": "GATEWAY_RESTARTED", "next": "inspect_tasks"}}
+                    outcome = json.loads(stored[1]) if stored[1] else {"error": {"status": "failed", "code": "GATEWAY_RESTARTED", "next": None}}
                     record.update(outcome)
                     self.requests[key] = record
             if record is not None:
@@ -180,9 +184,9 @@ class ClientRegistry(MutableMapping):
             result = invoke()
         except BaseException as error:
             with self.condition:
-                record["error"] = copy.deepcopy(error.value) if isinstance(error, McpBusinessError) else {"status": "failed", "code": "EXECUTION_UNVERIFIED", "next": "inspect_tasks"}
+                record["error"] = copy.deepcopy(error.value) if isinstance(error, McpBusinessError) else {"status": "failed", "code": "EXECUTION_UNVERIFIED", "next": None}
                 if isinstance(error, (ValueError, KeyError, TypeError)):
-                    record["error"] = {"status": "rejected", "code": "ARGUMENT_INVALID", "details": str(error), "next": "describe_tool"}
+                    record["error"] = {"status": "rejected", "code": "ARGUMENT_INVALID", "details": str(error), "next": None}
                 record["finished"] = self.clock()
                 self._store_request(owner, identity, record)
                 self.condition.notify_all()

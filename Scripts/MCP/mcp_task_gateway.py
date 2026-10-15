@@ -17,33 +17,22 @@ from BBBMcpCapabilities import ToolCatalog, TOOL_DOMAINS, validate_arguments, wr
 from MCP.mcp_contracts import TOOL_POLICIES, backend_arguments
 from MCP.mcp_call import McpSession
 from MCP.mcp_jobs import JobQueue, JobConflict
+from MCP.mcp_response import response, argument_failure, next_call
 from MCP.mcp_asset_scope import asset_targets
 from MCP.mcp_project_host import project_identity
 from MCP.mcp_test_hosts import ProjectJobs
 from MCP.mcp_result import McpBusinessError, public_value, requested_values_match, property_schema, native_property_values
 
 
-def _argument_error_hint(details):
-    """/** @param details 参数核验原因 @return 面向 AI 的修正步骤 */"""
-    text = str(details)
-    if text.endswith(": required"):
-        field = text[:-len(": required")]
-        return f"补齐必填字段 {field}；先调用 describe_tool 查询该工具完整参数定义，再重新提交。"
-    if text.endswith(": additionalProperties"):
-        field = text[:-len(": additionalProperties")]
-        return f"移除未声明字段 {field}；调用 describe_tool 核对允许的字段，再重新提交。"
-
-    return "按 details 指出的字段位置修正参数；调用 describe_tool 查询完整参数定义，再重新提交。"
-
-
 def public_tools():
     """/** @return 唯一公开工具目录 */"""
     schemas = [
+        ("manage_operator", "登记单行任务 更新等级或结束逻辑会话 默认2级", {"action": {"type": "string", "enum": ["join", "update", "finish"], "default": "join"}, "task": {"type": "string", "minLength": 1, "maxLength": 20}, "level": {"type": "integer", "enum": [0, 1, 2]}, "operator": {"type": "string"}}, []),
         ("find_tools", "按中英文目标搜索 最多三项 首项包含调用参数", {"query": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1, "maximum": 3, "default": 3}}, ["query"]),
         ("describe_tool", "读取一个工具的参数与权限", {"tool": {"type": "string"}}, ["tool"]),
         ("submit_batch", "执行有序操作 短调用直接返回结果 长调用返回批次和下一步", {"operations": {"type": "array", "minItems": 1, "maxItems": 16, "items": {"type": "object", "properties": {"tool": {"type": "string"}, "arguments": {"type": "object"}}, "required": ["tool", "arguments"], "additionalProperties": False}}, "await_seconds": {"type": "number", "minimum": 0, "maximum": 10, "default": 2}, "label": {"type": "string", "maxLength": 120}, "environment": {"type": "string", "enum": ["editor", "test"], "default": "editor"}, "test_host": {"type": "string", "pattern": "^[0-9a-f]{16}$"}, "test_options": {"type": "object", "properties": {"map": {"type": "string", "pattern": "^/(Game|Engine)/[A-Za-z0-9_/]+$"}, "rendering": {"type": "boolean"}, "scene_performance": {"type": "boolean"}, "audio": {"type": "boolean"}, "players": {"type": "integer", "minimum": 1, "maximum": 8}, "net_mode": {"type": "string", "enum": ["standalone", "listen", "client"]}}, "required": ["map"], "additionalProperties": False}}, ["operations"]),
-        ("inspect_tasks", "读取占用与批次结果，支持按业务版本等待", {"batch": {"type": "string"}, "detail": {"type": "boolean"}, "after_revision": {"type": "integer", "minimum": 0}, "wait_seconds": {"type": "number", "minimum": 0, "maximum": 60}}, []),
-        ("control_task", "取消排队、交付结果或退出空闲宿主", {"action": {"type": "string", "enum": ["cancel", "close", "shutdown_host"]}, "batch": {"type": "string"}}, ["action"]),
+        ("inspect_tasks", "读取占用与批次结果 operators=true展开干员池", {"batch": {"type": "string"}, "detail": {"type": "boolean"}, "operators": {"type": "boolean"}, "after_revision": {"type": "integer", "minimum": 0}, "wait_seconds": {"type": "number", "minimum": 0, "maximum": 60}}, []),
+        ("control_task", "批次收尾 0级可暂停干员 取消阻塞批次或定向终止UE", {"action": {"type": "string", "enum": ["cancel", "close", "shutdown_host", "pause_operator", "resume_operator", "cancel_blocker", "terminate_host"]}, "batch": {"type": "string", "description": "cancel close cancel_blocker 的目标批次"}, "operator": {"type": "string", "description": "pause_operator resume_operator 的干员ID"}, "lease_seconds": {"type": "number", "minimum": 1, "maximum": 300, "default": 60}, "host": {"type": "string", "description": "terminate_host 使用 inspect_tasks.hosts.id"}}, ["action"]),
     ]
     return [{"name": name, "description": description, "inputSchema": {"type": "object", "properties": properties, "required": required, "additionalProperties": False}} for name, description, properties, required in schemas]
 
@@ -175,6 +164,17 @@ class UnrealBackend:
     def invoke(self, contract, arguments):
         """/** @param contract 目录项 @param arguments 核验后的参数 @return 业务结果 */"""
         toolset = contract["toolset"]
+        if contract["id"].startswith("blueprint.") and contract["access"] == "write" and arguments.get("graph_path"):
+            request = arguments.get("annotations", arguments.get("request", {}))
+            expected = arguments.get("expected_snapshot") or (request.get("expectedSnapshot") if isinstance(request, dict) else None)
+            inspector = self.catalog.tools.get("blueprint.inspect_blueprint_graph")
+            if expected and inspector is not None:
+                path = arguments["graph_path"]
+                current = self.invoke(inspector, {"graph_path": path, "view": "overview"})
+                if current["snapshot"] != expected:
+                    raise McpBusinessError({"status": "rejected", "code": "GRAPH_SNAPSHOT_CHANGED", "execution": {"state": "rejected"},
+                        "needs": [{"path": "/arguments", "rule": "按当前图表重新核实节点范围与修改方案"}],
+                        "next": next_call("submit_batch", operations=[{"tool": inspector["id"], "arguments": {"graph_path": path, "view": "logic"}}])})
         if self.remap:
             self._toolsets()
             candidates = [name for name in self.names if re.sub(r"_0x[0-9a-fA-F]{8}$", "", name.rsplit(".", 1)[-1]) == contract["definition"]]
@@ -192,7 +192,7 @@ class UnrealBackend:
                 validate_arguments(arguments["factory_properties"], {"type": "object", "properties": property_schema(properties), "additionalProperties": False}, "/arguments/factory_properties")
             except ValueError as error:
                 details = str(error)
-                raise McpBusinessError({"execution": {"state": "rejected"}, "code": "ARGUMENT_INVALID", "details": details, "hint": _argument_error_hint(details), "next": "describe_tool"}) from error
+                raise McpBusinessError({**argument_failure(details, {"type": "object", "properties": property_schema(properties)}, contract["id"], prefix="/arguments/factory_properties"), "execution": {"state": "rejected"}}) from error
             arguments = copy.deepcopy(arguments)
             arguments["factory_properties"] = native_property_values(arguments["factory_properties"], {"properties": properties})
         if requested is not None:
@@ -201,7 +201,7 @@ class UnrealBackend:
                 validate_arguments(requested["values"], {"type": "object", "properties": property_schema(properties), "additionalProperties": False}, "/arguments/values")
             except ValueError as error:
                 details = str(error)
-                raise McpBusinessError({"execution": {"state": "rejected"}, "code": "ARGUMENT_INVALID", "details": details, "hint": _argument_error_hint(details), "next": "describe_tool"}) from error
+                raise McpBusinessError({**argument_failure(details, {"type": "object", "properties": property_schema(properties)}, contract["id"], prefix="/arguments/values"), "execution": {"state": "rejected"}}) from error
             arguments = copy.deepcopy(arguments)
             arguments["values"] = native_property_values(requested["values"], {"properties": properties})
         if contract["id"] == "object.list_properties":
@@ -209,7 +209,8 @@ class UnrealBackend:
             version = hashlib.sha256(json.dumps(properties, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:12]
             offset = arguments.get("offset", 0)
             if (offset and not arguments.get("expected_version")) or (arguments.get("expected_version") and arguments["expected_version"] != version):
-                raise McpBusinessError({"execution": {"state": "rejected"}, "code": "PROPERTY_SCHEMA_CHANGED", "next": "submit_batch"})
+                refreshed = {**arguments, "offset": 0, "expected_version": ""}
+                raise McpBusinessError({"execution": {"state": "rejected"}, "code": "PROPERTY_SCHEMA_CHANGED", "next": next_call("submit_batch", operations=[{"tool": contract["id"], "arguments": refreshed}])})
             query = re.sub(r"[^a-z0-9]", "", arguments.get("query", "").casefold())
             names = sorted(name for name in properties if query in re.sub(r"[^a-z0-9]", "", name.casefold()))
             page = names[offset:offset + arguments.get("limit", 24)]
@@ -225,7 +226,7 @@ class UnrealBackend:
         if requested is not None:
             current = self.invoke(self.catalog.tools["object.get_properties"], {"instance": requested["instance"], "properties": list(requested["values"])})
             if not requested_values_match(public_value(requested["values"]), public_value(current)):
-                raise McpBusinessError({"execution": {"state": "partial"}, "code": "PROPERTY_READBACK_MISMATCH", "next": "inspect_tasks"})
+                raise McpBusinessError({"execution": {"state": "partial"}, "code": "PROPERTY_READBACK_MISMATCH", "next": None})
         return result
 
     def _property_definitions(self, instance):
@@ -245,11 +246,13 @@ class UnrealBackend:
             try:
                 before = self.invoke(inspector, {"asset_paths": [package], "property_names": []})["assets"][0]
                 if before["classPath"].endswith((".Blueprint", ".AnimBlueprint", ".ControlRigBlueprint")):
-                    self.invoke(self.catalog.tools["blueprint_base.compile_blueprint"], {"blueprint": package, "warnings_as_errors": False})
                     status = self.invoke(inspector, {"asset_paths": [package], "property_names": ["status"]})["assets"][0]
                     if status["propertyErrors"] or "BS_UP_TO_DATE" not in str(status["properties"].get("status", "")):
+                        self.invoke(self.catalog.tools["blueprint_base.compile_blueprint"], {"blueprint": package, "warnings_as_errors": False})
+                        proof["compiled"].append(package)
+                        status = self.invoke(inspector, {"asset_paths": [package], "property_names": ["status"]})["assets"][0]
+                    if status["propertyErrors"] or "BS_UP_TO_DATE" not in str(status["properties"].get("status", "")):
                         raise McpBusinessError({"code": "COMPILE_VALIDATION_FAILED", "asset": package})
-                    proof["compiled"].append(package)
                 self.invoke(self.catalog.tools["editor.resave_asset"], {"asset_path": package})
                 after = self.invoke(inspector, {"asset_paths": [package], "property_names": []})["assets"][0]
                 if after["assetPath"] != before["assetPath"]:
@@ -275,7 +278,7 @@ class UnrealBackend:
             if not directory.is_dir():
                 packages.add(target)
         if len(packages) > 5000:
-            raise JobConflict("ASSET_SCOPE_TOO_LARGE", {"next": "split_batch"})
+            raise JobConflict("ASSET_SCOPE_TOO_LARGE", {"next": None})
         if not packages:
             return set()
         result = self.invoke(self.catalog.tools["assets.inspect_asset_packages"], {"asset_paths": sorted(packages), "include_soft_referencers": True})
@@ -336,19 +339,33 @@ class TaskGateway:
         request_id = body.get("id")
         response_headers = {}
         def reply(value, error=False):
-            text = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
-            return 200, response_headers, {"jsonrpc": "2.0", "id": request_id, "result": {"content": [{"type": "text", "text": text}], "isError": error}}
+            text = json.dumps(response(value), ensure_ascii=False, separators=(",", ":"))
+            return 200, response_headers, {"jsonrpc": "2.0", "id": request_id, "result": {"content": [{"type": "text", "text": text}], "isError": error, "_meta": {"bbb/catalog_version": self.catalog.version()}}}
         try:
             if body.get("jsonrpc") != "2.0":
                 raise ValueError("JSONRPC_VERSION")
             parameters = body.get("params", {})
+            if not isinstance(parameters, dict):
+                parameters = {}
+                raise ValueError("/params: expected object")
             if body.get("method") == "initialize":
                 resume_key = parameters.get("_meta", {}).get("bbb/client_key")
                 recovered = self.clients.known(resume_key)
                 client = self.jobs.connect(resume_key)
+                operator = None
+                registration = parameters.get("_meta", {}).get("bbb/operator")
+                if registration is not None:
+                    validate_arguments(registration, {"type": "object", "properties": {"task": {"type": "string", "minLength": 1, "maxLength": 20}, "level": {"type": "integer", "enum": [0, 1, 2]}}, "required": ["task"], "additionalProperties": False})
+                    operator = self.clients.operators.manage(client, **registration)
+                if registration is None:
+                    with self.clients.condition:
+                        owner = self.clients.operators.owner(client)
+                        row = self.clients.operators.rows.get(owner)
+                        if row is not None and not row.get("ended"):
+                            operator = self.clients.operators.view(owner)
                 session_id = self.clients.bind(client)
                 response_headers["Mcp-Session-Id"] = session_id
-                return 200, response_headers, {"jsonrpc": "2.0", "id": request_id, "result": {"protocolVersion": "2025-11-25", "capabilities": {"tools": {}}, "serverInfo": {"name": "BBB-MCP", "version": "5"}, "_meta": {"bbb/client_key": client, "bbb/client_recovered": recovered, "bbb/catalog_version": self.catalog.version()}}}
+                return 200, response_headers, {"jsonrpc": "2.0", "id": request_id, "result": {"protocolVersion": "2025-11-25", "capabilities": {"tools": {}}, "serverInfo": {"name": "BBB-MCP", "version": "6"}, "_meta": {"bbb/client_key": client, "bbb/client_recovered": recovered, "bbb/catalog_version": self.catalog.version(), "bbb/operator": operator}}}
             client = self.clients.resolve(session_id)
             if client is None:
                 return 404, {}, {"error": "SESSION_REQUIRED"}
@@ -366,33 +383,68 @@ class TaskGateway:
             if name not in self.tools:
                 raise ValueError("TOOL_UNKNOWN")
             validate_arguments(arguments, self.tools[name]["inputSchema"])
+            if name == "control_task":
+                required = {"cancel": "batch", "close": "batch", "cancel_blocker": "batch", "pause_operator": "operator", "resume_operator": "operator", "terminate_host": "host"}.get(arguments["action"])
+                if required is not None and not arguments.get(required):
+                    raise ValueError("/arguments/" + required + ": required")
+            if name == "manage_operator":
+                identity = parameters.get("_meta", {}).get("bbb/request_id", session_id + ":" + str(request_id))
+                value = self.clients.replay(client, identity, {"name": name, "arguments": arguments}, lambda: self.clients.operators.manage(client, **arguments))
+                self.jobs.wake()
+                return reply(value)
             if name == "find_tools":
                 return reply(self.catalog.find(**arguments))
             if name == "describe_tool":
                 return reply(self.tools[arguments["tool"]] if arguments["tool"] in self.tools else self.catalog.describe(arguments["tool"]))
             if name == "submit_batch":
+                self.clients.operators.require(client)
                 identity = parameters.get("_meta", {}).get("bbb/request_id", session_id + ":" + str(request_id))
                 return reply(self.clients.replay(client, identity, {"name": name, "arguments": arguments}, lambda: self.submit(client, **arguments)))
             if name == "inspect_tasks":
-                return reply(self.jobs.inspect(client, **arguments))
+                arguments = dict(arguments)
+                include_pool = arguments.pop("operators", False)
+                value = self.jobs.inspect(client, **arguments)
+                if include_pool:
+                    value["operators"] = self.clients.operators.snapshot(self.jobs.operator_jobs(), 256)
+                return reply(value)
             identity = parameters.get("_meta", {}).get("bbb/request_id", session_id + ":" + str(request_id))
             return reply(self.clients.replay(client, identity, {"name": name, "arguments": arguments}, lambda: self.jobs.control(client, **arguments)))
         except McpBusinessError as error:
             value = copy.deepcopy(error.value)
-            if isinstance(value, dict) and value.get("code") == "ARGUMENT_INVALID":
-                details = value.get("details", value.get("error", ""))
-                value.setdefault("hint", _argument_error_hint(details))
-                value.setdefault("next", "describe_tool")
             return reply(value, True)
         except (ValueError, KeyError, TypeError) as error:
             details = str(error)
-            return reply({"status": "rejected", "code": "ARGUMENT_INVALID", "details": details, "hint": _argument_error_hint(details), "next": "describe_tool"}, True)
+            return reply(self._argument_failure(parameters, details), True)
         except Exception:
-            return reply({"status": "failed", "code": "HOST_UNVERIFIED", "next": "inspect_tasks"}, True)
+            return reply({"status": "failed", "code": "HOST_UNVERIFIED", "next": None}, True)
+
+    def _argument_failure(self, parameters, details):
+        """/** @param parameters	原始调用 @param details	校验原因 @return 可重放的完整补参证据 */"""
+        target = parameters.get("name", "initialize")
+        schema = self.tools.get(target, {}).get("inputSchema", {})
+        unknown = re.match(r"/operations/(\d+)/tool: unknown tool", details)
+        if target == "submit_batch" and unknown:
+            index = int(unknown.group(1))
+            identity = parameters["arguments"]["operations"][index]["tool"]
+            return {"status": "rejected", "code": "TOOL_UNKNOWN", "operation": index, "tool": identity,
+                    "next": next_call("find_tools", query=identity.replace(".", " ").replace("_", " "))}
+        if details == "TOOL_UNKNOWN":
+            return {"status": "rejected", "code": "TOOL_UNKNOWN", "needs": [{"path": "/params/name", "schema": {"enum": sorted(self.tools)}}], "next": None}
+        match = re.match(r"/operations/(\d+)/arguments", details)
+        if target == "submit_batch" and match:
+            index = int(match.group(1))
+            operations = parameters.get("arguments", {}).get("operations", [])
+            if index < len(operations):
+                target = operations[index].get("tool", target)
+                schema = self.catalog.tools.get(target, {}).get("parameters", {})
+        return argument_failure(details, schema, target)
 
     def submit(self, client, operations, label="", environment="editor", test_options=None, test_host=None, await_seconds=2):
         """/** @param client\t客户端 @param operations\t有序操作 @param label\t用途 @param environment\t宿主类别 @param test_options\t测试配置 @param test_host\t所属测试宿主 @param await_seconds\t短等待时间 @return 执行结果或唯一继续动作 */"""
-        accepted = self.jobs.submit(client, operations, label, environment, test_options, test_host)
+        try:
+            accepted = self.jobs.submit(client, operations, label, environment, test_options, test_host)
+        except ValueError as error:
+            raise McpBusinessError(self._argument_failure({"name": "submit_batch", "arguments": {"operations": operations}}, str(error))) from error
         if not await_seconds:
             return accepted
         deadline = time.monotonic() + await_seconds

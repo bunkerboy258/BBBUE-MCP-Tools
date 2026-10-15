@@ -4,11 +4,14 @@
 
 | 工具 | 输入 | 返回与继续方式 |
 | --- | --- | --- |
+| `manage_operator` | `task`、`level=2`、`action=join`；可指定 `operator` | 登记、更新或结束逻辑会话 |
 | `find_tools` | `query`；`limit=3` | 首项完整契约，其余候选简述 |
 | `describe_tool` | `tool` | 参数、默认值、权限、范围、依赖、完成条件与版本 |
 | `submit_batch` | `operations`；`await_seconds=2` | 已完成结果或待继续的批次 |
-| `inspect_tasks` | `batch`、`after_revision`、`wait_seconds`；`detail=false` | 占用、进度、结果与唯一下一步 |
-| `control_task` | `action`、`batch` | 取消排队、交付输出与宿主收尾 |
+| `inspect_tasks` | `batch`、`after_revision`、`wait_seconds`；`detail=false`、`operators=false` | 占用、进度、结果与唯一下一步 |
+| `control_task` | `action`、`batch`、`operator`、`lease_seconds`、`host` | 批次收尾与零级定向管理 |
+
+会话先登记单行二十字以内任务，默认二级。零级支持主动登记与面板授予，权限持续至逻辑会话结束。`manage_operator(action="finish")` 结束登记。`inspect_tasks(operators=true)` 返回干员池。调度按等级及同级提交时间执行，编辑操作在保存回读边界让行，同一资产保持操作顺序。
 
 操作格式：`{"tool":"领域.函数","arguments":{}}`，每批一至十六项。参数校验一次覆盖完整批次。对象和数组直接提交；对象引用使用路径字符串。
 
@@ -31,9 +34,9 @@
 
 `ASSET_SCOPE_REQUIRED` 在派发前指出范围缺失的工具。地图演员按地图及外部 Actor/Object 包协调；当前地图改变时返回 `EDITOR_WORLD_CHANGED`。
 
-`ARGUMENT_INVALID` 返回具体字段位置。校验阶段实际修改为零的批次立即结束；部分成功的批次保存已知修改并保留 `failure`。执行结果不确定时，自动核实证据写入 `proof.reconciled`，原执行状态继续标为 `unknown`。
+`ARGUMENT_INVALID` 的 `needs` 返回具体字段路径、操作序号与准确字段契约。校验阶段实际修改为零的批次立即结束；部分成功的批次保存已知修改并保留 `failure`。执行结果不确定时，自动核实证据写入 `proof.reconciled`，原执行状态继续标为 `unknown`。
 
-`control_task` 使用 `cancel`、`close`、`shutdown_host`。`close` 交付结果及所属测试输出；资产收尾由网关独立完成。读取结果和保留结果记录均保持资产可用。
+`control_task` 使用 `cancel`、`close`、`shutdown_host`。零级可用 `pause_operator`、`resume_operator`、`cancel_blocker`、`terminate_host` 定向管理；暂停默认六十秒，上限三百秒，到期恢复。宿主终止按进程代际核验并记录审计，未保存内存修改随进程退出丢失。`close` 交付结果及所属测试输出；资产收尾由网关独立完成。读取结果和保留结果记录均保持资产可用。
 
 ## 世界与测试
 
@@ -97,3 +100,11 @@
 ## 嵌套蓝图图表节点
 
 `blueprint.create_blueprint_graph_node` 通过目标图表自身的原生编辑器创建节点，支持状态转换等非直属图表。`node_type_id` 必须精确匹配该图可用类型；返回实际节点路径与引脚索引，后续使用 `blueprint_base.connect_pins` 连接。目标先经过项目资产写入校验，批次仍执行编译、保存与回读。
+
+## 精简继续调用
+
+`next` 为 `{tool, arguments}` 或 `null`，对象包含下一次公开调用的完整参数。`needs` 表示待补充字段；图表快照变化给出重新读取逻辑的调用，AI 按新快照重新分析后应用。
+
+SDK 缓存发现首项的完整契约，按响应 `catalog_version` 失效。工具详情按目标提供短用途、区别与完成条件；属性配置、蓝图注释、武器验收附带短路线。
+
+普通进度省略中间大结果，终态保留完整结果与保存回读证据。`owned_activities` 只列当前会话所属活动；`host.verified` 标明实际连接已核验。采样启动与采样活动分别完成，SDK `wait_activity("weapon:probe", batch=test_host)` 等待所属采样，之后读取采样状态事实。
