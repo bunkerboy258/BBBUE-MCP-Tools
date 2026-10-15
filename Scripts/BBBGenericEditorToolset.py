@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import struct
+from pathlib import Path
 
 import unreal
 
@@ -2404,7 +2405,8 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
     @mcp_tool
     @staticmethod
     def schedule_pie_actor_function(action: str, actor_path: str = "", function_name: str = "",
-        arguments_json: str = "[]", delay_seconds: float = 0.0) -> str:
+        arguments_json: str = "[]", delay_seconds: float = 0.0,
+        repeat_count: int = 1, interval_seconds: float = 0.0) -> str:
         """
         /**
          * 按 PIE 游戏时间调用公开 Actor 函数 避免网络往返改变测试动作时刻
@@ -2413,6 +2415,8 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
          * @param function_name	公开反射函数名称
          * @param arguments_json	位置参数数组 支持显式 Guid 标记
          * @param delay_seconds	游戏秒 延迟越大调用越晚 范围零至六十
+         * @param repeat_count	调用次数 一至六百 每个游戏更新最多调用一次
+         * @param interval_seconds	重复间隔游戏秒 零表示连续游戏更新 总时长最多六十秒
          * @return 实际调用时刻 返回值与失败原因 不保存资产
          */
         """
@@ -2425,6 +2429,10 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             raise RuntimeError("已有 PIE 定时调用尚未完成")
         if not math.isfinite(delay_seconds) or not 0 <= delay_seconds <= 60:
             raise RuntimeError("定时调用延迟必须为零至六十游戏秒")
+        if (not isinstance(repeat_count, int) or isinstance(repeat_count, bool) or not 1 <= repeat_count <= 600
+            or not math.isfinite(interval_seconds) or interval_seconds < 0
+            or delay_seconds + (repeat_count - 1) * interval_seconds > 60):
+            raise RuntimeError("重复调用需要有界次数与有限间隔 总时长最多六十游戏秒")
         world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
         actor = unreal.find_object(None, actor_path)
         arguments = json.loads(arguments_json)
@@ -2435,7 +2443,8 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         values = tuple(_function_argument(value) for value in arguments)
         start = unreal.GameplayStatics.get_time_seconds(world)
         state = {"state": "running", "actor": actor_path, "function": function_name,
-            "requestedTime": start + delay_seconds, "executedTime": None, "result": None, "errors": []}
+            "requestedTime": start + delay_seconds, "executedTime": None, "result": None, "errors": [],
+            "executedCount": 0, "calls": []}
         _pie_scheduled_actor_call = state
 
         def tick(delta_seconds):
@@ -2448,6 +2457,11 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
                     return
                 state["executedTime"] = now
                 state["result"] = _serialize_value(actor.call_method(function_name, values))
+                state["executedCount"] += 1
+                state["calls"].append({"time": now, "result": state["result"]})
+                if state["executedCount"] < repeat_count:
+                    state["requestedTime"] = now + interval_seconds
+                    return
                 state["state"] = "finished"
                 unreal.log("[BBBPIEScheduledCall] " + actor_path + " " + function_name + " Time=" + str(now))
             except Exception as error:

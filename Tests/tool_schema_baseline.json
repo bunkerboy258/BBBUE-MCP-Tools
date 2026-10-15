@@ -3674,6 +3674,32 @@
     }
   },
   "BBBGenericEditorToolset": {
+    "refresh_montage_links": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "自有蒙太奇路径"
+          }
+        },
+        "required": [
+          "asset_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "按当前片段刷新区段和通知链接的保存结果 不改变时刻"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
     "inspect_skeletal_mesh_skinning": {
       "inputSchema": {
         "type": "object",
@@ -4312,6 +4338,16 @@
             "type": "number",
             "default": 0.0,
             "description": "游戏秒 延迟越大调用越晚 范围零至六十"
+          },
+          "repeat_count": {
+            "type": "integer",
+            "default": 1,
+            "description": "调用次数 一至六百 每个游戏更新最多调用一次"
+          },
+          "interval_seconds": {
+            "type": "number",
+            "default": 0.0,
+            "description": "重复间隔游戏秒 零表示连续游戏更新 总时长最多六十秒"
           }
         },
         "required": [

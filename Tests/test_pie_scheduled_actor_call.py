@@ -99,6 +99,31 @@ class ScheduledActorCallTests(unittest.TestCase):
             self.start()
         self.assertEqual(self.call(action="status")["requestedTime"], 10.4)
 
+    def test_repeat_calls_once_per_update_and_records_actual_times(self):
+        """/** @return 延迟更新不会同帧补发多个调用 每次保留实际时刻 */"""
+        self.call(action="start", actor_path="/PIE/Controller", function_name="SubmitPrimaryUse",
+            repeat_count=3, interval_seconds=.1)
+        self.callback(.01)
+        self.time = 10.5
+        self.callback(.5)
+        self.assertEqual(self.actor.call_method.call_count, 2)
+        self.assertEqual(self.call(action="status")["state"], "running")
+        self.time = 10.6
+        self.callback(.1)
+        result = self.call(action="status")
+        self.assertEqual(result["state"], "finished")
+        self.assertEqual(result["executedCount"], 3)
+        self.assertEqual([item["time"] for item in result["calls"]], [10, 10.5, 10.6])
+        self.engine.unregister_slate_post_tick_callback.assert_called_once_with(7)
+
+    def test_invalid_repeat_bounds_rejected(self):
+        """/** @return 次数与总时长越界时不登记回调 */"""
+        for count, interval in [(0, 0), (601, 0), (True, 0), (2, math.inf), (3, 31), (2, -1)]:
+            with self.assertRaises(RuntimeError):
+                self.call(action="start", actor_path="/PIE/Controller", function_name="SubmitPrimaryUse",
+                    repeat_count=count, interval_seconds=interval)
+        self.engine.register_slate_post_tick_callback.assert_not_called()
+
     def test_invalid_delay_rejected_before_registration(self):
         """/** @return 非有限值与超限游戏秒被拒绝 */"""
         for value in [math.nan, math.inf, -1.0, 61.0]:
