@@ -29,6 +29,8 @@ def import_skeletal_animation_set(source_files_json, destination_path, mesh_name
         if not os.path.isabs(path) or not os.path.isfile(path) or os.path.islink(path) or not path.lower().endswith(".fbx"):
             raise RuntimeError("源必须为普通绝对路径 FBX: " + str(path))
         name = os.path.splitext(os.path.basename(path))[0].replace(" ", "_").replace(".", "_")
+        if name and name[0].isdigit():
+            name = "AN_" + name
         if not name.isidentifier() or name in names:
             raise RuntimeError("动画文件名无效或重复: " + name)
         names.append(name)
@@ -55,7 +57,7 @@ def import_skeletal_animation_set(source_files_json, destination_path, mesh_name
     options.original_import_type = unreal.FBXImportType.FBXIT_SKELETAL_MESH
     options.import_mesh = True
     options.import_as_skeletal = True
-    options.import_animations = False
+    options.import_animations = True
     options.import_materials = False
     options.import_textures = False
     options.create_physics_asset = False
@@ -71,7 +73,21 @@ def import_skeletal_animation_set(source_files_json, destination_path, mesh_name
         if not assets.save_loaded_asset(obj, only_if_is_dirty=False):
             raise RuntimeError("源网格或骨架保存失败")
     result = {"mesh": mesh.get_path_name(), "skeleton": skeleton.get_path_name(), "animations": []}
-    for path, name in zip(files, names):
+    initial_sequences = [obj for obj in imported if isinstance(obj, unreal.AnimSequence)]
+    for asset_path in assets.list_assets(destination_path + "/Meshes", recursive=False, include_folder=False):
+        sequence = assets.load_asset(asset_path)
+        if isinstance(sequence, unreal.AnimSequence) and sequence not in initial_sequences:
+            initial_sequences.append(sequence)
+    if len(initial_sequences) > 1:
+        raise RuntimeError("源网格 FBX 包含多个动画 需要拆分为单动作文件")
+    for sequence in initial_sequences:
+        if sequence.get_editor_property("skeleton") != skeleton or sequence.get_play_length() <= 0:
+            raise RuntimeError("源网格内动画骨架或时长无效")
+        sequence.set_preview_skeletal_mesh(mesh)
+        if not assets.save_loaded_asset(sequence, only_if_is_dirty=False):
+            raise RuntimeError("源网格内动画保存失败")
+        result["animations"].append({"asset": sequence.get_path_name(), "length": sequence.get_play_length()})
+    for path, name in zip(files[1:], names[1:]):
         options = unreal.FbxImportUI()
         options.automated_import_should_detect_type = False
         options.mesh_type_to_import = unreal.FBXImportType.FBXIT_ANIMATION
