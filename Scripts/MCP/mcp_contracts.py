@@ -38,6 +38,7 @@ INPUT_SHAPES = {
 TOOL_POLICIES = {
     'editor.set_pie_player_view': {'world': 'pie'},
     'editor.configure_data_asset': {'scope': {'fields': ['asset_path']}, 'completion': 'verified_save'},
+    'editor.refresh_montage_links': {'scope': {'fields': ['asset_path']}, 'completion': 'verified_save'},
     'editor.inspect_pie_character_runtime': {'access': 'read', 'world': 'pie'},
     'editor.repair_blueprint_function_references': {'scope': {'fields': ['asset_path']}, 'completion': 'verified_save'},
     'editor.configure_boolean_pose_overlay': {'scope': {'fields': ['blueprint_path']}, 'completion': 'verified_save'},

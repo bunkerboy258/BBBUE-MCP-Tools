@@ -374,6 +374,21 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def refresh_montage_links(asset_path: str) -> str:
+        """/** @param asset_path 自有蒙太奇路径 @return 按当前片段刷新区段和通知链接的保存结果 不改变时刻 */"""
+        from BBBAssetWritePolicy import require_write_access
+        asset = unreal.load_asset(asset_path)
+        if not asset_path.startswith('/Game/_Project/') or not isinstance(asset, unreal.AnimMontage):
+            raise RuntimeError('目标必须为自有蒙太奇')
+        require_write_access(asset)
+        if not unreal.BBBAssetRepairEditorLibrary.refresh_montage_links(asset):
+            raise RuntimeError('蒙太奇链接刷新失败')
+        if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
+            raise RuntimeError('蒙太奇保存失败')
+        return json.dumps({'asset': asset.get_path_name(), 'saved': True}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def repair_blueprint_function_references(asset_path: str, replacements_json: str) -> str:
         """
         /**
