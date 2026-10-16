@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [string]$ProjectPath,
@@ -75,7 +75,7 @@ try
         {
             $frames = $MaxFPS
         }
-        $editorArguments = @('"' + $projectFile + '"', '/Engine/Maps/Entry', '-Multiprocess', '-NoSplash', '-AutoDeclinePackageRecovery',
+        $editorArguments = @('"' + $projectFile + '"', '-Multiprocess', '-NoSplash', '-AutoDeclinePackageRecovery',
             "-BBBMcpServicePort=$Port", ('-BBBMcpServicePython="' + $PythonPath + '"'), "-BBBMcpPerformanceProfile=$PerformanceProfile", "-BBBMcpMaxFPS=$frames",
             '-ini:EditorPerProjectUserSettings:[/Script/ModelContextProtocolEngine.ModelContextProtocolSettings]:bAutoStartServer=False',
             ('-ExecCmds="t.MaxFPS ' + $frames + ',t.IdleWhenNotForeground 0"'))

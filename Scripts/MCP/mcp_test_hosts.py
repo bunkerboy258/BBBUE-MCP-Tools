@@ -154,7 +154,7 @@ class TestHost:
         self.server_port = free_port(socket.SOCK_DGRAM)
         port = free_port()
         key = secrets.token_hex(16)
-        arguments = [str(editor), str(project_file), "/Engine/Maps/Entry",
+        arguments = [str(editor), str(project_file), options["map"],
             "-BBBMcpHostRole=Test", "-BBBMcpTestId=" + batch,
             "-UserDir=" + str(self.directory), "-ShaderWorkingDir=" + str(self.directory / "Shaders"),
             "-abslog=" + str(self.directory / "Editor.log"),
