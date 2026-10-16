@@ -234,7 +234,12 @@ class McpSession:
         if version != self._catalog_version:
             self.invalidate_discovery()
             self._catalog_version = version
-        value = decode_tool_result(result)
+        try:
+            value = decode_tool_result(result)
+        except McpBusinessError as error:
+            if error.value.get("code") in {"OPERATOR_REQUIRED", "OPERATOR_DRAINING"}:
+                self.operator = None
+            raise
         if name == "manage_operator" and arguments.get("operator") is None:
             self.operator = value if arguments.get("action") != "finish" else None
         return value
@@ -341,6 +346,7 @@ class McpSession:
                 except requests.RequestException:
                     pass
             self._closed = True
+            self.operator = None
             self._http.close()
 
 

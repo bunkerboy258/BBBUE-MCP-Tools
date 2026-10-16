@@ -19,6 +19,7 @@ class OperatorPool:
         self.pauses = {}
         self.revision = 0
         self.audit = []
+        self.work_source = None
         database = clients.database
         if database is not None:
             database.execute("CREATE TABLE IF NOT EXISTS operators (owner TEXT PRIMARY KEY, payload TEXT)")
@@ -56,6 +57,7 @@ class OperatorPool:
 
     def manage(self, client, action="join", task=None, level=None, operator=None):
         """/** @param client 会话凭证 @param action 登记 更新或结束 @param task 单行任务 @param level 等级 @param operator 目标干员 @return 干员视图 */"""
+        self.collect()
         with self.lock:
             owner = self.owner(client)
             target = owner
@@ -68,11 +70,9 @@ class OperatorPool:
             row = self.rows.get(target)
             if action == "finish":
                 if row is None:
-                    raise McpBusinessError({"status": "rejected", "code": "OPERATOR_REQUIRED", "next": None})
-                row.update(ended=True, level=2, last_seen=self.clock())
-                self.pauses.pop(row["id"], None)
-                if self.clients.database is not None:
-                    self.clients.database.execute("DELETE FROM operator_pauses WHERE target=?", (row["id"],))
+                    return {"status": "released", "next": None}
+                row.update(ended=True, level=2, release_at=self.clock())
+                self._clear_pause(row["id"])
                 self._store(target)
                 self.revision += 1
                 self.record(client, action, row["id"])
@@ -85,15 +85,11 @@ class OperatorPool:
                 task = unicodedata.normalize("NFC", task).strip()
                 if not 1 <= len(task) <= 20 or "\n" in task or "\r" in task:
                     raise McpBusinessError({"status": "rejected", "code": "OPERATOR_TASK_INVALID", "hint": "task 使用单行 1 至 20 字符", "next": None})
-            if row is None or row.get("ended"):
-                if row is None and len(self.rows) >= 256:
-                    expired = [key for key, item in self.rows.items() if item.get("ended")]
-                    if not expired:
-                        raise McpBusinessError({"status": "rejected", "code": "OPERATOR_CAPACITY", "next": None})
-                    oldest = min(expired, key=lambda key: self.rows[key]["last_seen"])
-                    del self.rows[oldest]
-                    if self.clients.database is not None:
-                        self.clients.database.execute("DELETE FROM operators WHERE owner=?", (oldest,))
+            if row is not None and row.get("ended"):
+                raise McpBusinessError({"status": "rejected", "code": "OPERATOR_DRAINING", "hint": "所属工作收尾后重新登记", "next": None})
+            if row is None:
+                if len(self.rows) >= 256:
+                    raise McpBusinessError({"status": "rejected", "code": "OPERATOR_CAPACITY", "next": None})
                 if task is None:
                     raise McpBusinessError({"status": "rejected", "code": "OPERATOR_TASK_REQUIRED", "next": None})
                 row = {"id": secrets.token_hex(6), "task": task, "level": 2, "joined": self.clock(), "ended": False}
@@ -107,6 +103,42 @@ class OperatorPool:
             self.revision += 1
             self.record(client, action, row["id"], level=row["level"], task=row["task"])
             return self.view(target)
+
+    def _clear_pause(self, identity):
+        """/** @param identity 干员标识 @return 已释放暂停记录 */"""
+        self.pauses.pop(identity, None)
+        if self.clients.database is not None:
+            self.clients.database.execute("DELETE FROM operator_pauses WHERE target=?", (identity,))
+
+    def releasing(self, client):
+        """/** @param client 所属身份 @return 所属工作处于收尾阶段 */"""
+        with self.lock:
+            return bool(self.rows.get(self.owner(client), {}).get("ended"))
+
+    def collect(self, jobs=None):
+        """/** @param jobs 当前批次与资源归属 @return 已交接干员的回收结果 */"""
+        sampled_at = self.clock()
+        if jobs is None:
+            jobs = self.work_source() if self.work_source is not None else ()
+        busy = {self.owner(job["owner"]) for job in jobs if job.get("status") in {"queued", "running", "recovering"}}
+        with self.lock:
+            online = {self.owner(key) for key, deadline in self.clients.deadlines.items() if deadline > self.clients.clock()}
+            for owner, row in list(self.rows.items()):
+                expired = self.clock() - row.get("last_seen", 0) >= 300
+                if expired and (owner not in busy or owner not in online) and not row.get("ended"):
+                    row.update(ended=True, level=2, release_at=self.clock())
+                    self._clear_pause(row["id"])
+                    self._store(owner)
+                    self.revision += 1
+                    self.record("@" + owner, "lease_expired", row["id"])
+                if row.get("ended") and owner not in busy and row.get("release_at", 0) <= sampled_at:
+                    self.record("@" + owner, "released", row["id"])
+                    self._clear_pause(row["id"])
+                    del self.rows[owner]
+                    if self.clients.database is not None:
+                        self.clients.database.execute("DELETE FROM operators WHERE owner=?", (owner,))
+                        self.clients.database.commit()
+                    self.revision += 1
 
     def require(self, client, level=None):
         """/** @param client 会话身份 @param level 精确权限等级 @return 当前干员记录 */"""
@@ -149,8 +181,8 @@ class OperatorPool:
         with self.lock:
             row = self.rows.get(self.owner(client))
             if row is None:
-                return False
-            return row.get("ended", False) or identity is not None and row["id"] != identity
+                return identity is not None
+            return identity is not None and row["id"] != identity
 
     def pause(self, client, operator, seconds=60):
         """/** @param client 操作者 @param operator 目标干员 @param seconds 有界暂停租期 @return 暂停状态 */"""
@@ -199,9 +231,7 @@ class OperatorPool:
     def view(self, owner):
         """/** @param owner	单向归属 @return 脱敏干员状态 */"""
         row = self.rows[owner]
-        state = "ended" if row.get("ended") else "idle"
-        if state != "ended" and self.clock() - row.get("last_seen", 0) > 300:
-            state = "offline"
+        state = "releasing" if row.get("ended") else "idle"
         pause = self.paused("@" + owner)
         result = {key: row[key] for key in ("id", "task", "level")}
         result.update(state="paused" if pause else state, last_seen=row.get("last_seen"))
@@ -211,14 +241,16 @@ class OperatorPool:
 
     def snapshot(self, jobs=(), limit=16):
         """/** @param jobs 当前批次 @param limit 展示上限 @return 脱敏干员池 */"""
+        jobs = list(jobs)
+        self.collect(jobs)
         with self.lock:
-            rows = {owner: self.view(owner) for owner, row in self.rows.items() if not row.get("ended")}
+            rows = {owner: self.view(owner) for owner in self.rows}
             for job in jobs:
                 row = rows.get(self.owner(job["owner"]))
-                if row is None or job.get("status") not in {"queued", "running"}:
+                if row is None or job.get("status") not in {"queued", "running", "recovering"}:
                     continue
-                state = "running" if job["status"] == "running" else "waiting"
-                if row["state"] not in {"paused", "running"}:
+                state = {"running": "running", "queued": "waiting", "recovering": "releasing"}[job["status"]]
+                if row["state"] not in {"paused", "running", "releasing"}:
                     row.update(state=state, batch=job.get("id", job.get("batch")))
                     if job.get("code"):
                         row["reason"] = job["code"]

@@ -190,6 +190,7 @@ class ProjectRuntime:
         self.retry_at = 0
         state = private_directory(self.project_file.parent / "Saved/McpState")
         self.clients = ClientRegistry(state_path=state / "gateway.sqlite")
+        self.clients.operators.work_source = self.operator_jobs
         self.catalog = CachedCatalog(state / "catalog.json")
         self.protocol = object.__new__(TaskGateway)
         self.protocol.catalog = self.catalog
@@ -374,7 +375,14 @@ class ProjectRuntime:
         """/** @return 已连接的当前干员任务 */"""
         with self.lock:
             gateway = self.gateway
-        return gateway.jobs.operator_jobs() if gateway else []
+        if gateway:
+            return gateway.jobs.operator_jobs()
+        rows = []
+        for item in self.clients.stored_jobs():
+            active = item.get("status") in {"queued", "running"} or item.get("pie") or item.get("host_active") or item.get("activities") or item.get("owned_dirty") or item.get("coordination", {}).get("packages")
+            if active:
+                rows.append({"owner": "@" + item["owner"], "status": "recovering"})
+        return rows
 
     def control(self, client, action, batch=None, operator=None, lease_seconds=60, host=None):
         """/** @param client 所属客户端 @param action 控制动作 @param batch 批次 @return 归属范围内的结果 */"""
@@ -432,6 +440,7 @@ class McpService:
                 self.registry.refresh()
                 for context in list(self.projects.values()):
                     context.reconcile()
+                    context.clients.operators.collect()
             except Exception as error:
                 logging.error("host_monitor_failed type=%s", type(error).__name__)
             self.stop_event.wait(3)

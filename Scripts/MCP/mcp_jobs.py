@@ -54,6 +54,8 @@ class JobQueue:
         self.activity_retry_at = 0
         self.observe(force=True)
         self._restore_jobs()
+        if self.clients.operators.work_source is None:
+            self.clients.operators.work_source = self.operator_jobs
         if start_worker:
             self.worker = threading.Thread(target=self._loop, daemon=True, name="BBB-MCP-batches")
             self.worker.start()
@@ -228,6 +230,7 @@ class JobQueue:
     def submit(self, client, operations, label=""):
         """/** @param client 客户端 @param operations 完整批次 @param label 阶段用途 @return 即时接收结果 */"""
         self.touch(client)
+        registration = self.clients.operators.identity(client)
         prepared = self.catalog.prepare(operations)
         for item in prepared:
             if item["contract"].get("scope", {}).get("kind") == "world" and item["access"] != "read":
@@ -237,6 +240,10 @@ class JobQueue:
             if item["access"] == "write" and item["world"] == "editor" and not item.get("scoped"):
                 raise JobConflict("ASSET_SCOPE_REQUIRED", {"tool": item["contract"]["id"], "next": None})
         with self.changed:
+            if registration is not None:
+                current = self.clients.operators.require(client)
+                if current["id"] != registration:
+                    raise JobConflict("OPERATOR_REQUIRED")
             self._prune_results()
             if self.draining:
                 raise JobConflict("HOST_DRAINING")
@@ -321,10 +328,23 @@ class JobQueue:
         discarded = asset_targets(arguments.get("discard_dirty_packages", []))
         return arguments.get("dry_run", True) is False and bool(targets) and targets == discarded
 
+    def operator_jobs(self):
+        """/** @return 批次 保存恢复 持续活动及 PIE 的真实归属 */"""
+        with self.changed:
+            rows = [dict(row) for row in self.jobs.values()]
+            for row in rows:
+                if row["id"] in self.assets.claims and row["status"] not in {"queued", "running"}:
+                    row["status"] = "recovering"
+            rows.extend({"owner": owner, "status": "running"} for owner in self.activity_owners.values())
+            if self.pie_owner is not None:
+                rows.append({"id": self.pie_batch, "owner": self.pie_owner, "status": "running"})
+            return rows
+
     def run_once(self):
         """/** @return 执行一个可调度批次 */"""
         activity = self.observe()
-        if self.pie_owner is not None and (self.clock() >= self.clients.get(self.pie_owner, 0) or self.clients.operators.ended(self.pie_owner)) and self.clock() >= self.activity_retry_at and not self.draining:
+        closing_pie = self.pie_owner is not None and self.clients.operators.releasing(self.pie_owner) and not any(row["owner"] == self.pie_owner and row["status"] in {"queued", "running"} for row in self.jobs.values()) and self.pie_owner not in self.activity_owners.values()
+        if self.pie_owner is not None and (closing_pie or (self.clock() >= self.clients.get(self.pie_owner, 0) and not self.clients.operators.releasing(self.pie_owner)) or self.clients.operators.ended(self.pie_owner)) and self.clock() >= self.activity_retry_at and not self.draining:
             self.activity_retry_at = self.clock() + 30
             try:
                 contract = next(item for item in self.catalog.tools.values() if item["name"] == "StopPIE" or item.get("action") == "stop_pie")
@@ -342,7 +362,7 @@ class JobQueue:
             now = self.clock()
             for identity in list(self.queue):
                 job = self.jobs[identity]
-                if now >= self.clients.get(job["owner"], 0) or self.clients.operators.ended(job["owner"], job.get("operator")):
+                if (now >= self.clients.get(job["owner"], 0) and not self.clients.operators.releasing(job["owner"])) or self.clients.operators.ended(job["owner"], job.get("operator")):
                     job["status"], job["code"] = "cancelled", "CLIENT_EXPIRED"
                     if job["completed"] or job["owned_dirty"] or job["activities"]:
                         job["status"], job["execution"] = "failed", "partial"

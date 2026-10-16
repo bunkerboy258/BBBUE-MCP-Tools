@@ -38,15 +38,16 @@ class OperatorTests(unittest.TestCase):
             with self.assertRaises(McpBusinessError):
                 self.pool.manage(self.first, task=task)
 
-    def test_self_registration_and_panel_grant_survive_reconnect(self):
+    def test_registration_grade_survives_live_reconnect_and_expires_when_idle(self):
         """/** @return 短连接与长期离线保留授权等级 */"""
         self.pool.manage(self.second, operator=self.low["id"], level=0)
         self.queue.connect(self.first)
         self.pool.manage(self.first, task="继续整理")
         self.assertEqual(self.pool.level(self.first), 0)
         self.pool.clock = lambda: 10 ** 12
-        self.assertEqual(self.pool.level(self.first), 0)
-        self.assertEqual(self.pool.view(self.pool.owner(self.first))["state"], "offline")
+        self.pool.collect()
+        self.assertEqual(self.pool.level(self.first), 2)
+        self.assertEqual(self.pool.snapshot()["items"], [])
 
     def test_low_grade_cannot_control_other_operator(self):
         """/** @return 普通干员的管理权限边界 */"""
@@ -70,13 +71,14 @@ class OperatorTests(unittest.TestCase):
         self.assertEqual(self.queue.jobs[low]["status"], "completed")
         self.assertEqual(self.pool.level(self.second), 0)
 
-    def test_finish_clears_privilege_and_cancels_queued_work(self):
+    def test_finish_clears_privilege_and_drains_queued_work(self):
         """/** @return 会话结束清理权限与排队任务 */"""
         batch = self.queue.submit(self.second, [operation("read")])["batch"]
         identity = self.high["id"]
         self.pool.manage(self.second, action="finish")
         self.queue.run_once()
-        self.assertEqual(self.queue.jobs[batch]["status"], "cancelled")
+        self.assertEqual(self.queue.jobs[batch]["status"], "completed")
+        self.pool.collect()
         self.assertEqual(self.pool.level(self.second), 2)
         row = self.pool.manage(self.second, task="新任务")
         self.assertNotEqual(identity, row["id"])

@@ -116,13 +116,14 @@ class ClientRegistry(MutableMapping):
                 self.database.commit()
             return key
 
-    def touch(self, key):
+    def touch(self, key, operator=True):
         """/** @param key\t客户端凭证 @return 续期完成 */"""
         with self.condition:
             if key not in self.deadlines:
                 raise McpBusinessError({"status": "rejected", "code": "CLIENT_KEY_INVALID", "next": None})
             self.deadlines[key] = self.clock() + 300
-            self.operators.touch(key)
+            if operator:
+                self.operators.touch(key)
             if self.database is not None:
                 self.database.execute("UPDATE clients SET touched=? WHERE digest=? AND touched < ?", (time.time(), self.digest(key), time.time() - 60))
                 self.database.commit()
@@ -138,7 +139,11 @@ class ClientRegistry(MutableMapping):
     def unbind(self, session):
         """/** @param session\tHTTP 会话身份 @return 释放传输引用 */"""
         with self.condition:
-            self.sessions.pop(session, None)
+            key = self.sessions.pop(session, None)
+            final = key is not None and key not in self.sessions.values()
+        if final and self.operators.identity(key) is not None:
+            self.operators.manage(key, action="finish")
+            self.operators.collect()
 
     def resolve(self, session):
         """/** @param session\tHTTP 会话身份 @return 客户端凭证 */"""

@@ -348,6 +348,7 @@ class TaskGateway:
             if not isinstance(parameters, dict):
                 parameters = {}
                 raise ValueError("/params: expected object")
+            self.clients.operators.collect()
             if body.get("method") == "initialize":
                 resume_key = parameters.get("_meta", {}).get("bbb/client_key")
                 recovered = self.clients.known(resume_key)
@@ -369,7 +370,10 @@ class TaskGateway:
             client = self.clients.resolve(session_id)
             if client is None:
                 return 404, {}, {"error": "SESSION_REQUIRED"}
-            self.jobs.touch(client)
+            if body.get("method") == "ping":
+                self.clients.touch(client, operator=False)
+            if body.get("method") != "ping":
+                self.jobs.touch(client)
             if body.get("method") == "notifications/initialized":
                 return 202, {}, None
             if body.get("method") == "ping":

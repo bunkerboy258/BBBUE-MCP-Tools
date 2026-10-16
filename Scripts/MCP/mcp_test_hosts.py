@@ -272,6 +272,8 @@ class ProjectJobs:
         self.detaching = False
         self.stopping = False
         self._restore_tests()
+        if getattr(self.editor.clients.operators.work_source, "__self__", None) is self.editor:
+            self.editor.clients.operators.work_source = self.operator_jobs
 
     def connect(self, resume_key=None):
         key = self.editor.connect(resume_key)
@@ -346,13 +348,11 @@ class ProjectJobs:
     def operator_jobs(self):
         """/** @return 适合干员池展示的当前任务快照 */"""
         with self.editor.changed:
-            jobs = [dict(row) for row in self.editor.jobs.values()]
-            if self.editor.pie_owner:
-                jobs.append({"id": self.editor.pie_batch, "owner": self.editor.pie_owner, "status": "running"})
+            jobs = self.editor.operator_jobs()
         with self.condition:
             jobs.extend(dict(row) for row in self.tests.values())
             for context in self.contexts.values():
-                if context["state"] in {"starting", "running", "recovering"}:
+                if context["state"] != "closed":
                     jobs.append({"id": context["id"], "owner": context["owner"], "status": "running"})
         return jobs
 
@@ -420,7 +420,7 @@ class ProjectJobs:
                 continue
             if self.editor.clients.operators.paused(context["owner"]):
                 continue
-            if time.monotonic() >= self.editor.clients.get(context["owner"], 0) or self.editor.clients.operators.ended(context["owner"]):
+            if (time.monotonic() >= self.editor.clients.get(context["owner"], 0) and not self.editor.clients.operators.releasing(context["owner"])) or self.editor.clients.operators.ended(context["owner"]):
                 context["state"] = "closed"
                 for record in self._records(context):
                     record.update(status="cancelled", code="CLIENT_EXPIRED", finished=True)
@@ -480,7 +480,8 @@ class ProjectJobs:
                 with self.editor.changed:
                     expires = self.editor.clients.get(context["owner"], 0)
                     queue.clients[context["owner"]] = expires
-                if time.monotonic() >= expires or self.editor.clients.operators.ended(context["owner"]):
+                closing = self.editor.clients.operators.releasing(context["owner"]) and not any(row["status"] in {"queued", "running"} for row in self._records(context)) and context["owner"] not in queue.activity_owners.values() and not queue.assets.claims
+                if closing or (time.monotonic() >= expires and not self.editor.clients.operators.releasing(context["owner"])) or self.editor.clients.operators.ended(context["owner"]):
                     context["close_requested"] = True
                     break
                 with self.condition:
