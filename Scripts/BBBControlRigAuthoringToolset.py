@@ -1557,16 +1557,20 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
 
         keys = json.loads(keys_json)
         source_groups = {}
+        hierarchy = rig.get_hierarchy()
         for key in keys:
             frame = unreal.FrameNumber(value=key["frame"])
             value = key["value"]
             if isinstance(value, dict):
                 # 原姿势控制器无父级且无偏移 直接写入组件姿势 避免世界空间接口依赖预览角色绑定而静默漏写
-                if key["control"].startswith("source_"):
-                    source_groups.setdefault(key["control"], []).append(key)
-                    continue
-
-                unreal.ControlRigSequencerLibrary.set_control_rig_world_transform(sequence, rig, key["control"], frame, _transform(value), set_key=True)
+                element = _key(key["control"], "CONTROL")
+                if not hierarchy.contains(element) or hierarchy.get_control_settings(element).control_type != unreal.RigControlType.EULER_TRANSFORM:
+                    raise RuntimeError("组件空间写键要求明确的欧拉变换控制器 " + key["control"])
+                if hierarchy.get_parents(element):
+                    raise RuntimeError("组件空间批量写键要求无父级控制器 " + key["control"])
+                offset = hierarchy.get_global_control_offset_transform(element, True)
+                local = _transform(value).make_relative(offset)
+                source_groups.setdefault(key["control"], []).append({"frame": key["frame"], "value": _read_transform(local)})
                 continue
 
             unreal.ControlRigSequencerLibrary.set_local_control_rig_float(sequence, rig, key["control"], frame, value, set_key=True)

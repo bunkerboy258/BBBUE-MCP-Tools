@@ -197,7 +197,12 @@ class ControlRigSequenceLifecycleTests(unittest.TestCase):
         namespace = {"unreal": self.engine, "json": json, "require_write_access": self.access,
                      "_asset": lambda path, kind: {"Sequence": self.sequence, "Rig": self.asset, "Mesh": self.mesh}[path],
                      "_mesh_binding": lambda sequence, mesh: self.binding}
+        self.rig.get_hierarchy.return_value.get_parents.return_value = []
+        self.rig.get_hierarchy.return_value.get_control_settings.return_value.control_type = self.engine.RigControlType.EULER_TRANSFORM
+        namespace["_key"] = lambda name, kind: name
+        namespace["_read_transform"] = lambda value: {}
         exec(compile(ast.Module(body=[method], type_ignores=[]), "sequence_lifecycle_test", "exec"), namespace)
+        self.namespace = namespace
         self.configure = namespace[method.name]
 
     def open(self, sequence):
@@ -225,6 +230,42 @@ class ControlRigSequenceLifecycleTests(unittest.TestCase):
         """/** @return 官方 API 静默漏写时阻止保存 */"""
         with self.assertRaises(RuntimeError):
             self.configure("Sequence", "Rig", json.dumps([{"frame": 0, "control": "Weight", "value": 1.0}]), False, "Mesh")
+        self.engine.EditorAssetLibrary.save_loaded_asset.assert_not_called()
+
+    def test_component_transform_removes_control_offset_before_local_keying(self):
+        """/** @return 组件姿势扣除真实控制偏移且不经过预览演员世界空间 */"""
+        hierarchy = self.rig.get_hierarchy.return_value
+        hierarchy.get_parents.return_value = []
+        self.namespace["_key"] = lambda name, kind: name
+        component = Mock()
+        local = Mock()
+        component.make_relative.return_value = local
+        self.namespace["_transform"] = lambda value: component if value == {"position": [10, 20, 30]} else local
+        self.namespace["_read_transform"] = lambda value: {"local": True}
+        hierarchy.get_control_settings.return_value.control_type = self.engine.RigControlType.EULER_TRANSFORM
+        actual = Mock()
+        actual.location = MagicMock()
+        (actual.location - local.translation).length.return_value = 0.0
+        actual.rotation.quaternion.return_value = MagicMock()
+        (actual.rotation.quaternion() * local.rotation.inversed()).w = 1.0
+        self.engine.ControlRigSequencerLibrary.get_local_control_rig_euler_transforms.return_value = [actual]
+        self.track.get_sections.return_value = [Mock(get_all_channels=Mock(return_value=[Mock(get_keys=Mock(return_value=[object()]))]))]
+
+        self.configure("Sequence", "Rig", json.dumps([{"frame": 7, "control": "hand_l_ik_ctrl", "value": {"position": [10, 20, 30]}}]), False, "Mesh")
+
+        component.make_relative.assert_called_once_with(hierarchy.get_global_control_offset_transform.return_value)
+        hierarchy.get_global_control_offset_transform.assert_called_once_with("hand_l_ik_ctrl", True)
+        self.engine.ControlRigSequencerLibrary.set_local_control_rig_euler_transforms.assert_called_once()
+        self.engine.ControlRigSequencerLibrary.set_control_rig_world_transform.assert_not_called()
+
+    def test_parented_component_control_is_rejected_before_save(self):
+        """/** @return 父级控制器不能被当成独立组件空间静默写入 */"""
+        hierarchy = self.rig.get_hierarchy.return_value
+        hierarchy.get_parents.return_value = ["MovingParent"]
+        hierarchy.get_control_settings.return_value.control_type = self.engine.RigControlType.EULER_TRANSFORM
+        self.namespace["_key"] = lambda name, kind: name
+        with self.assertRaisesRegex(RuntimeError, "无父级"):
+            self.configure("Sequence", "Rig", json.dumps([{"frame": 7, "control": "hand_l_ik_ctrl", "value": {"position": [10, 20, 30]}}]), False, "Mesh")
         self.engine.EditorAssetLibrary.save_loaded_asset.assert_not_called()
 
     def test_write_denied_before_sequencer_open(self):

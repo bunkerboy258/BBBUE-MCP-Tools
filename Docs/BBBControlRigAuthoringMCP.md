@@ -127,4 +127,6 @@ MCP 调用须显式传入 `controller_path` 使用默认玩家时传空字符串
 
 # 序列源动作替换
 
+`configure_sequence_rig` 的变换键统一使用角色组件空间，仅接受无父级的欧拉变换控制器。写键先扣除控制器真实初始偏移，再调用官方局部欧拉通道批量接口并逐帧回读；不再经过预览演员世界变换，避免编辑器预览位置引入固定握把误差。带父级控制器明确拒绝，不能按无父级姿势静默保存。源动作重建须按序列显示帧率生成秒值调用 `sample_animation_poses`；`build_pose_control_keys` 的帧号属于源动画原生采样率，不能直接当作不同帧率的序列帧号。
+
 `control_rig.configure_sequence_animation_source(sequence_path, animation_path, mesh_path)` 原位替换角色唯一源动作 要求源动作与网格骨架一致 播放区间和原全长片段随源长度更新 已有控制器与局部附件区间保留 非叠加 Rig 的源姿势控制器需要随后按新动作重写 再烘焙回读 禁止将只替换源片段视为完成矫正
