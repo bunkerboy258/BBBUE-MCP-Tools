@@ -54,6 +54,7 @@ MCP_INPUTS = {
             'properties': {
                 'schemaVersion': {'type': 'integer', 'const': 2},
                 'runId': {'type': 'string'},
+                'targetController': {'type': 'string'},
                 'timingMode': {'type': 'string', 'const': 'game_frames'},
                 'steps': {
                     'type': 'array',
@@ -70,6 +71,7 @@ MCP_INPUTS = {
                                     'run': {'type': 'boolean'},
                                     'aim': {'type': 'boolean'},
                                     'fire': {'type': 'boolean'},
+                                    'keys': {'type': 'array', 'items': {'type': 'string'}, 'maxItems': 16},
                                 },
                                 'required': [],
                                 'additionalProperties': False,

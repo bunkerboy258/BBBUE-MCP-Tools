@@ -370,7 +370,7 @@ def capture(animation_path, mesh_path, time_seconds, focus_bone, camera_offset, 
         settings.set_editor_property("auto_exposure_bias", 10.0)
         capture_component.set_editor_property("post_process_settings", settings)
         capture_component.capture_scene()
-        directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "Diagnostics", "ArmTwist", "Captures"))
+        directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "temp", "AnimationPoseCaptures"))
         os.makedirs(directory, exist_ok=True)
         path = os.path.join(directory, file_name)
         if os.path.exists(path):
@@ -540,7 +540,7 @@ def capture_pie_bone(focus_bone, camera_offset, file_name):
         component.set_editor_property("capture_source", unreal.SceneCaptureSource.SCS_FINAL_COLOR_LDR)
         component.set_editor_property("fov_angle", 45.0)
         component.capture_scene()
-        directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "Diagnostics", "ArmTwist", "Captures"))
+        directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "temp", "AnimationPoseCaptures"))
         os.makedirs(directory, exist_ok=True)
         path = os.path.join(directory, file_name)
         if os.path.exists(path):

@@ -36,6 +36,19 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
+    'editor.create_particle_surface_material': {'scope': {'fields': ['material_path']}},
+    'editor.configure_niagara_parameters': {'scope': {'fields': ['system_path']}},
+    'editor.configure_niagara_particle_stage': {'scope': {'fields': ['system_path']}},
+    'editor.configure_niagara_burst_layer': {'scope': {'fields': ['system_path']}},
+    'editor.inspect_niagara_parameters': {'access': 'read'},
+    'editor.get_pie_view_recording_status': {'access': 'read'},
+    'editor.record_pie_player_view': {'access': 'pie', 'world': 'pie', 'scope': {'kind': 'session'}, 'completion': 'activity'},
+    'editor.configure_asset_properties': {'scope': {'fields': ['asset_path']}},
+    'traversal.configure_pie_traversal_network': {'world': 'any'},
+    'assets.delete_unreferenced_project_assets': {'scope': {'fields': ['asset_paths']}},
+    'editor.configure_action_montage': {'scope': {'fields': ['asset_path']}},
+    'editor.spawn_pie_niagara_instances': {'access': 'pie', 'world': 'pie', 'scope': {'kind': 'session'}, 'completion': 'observed'},
+    'assets.restore_missing_animation_notify_classes': {'scope': {'fields': ['asset_paths']}},
     'editor.audit_animation_library_batch': {'access': 'read', 'world': 'any'},
     'editor.clone_retargeter_for_source_mesh': {'scope': {'fields': ['source_rig_path', 'retargeter_path']}},
     'editor.import_animation_library_batch': {'scope': {'rows': ['requests', 'asset_path']}},
@@ -401,7 +414,7 @@ TOOL_POLICIES = {
     'external.retarget.auto_map_chains': {'scope': {'fields': ['retargeter_path']}},
     'retarget.open_new_assets_for_add': {'scope': {'fields': ['asset_paths']}},
     'hud.render_mesh_silhouettes': {'scope': {'kind': 'session'}},
-    'editor.capture_niagara_asset': {'scope': {'kind': 'session'}},
+    'editor.capture_niagara_asset': {'access': 'pie', 'world': 'pie', 'scope': {'kind': 'session'}},
     'editor.render_asset_thumbnails': {'scope': {'kind': 'session'}},
     'editor.capture_editor_screenshot': {'scope': {'kind': 'session'}},
     'editor.dispatch_slate_key': {'scope': {'kind': 'session'}},

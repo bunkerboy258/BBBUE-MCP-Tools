@@ -23,6 +23,11 @@ _pie_view_camera = None
 
 
 MCP_INPUTS = {
+    'configure_niagara_parameters': {'changes_json': {'type': 'array', 'items': {'type': 'object', 'properties': {'store': {'type': 'string'}, 'name': {'type': 'string'}, 'value': {'type': 'string'}}, 'required': ['store', 'name', 'value'], 'additionalProperties': False}, 'minItems': 1}},
+    'configure_niagara_particle_stage': {'stage_json': {'type': 'object', 'properties': {'stage': {'type': 'string', 'enum': ['spawn', 'update']}, 'name': {'type': 'string'}, 'code': {'type': 'string'}, 'inputs': {'type': 'array', 'items': {'type': 'object', 'properties': {'name': {'type': 'string'}, 'type': {'type': 'string', 'enum': ['float', 'int', 'bool', 'position', 'vec2', 'vec3', 'color', 'quat']}}, 'required': ['name', 'type'], 'additionalProperties': False}}, 'outputs': {'type': 'array', 'minItems': 1, 'items': {'type': 'object', 'properties': {'name': {'type': 'string'}, 'type': {'type': 'string', 'enum': ['float', 'int', 'bool', 'position', 'vec2', 'vec3', 'color', 'quat']}}, 'required': ['name', 'type'], 'additionalProperties': False}}, 'render': {'type': 'object', 'properties': {'kind': {'type': 'string', 'enum': ['none', 'sprite', 'mesh']}, 'material': {'type': 'string'}, 'mesh': {'type': 'string'}, 'aligned': {'type': 'boolean'}}, 'required': ['kind'], 'additionalProperties': False}, 'modules': {'type': 'array', 'items': {'type': 'string'}, 'maxItems': 8}, 'parameters': {'type': 'array', 'items': {'type': 'object', 'properties': {'name': {'type': 'string'}, 'type': {'type': 'string', 'enum': ['float', 'int', 'bool', 'position', 'vec2', 'vec3', 'color', 'quat']}, 'value': {'type': 'string'}}, 'required': ['name', 'type', 'value'], 'additionalProperties': False}}}, 'required': ['stage', 'name', 'code', 'inputs', 'outputs'], 'additionalProperties': False}},
+    'configure_niagara_burst_layer': {'layer_json': {'type': 'object', 'properties': {'name': {'type': 'string'}, 'material': {'type': 'string'}, 'count': {'type': 'integer', 'minimum': 1, 'maximum': 256}, 'lifetime': {'type': 'number', 'minimum': 0.01, 'maximum': 5}, 'speed': {'type': 'number', 'minimum': 0, 'maximum': 5000}, 'drag': {'type': 'number', 'minimum': 0, 'maximum': 100}, 'gravity': {'type': 'number', 'minimum': 0, 'maximum': 2000}, 'growth': {'type': 'number', 'minimum': 0, 'maximum': 10}, 'size': {'type': 'array', 'items': {'type': 'number', 'minimum': 0.1, 'maximum': 1000}, 'minItems': 2, 'maxItems': 2}, 'color': {'type': 'array', 'items': {'type': 'number', 'minimum': 0, 'maximum': 100}, 'minItems': 4, 'maxItems': 4}, 'aligned': {'type': 'boolean'}}, 'required': ['name', 'material', 'count', 'lifetime', 'speed', 'drag', 'gravity', 'growth', 'size', 'color', 'aligned'], 'additionalProperties': False}},
+    'configure_asset_properties': {'properties_json': {'type': 'object', 'additionalProperties': True}},
+    'spawn_pie_niagara_instances': {'positions_json': {'type': 'array', 'items': {'type': 'array', 'items': {'type': 'number'}, 'minItems': 3, 'maxItems': 3}, 'minItems': 1, 'maxItems': 16}},
     'audit_animation_library_batch': {'pairs_json': {'type': 'array', 'minItems': 1, 'maxItems': 16, 'items': {'type': 'object', 'properties': {'source': {'type': 'string'}, 'target': {'type': 'string'}}, 'required': ['source', 'target'], 'additionalProperties': False}}},
     'import_animation_library_batch': {'requests_json': {'type': 'array', 'minItems': 1, 'maxItems': 16, 'items': {'type': 'object', 'properties': {'source_file': {'type': 'string'}, 'asset_path': {'type': 'string'}, 'skeleton_path': {'type': 'string'}, 'mesh_path': {'type': 'string'}, 'import_pitch': {'type': 'number'}, 'import_yaw': {'type': 'number'}, 'import_roll': {'type': 'number'}}, 'required': ['source_file', 'asset_path', 'skeleton_path', 'mesh_path'], 'additionalProperties': False}}},
     'configure_data_asset': {'properties_json': {'type': 'object', 'additionalProperties': True}},
@@ -387,7 +392,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def inspect_pie_character_runtime(player_index: int = 0) -> str:
+    def inspect_pie_character_runtime(player_index: int = 0, actor_path: str = "") -> str:
         """
         /**
          * 只读当前 PIE 玩家的动画与真实物品状态
@@ -397,6 +402,10 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         """
         world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
         pawn = unreal.GameplayStatics.get_player_pawn(world, player_index) if world else None
+        if actor_path:
+            pawn = unreal.find_object(None, actor_path)
+            if not isinstance(pawn, unreal.BBBCharacter) or pawn.get_world() not in unreal.EditorLevelLibrary.get_pie_worlds(False):
+                raise RuntimeError('目标必须是当前 PIE 世界中已存在的角色')
         if pawn is None or player_index < 0:
             raise RuntimeError('当前 PIE 玩家不存在')
         return unreal.BBBBlueprintEditorLibrary.probe_character_animation_runtime(pawn)
@@ -2420,10 +2429,9 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
     @staticmethod
     def invoke_pie_actor_function(actor_path: str, function_name: str, arguments_json: str = "[]") -> str:
         """调用当前 PIE 世界中指定 Actor 的反射函数 不接受编辑器世界对象"""
-        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
         actor = unreal.find_object(None, actor_path)
         arguments = json.loads(arguments_json)
-        if world is None or not isinstance(actor, unreal.Actor) or actor.get_world() != world:
+        if not isinstance(actor, unreal.Actor) or actor.get_world() not in unreal.EditorLevelLibrary.get_pie_worlds(False):
             raise RuntimeError("目标必须是当前 PIE 世界中已存在的 Actor")
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", function_name) or not isinstance(arguments, list):
             raise RuntimeError("函数名或位置参数数组无效")
@@ -4503,6 +4511,244 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
          */
         """
         return unreal.BBBMonsterDirectorEditorLibrary.validate_basic_assets()
+
+
+    @mcp_tool
+    @staticmethod
+    def configure_action_montage(asset_path: str, sequence_paths: list[str], start_times: list[float], end_times: list[float], play_rates: list[float], loop_index: int = -1, blend_in: float = 0.12, blend_out: float = 0.16) -> str:
+        """
+        /**
+         * 配置自有 UpperBody 动作片段和真正的循环区段 保留独立通知轨道
+         * @param asset_path\t明确的自有蒙太奇
+         * @param sequence_paths\t同骨架的片段序列
+         * @param start_times\t每段源动画起点
+         * @param end_times\t每段源动画终点
+         * @param play_rates\t每段正向播放速度
+         * @param loop_index\t循环片段索引 负一表示无循环
+         * @param blend_in\t进入混合时间
+         * @param blend_out\t结束混合时间
+         * @return 保存后的片段 区段与总时长
+         */
+        """
+        from BBBAssetWritePolicy import require_write_access
+        montage = unreal.load_asset(asset_path)
+        if not asset_path.startswith('/Game/_Project/') or not isinstance(montage, unreal.AnimMontage):
+            raise RuntimeError('必须提供自有蒙太奇')
+        count = len(sequence_paths)
+        if not 1 <= count <= 16 or any(len(values) != count for values in [start_times, end_times, play_rates]) or not -1 <= loop_index < count:
+            raise RuntimeError('动作片段数组或循环索引无效')
+        values = start_times + end_times + play_rates + [blend_in, blend_out]
+        if any(not math.isfinite(value) for value in values) or min(blend_in, blend_out) < 0:
+            raise RuntimeError('时序含非法数值')
+        sources = [unreal.load_asset(path) for path in sequence_paths]
+        require_write_access(montage)
+        result = json.loads(unreal.BBBAssetRepairEditorLibrary.configure_action_montage(montage, sources, start_times, end_times, play_rates, loop_index, blend_in, blend_out))
+        if not result.get('success'):
+            raise RuntimeError('原生蒙太奇配置失败 ' + str(result))
+        if not unreal.EditorAssetLibrary.save_loaded_asset(montage, False):
+            raise RuntimeError('蒙太奇保存失败')
+        result.update({'asset': asset_path, 'sequences': list(sequence_paths), 'saved': True})
+        return json.dumps(result)
+
+
+    @mcp_tool
+    @staticmethod
+    def spawn_pie_niagara_instances(system_path: str, positions_json: str, world_path: str) -> str:
+        """
+        /**
+         * 在明确 PIE 世界同时生成自动回收的特效实例用于实际场景与性能验收
+         * @param system_path\t特效资产路径
+         * @param positions\t一至十六个有限世界位置
+         * @param world_path\t当前 PIE 世界路径
+         * @return 组件路径和开始世界时间 不保存资产
+         */
+        """
+        positions = json.loads(positions_json)
+        if not isinstance(positions, list) or not 1 <= len(positions) <= 16 or any(not isinstance(value, list) or len(value) != 3 or any(not isinstance(item, (int, float)) or not math.isfinite(item) for item in value) for value in positions):
+            raise RuntimeError("必须提供一至十六个有效世界位置")
+        world = next((value for value in unreal.EditorLevelLibrary.get_pie_worlds(False) if value.get_path_name() == world_path), None)
+        system = unreal.load_asset(system_path)
+        if world is None or not isinstance(system, unreal.NiagaraSystem):
+            raise RuntimeError("必须提供活动 PIE 世界和特效资产")
+        if not unreal.BBBNiagaraEditorLibrary.prepare_system_for_preview(system_path):
+            raise RuntimeError("特效系统及 GPU 着色器尚未就绪")
+        components = []
+        for position in positions:
+            component = unreal.NiagaraFunctionLibrary.spawn_system_at_location(
+                world, system, unreal.Vector(*position), unreal.Rotator(), unreal.Vector(1, 1, 1),
+                auto_destroy=True, auto_activate=True, pooling_method=unreal.NCPoolMethod.AUTO_RELEASE, pre_cull_check=False)
+            if component is None:
+                raise RuntimeError("特效实例生成失败")
+            components.append(component.get_path_name())
+        return json.dumps({"world": world_path, "worldTime": unreal.GameplayStatics.get_time_seconds(world), "components": components})
+
+
+    @mcp_tool
+    @staticmethod
+    def configure_asset_properties(asset_path: str, properties_json: str) -> str:
+        """/** @param asset_path 自有资产路径 @param properties_json 编辑器属性和值 @return 保存与属性回读 */"""
+        from BBBAssetWritePolicy import require_write_access
+        asset = unreal.load_asset(asset_path)
+        if not asset_path.startswith('/Game/_Project/') or asset is None or isinstance(asset, (unreal.World, unreal.Actor, unreal.ActorComponent)):
+            raise RuntimeError('目标必须为已有自有资产')
+        require_write_access(asset)
+        properties = json.loads(properties_json)
+        with unreal.ScopedEditorTransaction('配置资产属性'):
+            asset.modify()
+            for name, value in properties.items():
+                _apply_editor_property(asset, name, value)
+        if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
+            raise RuntimeError('资产属性保存失败')
+        return json.dumps({'asset': asset.get_path_name(), 'saved': True,
+            'properties': {name: _serialize_value(asset.get_editor_property(name)) for name in properties}}, ensure_ascii=False)
+
+
+    @mcp_tool
+    @staticmethod
+    def record_pie_player_view(file_prefix: str, duration_seconds: float = 5.0, fps: int = 24, width: int = 960, height: int = 540) -> str:
+        """
+        /**
+         * @param file_prefix\t不存在的任务目录
+         * @param duration_seconds\t连续世界录制秒数
+         * @param fps\t目标采样帧率
+         * @param width\t输出宽度
+         * @param height\t输出高度
+         * @return 录制状态
+         */
+        """
+        from BBBDisplayAssetCaptureTools import record_pie_player_view
+        return record_pie_player_view(file_prefix, duration_seconds, fps, width, height)
+
+
+    @mcp_tool
+    @staticmethod
+    def get_pie_view_recording_status() -> str:
+        """/** @return 最近的连续玩家视角录制状态 */"""
+        from BBBDisplayAssetCaptureTools import get_pie_view_recording_status
+        return get_pie_view_recording_status()
+
+
+    @mcp_tool
+    @staticmethod
+    def inspect_niagara_parameters(system_path: str) -> str:
+        """/** @param system_path 系统资产路径 @return 公开参数 快速迭代值与活动图表 */"""
+        return unreal.BBBNiagaraEditorLibrary.inspect_parameters(system_path)
+
+
+    @mcp_tool
+    @staticmethod
+    def configure_niagara_burst_layer(system_path: str, layer_json: str) -> str:
+        """/** @param system_path 自有系统路径 @param layer_json 精灵爆发层参数 @return 编译与保存结果 */"""
+        from BBBAssetWritePolicy import require_write_access
+        system = unreal.load_asset(system_path)
+        if not isinstance(system, unreal.NiagaraSystem):
+            raise RuntimeError('目标不是 Niagara 系统')
+        require_write_access(system)
+        return unreal.BBBNiagaraEditorLibrary.configure_burst_sprite_layer(system_path, layer_json)
+
+
+    @mcp_tool
+    @staticmethod
+    def configure_niagara_particle_stage(system_path: str, emitter_name: str, stage_json: str) -> str:
+        """
+        /**
+         * @param system_path\t自有系统路径
+         * @param emitter_name\t现有发射器名称
+         * @param stage_json\t完整粒子阶段描述
+         * @return 原位替换 编译和保存结果
+         */
+        """
+        from BBBAssetWritePolicy import require_write_access
+        system = unreal.load_asset(system_path)
+        if not system_path.startswith('/Game/_Project/') or not isinstance(system, unreal.NiagaraSystem):
+            raise RuntimeError('目标必须为自有 Niagara 系统')
+        require_write_access(system)
+        result = unreal.BBBNiagaraEditorLibrary.configure_particle_stage(system_path, emitter_name, stage_json)
+        if result.startswith('失败'):
+            raise RuntimeError(result)
+        return result
+
+
+    @mcp_tool
+    @staticmethod
+    def configure_niagara_parameters(system_path: str, changes_json: str) -> str:
+        """/** @param system_path 自有系统路径 @param changes_json 存储 名称与结构文本数组 @return 保存后参数回读 */"""
+        from BBBAssetWritePolicy import require_write_access
+        system = unreal.load_asset(system_path)
+        if not isinstance(system, unreal.NiagaraSystem):
+            raise RuntimeError('目标不是 Niagara 系统')
+        require_write_access(system)
+        return unreal.BBBNiagaraEditorLibrary.configure_parameters(system_path, changes_json)
+
+
+    @mcp_tool
+    @staticmethod
+    def create_particle_surface_material(material_path: str, kind: str) -> str:
+        """
+        /**
+         * @param material_path\t新建自有材质路径
+         * @param kind\t尘土 dust 或不透明碎屑 debris
+         * @return 材质编译和保存结果
+         */
+        """
+        from BBBAssetWritePolicy import require_asset_write
+        if not material_path.startswith('/Game/_Project/') or kind not in {'dust', 'debris'}:
+            raise RuntimeError('需要自有材质路径与 dust 或 debris 类型')
+        require_asset_write([], [material_path])
+        if unreal.EditorAssetLibrary.does_asset_exist(material_path):
+            raise RuntimeError('目标材质已经存在')
+        directory, name = material_path.rsplit('/', 1)
+        material = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, directory, unreal.Material, unreal.MaterialFactoryNew())
+        if material is None:
+            raise RuntimeError('材质创建失败')
+        edit = unreal.MaterialEditingLibrary
+        material.set_editor_property('two_sided', True)
+        material.set_editor_property('used_with_niagara_sprites', kind == 'dust')
+        material.set_editor_property('used_with_niagara_mesh_particles', kind == 'debris')
+        tint = edit.create_material_expression(material, unreal.MaterialExpressionParticleColor, -600, 0)
+        edit.connect_material_property(tint, 'RGB', unreal.MaterialProperty.MP_BASE_COLOR)
+        rough = edit.create_material_expression(material, unreal.MaterialExpressionConstant, -300, 250)
+        rough.set_editor_property('r', 0.88)
+        edit.connect_material_property(rough, '', unreal.MaterialProperty.MP_ROUGHNESS)
+        if kind == 'dust':
+            material.set_editor_property('blend_mode', unreal.BlendMode.BLEND_TRANSLUCENT)
+            uv = edit.create_material_expression(material, unreal.MaterialExpressionTextureCoordinate, -600, -200)
+            mask = edit.create_material_expression(material, unreal.MaterialExpressionCustom, -300, -100)
+            mask.set_editor_property('output_type', unreal.CustomMaterialOutputType.CMOT_FLOAT1)
+            field = unreal.CustomInput()
+            field.set_editor_property('input_name', 'UV')
+            mask.set_editor_property('inputs', [field])
+            mask.set_editor_property('code', '''
+float2 p=UV*2-1;
+float2 q=p*3.8;
+float n=0;
+float a=0.55;
+for(int k=0;k<4;k++)
+{
+    float2 i=floor(q);
+    float2 f=frac(q);
+    f=f*f*(3-2*f);
+    float4 h=frac(sin(float4(dot(i,float2(127.1,311.7)),dot(i+float2(1,0),float2(127.1,311.7)),dot(i+float2(0,1),float2(127.1,311.7)),dot(i+1,float2(127.1,311.7))))*43758.5453);
+    n+=lerp(lerp(h.x,h.y,f.x),lerp(h.z,h.w,f.x),f.y)*a;
+    q=q*2.03+float2(1.7,9.2);
+    a*=0.5;
+}
+float edge=1-length(p+float2(n-0.4,0.15-n*0.25)*0.25);
+return saturate(edge*3)*smoothstep(0.18,0.7,n)*0.8;
+''')
+            edit.connect_material_expressions(uv, '', mask, 'UV')
+            multiply = edit.create_material_expression(material, unreal.MaterialExpressionMultiply, -100, -100)
+            edit.connect_material_expressions(mask, '', multiply, 'A')
+            edit.connect_material_expressions(tint, 'A', multiply, 'B')
+            fade = edit.create_material_expression(material, unreal.MaterialExpressionDepthFade, 100, -100)
+            fade.set_editor_property('fade_distance_default', 25.0)
+            if not edit.connect_material_expressions(multiply, '', fade, 'Opacity'):
+                raise RuntimeError('尘土透明度连接失败')
+            edit.connect_material_property(fade, '', unreal.MaterialProperty.MP_OPACITY)
+        edit.recompile_material(material)
+        if not unreal.EditorAssetLibrary.save_loaded_asset(material, False):
+            raise RuntimeError('粒子表面材质保存失败')
+        return material.get_path_name()
 
 
 _registration = Registration([BBBGenericEditorToolset])

@@ -2744,6 +2744,89 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         return unreal.BBBAssetRepairEditorLibrary.repair_foliage_base_cache(path, dry_run)
 
 
+    @mcp_tool
+    @staticmethod
+    def delete_unreferenced_project_assets(asset_paths: list[str], expected_sha256: list[str], dry_run: bool = True) -> str:
+        """
+        /**
+         * 对明确自有无引用资产执行当前哈希核验和原生删除 不创建备份
+         * @param asset_paths\t自有正式包 最多六十四项
+         * @param expected_sha256\t与路径逐项对应的当前文件哈希
+         * @param dry_run\t默认只预检
+         * @return 引用 哈希 原生删除与文件清除结果
+         */
+        """
+        if not 1 <= len(asset_paths) <= 64 or len(asset_paths) != len(expected_sha256) or len(set(asset_paths)) != len(asset_paths):
+            raise RuntimeError('必须提供不重复路径和对应哈希')
+        paths = [_move_path(path) for path in asset_paths]
+        if any(not path.startswith('/Game/_Project/') for path in paths) or _move_dirty_packages(paths) or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+            raise RuntimeError('仅允许无脏包且不在 PIE 中清理自有资产')
+        registry = _move_registry()
+        rows = []
+        for path, expected in zip(paths, expected_sha256):
+            outside = set(_move_referencers(registry, path)) - set(paths)
+            if outside:
+                raise RuntimeError('仍有组外引用 ' + path + ' ' + str(sorted(outside)))
+            filename = _move_filename(path)
+            with open(filename, 'rb') as handle:
+                actual = hashlib.sha256(handle.read()).hexdigest()
+            if actual != expected.lower():
+                raise RuntimeError('当前资产哈希与审查结果不符 ' + path)
+            rows.append({'package': path, 'file': filename, 'sha256': actual})
+        if dry_run:
+            return json.dumps({'dryRun': True, 'files': rows})
+        require_asset_write(paths, [])
+        for row in rows:
+            asset = unreal.load_object(None, row['package'] + '.' + row['package'].rsplit('/', 1)[-1], follow_redirectors=False)
+            row['nativeDeleted'] = unreal.BBBAssetRepairEditorLibrary.delete_asset_packages([asset])
+            row['fileAbsent'] = not os.path.exists(row['file'])
+            if not row['nativeDeleted'] or not row['fileAbsent']:
+                raise RuntimeError('自有资产原生删除核验失败 ' + row['package'])
+        return json.dumps({'success': True, 'files': rows})
+
+
+    @mcp_tool
+    @staticmethod
+    def restore_missing_animation_notify_classes(asset_paths: list[str], notify_name: str, class_path: str,
+        expected_per_asset: int = 1, dry_run: bool = True) -> str:
+        """
+        /**
+         * 通过保留事件名称恢复明确缺失的通知实例 直接保存真实类引用
+         * @param asset_paths\t一至六十四个自有动画包
+         * @param notify_name\t保留的精确事件名称
+         * @param class_path\t真实通知类路径
+         * @param expected_per_asset\t每个包预期的缺失事件数
+         * @param dry_run\t只核对 不写入
+         * @return 数量与保存核验 不创建兼容包或备份
+         */
+        """
+        if not 1 <= len(asset_paths) <= 64 or len(set(asset_paths)) != len(asset_paths) or expected_per_asset < 1:
+            raise RuntimeError("动画路径或期望数量无效")
+        paths = [_move_path(path) for path in asset_paths]
+        if any(not path.startswith('/Game/_Project/') for path in paths):
+            raise RuntimeError("只允许修改明确自有动画")
+        target_class = unreal.load_class(None, class_path)
+        if target_class is None:
+            raise RuntimeError("真实通知类不存在")
+        assets = [unreal.load_asset(path) for path in paths]
+        native = unreal.BBBBlueprintEditorLibrary.restore_missing_animation_notify_class
+        for path, asset in zip(paths, assets):
+            actual = native(asset, notify_name, target_class, expected_per_asset, False) if isinstance(asset, unreal.AnimSequenceBase) else -1
+            if actual != expected_per_asset:
+                default = unreal.get_default_object(target_class)
+                raise RuntimeError("缺失通知校验失败 " + json.dumps({"asset": path, "assetClass": asset.get_class().get_path_name() if asset else None,
+                    "nativeCount": actual, "targetState": isinstance(default, unreal.AnimNotifyState), "targetNotify": isinstance(default, unreal.AnimNotify)}, ensure_ascii=False))
+        if dry_run:
+            return json.dumps({"dryRun": True, "assets": paths, "events": len(paths) * expected_per_asset})
+        require_asset_write(paths, [])
+        for path, asset in zip(paths, assets):
+            if native(asset, notify_name, target_class, expected_per_asset, True) != expected_per_asset:
+                raise RuntimeError("重建通知实例失败 " + path)
+            if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
+                raise RuntimeError("保存通知修复失败 " + path)
+        return json.dumps({"saved": paths, "events": len(paths) * expected_per_asset})
+
+
 _registration = Registration([BBBAssetMaintenanceToolset])
 _registration.unregister()
 _registration.register()

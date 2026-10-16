@@ -6565,6 +6565,10 @@
             "type": "integer",
             "description": "本地玩家索引",
             "default": 0
+          },
+          "actor_path": {
+            "type": "string",
+            "default": ""
           }
         }
       },
@@ -6827,6 +6831,328 @@
           "returnValue"
         ]
       }
+    },
+    "configure_action_montage": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          },
+          "sequence_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "start_times": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "end_times": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "play_rates": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "loop_index": {
+            "type": "integer",
+            "default": -1
+          },
+          "blend_in": {
+            "type": "number",
+            "default": 0.12
+          },
+          "blend_out": {
+            "type": "number",
+            "default": 0.16
+          }
+        },
+        "required": [
+          "asset_path",
+          "sequence_paths",
+          "start_times",
+          "end_times",
+          "play_rates"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "spawn_pie_niagara_instances": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "system_path": {
+            "type": "string"
+          },
+          "positions_json": {
+            "type": "string"
+          },
+          "world_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "system_path",
+          "positions_json",
+          "world_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_asset_properties": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          },
+          "properties_json": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_path",
+          "properties_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "record_pie_player_view": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "file_prefix": {
+            "type": "string"
+          },
+          "duration_seconds": {
+            "type": "number",
+            "default": 5.0
+          },
+          "fps": {
+            "type": "integer",
+            "default": 24
+          },
+          "width": {
+            "type": "integer",
+            "default": 960
+          },
+          "height": {
+            "type": "integer",
+            "default": 540
+          }
+        },
+        "required": [
+          "file_prefix"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "get_pie_view_recording_status": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_niagara_parameters": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "system_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "system_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_niagara_burst_layer": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "system_path": {
+            "type": "string"
+          },
+          "layer_json": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "system_path",
+          "layer_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_niagara_particle_stage": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "system_path": {
+            "type": "string"
+          },
+          "emitter_name": {
+            "type": "string"
+          },
+          "stage_json": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "system_path",
+          "emitter_name",
+          "stage_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_niagara_parameters": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "system_path": {
+            "type": "string"
+          },
+          "changes_json": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "system_path",
+          "changes_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_particle_surface_material": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "material_path": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "material_path",
+          "kind"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBLevelEditingToolset": {
@@ -6834,18 +7160,46 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "asset_path": {"type": "string"},
-          "class_path": {"type": "string"},
-          "label": {"type": "string"},
-          "location": {"type": "array", "items": {"type": "number"}},
-          "rotation": {"type": "array", "items": {"type": "number"}}
+          "asset_path": {
+            "type": "string"
+          },
+          "class_path": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "location": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "rotation": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          }
         },
-        "required": ["asset_path", "class_path", "label", "location", "rotation"]
+        "required": [
+          "asset_path",
+          "class_path",
+          "label",
+          "location",
+          "rotation"
+        ]
       },
       "outputSchema": {
         "type": "object",
-        "properties": {"returnValue": {"type": "string"}},
-        "required": ["returnValue"]
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
       }
     },
     "break_level_instance_to_current_level": {
@@ -10686,6 +11040,87 @@
           "returnValue": {
             "type": "string",
             "description": "保存并回读的配置 不提供旧字段兼容 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "delete_unreferenced_project_assets": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expected_sha256": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "asset_paths",
+          "expected_sha256"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "restore_missing_animation_notify_classes": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "notify_name": {
+            "type": "string"
+          },
+          "class_path": {
+            "type": "string"
+          },
+          "expected_per_asset": {
+            "type": "integer",
+            "default": 1
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "asset_paths",
+          "notify_name",
+          "class_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
           }
         },
         "required": [

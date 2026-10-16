@@ -255,7 +255,7 @@ class ControlRigSequenceLifecycleTests(unittest.TestCase):
 
         component.make_relative.assert_called_once_with(hierarchy.get_global_control_offset_transform.return_value)
         hierarchy.get_global_control_offset_transform.assert_called_once_with("hand_l_ik_ctrl", True)
-        self.engine.ControlRigSequencerLibrary.set_local_control_rig_euler_transforms.assert_called_once()
+        self.engine.ControlRigSequencerLibrary.set_local_control_rig_euler_transform.assert_called_once()
         self.engine.ControlRigSequencerLibrary.set_control_rig_world_transform.assert_not_called()
 
     def test_parented_component_control_is_rejected_before_save(self):
@@ -304,8 +304,10 @@ class ControlRigSequenceLifecycleTests(unittest.TestCase):
         self.track.get_sections.return_value = [Mock(get_all_channels=Mock(return_value=[channel]))]
         keys = [{"frame": frame, "control": "source_hand_l", "value": {"position": [1, 2, 3]}} for frame in [0, 1]]
         self.configure("Sequence", "Rig", json.dumps(keys), False, "Mesh")
-        self.engine.ControlRigSequencerLibrary.set_local_control_rig_euler_transforms.assert_called_once()
-        self.engine.ControlRigSequencerLibrary.set_local_control_rig_euler_transform.assert_not_called()
+        self.engine.ControlRigSequencerLibrary.set_local_control_rig_euler_transforms.assert_not_called()
+        self.assertEqual(self.engine.ControlRigSequencerLibrary.set_local_control_rig_euler_transform.call_count, 2)
+        for call in self.engine.ControlRigSequencerLibrary.set_local_control_rig_euler_transform.call_args_list:
+            self.assertTrue(call.kwargs["set_key"])
         self.assertEqual(actual.location.__sub__.call_count, 2)
 
     def test_incomplete_source_readback_never_saves(self):

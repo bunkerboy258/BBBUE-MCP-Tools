@@ -1579,7 +1579,11 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
             frames = [unreal.FrameNumber(value=key["frame"]) for key in control_keys]
             transforms = [_transform(key["value"]) for key in control_keys]
             values = [unreal.EulerTransform(location=transform.translation, rotation=transform.rotation.rotator(), scale=transform.scale3d) for transform in transforms]
-            unreal.ControlRigSequencerLibrary.set_local_control_rig_euler_transforms(sequence, rig, control, frames, values)
+            for frame, value in zip(frames, values):
+                unreal.LevelSequenceEditorBlueprintLibrary.set_current_time(frame.value)
+                unreal.LevelSequenceEditorBlueprintLibrary.force_update()
+                unreal.ControlRigSequencerLibrary.set_local_control_rig_euler_transform(sequence, rig, control, frame, value, set_key=True)
+            unreal.LevelSequenceEditorBlueprintLibrary.force_update()
             actuals = unreal.ControlRigSequencerLibrary.get_local_control_rig_euler_transforms(sequence, rig, control, frames)
             if len(actuals) != len(control_keys):
                 raise RuntimeError("原姿势控制器批量写键数量不一致 " + control)
