@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 import types
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
@@ -62,6 +62,31 @@ class StartupTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,'BACKEND_START_FAILED'):
             self.module.start_editor_mcp()
         self.assertIsNone(self.module._startup)
+
+    def test_current_service_heartbeat_skips_external_recovery(self):
+        """/** @return 当前协议健康心跳直接续接且保持实际服务进程 */"""
+        self.module.start_editor_mcp()
+        state=self.module._startup
+        opener=MagicMock()
+        with patch.object(self.module,'build_opener',return_value=opener), patch.object(self.module,'write_host') as publish, patch.object(self.module.json,'load',return_value={'service':'BBB-MCP','protocol':6}), patch.object(self.module.subprocess,'run') as recover, patch.object(self.module.time,'sleep',side_effect=StopIteration):
+            with self.assertRaises(StopIteration):
+                self.module._heartbeat(state)
+        self.assertEqual(state['status'],'registered')
+        publish.assert_called_once_with(state['registration'])
+        recover.assert_not_called()
+
+    def test_manual_start_recovers_an_offline_service(self):
+        """/** @return 手动启动后离线服务通过正式入口恢复 */"""
+        self.module.start_editor_mcp()
+        state=self.module._startup
+        opener=Mock()
+        opener.open.side_effect=OSError('offline')
+        with patch.object(self.module,'build_opener',return_value=opener), patch.object(self.module,'write_host'), patch.object(self.module.subprocess,'run',return_value=types.SimpleNamespace(returncode=0)) as recover, patch.object(self.module.time,'sleep',side_effect=StopIteration):
+            with self.assertRaises(StopIteration):
+                self.module._heartbeat(state)
+        self.assertEqual(state['status'],'registered')
+        self.assertIn('--ensure',recover.call_args.args[0])
+        self.assertIn(state['registration']['project_file'],recover.call_args.args[0])
 
     def test_reconnecting_state_is_logged_once_per_change(self):
         self.module.start_editor_mcp()

@@ -43,7 +43,7 @@ def _heartbeat(state):
             try:
                 with opener.open(state["endpoint"].replace("/mcp", "/health"), timeout=2) as response:
                     health = json.load(response)
-                if health.get("service") != "BBB-MCP" or health.get("protocol") != 5:
+                if health.get("service") != "BBB-MCP" or health.get("protocol") != 6:
                     raise RuntimeError("SERVICE_HANDOVER_REQUIRED")
             except Exception:
                 command = [state["python"], "-B", str(Path(__file__).parent / "MCP/mcp_service.py"),
