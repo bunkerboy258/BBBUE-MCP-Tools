@@ -328,6 +328,59 @@ def _materialize_property_value(value):
 
 
 
+def _float_curve_key_details(animation, curve_name):
+    """/** @param animation 动画序列 @param curve_name 浮点曲线名称 @return 原始关键帧的插值与切线 */"""
+    model = animation.data_model_interface
+    field = "CurveData"
+    if model.get_class().get_name() == "AnimationSequencerDataModel":
+        field = "LegacyCurveData"
+    curves = model.get_editor_property(field).get_editor_property("FloatCurves")
+    import re
+    matches = [curve for curve in curves
+               if re.search(r'(?:^|[,(])CurveName="?([^",)]+)', curve.export_text()).group(1).casefold()
+               == curve_name.casefold()]
+    if len(matches) != 1:
+        raise RuntimeError("动画浮点曲线必须唯一: " + curve_name)
+    exported = matches[0].export_text()
+    fields = ("time", "value", "interp_mode", "tangent_mode", "arrive_tangent", "leave_tangent")
+    result = []
+    key_array = re.search(r'\bKeys=\(((?:\([^()]*\),?)+)\)', exported)
+    if not key_array:
+        raise RuntimeError("动画曲线缺少原始关键帧: " + exported)
+    for text in re.findall(r'\(([^()]*)\)', key_array.group(1)):
+        values = dict(Time="0", Value="0", InterpMode="RCIM_Linear", TangentMode="RCTM_Auto",
+                      ArriveTangent="0", LeaveTangent="0")
+        values.update(item.split("=", 1) for item in text.split(",") if item)
+        result.append({name: (values["".join(part.title() for part in name.split("_"))]
+                       if name.endswith("mode") else float(values["".join(part.title() for part in name.split("_"))]))
+                       for name in fields})
+    if not result:
+        raise RuntimeError("动画曲线原始关键帧导出为空")
+    return result
+
+def _set_flat_cubic_curve(animation, curve_name, keys):
+    """/** @param animation 动画序列 @param curve_name 浮点曲线名称 @param keys 时间值数组 @return 写入真实三次曲线并校验水平切线 */"""
+    identifier = unreal.AnimationCurveIdentifier()
+    identifier.set_curve_identifier(curve_name, unreal.RawCurveTrackTypes.RCT_FLOAT)
+    rich_keys = []
+    for value in keys:
+        key = unreal.RichCurveKey()
+        key.set_editor_property("time", value["time"])
+        key.set_editor_property("value", value["value"])
+        key.set_editor_property("interp_mode", unreal.RichCurveInterpMode.RCIM_CUBIC)
+        key.set_editor_property("tangent_mode", unreal.RichCurveTangentMode.RCTM_USER)
+        rich_keys.append(key)
+    if not animation.controller.set_curve_keys(identifier, rich_keys, False):
+        raise RuntimeError("三次动画曲线写入失败")
+    details = _float_curve_key_details(animation, curve_name)
+    if len(details) != len(keys) or any(
+            "rcim_cubic" not in str(key["interp_mode"]).casefold()
+            or "rctm_user" not in str(key["tangent_mode"]).casefold()
+            or abs(key["arrive_tangent"]) > 1e-6 or abs(key["leave_tangent"]) > 1e-6
+            for key in details):
+        raise RuntimeError("三次曲线插值或水平切线回读不一致")
+
+
 @unreal.uclass()
 class BBBGenericEditorToolset(unreal.ToolsetDefinition):
     """提供不绑定具体领域的官方 UE 编辑器工具"""
@@ -875,7 +928,8 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
                     continue
 
                 times, values = unreal.AnimationLibrary.get_float_keys(asset, stored_curve_name)
-                curves[curve_name] = {"exists": True, "times": list(times), "values": list(values)}
+                curves[curve_name] = {"exists": True, "times": list(times), "values": list(values),
+                                      "keys": _float_curve_key_details(asset, stored_curve_name)}
 
             results.append({"asset": asset.get_path_name(), "curves": curves})
 
@@ -883,7 +937,8 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def replace_animation_float_curve(asset_path: str, curve_name: str, keys_json: str, dry_run: bool = True) -> str:
+    def replace_animation_float_curve(asset_path: str, curve_name: str, keys_json: str, dry_run: bool = True,
+        interpolation: str = "linear") -> str:
         """
         /**
          * 校验并原位替换动画浮点曲线
@@ -891,6 +946,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
          * @param curve_name		曲线名称
          * @param keys_json		关键帧数组
          * @param dry_run		仅预检开关
+         * @param interpolation	linear 保持默认插值 cubic_flat 使用三次贝塞尔等价曲线和水平切线
          * @return			审计结果与备份路径
          */
         """
@@ -906,6 +962,9 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
         if not curve_name.strip():
             fail("曲线名称不能为空")
+
+        if interpolation not in {"linear", "cubic_flat"}:
+            fail("插值必须为 linear 或 cubic_flat")
 
         try:
             keys = json.loads(keys_json)
@@ -1038,6 +1097,9 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             for key in validated_keys:
                 library.add_float_curve_key(animation, curve_name_to_write, key["time"], key["value"])
 
+            if interpolation == "cubic_flat":
+                _set_flat_cubic_curve(animation, curve_name_to_write, validated_keys)
+
         written_times, written_values = library.get_float_keys(animation, curve_name_to_write)
         written_keys = [
             {"time": float(time_seconds), "value": float(value)}
@@ -1071,6 +1133,8 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
                 "asset": asset_path,
                 "curveName": curve_name_to_write,
                 "keys": saved_keys,
+                "interpolation": interpolation,
+                "keyDetails": _float_curve_key_details(animation, curve_name_to_write),
                 "backupAsset": backup_asset_path,
                 "backupReport": backup_report_path,
                 "dryRun": False,

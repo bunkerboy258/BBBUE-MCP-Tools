@@ -1,5 +1,7 @@
 # BBB 通用编辑器 MCP
 
+`replace_animation_float_curve` 的 `interpolation` 可选 `linear` 或 `cubic_flat` 默认保留原先写键方式 `cubic_flat` 通过动画数据控制器写入 RCIM_Cubic 和水平 RCTM_User 切线 等价于两端水平控制柄的三次贝塞尔 不加密关键帧 `inspect_animation_float_curves` 的 keys 回读原始插值类型与切线
+
 `editor.schedule_pie_actor_function` 的 `repeat_count` 控制一至六百次公开 Actor 函数调用 `interval_seconds` 为游戏秒间隔 零表示连续游戏更新 每个游戏更新最多调用一次 总计划时长最多六十秒 `status` 返回实际调用次数与每次时刻 世界或目标结束立即释放回调
 
 PIE 混音导出完成检查同时核对 WAV 文件头与有效采样 导出完成后释放对应活动

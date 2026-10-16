@@ -6076,6 +6076,11 @@
             "type": "boolean",
             "description": "仅预检开关 *",
             "default": true
+          },
+          "interpolation": {
+            "type": "string",
+            "default": "linear",
+            "description": "linear 保持默认插值 cubic_flat 使用三次贝塞尔等价曲线和水平切线"
           }
         },
         "required": [
