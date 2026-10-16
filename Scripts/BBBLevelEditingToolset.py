@@ -1,4 +1,5 @@
 import json
+import math
 
 import unreal
 
@@ -9,6 +10,55 @@ from toolset_registry.registration import Registration
 @unreal.uclass()
 class BBBLevelEditingToolset(unreal.ToolsetDefinition):
     """提供当前关卡的项目级编辑工具"""
+
+    @mcp_tool
+    @staticmethod
+    def place_actor_from_class(asset_path: str, class_path: str, label: str,
+                               location: list[float], rotation: list[float]) -> str:
+        """
+        /**
+         * 在明确的当前关卡创建并保存一个独立演员 拒绝重复标签
+         * @param asset_path	预期当前关卡的包路径
+         * @param class_path	原生类或蓝图生成类完整路径
+         * @param label	关卡内唯一标签
+         * @param location	世界位置厘米 三个有限数值
+         * @param rotation	俯仰 偏航 滚转角度 三个有限数值
+         * @return 已保存对象路径与实际变换
+         */
+        """
+        from BBBAssetWritePolicy import require_write_access
+
+        if unreal.EditorLevelLibrary.get_pie_worlds(False):
+            raise RuntimeError("PIE 期间禁止放置关卡演员")
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+        if not asset_path.startswith("/Game/") or world.get_path_name().split(".", 1)[0] != asset_path:
+            raise RuntimeError("活动关卡与明确目标不匹配")
+        for values in (location, rotation):
+            if len(values) != 3 or not all(isinstance(value, (int, float))
+                and not isinstance(value, bool) and math.isfinite(value) for value in values):
+                raise RuntimeError("变换必须为三个有限数值")
+        subsystem = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+        if not label.strip() or any(actor.get_actor_label() == label for actor in subsystem.get_all_level_actors()):
+            raise RuntimeError("演员标签为空或重复")
+        actor_class = unreal.load_class(None, class_path)
+        if actor_class is None or not isinstance(unreal.get_default_object(actor_class), unreal.Actor):
+            raise RuntimeError("目标不是有效演员类")
+        require_write_access(world)
+        actor = subsystem.spawn_actor_from_class(actor_class, unreal.Vector(*location),
+            unreal.Rotator(pitch=rotation[0], yaw=rotation[1], roll=rotation[2]))
+        if actor is None:
+            raise RuntimeError("演员创建失败")
+        actor.set_actor_label(label)
+        if actor.get_world() != world or actor.get_outer().get_path_name() != world.get_path_name() + ":PersistentLevel":
+            unreal.log_error("[BBBLevel]对象不在目标持久关卡 " + actor.get_path_name())
+            raise RuntimeError("创建结果不在目标持久关卡 禁止盲目重放")
+        if not unreal.EditorLoadingAndSavingUtils.save_map(world, asset_path):
+            unreal.log_error("[BBBLevel]已创建但保存失败 " + actor.get_path_name())
+            raise RuntimeError("关卡保存失败 对象已创建 禁止盲目重放")
+        actual = actor.get_actor_location()
+        unreal.log("[BBBLevel]已保存关卡演员 " + actor.get_path_name())
+        return json.dumps({"actor": actor.get_path_name(), "level": asset_path, "saved": True,
+            "location": [actual.x, actual.y, actual.z], "rotation": list(rotation)}, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod

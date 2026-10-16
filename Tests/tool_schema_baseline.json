@@ -6830,6 +6830,24 @@
     }
   },
   "BBBLevelEditingToolset": {
+    "place_actor_from_class": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {"type": "string"},
+          "class_path": {"type": "string"},
+          "label": {"type": "string"},
+          "location": {"type": "array", "items": {"type": "number"}},
+          "rotation": {"type": "array", "items": {"type": "number"}}
+        },
+        "required": ["asset_path", "class_path", "label", "location", "rotation"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {"returnValue": {"type": "string"}},
+        "required": ["returnValue"]
+      }
+    },
     "break_level_instance_to_current_level": {
       "inputSchema": {
         "type": "object",
