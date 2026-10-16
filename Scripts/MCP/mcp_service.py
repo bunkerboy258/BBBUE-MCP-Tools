@@ -25,6 +25,7 @@ from MCP.mcp_host_registry import HostRegistry, RegistryGuard, atomic_json, priv
 from MCP.mcp_project_host import project_identity
 from MCP.mcp_result import McpBusinessError
 from MCP.mcp_response import response
+from MCP.mcp_decision import require_control
 from MCP.mcp_task_gateway import TaskGateway, UnrealBackend, public_tools
 from MCP.mcp_test_hosts import TestHost, project_version
 
@@ -387,8 +388,7 @@ class ProjectRuntime:
     def control(self, client, action, batch=None, operator=None, lease_seconds=60, host=None):
         """/** @param client 所属客户端 @param action 控制动作 @param batch 批次 @return 归属范围内的结果 */"""
         pool = self.clients.operators
-        if action in {"pause_operator", "resume_operator", "cancel_blocker", "terminate_host"}:
-            pool.require(client, level=0)
+        require_control(pool, client, action)
         if action == "pause_operator":
             value = pool.pause(client, operator, lease_seconds)
             self.wake()

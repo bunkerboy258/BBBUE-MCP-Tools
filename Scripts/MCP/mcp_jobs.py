@@ -10,6 +10,7 @@ from MCP.mcp_clients import ClientRegistry
 from MCP.mcp_asset_coordination import AssetCoordination
 from MCP.mcp_scheduler import ordered
 from MCP.mcp_response import response
+from MCP.mcp_decision import assess, require_control
 
 
 class JobConflict(McpBusinessError):
@@ -265,54 +266,16 @@ class JobQueue:
             return self._job_view(job)
 
     def _reason(self, job, activity):
-        job.pop("blocked", None)
-        pause = self.clients.operators.paused(job["owner"])
-        if pause and not job.get("cancel_requested"):
-            job["blocked"] = {"operator": pause["by"], "until": pause["until"], "next": None}
-            return "OPERATOR_PAUSED"
-        if self.draining:
-            return "HOST_DRAINING"
-        active_ids = {item["id"] if isinstance(item, dict) else item for item in activity.get("activities", [])}
-        if job["await_activity"] & active_ids:
-            return "ACTIVITY_RUNNING"
+        operators = self.clients.operators
         operations = job["operations"][job["completed"]:]
-        if all(item["access"] == "read" for item in operations):
-            return None
-        if job["access"] == "read":
-            return None
-        corrective = all(self._is_corrective(item) for item in operations)
-        for conflict in self.assets.conflicts(job["id"], job["targets"]):
-            holder = self.jobs[conflict["batch"]]
-            correction = corrective and holder["owner"] == job["owner"] and bool(job["targets"]) and conflicting_packages(job["targets"], self.assets.view(holder["id"])["packages"]) == job["targets"]
-            continuation = conflict["phase"] == "fault" and holder["owner"] == job["owner"] and conflicting_packages(job["targets"], self.assets.view(holder["id"])["packages"]) == job["targets"] and all(item["contract"]["id"] != "editor.reload_assets_from_disk" for item in operations)
-            if correction or continuation:
-                continue
-            job["blocked"] = {**conflict, "mine": holder["owner"] == job["owner"], "next": None}
-            return "ASSET_BUSY"
-        blocking_activities = [item for item in activity.get("activities", []) if not isinstance(item, dict) or item.get("blocking", True)]
-        if blocking_activities:
-            owners = {self.activity_owners.get(item["id"] if isinstance(item, dict) else item) for item in blocking_activities}
-            if owners - {job["owner"]}:
-                return "ACTIVITY_OWNED"
-            if operations[0]["access"] != "read" and operations[0]["world"] == "editor":
-                return "ACTIVITY_RUNNING"
-        if activity.get("pie_active") or activity.get("worlds"):
-            privileged_stop = self.clients.operators.level(job["owner"]) == 0 and all(item["contract"]["name"] == "StopPIE" or item["contract"].get("action") == "stop_pie" for item in operations)
-            if self.pie_owner != job["owner"] and not privileged_stop:
-                return "PIE_OWNED"
-            if operations[0]["access"] != "read" and operations[0]["world"] == "editor":
-                return "EDITOR_WORLD_REQUIRED"
-        dirty = set(activity.get("dirty_packages", [])) - job["owned_dirty"]
-        for identity, claim in self.assets.claims.items():
-            if claim["phase"] == "fault" and self.jobs[identity]["owner"] == job["owner"]:
-                dirty -= conflicting_packages(self.jobs[identity]["owned_dirty"], job["targets"])
-        if job.get("yield_dirty") is not None:
-            dirty.intersection_update(job["yield_dirty"])
-        conflicts = conflicting_packages(dirty, job["targets"])
-        if conflicts and not corrective:
-            job["blocked"] = {"packages": sorted(conflicts)[:8], "count": len(conflicts), "next": None}
-            return "ASSET_SAVE_REQUIRED"
-        return None
+        code, blocked, packages = assess(
+            job, activity, self.assets, self.jobs, operators, self.activity_owners,
+            self.pie_owner, self.draining, all(self._is_corrective(item) for item in operations))
+        job.pop("blocked", None)
+        job["prepare_dirty"] = packages
+        if blocked:
+            job["blocked"] = blocked
+        return code
 
     def _is_corrective(self, operation):
         """/** @param operation 已校验操作 @return 保存 停止或明确授权丢弃的重载收尾操作 */"""
@@ -456,8 +419,16 @@ class JobQueue:
                         self._signal()
                     return
                 with self.changed:
+                    packages = job.pop("prepare_dirty", set())
+                    job["owned_dirty"].update(packages)
+                    if packages:
+                        job.setdefault("proof", {})["prepared"] = sorted(
+                            set(job.get("proof", {}).get("prepared", [])) | packages)
                     self.assets.hold(job["id"], job["targets"] | job["owned_dirty"], "executing")
                     self._checkpoint(job)
+                if packages and not self._save_owned(job, current):
+                    self._recover(job, job.get("save_code", "SAVE_FAILED"), "partial", settle=False)
+                    return
             for index in range(job["completed"], len(job["operations"])):
                 if self._yield_operator(job):
                     return
@@ -722,6 +693,10 @@ class JobQueue:
                 job["save_code"] = "SAVE_FAILED"
                 job["uncertain"].update(item["package"] for item in proof["failures"])
                 return False
+            if proof.get("readback") is False:
+                job["save_code"] = "ASSET_READBACK_FAILED"
+                job["uncertain"].update(before & job["owned_dirty"])
+                return False
             if not job["dirty"] and current["host_verified"] and not self.draining:
                 return True
             current = None
@@ -826,8 +801,8 @@ class JobQueue:
     def control(self, client, action, batch=None):
         """/** @param client	客户端 @param action	控制动作 @param batch	所属批次 @return 控制结果或恢复请求 */"""
         self.touch(client)
+        require_control(self.clients.operators, client, action)
         if action == "cancel_blocker":
-            self.clients.operators.require(client, level=0)
             with self.changed:
                 job = self.jobs.get(batch)
                 if job is None:
@@ -912,6 +887,10 @@ class JobQueue:
             result["code"] = job["code"]
         if job.get("blocked"):
             result["blocked"] = copy.deepcopy(job["blocked"])
+            packages = result["blocked"].get("packages")
+            if packages is not None:
+                result["blocked"]["count"] = len(packages)
+                result["blocked"]["packages"] = packages if detail else packages[:8]
         failure = job.get("failure")
         if failure:
             result["failure"] = copy.deepcopy(failure)
@@ -924,8 +903,6 @@ class JobQueue:
             result["ahead"] = [row["id"] for row in ordered([self.jobs[identity] for identity in self.queue], self.clients.operators)].index(job["id"])
             if job["code"] == "ASSET_BUSY":
                 result["hint"] = "冲突资产正在自动协调；本批次将在占用释放后继续。"
-            if job["code"] == "ASSET_SAVE_REQUIRED":
-                result["hint"] = "目标资产存在编辑器原有修改；核实归属后以 asset.save_assets 保存 blocked.packages，本批次自动继续。"
         if claim["phase"] == "fault":
             result["hint"] = "网关自动核实并恢复 assets 中的故障包；独立资产任务继续。"
             if job.get("save_failure"):

@@ -66,7 +66,7 @@ class DirtyScopeTests(unittest.TestCase):
         self.queue.run_once()
         self.assertEqual(self.queue.jobs[other]["status"], "completed")
 
-    def test_dirty_directory_scope_blocks_descendants_and_preserves_siblings(self):
+    def test_dirty_directory_scope_saves_descendants_and_preserves_siblings(self):
         """
         /**
          * @return 核验资产范围与批次交接
@@ -75,11 +75,11 @@ class DirtyScopeTests(unittest.TestCase):
         self.backend.state["dirty_packages"] = ["/Game/Pack/A", "/Game/PackExtra/B"]
         self.queue.observe(force=True)
         batch = self.submit(self.second, operation("write", asset="/Game/Pack"))
-        self.assertFalse(self.queue.run_once())
-        blocked = self.queue.inspect(self.second, batch)
-        self.assertEqual(blocked["code"], "ASSET_SAVE_REQUIRED")
-        self.assertEqual(blocked["blocked"]["packages"], ["/Game/Pack/A"])
-        self.assertEqual(blocked["blocked"]["count"], 1)
+        self.assertTrue(self.queue.run_once())
+        result = self.queue.inspect(self.second, batch)
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["proof"]["prepared"], ["/Game/Pack/A"])
+        self.assertTrue(result["proof"]["readback"])
         self.assertEqual(conflicting_packages(self.backend.state["dirty_packages"], ["/Game/PackExtra"]), {"/Game/PackExtra/B"})
 
     def test_unknown_scope_reports_action_without_dumping_all_dirty_packages(self):
