@@ -143,10 +143,10 @@ class DirtyScopeTests(unittest.TestCase):
          * @return 核验资产范围与批次交接
          */
         """
-        contract = {"id": "animation_graph.configure_character_continuous_locomotion", "definition": "BBBAnimationGraphToolset", "parameters": {}, "access": "write", "world": "editor"}
-        targets, scoped = write_scope(contract, {"asset_path": "/Game/Main", "base_layer_path": "/Game/Base", "child_layer_paths": [], "output_directory": "/Game/Output"})
+        contract = {"id": "animation_graph.restore_character_directional_cycle", "definition": "BBBAnimationGraphToolset", "parameters": {}, "access": "write", "world": "editor"}
+        targets, scoped = write_scope(contract, {"base_layer_path": "/Game/Base", "child_layer_paths": []})
         self.assertTrue(scoped)
-        self.assertEqual(asset_targets(targets), {"/Game/Main", "/Game/Base", "/Game/Output"})
+        self.assertEqual(asset_targets(targets), {"/Game/Base"})
 
     def test_scope_fields_match_actual_tool_parameters(self):
         """

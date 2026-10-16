@@ -110,7 +110,7 @@ TOOL_POLICIES = {
     'animation.stop_locomotion_runtime_probe': {'world': 'pie'},
     'animation.submit_character_diagnostic_inputs': {'world': 'pie'},
     'animation_graph.capture_monster_stagger_samples': {'world': 'pie'},
-    'animation_graph.configure_character_continuous_locomotion': {'scope': {'fields': ['asset_path', 'base_layer_path', 'child_layer_paths', 'output_directory']}},
+    'animation_graph.restore_character_directional_cycle': {'scope': {'fields': ['base_layer_path', 'child_layer_paths']}},
     'animation_graph.configure_character_downed_state': {'scope': {'fields': ['asset_path', 'interface_path', 'base_layer_path', 'child_layer_paths']}},
     'animation_graph.configure_character_rescue_state': {'scope': {'fields': ['asset_path', 'interface_path', 'base_layer_path', 'child_layer_paths']}},
     'animation_graph.create_mass_presentation_variant': {'scope': {'fields': ['destination_root']}},

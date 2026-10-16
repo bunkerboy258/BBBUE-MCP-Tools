@@ -12252,13 +12252,10 @@
         ]
       }
     },
-    "configure_character_continuous_locomotion": {
+    "restore_character_directional_cycle": {
       "inputSchema": {
         "type": "object",
         "properties": {
-          "asset_path": {
-            "type": "string"
-          },
           "base_layer_path": {
             "type": "string"
           },
@@ -12268,23 +12265,18 @@
               "type": "string"
             }
           },
-          "character_config_path": {
+          "reference_content_directory": {
             "type": "string"
           },
-          "output_directory": {
+          "reference_relative_package": {
             "type": "string"
-          },
-          "minimum_pivot_speed": {
-            "type": "number"
           }
         },
         "required": [
-          "asset_path",
           "base_layer_path",
           "child_layer_paths",
-          "character_config_path",
-          "output_directory",
-          "minimum_pivot_speed"
+          "reference_content_directory",
+          "reference_relative_package"
         ]
       },
       "outputSchema": {

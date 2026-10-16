@@ -3081,6 +3081,13 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
     @staticmethod
     def export_animation_blueprint_graphs(blueprint_path: str) -> str:
         """严格只读导出动画蓝图图、节点、引脚与绑定"""
+        if os.path.isabs(blueprint_path) and blueprint_path.lower().endswith(".uasset"):
+            filename = os.path.abspath(blueprint_path).replace("\\", "/")
+            marker = "/Content/"
+            if marker not in filename or not os.path.isfile(filename):
+                raise RuntimeError("外部动画蓝图必须位于明确的项目 Content 目录")
+            root, relative = filename.rsplit(marker, 1)
+            return unreal.BBBAnimationGraphEditorLibrary.inspect_reference_animation_blueprint(root + marker, relative[:-7])
         blueprint = unreal.EditorAssetLibrary.load_asset(blueprint_path)
         if blueprint is None:
             raise RuntimeError("动画蓝图不存在: {}".format(blueprint_path))

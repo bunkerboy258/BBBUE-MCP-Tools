@@ -42,17 +42,16 @@ class McpContractTests(unittest.TestCase):
 
     def test_character_locomotion_authoring_and_observation_boundaries(self):
         """/** @return 连续循环构图需要原生依赖和明确写入范围 运动状态查询保持只读 */"""
-        requirements = capabilities.native_requirements("BBBAnimationGraphToolset", "configure_character_continuous_locomotion")
+        requirements = capabilities.native_requirements("BBBAnimationGraphToolset", "restore_character_directional_cycle")
         self.assertEqual(requirements["BBBAnimationGraphEditorLibrary"], {
-            "get_character_locomotion_sequences", "configure_velocity_blend_space", "configure_character_continuous_locomotion"})
-        authoring = capabilities.tool_contract("BBBAnimationGraphToolset", "configure_character_continuous_locomotion", {"type": "object"})
+            "restore_character_directional_cycle"})
+        authoring = capabilities.tool_contract("BBBAnimationGraphToolset", "restore_character_directional_cycle", {"type": "object"})
         self.assertEqual((authoring["access"], authoring["world"]), ("write", "editor"))
         targets, scoped = capabilities.write_scope(authoring, {
-            "asset_path": "/Game/Main", "base_layer_path": "/Game/Base",
-            "child_layer_paths": ["/Game/Child"], "output_directory": "/Game/NewLocomotion",
-            "character_config_path": "/Game/ReadOnlyConfig"})
+            "base_layer_path": "/Game/Base", "child_layer_paths": ["/Game/Child"],
+            "reference_content_directory": "E:/Reference/Content", "reference_relative_package": "Animation/Base"})
         self.assertTrue(scoped)
-        self.assertEqual(targets, ["/Game/Main", "/Game/Base", ["/Game/Child"], "/Game/NewLocomotion"])
+        self.assertEqual(targets, ["/Game/Base", ["/Game/Child"]])
         observer = capabilities.tool_contract("BBBAnimationMigrationToolset", "get_pie_character_motion_capture_status", {"type": "object"})
         self.assertEqual((observer["access"], observer["world"]), ("read", "any"))
 
