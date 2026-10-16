@@ -392,3 +392,5 @@ PIE 反射调用中的 Guid 返回值按标准字符串序列化 位置参数可
 `editor.inspect_asset_properties` 的 `property_names` 支持点分隔路径 例如 `items.definition` 和 `items.appearance.mesh` 遇到数组时逐项读取剩余路径并保留原索引 不改变资产 数组和映射以 JSON 容器返回
 
 `editor.set_pie_player_view` 需要当前 PIE 存在本地玩家 `position` 是三分量世界厘米坐标 `rotation` 是俯仰 偏航 滚转角度 `fov` 是水平视野角度 临时相机在同一世界复用并随 PIE 回收 不修改源相机 光照 画质或资产 可结合 `editor.capture_pie_player_view` 检查原场景亮部和阴影表现
+
+2026-10-16 曲线编辑直接遵守资产写入网关和本地文件可写权限，不再查询 Perforce 独占签出，也不生成动画或 JSON 备份。仍保留未保存修改保护、有限数值与范围校验、写入后和保存后逐键回读，以及真实 Cubic 插值和水平切线检查。无备份边界及三次曲线的 8 项专项检查通过。

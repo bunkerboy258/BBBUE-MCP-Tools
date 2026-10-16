@@ -1028,8 +1028,12 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         if is_dirty:
             fail("目标动画已有未保存修改: {}".format(asset_path))
 
-        checked_out = AssetTools.is_checked_out(asset_path)
-        can_edit = AssetTools.can_edit_asset(asset_path)
+        package_path = animation.get_path_name().split(".", 1)[0]
+        relative_package_path = package_path[len("/Game/"):].replace("/", os.sep)
+        source_asset_path = os.path.join(unreal.Paths.project_content_dir(), relative_package_path + ".uasset")
+        if not os.path.isfile(source_asset_path):
+            fail("目标动画文件不存在: {}".format(source_asset_path))
+        can_edit = os.access(source_asset_path, os.W_OK)
         if dry_run:
             return json.dumps(
                 {
@@ -1039,7 +1043,6 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
                     "animationLength": animation_length,
                     "originalKeys": original_keys,
                     "requestedKeys": validated_keys,
-                    "checkedOut": checked_out,
                     "canEdit": can_edit,
                     "dryRun": True,
                 },
@@ -1047,46 +1050,8 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             )
 
         require_write_access(animation)
-        state = unreal.SourceControl.query_file_state(asset_path)
-        writable = checked_out and can_edit
-        if state.is_valid and state.is_added and state.can_edit and not state.is_checked_out_other:
-            writable = True
-
-        if not writable:
-            fail("写入前必须独占签出且可编辑目标动画: {}".format(asset_path))
-
-        package_path = animation.get_path_name().split(".", 1)[0]
-        relative_package_path = package_path[len("/Game/"):].replace("/", os.sep)
-        source_asset_path = os.path.join(unreal.Paths.project_content_dir(), relative_package_path + ".uasset")
-        if not os.path.isfile(source_asset_path):
-            fail("目标动画文件不存在: {}".format(source_asset_path))
-
-        timestamp = datetime.datetime.now().strftime("%Y%m%dT%H%M%S%f")
-        backup_directory = os.path.join(
-            unreal.Paths.project_saved_dir(),
-            "temp",
-            "AnimationCurveEdit_" + timestamp,
-        )
-        os.makedirs(backup_directory, exist_ok=True)
-
-        package_name = os.path.basename(relative_package_path)
-        backup_base_name = "{}_{}_{}".format(package_name, curve_name, timestamp)
-        backup_asset_path = os.path.join(backup_directory, backup_base_name + ".uasset")
-        backup_report_path = os.path.join(backup_directory, backup_base_name + ".json")
-        shutil.copy2(source_asset_path, backup_asset_path)
-
-        backup_report = {
-            "asset": asset_path,
-            "curveName": curve_name,
-            "storedCurveName": stored_curve_name,
-            "animationLength": animation_length,
-            "originalKeys": original_keys,
-            "requestedKeys": validated_keys,
-            "backupAsset": backup_asset_path,
-            "timestamp": timestamp,
-        }
-        with open(backup_report_path, "x", encoding="utf-8") as backup_file:
-            json.dump(backup_report, backup_file, ensure_ascii=False, indent=4)
+        if not can_edit:
+            fail("目标动画文件不可写: {}".format(source_asset_path))
 
         curve_name_to_write = stored_curve_name or curve_name
         with unreal.ScopedEditorTransaction("替换动画浮点曲线"):
@@ -1106,14 +1071,14 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             for time_seconds, value in zip(written_times, written_values)
         ]
         if len(written_keys) != len(validated_keys):
-            fail("曲线关键帧写入数量不匹配 备份位于 {}".format(backup_asset_path))
+            fail("曲线关键帧写入数量不匹配: {}".format(asset_path))
 
         for written, expected in zip(written_keys, validated_keys):
             if abs(written["time"] - expected["time"]) > 0.0001 or abs(written["value"] - expected["value"]) > 0.0001:
-                fail("曲线关键帧写入校验失败 备份位于 {}".format(backup_asset_path))
+                fail("曲线关键帧写入校验失败: {}".format(asset_path))
 
         if not unreal.EditorAssetLibrary.save_loaded_asset(animation, False):
-            fail("动画曲线保存失败 备份位于 {}".format(backup_asset_path))
+            fail("动画曲线保存失败: {}".format(asset_path))
 
         saved_times, saved_values = library.get_float_keys(animation, curve_name_to_write)
         saved_keys = [
@@ -1121,11 +1086,11 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             for time_seconds, value in zip(saved_times, saved_values)
         ]
         if len(saved_keys) != len(validated_keys):
-            fail("保存后曲线关键帧数量不匹配 备份位于 {}".format(backup_asset_path))
+            fail("保存后曲线关键帧数量不匹配: {}".format(asset_path))
 
         for saved, expected in zip(saved_keys, validated_keys):
             if abs(saved["time"] - expected["time"]) > 0.0001 or abs(saved["value"] - expected["value"]) > 0.0001:
-                fail("保存后曲线关键帧校验失败 备份位于 {}".format(backup_asset_path))
+                fail("保存后曲线关键帧校验失败: {}".format(asset_path))
 
         unreal.log("[BBB][LeftHandIKCurve] 已更新 {} 的 {} 曲线".format(asset_path, curve_name_to_write))
         return json.dumps(
@@ -1135,8 +1100,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
                 "keys": saved_keys,
                 "interpolation": interpolation,
                 "keyDetails": _float_curve_key_details(animation, curve_name_to_write),
-                "backupAsset": backup_asset_path,
-                "backupReport": backup_report_path,
+                "saved": True,
                 "dryRun": False,
             },
             ensure_ascii=False,

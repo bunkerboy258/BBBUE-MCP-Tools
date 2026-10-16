@@ -33,24 +33,21 @@ class CharacterPoseTempRouteTests(unittest.TestCase):
                 namespace["capture_pie_character_pose"]([0, 1, 2], destination)
 
 
-class AnimationCurveTempRouteTests(unittest.TestCase):
-    """/** 验证曲线编辑备份使用独立任务临时目录 */"""
+class AnimationCurveWritePolicyTests(unittest.TestCase):
+    """/** 验证曲线写入遵守无备份和不办理源控操作的边界 */"""
 
-    def test_curve_backup_uses_saved_temp_operation_directory(self):
-        """/** @return 不加载 UE 核验目录构造与操作隔离 */"""
+    def test_curve_write_never_creates_backup_or_queries_perforce(self):
+        """/** @return 保留资产写入预检与回读且没有备份或 Perforce 副作用 */"""
         tree = ast.parse((ROOT / "Scripts/BBBGenericEditorToolset.py").read_text(encoding="utf-8-sig"))
         function = next(node for node in ast.walk(tree)
                         if isinstance(node, ast.FunctionDef) and node.name == "replace_animation_float_curve")
-        assignment = next(node for node in ast.walk(function)
-                          if isinstance(node, ast.Assign)
-                          and any(isinstance(target, ast.Name) and target.id == "backup_directory"
-                                  for target in node.targets))
-        arguments = assignment.value.args
-        self.assertEqual(len(arguments), 3)
-        self.assertEqual(arguments[1].value, "temp")
-        self.assertIsInstance(arguments[2], ast.BinOp)
-        self.assertEqual(arguments[2].left.value, "AnimationCurveEdit_")
-        self.assertEqual(arguments[2].right.id, "timestamp")
+        calls = [ast.unparse(node.func) for node in ast.walk(function) if isinstance(node, ast.Call)]
+        self.assertIn("require_write_access", calls)
+        self.assertIn("os.access", calls)
+        self.assertEqual(calls.count("library.get_float_keys"), 3)
+        for forbidden in ("shutil.copy2", "os.makedirs", "open", "unreal.SourceControl.query_file_state",
+                          "AssetTools.is_checked_out", "AssetTools.can_edit_asset"):
+            self.assertNotIn(forbidden, calls)
 
 
 if __name__ == "__main__":
