@@ -391,7 +391,9 @@ def export_context(animation_paths, mesh_paths, file_name):
             "local": _transform(reference.get_ref_bone_pose(name, unreal.AnimPoseSpaces.LOCAL)),
             "component": _transform(reference.get_ref_bone_pose(name, unreal.AnimPoseSpaces.WORLD))}
             for name in reference.get_bone_names()}})
-    path = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "Diagnostics", file_name))
+    directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "temp", os.path.splitext(file_name)[0]))
+    os.makedirs(directory, exist_ok=True)
+    path = os.path.join(directory, file_name)
     with open(path, "w", encoding="utf-8") as output:
         json.dump(result, output)
     return json.dumps({"report": path})

@@ -1,6 +1,68 @@
 import json
+import math
 
 import unreal
+
+
+def replace_tracks(animation_path, tracks_json):
+    from BBBAssetWritePolicy import require_write_access
+
+    animation = unreal.load_asset(animation_path)
+    if not isinstance(animation, unreal.AnimSequence):
+        raise RuntimeError("目标必须是动画序列")
+    require_write_access(animation)
+    if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+        raise RuntimeError("PIE 期间禁止改写动画轨道")
+    count = animation.data_model_interface.get_number_of_keys()
+    requests = json.loads(tracks_json)
+    if not isinstance(requests, dict) or not requests or len(requests) > 128 or count > 600:
+        raise RuntimeError("轨道请求范围无效")
+    existing = {str(name) for name in animation.data_model_interface.get_bone_track_names()}
+    corrections = {str(name).casefold() for name in unreal.AnimationLibrary.get_animation_curve_names(animation, unreal.RawCurveTrackTypes.RCT_TRANSFORM)}
+    prepared = {}
+    for name, keys in requests.items():
+        if name not in existing or name.casefold() in corrections or len(keys) != count:
+            raise RuntimeError("轨道不存在 帧数不符或存在变换修正 " + name)
+        positions = []
+        rotations = []
+        scales = []
+        for key in keys:
+            if set(key) != {"position", "rotation", "scale"}:
+                raise RuntimeError("关键帧必须提供位置 四元数和缩放 " + name)
+            position = key["position"]
+            rotation = key["rotation"]
+            scale = key["scale"]
+            if len(position) != 3 or len(rotation) != 4 or len(scale) != 3:
+                raise RuntimeError("关键帧维度无效 " + name)
+            if any(not isinstance(value, (int, float)) or not math.isfinite(value) for value in position + rotation + scale):
+                raise RuntimeError("关键帧包含非有限数值 " + name)
+            if abs(sum(value * value for value in rotation) - 1.0) > 0.001 or any(value <= 0.0 for value in scale):
+                raise RuntimeError("四元数未归一化或缩放无效 " + name)
+            positions.append(unreal.Vector(*position))
+            rotations.append(unreal.Quat(*rotation))
+            scales.append(unreal.Vector(*scale))
+        prepared[name] = (positions, rotations, scales)
+    controller = animation.controller
+    controller.open_bracket("替换指定骨骼局部轨道", False)
+    try:
+        for name, values in prepared.items():
+            if not controller.set_bone_track_keys(name, *values, False):
+                raise RuntimeError("骨骼轨道替换失败 " + name)
+    finally:
+        controller.close_bracket(False)
+    for name, keys in requests.items():
+        actual = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, name)
+        if len(actual) != count:
+            raise RuntimeError("轨道回读帧数不符 " + name)
+        for transform, key in zip(actual, keys):
+            if (transform.translation - unreal.Vector(*key["position"])).length() > 0.001 or (transform.scale3d - unreal.Vector(*key["scale"])).length() > 0.001:
+                raise RuntimeError("轨道回读位置或缩放不符 " + name)
+            dot = sum(a * b for a, b in zip([transform.rotation.x, transform.rotation.y, transform.rotation.z, transform.rotation.w], key["rotation"]))
+            if abs(abs(dot) - 1.0) > 0.0001:
+                raise RuntimeError("轨道回读旋转不符 " + name)
+    if not unreal.EditorAssetLibrary.save_loaded_asset(animation, False):
+        raise RuntimeError("动画保存失败")
+    return json.dumps({"asset": animation_path, "bones": list(prepared), "keysPerBone": count, "readback": True})
 
 
 def restore_from_source(source_path, destination_path):

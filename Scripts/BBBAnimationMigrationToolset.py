@@ -15,6 +15,9 @@ from toolset_registry.registration import Registration
 
 
 MCP_INPUTS = {
+    'replace_animation_bone_tracks': {
+        'tracks_json': {'type': 'object', 'minProperties': 1, 'maxProperties': 128, 'additionalProperties': {'type': 'array', 'minItems': 1, 'maxItems': 600, 'items': {'$ref': '#/$defs/TransformQuaternion'}}},
+    },
     'migrate_animation_data_accesses': {
         'getter_paths_json': {'type': 'object', 'additionalProperties': {'$ref': '#/$defs/Names'}},
         'missing_value_defaults_json': {'$ref': '#/$defs/Properties'},
@@ -3603,6 +3606,20 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
         """将指定骨骼轨道固定为选定帧 保留其它轨道与动画数据"""
         import BBBAnimationTrajectoryTools
         return BBBAnimationTrajectoryTools.hold_tracks(animation_path, bone_names, source_frame, identity_transform)
+
+    @mcp_tool
+    @staticmethod
+    def replace_animation_bone_tracks(animation_path: str, tracks_json: str) -> str:
+        """
+        /**
+         * 校验并替换显式骨骼的逐帧局部变换 保留其它轨道 曲线和通知
+         * @param animation_path\t目标动画序列
+         * @param tracks_json\t\t骨骼名称到完整局部变换关键帧数组
+         * @return 保存资产 轨道 帧数和回读结果
+         */
+        """
+        import BBBAnimationTrajectoryTools
+        return BBBAnimationTrajectoryTools.replace_tracks(animation_path, tracks_json)
 
 
 

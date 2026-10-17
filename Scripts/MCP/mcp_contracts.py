@@ -82,6 +82,7 @@ TOOL_POLICIES = {
     'animation.get_pie_input_sequence_status': {'access': 'read'},
     'animation.get_pie_montage_motion_capture_status': {'access': 'read'},
     'animation.hold_animation_bone_tracks': {'scope': {'fields': ['animation_path']}},
+    'animation.replace_animation_bone_tracks': {'scope': {'fields': ['animation_path']}},
     'animation.inspect_animation_bone_track_keys': {'access': 'read'},
     'animation.inspect_backward_recoil_context': {'access': 'read'},
     'animation.inspect_pie_arm_pose': {'access': 'read'},
