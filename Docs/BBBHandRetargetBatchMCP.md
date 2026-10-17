@@ -25,3 +25,5 @@
 2026-10-17 在隐藏 NullRHI、Balanced 60 FPS 宿主中完成真实链路验证：普通 `MM_Rifle_Idle_Hipfire` 生成 251 帧序列并烘焙；加法 `MM_Rifle_Reload_Additive` 生成 67 帧序列并烘焙，`disableaimik` 与 `disablelhandik` 曲线通过保存后回读。输出位于 `/Game/_Project/Characters/BBBC_UA/Animation/HandRetarget/`，分别是 `LS_Rifle01_Idle_Hipfire_LHand`、`MM_Rifle_Idle_Hipfire_LHand_Rifle01`、`LS_Rifle01_Reload_Additive_LHand` 和 `MM_Rifle_Reload_Additive_LHand_Rifle01`。样本握持偏移取自原始 Idle 第 0 帧，目的是验证工具链；正式逐动作加工前仍须按 Rifle_01 的实际握把位置校准 `grip_in_hand_r` 与接触帧。样本没有接入运行时。
 
 2026-10-17 最终制作完成 Rifle01 的 67 条基础动作和 4 条专属动作，每条保留独立正式 Sequencer 并完成烘焙。基础动作共 5178 帧独立握持回读、214 个同步标记核对通过，21 项针对性单元检查通过。上述旧四项工具链样本已在确认无引用后删除；正式输出归 Rifle_01/Animation/Character，正式序列归 Rifle_01/Animation/Sequencer。用户负责其余运行时和实际画面验收，无截图采样修正后未再次执行 PIE 验证。
+
+`animation.replace_animation_bone_tracks` 可提供 `source_animation_path`，直接读取已烘焙源的完整原始轨道并写入现有 `animation_path`；此模式省略 `tracks`，与显式轨道模式互斥。目标对象和路径保留，不删除或重建资产。要求源与目标骨架、帧数、帧率、Root Motion、Additive 参考、通知时间、浮点曲线和同步标记一致，骨骼轨道集合完全相同；支持最多 1200 帧与 128 条轨道。所有轨道先准备和校验，再通过动画控制器写入，逐帧回读位置、四元数、缩放并检查元数据未变化后保存。不创建备份或修改源动画。

@@ -4,7 +4,7 @@ import math
 import unreal
 
 
-def replace_tracks(animation_path, tracks_json):
+def replace_tracks(animation_path, tracks_json, source_animation_path=""):
     from BBBAssetWritePolicy import require_write_access
 
     animation = unreal.load_asset(animation_path)
@@ -15,7 +15,12 @@ def replace_tracks(animation_path, tracks_json):
         raise RuntimeError("PIE 期间禁止改写动画轨道")
     count = animation.data_model_interface.get_number_of_keys()
     requests = json.loads(tracks_json)
-    if not isinstance(requests, dict) or not requests or len(requests) > 128 or count > 600:
+    metadata_before = None
+    if source_animation_path:
+        if requests:
+            raise RuntimeError("源动画与显式轨道不能同时提供")
+        requests, metadata_before = _source_track_request(animation, source_animation_path)
+    if not isinstance(requests, dict) or not requests or len(requests) > 128 or count > 1200:
         raise RuntimeError("轨道请求范围无效")
     existing = {str(name) for name in animation.data_model_interface.get_bone_track_names()}
     corrections = {str(name).casefold() for name in unreal.AnimationLibrary.get_animation_curve_names(animation, unreal.RawCurveTrackTypes.RCT_TRANSFORM)}
@@ -60,9 +65,62 @@ def replace_tracks(animation_path, tracks_json):
             dot = sum(a * b for a, b in zip([transform.rotation.x, transform.rotation.y, transform.rotation.z, transform.rotation.w], key["rotation"]))
             if abs(abs(dot) - 1.0) > 0.0001:
                 raise RuntimeError("轨道回读旋转不符 " + name)
+    if metadata_before is not None and _track_metadata(animation) != metadata_before:
+        raise RuntimeError("替换骨骼轨道改变了动画元数据")
     if not unreal.EditorAssetLibrary.save_loaded_asset(animation, False):
         raise RuntimeError("动画保存失败")
     return json.dumps({"asset": animation_path, "bones": list(prepared), "keysPerBone": count, "readback": True})
+
+
+
+def _track_metadata(animation):
+    """/** @param animation 动画对象 @return 原始轨道以外的动画与事件签名 */"""
+    import BBBHandRetargetBatchToolset as batch
+    reference = animation.get_editor_property("ref_pose_seq")
+    reference_path = reference.get_path_name() if reference is not None else ""
+    if reference == animation:
+        reference_path = "self"
+    rate = animation.data_model_interface.get_frame_rate()
+    markers = unreal.AnimationLibrary.get_animation_sync_markers(animation)
+    return {
+        "skeleton": animation.get_editor_property("skeleton").get_path_name(),
+        "frames": animation.data_model_interface.get_number_of_keys(),
+        "rate": (rate.numerator, rate.denominator),
+        "length": round(animation.get_play_length(), 6),
+        "root": animation.get_editor_property("enable_root_motion"),
+        "additive": str(animation.get_editor_property("additive_anim_type")),
+        "referenceType": str(animation.get_editor_property("ref_pose_type")),
+        "reference": reference_path,
+        "referenceFrame": animation.get_editor_property("ref_frame_index"),
+        "curves": batch._float_curve_signature(animation),
+        "notifies": batch._notify_signature(animation),
+        "markers": [(str(marker.marker_name), round(marker.time, 6)) for marker in markers],
+    }
+
+
+def _source_track_request(animation, source_animation_path):
+    """/** @param animation 现有目标 @param source_animation_path 烘焙源 @return 校验后的完整局部轨道与目标元数据 */"""
+    source = unreal.load_asset(source_animation_path)
+    if not isinstance(source, unreal.AnimSequence) or source == animation:
+        raise RuntimeError("源动画无效或与目标相同")
+    before = _track_metadata(animation)
+    if _track_metadata(source) != before:
+        raise RuntimeError("源与目标的骨架 帧率 通知 曲线或参考姿势不一致")
+    source_names = [str(name) for name in source.data_model_interface.get_bone_track_names()]
+    target_names = [str(name) for name in animation.data_model_interface.get_bone_track_names()]
+    if set(source_names) != set(target_names):
+        raise RuntimeError("源与目标骨骼轨道集合不一致")
+    requests = {}
+    for name in source_names:
+        transforms = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(source, name)
+        if len(transforms) != before["frames"]:
+            raise RuntimeError("源骨骼轨道帧数不符 " + name)
+        requests[name] = [{
+            "position": [value.translation.x, value.translation.y, value.translation.z],
+            "rotation": [value.rotation.x, value.rotation.y, value.rotation.z, value.rotation.w],
+            "scale": [value.scale3d.x, value.scale3d.y, value.scale3d.z],
+        } for value in transforms]
+    return requests, before
 
 
 def restore_from_source(source_path, destination_path):
