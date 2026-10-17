@@ -29,6 +29,9 @@ class ControlRigBakeCurvesTests(unittest.TestCase):
             def set_editor_property(self, name, value):
                 setattr(self, name, value)
 
+            def get_editor_property(self, name):
+                return getattr(self, name, None)
+
         source = Animation({"IK": [{"time": 1.9, "value": 0, "tangent": 0}]})
         target = Animation({"IK": [{"time": 2.03, "value": 1, "tangent": 0.7, "interp": "cubic"}]})
         snapshot = Animation(copy.deepcopy(target.curves))

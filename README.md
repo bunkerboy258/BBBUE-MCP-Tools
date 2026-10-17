@@ -229,3 +229,4 @@ python -B Tests/benchmark_mcp_workflows.py --catalog '<当前目录缓存>' --su
 2026-10-17 动画层动作配置：新增 `editor.configure_animation_montage_selector` 为继承的无参纯函数配置同骨架蒙太奇固定返回值。拒绝非纯函数 不匹配返回类型及已有连线返回逻辑 编译成功后保存。`editor.configure_action_montage` 保留目标已有的 UpperBody 或 UpperBodyAdditive 槽位 并拒绝其它动作槽位。本轮按用户要求不运行自动化或 PIE 验收。
 
 2026-10-17 新增 animation.replace_animation_bone_tracks，通过动画数据控制器替换显式局部轨道，校验有限数值、单位四元数、帧数和变换修正冲突，逐帧回读后保存。制作数据导出移到 Saved/temp/任务名。低功耗 NullRHI 宿主完成空手投掷 68 条轨道、每条 30 帧的实际写入、逐帧回读和保存，蒙太奇、通知和 IK 曲线回读成功；按用户要求不启动 PIE 或自动验收。
+2026-10-17 新增批量左手握持重定向：复用 Rifle_01 Control Rig 序列模板，按显式接触帧和右手局部握持变换生成独立序列；官方烘焙只写入左臂白名单，逐帧核对其余骨骼，并核验 Root Motion、Additive、曲线关键帧与通知。隐藏 NullRHI 中档宿主完成 Idle 251 帧与 Reload Additive 67 帧序列生成、烘焙和保存回读；38 项相关静态检查通过。样本握持偏移仍待按 Rifle_01 实际握把校准，详见 Docs/BBBHandRetargetBatchMCP.md。

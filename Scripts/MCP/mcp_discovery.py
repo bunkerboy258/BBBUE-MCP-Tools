@@ -26,6 +26,8 @@ ALIASES = {
 }
 
 HINTS = {
+    "control_rig.build_hand_retarget_sequences": "batch left hand IK grip retarget contact frames sequence",
+    "control_rig.bake_hand_retarget_sequences": "bake left arm animation preserve curves notifies additive root motion",
     "animation.sample_weapon_handling_runtime": "reload equip runtime acceptance",
     "animation.run_pie_input_sequence": "reload input runtime",
     "blueprint.annotate_blueprint_graph": "node block annotate comment",
@@ -48,6 +50,8 @@ SUMMARIES = {
     "animation.sample_backward_recoil_runtime": "采样运行时后坐力",
     "animation.capture_backward_recoil_alpha_samples": "捕获后坐力混合权重采样",
     "control_rig.inspect_mesh_bounds": "读取网格包围盒",
+    "control_rig.build_hand_retarget_sequences": "批量建立左手握持重定向序列",
+    "control_rig.bake_hand_retarget_sequences": "批量烘焙左手修正并保留其余动画数据",
     "editor.rebind_asset_import_sources": "重新绑定资产导入源文件",
     "editor.import_font_faces": "导入字体文件",
     "editor.create_particle_surface_material": "创建粒子表面材质",

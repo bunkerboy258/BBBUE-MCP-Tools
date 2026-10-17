@@ -25,6 +25,7 @@ TOOL_DOMAINS = {
     "BBBBlueprintGraphToolset": "blueprint",
     "BBBRigidPartToolset": "rigid",
     "BBBControlRigAuthoringToolset": "control_rig",
+    "BBBHandRetargetBatchToolset": "control_rig",
     "BBBMcpRuntimeToolset": "runtime",
     "BBBMcpTaskToolset": None,
     "BBBAssetMaintenanceToolset": "assets",

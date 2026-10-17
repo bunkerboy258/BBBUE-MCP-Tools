@@ -9512,6 +9512,78 @@
       }
     }
   },
+  "BBBHandRetargetBatchToolset": {
+    "build_hand_retarget_sequences": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "manifest_json": {
+            "type": "string",
+            "description": "源动画、模板、网格、握持目标与接触帧清单 *"
+          },
+          "write_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "逐项精确声明的输出序列路径 *"
+          }
+        },
+        "required": [
+          "manifest_json",
+          "write_paths"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "序列关键帧、校验与保存结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "bake_hand_retarget_sequences": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "manifest_json": {
+            "type": "string",
+            "description": "源动画、序列、网格与目标动画清单 *"
+          },
+          "write_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "逐项精确声明的输出动画路径 *"
+          }
+        },
+        "required": [
+          "manifest_json",
+          "write_paths"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "帧数、左臂差异、曲线、通知与 Root Motion 核验 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    }
+  },
   "BBBMcpRuntimeToolset": {
     "inspect_mcp_dependencies": {
       "inputSchema": {

@@ -209,6 +209,8 @@ TOOL_POLICIES = {
     'control_rig.add_pose_controls': {'scope': {'fields': ['asset_path']}},
     'control_rig.apply_baked_bone_deltas': {'scope': {'fields': ['baked_path']}},
     'control_rig.bake_control_rig_animation': {'scope': {'fields': ['animation_path']}},
+    'control_rig.build_hand_retarget_sequences': {'scope': {'fields': ['write_paths']}},
+    'control_rig.bake_hand_retarget_sequences': {'scope': {'fields': ['write_paths']}},
     'control_rig.build_pose_control_keys': {'scope': {'fields': ['animation_path']}},
     'control_rig.capture_attachment_pose': {'world': 'pie'},
     'control_rig.configure_control_rig_graph': {'scope': {'fields': ['asset_path']}},

@@ -1,6 +1,25 @@
 """/** 高频任务的简短调用路线与完成判据 */"""
 
 ROUTES = {
+    "control_rig.build_hand_retarget_sequences": {
+        "use_when": "按明确的接触帧把左手校正到指定的右手局部握持位置",
+        "difference": "生成独立可编辑序列；bake_hand_retarget_sequences 再写出私有动画",
+        "workflow": [
+            {"tool": "control_rig.inspect_sequence_bindings", "when": "核对现有模板的角色、源动作和 Control Rig 轨道", "inputs": ["sequence_path"]},
+            {"tool": "control_rig.build_hand_retarget_sequences", "when": "提供握持变换和不重叠的接触帧区间", "inputs": ["manifest", "write_paths"]},
+            {"tool": "control_rig.bake_hand_retarget_sequences", "when": "将代表序列烘焙到新动画并核验允许差异", "inputs": ["manifest", "write_paths"]},
+            {"evidence": "输出序列与动画各自保存回读；非左臂姿势、曲线、通知、根运动和叠加设置保持"},
+        ],
+    },
+    "control_rig.bake_hand_retarget_sequences": {
+        "use_when": "把左手 Control Rig 序列写入新的左臂修正动画",
+        "difference": "使用官方 Sequencer 烘焙器；不修改源动作，也不遍历其它 Lyra 动画",
+        "workflow": [
+            {"tool": "control_rig.build_hand_retarget_sequences", "when": "尚未生成本次修正序列", "inputs": ["manifest", "write_paths"]},
+            {"tool": "control_rig.bake_hand_retarget_sequences", "when": "逐项烘焙并保留其它骨骼、曲线与通知", "inputs": ["manifest", "write_paths"]},
+            {"evidence": "目标动画新建、仅左臂白名单可变且所有保存后回读通过"},
+        ],
+    },
     "object.set_properties": {
         "use_when": "已知对象与属性值，修改并核实目标字段",
         "difference": "object.list_properties 查字段类型；object.get_properties 读取值",
@@ -38,6 +57,8 @@ ROUTES = {
 }
 
 PURPOSES = {
+    "control_rig.build_hand_retarget_sequences": "按接触区间生成左手握持重定向序列",
+    "control_rig.bake_hand_retarget_sequences": "只烘焙左臂并保留其它动画数据",
     "editor.inspect_animation_notifies": "读取通知事件及时间位置",
     "editor.add_animation_notify_events": "按明确事件类型与时间添加通知",
     "blueprint.inspect_blueprint_graph": "读取图表逻辑、快照或几何",

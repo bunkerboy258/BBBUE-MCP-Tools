@@ -1349,6 +1349,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
             animation = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
                 name, folder, unreal.AnimSequence, factory)
 
+        root_motion = animation.get_editor_property("enable_root_motion")
         curve_snapshot = None
         if unreal.AnimationLibrary.get_animation_curve_names(animation, unreal.RawCurveTrackTypes.RCT_FLOAT):
             curve_snapshot = unreal.AssetToolsHelpers.get_asset_tools().duplicate_asset(
@@ -1369,6 +1370,11 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
             if animation.sequence_length <= 0.0:
                 raise RuntimeError("烘焙结果为空")
 
+            if animation.get_editor_property("enable_root_motion") != root_motion:
+                animation.set_editor_property("enable_root_motion", root_motion)
+            if animation.get_editor_property("enable_root_motion") != root_motion:
+                raise RuntimeError("烘焙改变了目标 Root Motion 设置")
+
             copied_curves = 0
             curve_source = curve_snapshot
             if curve_source is None and source_animations:
@@ -1378,7 +1384,6 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
                 if copied_curves < 0:
                     raise RuntimeError("保留浮点曲线失败 禁止保存烘焙结果")
 
-            animation.set_editor_property("enable_root_motion", False)
             if not unreal.EditorAssetLibrary.save_loaded_asset(animation, False):
                 raise RuntimeError("保存烘焙动画失败")
         finally:

@@ -47,8 +47,14 @@ class ControlRigBakeTests(unittest.TestCase):
         result = json.loads(self.bake("/Game/Sequence", "/Game/Target", "/Game/Mesh"))
         self.access.assert_called_once_with(self.animation)
         self.engine.EditorAssetLibrary.save_loaded_asset.assert_called_once_with(self.animation, False)
-        self.animation.set_editor_property.assert_called_once_with("enable_root_motion", False)
+        self.animation.set_editor_property.assert_not_called()
         self.assertEqual(result["length"], 2.0)
+
+    def test_existing_root_motion_setting_is_preserved(self):
+        """/** @return 烘焙保留目标原有根运动开关 */"""
+        self.animation.get_editor_property.side_effect = lambda name: name == "enable_root_motion"
+        self.bake("/Game/Sequence", "/Game/Target", "/Game/Mesh")
+        self.animation.set_editor_property.assert_not_called()
 
     def test_checkout_failure_prevents_bake(self):
         """/** @return 未签出不能写入目标 */"""

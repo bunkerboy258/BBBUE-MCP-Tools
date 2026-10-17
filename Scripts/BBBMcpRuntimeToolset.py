@@ -223,8 +223,10 @@ class BBBMcpRuntimeToolset(unreal.ToolsetDefinition):
         """
         from BBBMcpCapabilities import TOOL_DOMAINS, source_index, native_requirements, dependency_status
         domain, function = tool.split(".", 1)
-        modules = [name for name, label in TOOL_DOMAINS.items() if label == domain and name.startswith("BBB")]
-        if len(modules) != 1 or function not in source_index(modules[0])["public_tools"]:
+        modules = [name for name, label in TOOL_DOMAINS.items()
+                   if label == domain and name.startswith("BBB")
+                   and function in source_index(name)["public_tools"]]
+        if len(modules) != 1:
             raise ValueError("TOOL_UNKNOWN")
         status = dependency_status(native_requirements(modules[0], function), unreal)
         return json.dumps({"tool": tool, "process_id": os.getpid(), "project_root": os.path.realpath(unreal.Paths.project_dir()), **status}, ensure_ascii=False)
