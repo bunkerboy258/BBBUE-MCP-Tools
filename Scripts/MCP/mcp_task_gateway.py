@@ -170,7 +170,8 @@ class UnrealBackend:
             inspector = self.catalog.tools.get("blueprint.inspect_blueprint_graph")
             if expected and inspector is not None:
                 path = arguments["graph_path"]
-                current = self.invoke(inspector, {"graph_path": path, "view": "overview"})
+                current = self.invoke(inspector, {"graph_path": path, "view": "overview", "node_guids": [],
+                                                   "offset": 0, "limit": 40, "expected_snapshot": ""})
                 if current["snapshot"] != expected:
                     raise McpBusinessError({"status": "rejected", "code": "GRAPH_SNAPSHOT_CHANGED", "execution": {"state": "rejected"},
                         "needs": [{"path": "/arguments", "rule": "按当前图表重新核实节点范围与修改方案"}],

@@ -47,6 +47,7 @@ TOOL_POLICIES = {
     'traversal.configure_pie_traversal_network': {'world': 'any'},
     'assets.delete_unreferenced_project_assets': {'scope': {'fields': ['asset_paths']}},
     'editor.configure_action_montage': {'scope': {'fields': ['asset_path']}},
+    'editor.configure_animation_montage_selector': {'scope': {'fields': ['blueprint_path']}},
     'editor.spawn_pie_niagara_instances': {'access': 'pie', 'world': 'pie', 'scope': {'kind': 'session'}, 'completion': 'observed'},
     'assets.restore_missing_animation_notify_classes': {'scope': {'fields': ['asset_paths']}},
     'editor.audit_animation_library_batch': {'access': 'read', 'world': 'any'},

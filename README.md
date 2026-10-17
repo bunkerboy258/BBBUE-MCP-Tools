@@ -224,3 +224,6 @@ python -B Tests/benchmark_mcp_workflows.py --catalog '<当前目录缓存>' --su
 2026-10-16 权限与资产协调：执行判定集中到 MCP/mcp_decision.py；任务范围内原有脏包由服务核对占用后定向保存回读，再派发原操作。移除 ASSET_SAVE_REQUIRED 人工交接分支；零级明确管理动作统一校验权限，批次占用内部保留完整包集，默认返回八项摘要。保存与回读失败保留范围恢复证据。7 个修改或新增 Python 文件通过 AST 静态检查，服务命令行加载通过，7 项轻量隔离检查通过；真实 UE/PIE 验收按本轮要求省略。
 
 2026-10-17 角色使用动作与特效制作完成实机验收：UpperBody 多片段与真实循环、F/G 和鼠标原始输入、跨 PIE 世界角色探针、ControlRig 逐键写入、Niagara 真实模拟年龄与世界时间录制、无引用自有资产清理及缺失通知实例恢复。65 项定向检查和 12 项 UE 战斗回归通过，双端使用与迟加入通过。112 格流体在 720p 高画质四枚并发的预热采样 GPU 中位数 12.07 ms、峰值 15.76 ms，首次运行卡顿及编辑器整帧范围单独记录；不宣称整项目或打包版本稳定 60 FPS。详见 Docs/BBBConsumableAuthoringMCP.md。
+
+
+2026-10-17 动画层动作配置：新增 `editor.configure_animation_montage_selector` 为继承的无参纯函数配置同骨架蒙太奇固定返回值。拒绝非纯函数 不匹配返回类型及已有连线返回逻辑 编译成功后保存。`editor.configure_action_montage` 保留目标已有的 UpperBody 或 UpperBodyAdditive 槽位 并拒绝其它动作槽位。本轮按用户要求不运行自动化或 PIE 验收。

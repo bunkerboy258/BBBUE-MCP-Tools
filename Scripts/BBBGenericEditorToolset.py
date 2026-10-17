@@ -392,6 +392,35 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def configure_animation_montage_selector(blueprint_path: str, function_name: str, montage_path: str) -> str:
+        """
+        /**
+         * 配置动画层只读选择函数的固定蒙太奇返回值并编译保存
+         * @param blueprint_path\t目标动画层
+         * @param function_name\t父类无参纯函数名称
+         * @param montage_path\t同骨架的动作蒙太奇
+         * @return 配置后的资产与函数名称
+         */
+        """
+        from BBBAssetWritePolicy import require_asset_write
+
+        blueprint = unreal.load_asset(blueprint_path)
+        montage = unreal.load_asset(montage_path)
+        if not isinstance(blueprint, unreal.AnimBlueprint) or not isinstance(montage, unreal.AnimMontage):
+            raise RuntimeError("需要动画蓝图与动作蒙太奇")
+        require_asset_write([blueprint])
+        if not unreal.BBBAnimationGraphEditorLibrary.configure_animation_montage_selector(blueprint, function_name, montage):
+            raise RuntimeError("选择函数配置失败 不保存")
+        unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
+        if blueprint.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+            raise RuntimeError("选择函数编译包含错误或警告 不保存")
+        if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
+            raise RuntimeError("选择函数保存失败")
+        return json.dumps({"saved": blueprint.get_path_name(), "function": function_name,
+                           "montage": montage.get_path_name()}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def inspect_pie_character_runtime(player_index: int = 0, actor_path: str = "") -> str:
         """
         /**
