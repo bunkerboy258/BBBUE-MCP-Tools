@@ -103,7 +103,7 @@ def _frame_count(animation):
     """/** @param animation	动画资产 @return 帧数与原始帧率 */"""
     count = animation.data_model_interface.get_number_of_keys()
     rate = animation.data_model_interface.get_frame_rate()
-    if count < 2 or count > 600 or rate.numerator < 1 or rate.denominator < 1:
+    if count < 2 or count > 1200 or rate.numerator < 1 or rate.denominator < 1:
         raise RuntimeError("动画帧数或采样率超出批量范围 " + animation.get_path_name())
 
     return count, rate
@@ -190,27 +190,40 @@ def _set_spawn_range(binding, end_frame):
             channel.add_key(unreal.FrameNumber(value=end_frame), False)
 
 
-def _set_component_key(sequence, rig, hierarchy, control_name, transform, frame):
-    """/** @param sequence	编辑序列 @param rig	序列实例 @param hierarchy	控制层级 @param control_name	控制器 @param transform	组件空间目标 @param frame	显示帧 @return 无返回值 */"""
+def _set_component_keys(channels, hierarchy, control_name, transforms, frames):
+    """/** @param channels	控制器通道 @param hierarchy	控制层级 @param control_name	控制器 @param transforms	组件空间目标数组 @param frames	显示帧数组 @return 无返回值 */"""
     key = authoring._key(control_name, "CONTROL")
     if hierarchy.get_parents(key):
         raise RuntimeError("批量组件空间写键不支持带父级控制器 " + control_name)
 
     offset = hierarchy.get_global_control_offset_transform(key, True)
-    local = transform.make_relative(offset)
-    value = unreal.EulerTransform(
-        location=local.translation,
-        rotation=local.rotation.rotator(),
-        scale=local.scale3d,
+    suffixes = (
+        "Location.X", "Location.Y", "Location.Z", "Rotation.X", "Rotation.Y",
+        "Rotation.Z", "Scale.X", "Scale.Y", "Scale.Z",
     )
-    unreal.ControlRigSequencerLibrary.set_local_control_rig_euler_transform(
-        sequence,
-        rig,
-        control_name,
-        unreal.FrameNumber(value=frame),
-        value,
-        set_key=True,
-    )
+    targets = []
+    for suffix in suffixes:
+        name = control_name + "." + suffix
+        if name not in channels:
+            raise RuntimeError("控制器关键帧通道缺失 " + name)
+        targets.append(channels[name])
+    previous_rotation = None
+    for frame, transform in zip(frames, transforms):
+        local = transform.make_relative(offset)
+        rotation = local.rotation.rotator()
+        angles = [rotation.roll, rotation.pitch, rotation.yaw]
+        if previous_rotation is not None:
+            angles = [value + 360.0 * round((previous - value) / 360.0)
+                      for value, previous in zip(angles, previous_rotation)]
+        previous_rotation = angles
+        values = [local.translation.x, local.translation.y, local.translation.z]
+        values.extend(angles)
+        values.extend([local.scale3d.x, local.scale3d.y, local.scale3d.z])
+        for channel, value in zip(targets, values):
+            channel.add_key(
+                frame, value, 0.0, unreal.MovieSceneTimeUnit.DISPLAY_RATE,
+                unreal.MovieSceneKeyInterpolation.LINEAR,
+            )
 
 
 def _contact_ranges(row, count):
@@ -302,6 +315,66 @@ def _validate_contact_reach(pose, target, pole=None):
         raise RuntimeError("肘部 Pole Vector 与手臂轴线重合 请提供 pole_in_hand_r")
 
 
+def _fit_contact_shoulder(pose, target, hierarchy):
+    """/** @param pose	当前组件姿势 @param target	混合后的接触目标 @param hierarchy	骨骼层级 @return 左锁骨修正角度 */"""
+    clavicle = pose["clavicle_l"]
+    shoulder = pose["upperarm_l"]
+    elbow = pose["lowerarm_l"]
+    wrist = pose["hand_l"]
+    reach = (elbow.translation - shoulder.translation).length()
+    reach += (wrist.translation - elbow.translation).length()
+    safe_reach = reach - 1.0
+    if (target.translation - shoulder.translation).length() <= safe_reach:
+        return 0.0
+
+    offset = shoulder.translation - clavicle.translation
+    direction = target.translation - clavicle.translation
+    offset_length = offset.length()
+    direction_length = direction.length()
+    if offset_length < 0.1 or direction_length < 0.1:
+        raise RuntimeError("锁骨长度或接触方向无效")
+    first = offset / offset_length
+    second = direction / direction_length
+    dot = max(-1.0, min(1.0, first.x * second.x + first.y * second.y + first.z * second.z))
+    axis = unreal.Vector(
+        first.y * second.z - first.z * second.y,
+        first.z * second.x - first.x * second.z,
+        first.x * second.y - first.y * second.x,
+    )
+    axis_length = axis.length()
+    if axis_length < 0.00001:
+        raise RuntimeError("锁骨无法通过旋转接近手部目标")
+    axis = axis / axis_length
+    high = min(math.acos(dot), math.radians(35.0))
+    low = 0.0
+    for _ in range(24):
+        angle = (low + high) * 0.5
+        sine = math.sin(angle * 0.5)
+        delta = unreal.Quat(axis.x * sine, axis.y * sine, axis.z * sine, math.cos(angle * 0.5))
+        location = clavicle.translation + delta.rotate_vector(offset)
+        if (target.translation - location).length() > safe_reach:
+            low = angle
+        if (target.translation - location).length() <= safe_reach:
+            high = angle
+    sine = math.sin(high * 0.5)
+    delta = unreal.Quat(axis.x * sine, axis.y * sine, axis.z * sine, math.cos(high * 0.5))
+    location = clavicle.translation + delta.rotate_vector(offset)
+    if (target.translation - location).length() > safe_reach + 0.001:
+        raise RuntimeError("接触目标需要超过35度的锁骨修正")
+
+    origin = clavicle.translation
+    keys = [authoring._key("clavicle_l")]
+    keys.extend(hierarchy.get_children(keys[0], True))
+    for key in keys:
+        name = str(key.name).casefold()
+        if key.type != unreal.RigElementType.BONE or name not in pose:
+            continue
+        transform = pose[name]
+        transform.translation = origin + delta.rotate_vector(transform.translation - origin)
+        transform.rotation = delta * transform.rotation
+    return math.degrees(high)
+
+
 def _clear_control_keys(track):
     """/** @param track	控制绑定轨道 @return 清除旧关键帧 */"""
     for section in track.get_sections():
@@ -365,6 +438,8 @@ def _write_item(row):
         raise RuntimeError("复制关卡序列模板失败")
 
     try:
+        tick_numerator = rate.numerator * max(1, math.ceil(24000 / rate.numerator))
+        sequence.set_tick_resolution_directly(unreal.FrameRate(numerator=tick_numerator, denominator=1))
         sequence.set_display_rate(rate)
         sequence.set_playback_start(0)
         sequence.set_playback_end(count)
@@ -439,9 +514,14 @@ def _write_item(row):
             raise RuntimeError("模板缺少原姿势骨骼控制器 " + ",".join(missing[:12]))
 
         _clear_control_keys(rig_tracks[0])
+        channels = {str(channel.channel_name): channel
+                    for section in rig_tracks[0].get_sections()
+                    for channel in section.get_all_channels()}
         frame_numbers = [unreal.FrameNumber(value=frame) for frame in range(count)]
         hand_expectations = []
         pole_expectations = []
+        source_values = {name: [] for name in bone_names}
+        shoulder_angles = []
         for frame in range(count):
             pose = _read_pose(animation, mesh, frame, rate)
             right_hand = pose.get("hand_r")
@@ -464,27 +544,15 @@ def _write_item(row):
                 pole.rotation = right_hand.rotation * pole_offset.rotation
 
             alpha = _contact_weight(frame, contacts, row_weight)
-            if alpha > 0.0:
-                _validate_contact_reach(pose, target, pole)
-
             blended_hand = left_hand.lerp(target, alpha)
+            shoulder_angle = 0.0
+            if alpha > 0.0:
+                shoulder_angle = _fit_contact_shoulder(pose, blended_hand, hierarchy)
+                _validate_contact_reach(pose, blended_hand, pole)
+            shoulder_angles.append(shoulder_angle)
 
-            unreal.LevelSequenceEditorBlueprintLibrary.set_current_time(frame)
-            unreal.LevelSequenceEditorBlueprintLibrary.force_update()
             for bone_name in bone_names:
-                _set_component_key(
-                    sequence,
-                    rig,
-                    hierarchy,
-                    source_controls[bone_name.casefold()],
-                    pose[bone_name.casefold()],
-                    frame,
-                )
-
-            hand_control = controls["hand_l_ik_ctrl"]
-            pole_control = controls["elbow_l_pv_ctrl"]
-            _set_component_key(sequence, rig, hierarchy, hand_control, blended_hand, frame)
-            _set_component_key(sequence, rig, hierarchy, pole_control, pole, frame)
+                source_values[bone_name].append(pose[bone_name.casefold()])
             hand_expectations.append(blended_hand)
             pole_expectations.append(pole)
             if frame % 30 == 0:
@@ -496,6 +564,19 @@ def _write_item(row):
                     )
                 )
 
+        for bone_name, transforms in source_values.items():
+            _set_component_keys(
+                channels, hierarchy, source_controls[bone_name.casefold()],
+                transforms, frame_numbers,
+            )
+        _set_component_keys(
+            channels, hierarchy, controls["hand_l_ik_ctrl"],
+            hand_expectations, frame_numbers,
+        )
+        _set_component_keys(
+            channels, hierarchy, controls["elbow_l_pv_ctrl"],
+            pole_expectations, frame_numbers,
+        )
         unreal.LevelSequenceEditorBlueprintLibrary.force_update()
         hand_actuals = unreal.ControlRigSequencerLibrary.get_local_control_rig_euler_transforms(
             sequence,
@@ -569,11 +650,13 @@ def _write_item(row):
             "maximumHandTargetErrorCm": max_hand_position_error,
             "maximumHandRotationErrorDegrees": max_hand_rotation_error,
             "maximumPolePositionErrorCm": max_pole_position_error,
+            "maximumClavicleAdjustmentDegrees": max(shoulder_angles),
             "contactIntervals": contacts,
             "saved": True,
         }
-    except Exception:
-        _delete_failed_output(sequence, sequence_path)
+    except Exception as error:
+        unreal.log_error("[BBBHandRetargetBatch] 制作失败 " + sequence_path + " " + str(error))
+        unreal.LevelSequenceEditorBlueprintLibrary.close_level_sequence()
         raise
 
 
@@ -587,8 +670,15 @@ def _validate_additive_reference(animation, source):
         raise RuntimeError("批量烘焙暂不支持非 Local Space Base Additive " + str(additive_type))
 
     reference_type = animation.get_editor_property("ref_pose_type")
-    if reference_type != unreal.AdditiveBasePoseType.ABPT_LOCAL_ANIM_FRAME:
-        raise RuntimeError("批量烘焙要求 Additive 使用 Local Anim Frame 参考姿势")
+    if reference_type not in (
+        unreal.AdditiveBasePoseType.ABPT_LOCAL_ANIM_FRAME,
+        unreal.AdditiveBasePoseType.ABPT_ANIM_FRAME,
+    ):
+        raise RuntimeError("批量烘焙要求 Additive 使用明确动画帧参考姿势")
+    if reference_type == unreal.AdditiveBasePoseType.ABPT_ANIM_FRAME:
+        reference = animation.get_editor_property("ref_pose_seq")
+        if reference not in (source, animation):
+            raise RuntimeError("批量烘焙的 Selected Anim Frame 参考必须是自身源动画")
 
     reference_frame = int(animation.get_editor_property("ref_frame_index"))
     source_count, _ = _frame_count(source)
@@ -754,7 +844,7 @@ def _notify_signature(animation):
         if notify is not None:
             class_path = notify.get_class().get_path_name()
         if state is not None:
-            class_path = state.get_path_name()
+            class_path = state.get_class().get_path_name()
         values.append(
             (
                 str(event.get_editor_property("notify_name")),
@@ -821,6 +911,7 @@ class BBBHandRetargetBatchToolset(unreal.ToolsetDefinition):
 
         results = []
         for row in manifest:
+            existed_before = unreal.EditorAssetLibrary.does_asset_exist(row["sequence_path"])
             try:
                 results.append(_write_item(row))
             except Exception as error:
@@ -838,6 +929,8 @@ class BBBHandRetargetBatchToolset(unreal.ToolsetDefinition):
                         "error": str(error),
                     }
                 )
+            if not results[-1]["saved"] and not existed_before:
+                _delete_failed_output(None, row["sequence_path"])
 
         return json.dumps(results, ensure_ascii=False)
 
@@ -908,6 +1001,8 @@ class BBBHandRetargetBatchToolset(unreal.ToolsetDefinition):
                     row["mesh_path"],
                 )
                 created = _asset(output_path, unreal.AnimSequence)
+                if additive_properties["ref_pose_seq"] == source:
+                    additive_properties["ref_pose_seq"] = created
                 for name, value in additive_properties.items():
                     created.set_editor_property(name, value)
 

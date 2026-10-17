@@ -244,7 +244,8 @@ def start_capture(montage_path, times, prefix, interrupt_time=-1.0, capture_imag
     previous_throttle = performance.get_editor_property("bThrottleCPUWhenNotForeground")
     performance.set_editor_property("bThrottleCPUWhenNotForeground", False)
     previous_dilation = unreal.GameplayStatics.get_global_time_dilation(world)
-    unreal.GameplayStatics.set_global_time_dilation(world, 0.1)
+    if capture_images:
+        unreal.GameplayStatics.set_global_time_dilation(world, 0.1)
     bones = ["clavicle_l", "upperarm_l", "lowerarm_l", "hand_l", "hand_r", "spine_03",
         "lowerarm_twist_01_l", "index_01_l", "middle_01_l", "pinky_01_l"]
     _capture["referenceBones"] = {
@@ -270,7 +271,7 @@ def start_capture(montage_path, times, prefix, interrupt_time=-1.0, capture_imag
             unreal.unregister_slate_post_tick_callback(_capture_handle)
         _capture_handle = None
         performance.set_editor_property("bThrottleCPUWhenNotForeground", previous_throttle)
-        if unreal.SystemLibrary.is_valid(world):
+        if capture_images and unreal.SystemLibrary.is_valid(world):
             unreal.GameplayStatics.set_global_time_dilation(world, previous_dilation)
         with open(os.path.join(directory, "motion.json"), "w", encoding="utf-8") as output:
             json.dump(_capture, output, ensure_ascii=False, indent=2)
@@ -361,7 +362,8 @@ def start_capture(montage_path, times, prefix, interrupt_time=-1.0, capture_imag
 
     _capture_handle = unreal.register_slate_post_tick_callback(tick)
     from BBBMcpCapabilities import register_activity
-    register_activity("motion:capture", lambda: _capture_handle is not None)
+    register_activity("motion:capture", lambda: _capture_handle is not None,
+                      blocking=capture_images, wait=capture_images)
     return json.dumps({"state": "waiting", "directory": directory})
 
 
