@@ -95,6 +95,7 @@ class ControlRigBakeTests(unittest.TestCase):
         source_type = type("SourceAnimation", (Mock,), {})
         self.engine.AnimSequence = source_type
         source = source_type()
+        self.engine.AnimationLibrary.get_animation_curve_names.side_effect = lambda asset, kind: ["DisableLHandIK", "DisableAimIK"] if asset is source else []
         section = Mock()
         section.get_editor_property.return_value.animation = source
         track = Mock()
@@ -111,14 +112,51 @@ class ControlRigBakeTests(unittest.TestCase):
         """/** @return 控制曲线复制失败不保存不完整动作 */"""
         source_type = type("SourceAnimation", (Mock,), {})
         self.engine.AnimSequence = source_type
+        source = source_type(sequence_length=8.33)
+        self.animation.sequence_length = 1.0 / 30.0
+        self.engine.AnimationLibrary.get_animation_curve_names.side_effect = lambda asset, kind: ["DisableLHandIK"] if asset is source else []
         section = Mock()
-        section.get_editor_property.return_value.animation = source_type()
+        section.get_editor_property.return_value.animation = source
         track = Mock()
         track.get_sections.return_value = [section]
         self.binding.find_tracks_by_type.side_effect = lambda kind: [track]
         self.engine.BBBBlueprintEditorLibrary.copy_animation_float_curves.return_value = -1
         with self.assertRaises(RuntimeError):
             self.bake("/Game/Sequence", "/Game/Target", "/Game/Mesh")
+        self.engine.BBBBlueprintEditorLibrary.copy_animation_float_curves.assert_called_once_with(source, self.animation)
+        self.engine.EditorAssetLibrary.save_loaded_asset.assert_not_called()
+
+    def test_curve_free_long_source_can_bake_a_short_static_pose_without_copy(self):
+        """/** @return 无曲线长源动作不触发原生同长限制 固定短样板可以保存 */"""
+        source_type = type("SourceAnimation", (Mock,), {})
+        self.engine.AnimSequence = source_type
+        source = source_type(sequence_length=8.33)
+        section = Mock()
+        section.get_editor_property.return_value.animation = source
+        track = Mock()
+        track.get_sections.return_value = [section]
+        self.binding.find_tracks_by_type.side_effect = lambda kind: [track]
+        self.animation.sequence_length = 1.0 / 30.0
+        self.engine.BBBBlueprintEditorLibrary.copy_animation_float_curves.return_value = -1
+        result = json.loads(self.bake("/Game/Sequence", "/Game/Target", "/Game/Mesh"))
+        self.engine.BBBBlueprintEditorLibrary.copy_animation_float_curves.assert_not_called()
+        self.assertEqual(result["copiedFloatCurves"], 0)
+        self.assertAlmostEqual(result["length"], 1.0 / 30.0)
+        self.engine.EditorAssetLibrary.save_loaded_asset.assert_called_once_with(self.animation, False)
+
+    def test_unexpected_float_curves_without_a_source_prevent_saving(self):
+        """/** @return 无曲线来源时出现意外浮点曲线必须拒绝保存 */"""
+        source_type = type("SourceAnimation", (Mock,), {})
+        self.engine.AnimSequence = source_type
+        section = Mock()
+        section.get_editor_property.return_value.animation = source_type()
+        track = Mock()
+        track.get_sections.return_value = [section]
+        self.binding.find_tracks_by_type.side_effect = lambda kind: [track]
+        self.engine.AnimationLibrary.get_animation_curve_names.side_effect = [[], [], ["UnexpectedCurve"]]
+        with self.assertRaisesRegex(RuntimeError, "意外产生浮点曲线"):
+            self.bake("/Game/Sequence", "/Game/Target", "/Game/Mesh")
+        self.engine.BBBBlueprintEditorLibrary.copy_animation_float_curves.assert_not_called()
         self.engine.EditorAssetLibrary.save_loaded_asset.assert_not_called()
 
 

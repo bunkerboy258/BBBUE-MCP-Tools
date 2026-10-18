@@ -36,6 +36,9 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
+    'editor.sample_skeletal_mesh_surface': {'access': 'read'},
+    'editor.audit_hand_pose_layer': {'access': 'read', 'world': 'editor'},
+    'editor.configure_hand_pose_layer': {'scope': {'fields': ['main_path', 'base_path', 'interface_path', 'child_layer_paths']}, 'completion': 'verified_save'},
     'editor.create_particle_surface_material': {'scope': {'fields': ['material_path']}},
     'editor.configure_niagara_parameters': {'scope': {'fields': ['system_path']}},
     'editor.configure_niagara_particle_stage': {'scope': {'fields': ['system_path']}},

@@ -1379,10 +1379,15 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
             curve_source = curve_snapshot
             if curve_source is None and source_animations:
                 curve_source = source_animations[0]
+            source_float_curves = []
             if curve_source is not None:
+                source_float_curves = unreal.AnimationLibrary.get_animation_curve_names(curve_source, unreal.RawCurveTrackTypes.RCT_FLOAT)
+            if source_float_curves:
                 copied_curves = unreal.BBBBlueprintEditorLibrary.copy_animation_float_curves(curve_source, animation)
                 if copied_curves < 0:
                     raise RuntimeError("保留浮点曲线失败 禁止保存烘焙结果")
+            if not source_float_curves and unreal.AnimationLibrary.get_animation_curve_names(animation, unreal.RawCurveTrackTypes.RCT_FLOAT):
+                raise RuntimeError("无浮点曲线来源的烘焙意外产生浮点曲线 禁止保存")
 
             if not unreal.EditorAssetLibrary.save_loaded_asset(animation, False):
                 raise RuntimeError("保存烘焙动画失败")

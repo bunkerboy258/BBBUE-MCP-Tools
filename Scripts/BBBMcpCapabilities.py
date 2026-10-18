@@ -44,6 +44,8 @@ TOOL_DOMAINS = {
 TOOLSET_ROUTES = tuple(name for name in TOOL_DOMAINS if name.startswith("BBB"))
 
 HELPER_MODULES = (
+    "BBBGripGeometryTools",
+    "BBBHandPoseLayerTools",
     "BBBBlueprintLayout", "BBBBlueprintAnnotations", "BBBAnimationMotionTools",
     "BBBAnimationTrajectoryTools", "BBBArmTwistTools", "BBBWeaponHandlingTools",
     "BBBAnimationViewTools",

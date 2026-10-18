@@ -23,6 +23,7 @@ _pie_view_camera = None
 
 
 MCP_INPUTS = {
+    'sample_skeletal_mesh_surface': {'local_rotations_json': {'type': 'object', 'additionalProperties': {'type': 'array', 'items': {'type': 'number'}, 'minItems': 4, 'maxItems': 4}}},
     'configure_niagara_parameters': {'changes_json': {'type': 'array', 'items': {'type': 'object', 'properties': {'store': {'type': 'string'}, 'name': {'type': 'string'}, 'value': {'type': 'string'}}, 'required': ['store', 'name', 'value'], 'additionalProperties': False}, 'minItems': 1}},
     'configure_niagara_particle_stage': {'stage_json': {'type': 'object', 'properties': {'stage': {'type': 'string', 'enum': ['spawn', 'update']}, 'name': {'type': 'string'}, 'code': {'type': 'string'}, 'inputs': {'type': 'array', 'items': {'type': 'object', 'properties': {'name': {'type': 'string'}, 'type': {'type': 'string', 'enum': ['float', 'int', 'bool', 'position', 'vec2', 'vec3', 'color', 'quat']}}, 'required': ['name', 'type'], 'additionalProperties': False}}, 'outputs': {'type': 'array', 'minItems': 1, 'items': {'type': 'object', 'properties': {'name': {'type': 'string'}, 'type': {'type': 'string', 'enum': ['float', 'int', 'bool', 'position', 'vec2', 'vec3', 'color', 'quat']}}, 'required': ['name', 'type'], 'additionalProperties': False}}, 'render': {'type': 'object', 'properties': {'kind': {'type': 'string', 'enum': ['none', 'sprite', 'mesh']}, 'material': {'type': 'string'}, 'mesh': {'type': 'string'}, 'aligned': {'type': 'boolean'}}, 'required': ['kind'], 'additionalProperties': False}, 'modules': {'type': 'array', 'items': {'type': 'string'}, 'maxItems': 8}, 'parameters': {'type': 'array', 'items': {'type': 'object', 'properties': {'name': {'type': 'string'}, 'type': {'type': 'string', 'enum': ['float', 'int', 'bool', 'position', 'vec2', 'vec3', 'color', 'quat']}, 'value': {'type': 'string'}}, 'required': ['name', 'type', 'value'], 'additionalProperties': False}}}, 'required': ['stage', 'name', 'code', 'inputs', 'outputs'], 'additionalProperties': False}},
     'configure_niagara_burst_layer': {'layer_json': {'type': 'object', 'properties': {'name': {'type': 'string'}, 'material': {'type': 'string'}, 'count': {'type': 'integer', 'minimum': 1, 'maximum': 256}, 'lifetime': {'type': 'number', 'minimum': 0.01, 'maximum': 5}, 'speed': {'type': 'number', 'minimum': 0, 'maximum': 5000}, 'drag': {'type': 'number', 'minimum': 0, 'maximum': 100}, 'gravity': {'type': 'number', 'minimum': 0, 'maximum': 2000}, 'growth': {'type': 'number', 'minimum': 0, 'maximum': 10}, 'size': {'type': 'array', 'items': {'type': 'number', 'minimum': 0.1, 'maximum': 1000}, 'minItems': 2, 'maxItems': 2}, 'color': {'type': 'array', 'items': {'type': 'number', 'minimum': 0, 'maximum': 100}, 'minItems': 4, 'maxItems': 4}, 'aligned': {'type': 'boolean'}}, 'required': ['name', 'material', 'count', 'lifetime', 'speed', 'drag', 'gravity', 'growth', 'size', 'color', 'aligned'], 'additionalProperties': False}},
@@ -4778,6 +4779,45 @@ return saturate(edge*3)*smoothstep(0.18,0.7,n)*0.8;
         if not unreal.EditorAssetLibrary.save_loaded_asset(material, False):
             raise RuntimeError('粒子表面材质保存失败')
         return material.get_path_name()
+
+
+    @mcp_tool
+    @staticmethod
+    def sample_skeletal_mesh_surface(mesh_path: str, animation_path: str, time_seconds: float,
+                                     selected_bones: list[str], minimum_weight: float,
+                                     material_indices: list[int], output_name: str,
+                                     local_rotations_json: str = '{}') -> str:
+        """只读采样明确姿势的真实蒙皮表面 输出至任务临时目录"""
+        import BBBGripGeometryTools
+
+        return BBBGripGeometryTools.sample_surface(
+            mesh_path, animation_path, time_seconds, selected_bones, minimum_weight,
+            material_indices, output_name, local_rotations_json)
+
+    @mcp_tool
+    @staticmethod
+    def audit_hand_pose_layer(mesh_path: str, base_animation_path: str, grip_animation_path: str,
+                             base_path: str, interface_path: str, layer_name: str, alphas: list[float]) -> str:
+        """/** @param mesh_path 实际网格 @param base_animation_path 输入动作 @param grip_animation_path 握姿 @param base_path 正式层 @param interface_path 层接口 @param layer_name 层名称 @param alphas 混合权重 @return 临时预览世界真实求值与逐骨误差 */"""
+        from BBBHandPoseLayerTools import audit_hand_pose_layer
+        return json.dumps(audit_hand_pose_layer(mesh_path, base_animation_path, grip_animation_path,
+                                               base_path, interface_path, layer_name, alphas), ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def configure_hand_pose_layer(main_path: str, base_path: str, interface_path: str,
+                                  child_layer_paths: list[str], old_layer_name: str,
+                                  layer_name: str, before_layer_name: str, grip_getter_name: str,
+                                  left_disable_curve: str, right_disable_curve: str,
+                                  left_finger_roots: list[str], right_finger_roots: list[str]) -> str:
+        """定向配置共享双手握姿层并在全部目标编译回读后保存"""
+        import BBBHandPoseLayerTools
+
+        result = BBBHandPoseLayerTools.configure_hand_pose_layer(
+            main_path, base_path, interface_path, child_layer_paths, old_layer_name,
+            layer_name, before_layer_name, grip_getter_name, left_disable_curve,
+            right_disable_curve, left_finger_roots, right_finger_roots)
+        return json.dumps(result, ensure_ascii=False)
 
 
 _registration = Registration([BBBGenericEditorToolset])
