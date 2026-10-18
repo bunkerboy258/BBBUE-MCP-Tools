@@ -37,6 +37,8 @@ INPUT_SHAPES = {
 
 TOOL_POLICIES = {
     'grip.author_weapon': {'scope': {'fields': ['weapon_root']}, 'world': 'editor'},
+    'grip.apply_action_recipe': {'scope': {'fields': ['weapon_root']}, 'world': 'editor', 'completion': 'verified_save'},
+    'grip.sample_static_attachment_surface': {'access': 'read'},
     'editor.sample_skeletal_mesh_surface': {'access': 'read'},
     'editor.audit_hand_pose_layer': {'access': 'read', 'world': 'editor'},
     'editor.configure_hand_pose_layer': {'scope': {'fields': ['main_path', 'base_path', 'interface_path', 'child_layer_paths']}, 'completion': 'verified_save'},

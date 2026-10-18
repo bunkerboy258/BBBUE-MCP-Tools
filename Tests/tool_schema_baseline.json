@@ -14432,6 +14432,80 @@
           "returnValue"
         ]
       }
+    },
+    "apply_action_recipe": {
+      "description": "从型号唯一动作制作源写入绝对轨道并同步可编辑底稿",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "weapon_root": {
+            "type": "string",
+            "description": "明确武器型号根 *"
+          },
+          "recipe_path": {
+            "type": "string",
+            "description": "型号Source/Animation中的动作制作文件 *"
+          },
+          "action_index": {
+            "type": "integer",
+            "description": "明确的一条动作索引 *"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "只检查范围和输入 *",
+            "default": true
+          }
+        },
+        "required": [
+          "weapon_root",
+          "recipe_path",
+          "action_index"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "sample_static_attachment_surface": {
+      "description": "只读提取独立静态附件的实际渲染三角面",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mesh_path": {
+            "type": "string",
+            "description": "明确静态网格 *"
+          },
+          "output_name": {
+            "type": "string",
+            "description": "任务目录与文件名两段 不带扩展名 *"
+          }
+        },
+        "required": [
+          "mesh_path",
+          "output_name"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   }
 }

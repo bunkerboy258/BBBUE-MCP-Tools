@@ -445,6 +445,129 @@ def _initialize(path, root, project, definition_path, character_mesh_path, refer
 class BBBGripAuthoringToolset(unreal.ToolsetDefinition):
     @mcp_tool
     @staticmethod
+    def sample_static_attachment_surface(mesh_path: str, output_name: str) -> str:
+        """
+        /**
+         * 只读提取独立静态附件的实际渲染三角面
+         * @param mesh_path\t明确静态网格
+         * @param output_name\t任务目录与文件名两段 不带扩展名
+         * @return 原生LOD0网格组件空间报告
+         */
+        """
+        if re.fullmatch(r'[A-Za-z0-9_-]+/[A-Za-z0-9_-]+', output_name) is None:
+            raise RuntimeError('ATTACHMENT_OUTPUT_TASK_REQUIRED')
+        project = Path(unreal.Paths.project_dir()).resolve()
+        destination = project / 'Saved' / 'temp' / (output_name + '.json')
+        for candidate in [destination, *destination.parents]:
+            if candidate == project:
+                break
+            if candidate.is_symlink() or getattr(os.path, 'isjunction', lambda path: False)(candidate):
+                raise RuntimeError('ATTACHMENT_OUTPUT_LINK_REJECTED')
+        mesh = _asset(mesh_path, unreal.StaticMesh)
+        dynamic = unreal.DynamicMesh()
+        options = unreal.GeometryScriptCopyMeshFromAssetOptions()
+        lod = unreal.GeometryScriptMeshReadLOD(lod_type=unreal.GeometryScriptLODType.RENDER_DATA, lod_index=0)
+        copied, outcome = unreal.GeometryScript_AssetUtils.copy_mesh_from_static_mesh_v2(mesh, dynamic, options, lod, True)
+        if outcome != unreal.GeometryScriptOutcomePins.SUCCESS or copied != dynamic:
+            raise RuntimeError('ATTACHMENT_RENDER_LOD0_COPY_FAILED')
+        unused, positions, vertex_gaps = unreal.GeometryScript_MeshQueries.get_all_vertex_positions(dynamic, False)
+        unused, indices, triangle_gaps = unreal.GeometryScript_MeshQueries.get_all_triangle_indices(dynamic, False)
+        if vertex_gaps or triangle_gaps:
+            raise RuntimeError('ATTACHMENT_RENDER_TOPOLOGY_HAS_GAPS')
+        positions = unreal.GeometryScript_List.convert_vector_list_to_array(positions)
+        indices = unreal.GeometryScript_List.convert_triangle_list_to_array(indices)
+        if not positions or not indices:
+            raise RuntimeError('ATTACHMENT_RENDER_LOD0_EMPTY')
+        report = {'mesh': mesh_path, 'meshType': 'StaticMesh', 'space': 'mesh_component_centimeters',
+                  'lod': 0, 'source': 'RenderDataLOD0', 'readOnly': True, 'localRotationOverrides': {},
+                  'vertices': [{'id': index, 'position': list(value.to_tuple())} for index, value in enumerate(positions)],
+                  'triangles': [{'id': index, 'vertices': list(value.to_tuple())} for index, value in enumerate(indices)]}
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(json.dumps(report, ensure_ascii=False, allow_nan=False), encoding='utf-8')
+        return json.dumps({'report': str(destination), 'mesh': mesh_path, 'readOnly': True,
+                           'vertices': len(positions), 'triangles': len(indices), 'source': 'RenderDataLOD0'})
+
+    @mcp_tool
+    @staticmethod
+    def apply_action_recipe(weapon_root: str, recipe_path: str, action_index: int, dry_run: bool = True) -> str:
+        """
+        /**
+         * 从型号唯一动作制作源写入绝对轨道并同步可编辑底稿
+         * @param weapon_root\t明确武器型号根
+         * @param recipe_path\t型号Source/Animation中的动作制作文件
+         * @param action_index\t明确的一条动作索引
+         * @param dry_run\t只检查范围和输入
+         * @return 轨道及控制器保存回读结果
+         */
+        """
+        from BBBAnimationMigrationToolset import BBBAnimationMigrationToolset as migration
+        from BBBControlRigAuthoringToolset import BBBControlRigAuthoringToolset as authoring
+
+        project = Path(unreal.Paths.project_dir()).resolve()
+        path = _safe_file(project, weapon_root, recipe_path)
+        recipe = json.loads(path.read_text(encoding='utf-8'))
+        if recipe.get('schema') != 1 or recipe.get('weapon') != weapon_root:
+            raise RuntimeError('ACTION_RECIPE_SCOPE_MISMATCH')
+        actions = recipe.get('actions', [])
+        if type(action_index) != int or action_index < 0 or action_index >= len(actions):
+            raise RuntimeError('ACTION_INDEX_INVALID')
+        request = actions[action_index]
+        allowed = {'clavicle_l', 'upperarm_l', 'lowerarm_l', 'hand_l', 'ik_hand_l', 'ik_hand_r', 'ik_hand_gun'}
+        if not request.get('tracks') or not set(request['tracks']) <= allowed:
+            raise RuntimeError('ACTION_BONE_SCOPE_INVALID')
+        for field, folder in (('asset', '/Animation/Sequence/'), ('sequence', '/Animation/work/')):
+            if request[field].rsplit('/', 1)[0] + '/' != weapon_root + folder:
+                raise RuntimeError('ACTION_OUTPUT_SCOPE_MISMATCH: ' + field)
+        if request['source'].rsplit('/', 1)[0] + '/' != weapon_root + '/Animation/Sequence/':
+            raise RuntimeError('ACTION_SOURCE_SCOPE_MISMATCH')
+        _asset(recipe['rig'], unreal.ControlRigBlueprint)
+        grip_path = _safe_file(project, weapon_root, recipe['grip_recipe_path'])
+        grip = _recipe(grip_path, weapon_root)
+        if recipe['grip_fingerprint'] != _fingerprint(grip, project) or not grip.get('validation', {}).get('passed'):
+            raise RuntimeError('ACTION_GRIP_BASELINE_STALE')
+        source = _asset(request['source'], unreal.AnimSequence)
+        count = source.data_model_interface.get_number_of_keys()
+        if any(len(keys) != count for keys in request['tracks'].values()):
+            raise RuntimeError('ACTION_FRAME_COUNT_MISMATCH')
+        controls = json.loads(authoring.inspect_control_rig_controls(recipe['rig']))['controls']
+        control_names = {control['name'].casefold(): control['name'] for control in controls}
+        keys = []
+        for key in request['keys']:
+            name = control_names.get(key['control'].casefold())
+            if name is None:
+                raise RuntimeError('ACTION_CONTROL_MISSING: ' + key['control'])
+            if type(key['frame']) != int or key['frame'] < 0 or key['frame'] >= count:
+                raise RuntimeError('ACTION_CONTROL_FRAME_INVALID')
+            keys.append({**key, 'control': name})
+        response = {'asset': request['asset'], 'sequence': request['sequence'], 'frames': count,
+                    'kind': request['kind'], 'dryRun': dry_run, 'assetsModified': False}
+        if dry_run:
+            return json.dumps(response)
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError('PIE_ACTIVE')
+        outputs = [request['asset'], request['sequence']]
+        existing = [value for value in outputs if unreal.EditorAssetLibrary.does_asset_exist(value)]
+        destinations = [value for value in outputs if value not in existing]
+        require_asset_write(existing, destinations)
+        if not unreal.EditorAssetLibrary.does_asset_exist(request['asset']):
+            if unreal.EditorAssetLibrary.duplicate_asset(request['source'], request['asset']) is None:
+                raise RuntimeError('ACTION_DUPLICATE_FAILED')
+        animation = _asset(request['asset'], unreal.AnimSequence)
+        names = {str(name).casefold(): str(name) for name in animation.data_model_interface.get_bone_track_names()}
+        tracks = {names[name]: keys for name, keys in request['tracks'].items()}
+        response['tracks'] = json.loads(migration.replace_animation_bone_tracks(request['asset'], json.dumps(tracks)))
+        if not unreal.EditorAssetLibrary.does_asset_exist(request['sequence']):
+            authoring.prepare_animation_sequence(request['sequence'], request['source'], recipe['mesh'])
+        response['draft'] = json.loads(authoring.configure_sequence_rig(request['sequence'], recipe['rig'], json.dumps(keys), False, recipe['mesh']))
+        response['attachment'] = None
+        if request.get('attachment_label'):
+            response['attachment'] = json.loads(authoring.set_sequence_attachment_transform(
+                request['sequence'], request['attachment_label'], json.dumps(recipe['attachment'])))
+        response['assetsModified'] = True
+        return json.dumps(response, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def author_weapon(weapon_root: str, recipe_path: str, action: str = 'inspect', python_executable: str = '', review_note: str = '',
                       definition_path: str = '', character_mesh_path: str = '', reference_animation_path: str = '') -> str:
         """

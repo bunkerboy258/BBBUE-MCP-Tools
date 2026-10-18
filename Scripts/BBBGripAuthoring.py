@@ -11,6 +11,9 @@ from BBBGripPoseFitting import SurfacePose, TriangleQuery, contact_error, fit_po
 from BBBGripSolidAudit import WeldedSolidSurface
 
 
+_HAND_HELPER_TARGETS = (('ik_hand_gun', 'hand_r'), ('ik_hand_r', 'hand_r'), ('ik_hand_l', 'hand_l'))
+
+
 def matrix_quaternion(matrix):
     """/** @param matrix 纯旋转矩阵 @return 最短符号归一化XYZW四元数 */"""
     m = np.asarray(matrix, dtype=float)
@@ -167,6 +170,41 @@ def runtime_geometry(surface, weapon, context, calibration):
     target[:3, 3] += np.asarray(calibration['left_ik_offset'])
     target[:3, :3] = target[:3, :3] @ rotation_matrix(calibration['left_ik_rotation'])
     return weapon_matrix, right @ target
+
+
+def synchronize_hand_helpers(surface, local):
+    """/** @param surface 父骨在前的实际骨架 @param local 已完成手臂的局部姿态 @return 按辅助骨父子顺序对齐后的姿态及组件矩阵 */"""
+    output = local.copy()
+    targets = [pair for pair in _HAND_HELPER_TARGETS if pair[0] in surface.names]
+    for helper, hand in sorted(targets, key=lambda pair: surface.names[pair[0]]):
+        if hand not in surface.names:
+            raise ValueError('实际辅助骨缺少对应手骨: ' + helper + ' -> ' + hand)
+        components = surface.components(output)
+        index = surface.names[helper]
+        parent = surface.bones[index]['parent']
+        output[index] = components[surface.names[hand]].copy()
+        if parent >= 0:
+            output[index] = np.linalg.inv(components[parent]) @ components[surface.names[hand]]
+    return output, surface.components(output)
+
+
+def hand_helper_pairing_audit(character):
+    """/** @param character 实际原生组件姿势采样 @return 实际存在辅助骨与对应手骨的独立位置及角度误差 */"""
+    bones = {bone['name']: bone for bone in character['bones']}
+    pairs = []
+    for helper, hand in _HAND_HELPER_TARGETS:
+        if helper not in bones:
+            continue
+        if hand not in bones:
+            raise ValueError('实际辅助骨缺少对应手骨: ' + helper + ' -> ' + hand)
+        first = transform_matrix(bones[helper]['component'])
+        second = transform_matrix(bones[hand]['component'])
+        pairs.append({'helper': helper, 'hand': hand,
+                      'positionErrorCm': float(np.linalg.norm(first[:3, 3] - second[:3, 3])),
+                      'rotationErrorDegrees': quaternion_angle_degrees(bones[helper]['component'][3:7], bones[hand]['component'][3:7])})
+    return {'pairCount': len(pairs), 'pairs': pairs,
+            'maximumPositionErrorCm': max([pair['positionErrorCm'] for pair in pairs] + [0.0]),
+            'maximumRotationErrorDegrees': max([pair['rotationErrorDegrees'] for pair in pairs] + [0.0])}
 
 
 def _repose(surface, local):
@@ -432,13 +470,7 @@ def solve(request):
     for name, quaternion in rotations.items():
         index = surface.names[name]
         local[index, :3, :3] = rotation_matrix(quaternion) @ np.diag(surface.bones[index]['local'][7:10])
-    components = surface.components(local)
-    for helper, hand in (('ik_hand_l', 'hand_l'), ('ik_hand_r', 'hand_r'), ('ik_hand_gun', 'hand_r')):
-        index = surface.names[helper]
-        parent = surface.bones[index]['parent']
-        desired = components[surface.names[hand]]
-        local[index] = np.linalg.inv(components[parent]) @ desired
-        components = surface.components(local)
+    local, components = synchronize_hand_helpers(surface, local)
     audit = geometry_audit(posed, weapon, matrix, rotations, recipe)
     locals_output = {bone['name']: matrix_values(local[index]) for index, bone in enumerate(surface.bones)}
     components_output = {bone['name']: matrix_values(components[index]) for index, bone in enumerate(surface.bones)}
@@ -463,8 +495,13 @@ def audit(request):
     static_motion = 0.0
     control_position = 0.0
     control_rotation = 0.0
+    helper_reports = [hand_helper_pairing_audit(character)]
     for sample in request['samples']:
         posed = SurfacePose(sample)
+        helper_report = hand_helper_pairing_audit(sample)
+        if [pair['helper'] for pair in helper_report['pairs']] != [pair['helper'] for pair in helper_reports[0]['pairs']]:
+            raise ValueError('实际静态采样辅助骨集合不一致')
+        helper_reports.append(helper_report)
         static_motion = max(static_motion, float(np.linalg.norm(posed.initial - surface.initial, axis=1).max()))
         for bone in posed.bones:
             actual = bone['local']
@@ -475,6 +512,8 @@ def audit(request):
     wrist = transform_matrix(next(bone for bone in character['bones'] if bone['name'] == 'hand_l')['component'])
     wrist_error = float(np.linalg.norm(wrist[:3, 3] - target[:3, 3]))
     checks = recipe['checks']
+    helper_position = max(report['maximumPositionErrorCm'] for report in helper_reports)
+    helper_rotation = max(report['maximumRotationErrorDegrees'] for report in helper_reports)
     controls = request['control_keys']
     for key in controls:
         desired = recipe['solution']['component_pose'][key['control'].removeprefix('pose_')]
@@ -487,6 +526,7 @@ def audit(request):
         control_rotation = max(control_rotation, quaternion_angle_degrees(actual[3:7], desired[3:7]))
     passed = geometry['passed'] and maximum_position <= checks['maximum_pose_position_error_cm']
     passed &= maximum_rotation <= checks['maximum_pose_rotation_error_degrees'] and maximum_scale <= .0001
+    passed &= helper_position <= checks['maximum_pose_position_error_cm'] and helper_rotation <= checks['maximum_pose_rotation_error_degrees']
     passed &= static_motion <= checks['maximum_static_motion_cm'] and wrist_error <= checks['maximum_wrist_error_cm']
     passed &= len(controls) == 2 * len(expected) and control_position <= checks['maximum_pose_position_error_cm'] and control_rotation <= checks['maximum_pose_rotation_error_degrees']
     actual_definition = request['definition_calibration']
@@ -502,6 +542,9 @@ def audit(request):
             'staticMaximumVertexMotionCm': static_motion, 'leftWristTargetErrorCm': wrist_error,
             'definitionMatchesSolution': bool(definition_matches), 'definitionErrors': definition_errors,
             'maximumControlPositionErrorCm': control_position, 'maximumControlRotationErrorDegrees': control_rotation,
+            'handHelperPairing': {'pairCount': helper_reports[0]['pairCount'], 'sampleCount': len(helper_reports),
+                                  'maximumPositionErrorCm': helper_position, 'maximumRotationErrorDegrees': helper_rotation,
+                                  'samples': helper_reports},
             'runtimeAcceptance': 'pending'}
 
 

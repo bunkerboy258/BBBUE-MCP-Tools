@@ -140,3 +140,15 @@ MCP 调用须显式传入 `controller_path` 使用默认玩家时传空字符串
 `configure_sequence_rig` 的变换键统一使用角色组件空间，仅接受无父级的欧拉变换控制器。写键先扣除控制器真实初始偏移，再调用官方局部欧拉通道批量接口并逐帧回读；不再经过预览演员世界变换，避免编辑器预览位置引入固定握把误差。带父级控制器明确拒绝，不能按无父级姿势静默保存。源动作重建须按序列显示帧率生成秒值调用 `sample_animation_poses`；`build_pose_control_keys` 的帧号属于源动画原生采样率，不能直接当作不同帧率的序列帧号。
 
 `control_rig.configure_sequence_animation_source(sequence_path, animation_path, mesh_path)` 原位替换角色唯一源动作 要求源动作与网格骨架一致 播放区间和原全长片段随源长度更新 已有控制器与局部附件区间保留 非叠加 Rig 的源姿势控制器需要随后按新动作重写 再烘焙回读 禁止将只替换源片段视为完成矫正
+
+## 只读序列烘焙审计
+
+`control_rig.export_sequence_pose_audit(sequence_path, source_path, mesh_path, sample_times, report_name)` 保持原调用参数。`report_name` 必须为仅含英文数字、下划线和短横线的唯一 JSON 文件名，例如 `Rifle02_ReloadRigAudit.json`；输出位置为 `Saved/temp/Rifle02_ReloadRigAudit/Rifle02_ReloadRigAudit.json`。已有报告拒绝覆盖，目录链接与父目录跳转拒绝使用，交付后由任务清理该精确目录。
+
+工具通过 UE 官方 `SystemLibrary.duplicate_object` 将完整序列和源动画复制到 `/Engine/Transient` 下的独立瞬态容器，仅在副本上调用 `SequencerTools.export_anim_sequence`，明确关闭序列动画链接。不建立正式动画包，不修改或保存正式序列、动画、生成轨或关键帧。官方入口无法处理瞬态副本时直接失败，不改用正式资产目录。
+
+目标网格必须具有唯一已有生成绑定、唯一启用且覆盖完整播放区间的生成片段，生成通道必须从开始持续启用。缺少轨道、多个轨道、播放中途关闭时直接失败，不自动创建生成轨或补键。源动作与目标网格要求同骨架；采样秒数必须有限且位于源动作及实际烘焙结果内，不截断时间、不循环。
+
+成功与失败路径均在 `finally` 中释放副本及其内含对象的 Python 引用并运行引擎垃圾回收。UE 的动画控制器或序列系统仍持有瞬态对象时，已完成的对照结果保留，并如实输出 `cleanup.state="pending_host_shutdown"`、具体 `retained` 路径和 `transientObjectsReleased=false`；调用者须在之后正常关闭所属宿主并核实 PID 已退出，才能完成这一生命周期检查。全部对象已即时回收时输出 `cleanup.state="released"`。工具不删除瞬态包、不修改引擎控制器根引用，也不将宿主缓存误报为已经释放。`differentBones` 是实际原生 RAW 局部姿势的厘米与四元数角度差异，不代表视觉通过或运行时动画层验收。
+
+离线回归使用 `python -B -m unittest discover -s Tests -p test_control_rig_sequence_audit.py -v`，覆盖副本隔离、缺失生成轨、官方导出失败、姿势读取失败、宿主持有瞬态对象的待关闭状态、已有报告保护、无效时间与文件名、复制失败。真实 UE 验收需记录调用前后正式 LS 文件 SHA256、生成轨关键帧及资产 dirty 状态；分别检查成功与失败调用没有新增内容资产、没有改变正式 LS，按报告的清理状态记录即时回收或后续宿主 PID 退出证据。离线替身测试不能代替这一真实验收。

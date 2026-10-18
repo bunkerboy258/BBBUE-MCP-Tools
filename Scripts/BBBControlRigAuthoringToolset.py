@@ -335,6 +335,75 @@ def _mesh_binding(sequence, mesh):
     return matches[0]
 
 
+def _sequence_audit_report_path(report_name):
+    """
+    /**
+     * 验证调用者命名的临时报告位置
+     * @param report_name\t唯一报告文件名
+     * @return Saved/temp 内尚未存在的报告绝对路径
+     */
+    """
+    stem, extension = os.path.splitext(report_name)
+    if not stem or extension.lower() != ".json" or any(character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for character in stem):
+        raise RuntimeError("审计报告名必须是英文数字下划线短横线组成的唯一 JSON 文件名")
+
+    folder = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "temp", stem))
+    ancestor = folder
+    while ancestor != os.path.dirname(ancestor):
+        if os.path.lexists(ancestor) and (os.path.islink(ancestor) or getattr(os.lstat(ancestor), "st_file_attributes", 0) & 0x400):
+            raise RuntimeError("审计报告目录不得包含目录链接")
+
+        ancestor = os.path.dirname(ancestor)
+
+    path = os.path.join(folder, report_name)
+    if os.path.lexists(path):
+        raise RuntimeError("审计报告已存在 禁止覆盖 " + path)
+
+    return path
+
+
+def _validate_sequence_audit_spawn(sequence, binding):
+    """
+    /**
+     * 只读检查目标生成绑定在完整播放区间内有效
+     * @param sequence\t源序列或其瞬态副本
+     * @param binding\t唯一目标网格绑定
+     * @return 验证成功时无返回值
+     */
+    """
+    tracks = binding.find_tracks_by_type(unreal.MovieSceneSpawnTrack)
+    if len(tracks) != 1:
+        raise RuntimeError("审计要求已有唯一生成轨 禁止在读取时建立生成轨")
+
+    sections = tracks[0].get_sections()
+    if len(sections) != 1 or not sections[0].is_active():
+        raise RuntimeError("审计要求已有唯一启用的生成片段")
+
+    section = sections[0]
+    start = sequence.get_playback_start()
+    end = sequence.get_playback_end()
+    if end <= start or section.get_start_frame() > start or section.get_end_frame() < end:
+        raise RuntimeError("已有生成片段未覆盖完整播放区间")
+
+    channels = section.get_all_channels()
+    if len(channels) != 1:
+        raise RuntimeError("已有生成片段缺少唯一生成通道")
+
+    channel = channels[0]
+    state = channel.get_default()
+    keys = sorted(channel.get_keys(), key=lambda key: key.get_time().frame_number.value + key.get_time().sub_frame)
+    for key in keys:
+        time = key.get_time().frame_number.value + key.get_time().sub_frame
+        if time <= start:
+            state = key.get_value()
+
+        if start < time < end and not key.get_value():
+            raise RuntimeError("生成通道在播放中途关闭 禁止自动改写")
+
+    if state is not True:
+        raise RuntimeError("生成通道未在播放开始时启用 禁止自动改写")
+
+
 @unreal.uclass()
 class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
     """
@@ -2000,72 +2069,126 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
          * @return 烘焙及差异报告路径
          */
         """
-        if os.path.basename(report_name) != report_name:
-            raise RuntimeError("诊断报告名无效")
+        path = _sequence_audit_report_path(report_name)
+        if not sample_times or any(not math.isfinite(time) or time < 0.0 for time in sample_times):
+            raise RuntimeError("审计采样秒数必须是非空的有限非负数数组")
 
         sequence = _asset(sequence_path, unreal.LevelSequence)
         source = _asset(source_path, unreal.AnimSequence)
         mesh = _asset(mesh_path, unreal.SkeletalMesh)
-        bake_path = sequence_path.rsplit("/", 1)[0] + "/ANI_BBB_Rifle_01_ReloadHandBake"
-        if unreal.EditorAssetLibrary.does_asset_exist(bake_path):
-            baked = _asset(bake_path, unreal.AnimSequence)
-            require_write_access(baked)
+        if source.get_editor_property("skeleton") != mesh.get_editor_property("skeleton"):
+            raise RuntimeError("审计源动作与目标网格骨架不一致")
 
-        if not unreal.EditorAssetLibrary.does_asset_exist(bake_path):
-            factory = unreal.AnimSequenceFactory()
-            factory.target_skeleton = source.get_editor_property("skeleton")
-            factory.preview_skeletal_mesh = mesh
-            folder, name = bake_path.rsplit("/", 1)
-            baked = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, folder, unreal.AnimSequence, factory)
-        options = unreal.AnimSeqExportOption()
-        options.export_transforms = True
-        options.export_morph_targets = True
-        options.export_attribute_curves = True
-        options.export_material_curves = True
-        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
         binding = _mesh_binding(sequence, mesh)
-        spawn_tracks = [track for track in binding.get_tracks() if isinstance(track, unreal.MovieSceneSpawnTrack)]
-        if not spawn_tracks:
-            require_write_access(sequence)
-            spawn = binding.add_track(unreal.MovieSceneSpawnTrack).add_section()
-            spawn.set_range(sequence.get_playback_start(), sequence.get_playback_end())
-            spawn.get_all_channels()[0].set_default(True)
-            unreal.EditorAssetLibrary.save_loaded_asset(sequence)
+        _validate_sequence_audit_spawn(sequence, binding)
+        if any(time > source.sequence_length for time in sample_times):
+            raise RuntimeError("审计采样时间超出源动作长度")
 
-        spawn_section = binding.find_tracks_by_type(unreal.MovieSceneSpawnTrack)[0].get_sections()[0]
-        spawn_channel = spawn_section.get_all_channels()[0]
-        spawn_channel.add_key(unreal.FrameNumber(value=sequence.get_playback_start()), True)
-        spawn_channel.add_key(unreal.FrameNumber(value=sequence.get_playback_end()), False)
-        baked.controller.remove_all_bone_tracks(False)
-        if not unreal.SequencerTools.export_anim_sequence(world, sequence, baked, options, binding, False):
-            raise RuntimeError("官方序列烘焙失败")
+        scope = None
+        temporary_sequence = None
+        baked = None
+        options = None
+        temporary_binding = None
+        before = None
+        after = None
+        temporary_paths = []
+        report = None
+        cleanup = None
+        try:
+            scope = unreal.new_object(unreal.LevelSequence, name="BBBSequenceAudit_" + uuid.uuid4().hex)
+            if scope is None or scope.get_outermost().get_path_name() != "/Engine/Transient":
+                raise RuntimeError("无法建立纯瞬态审计容器 禁止创建正式临时包")
 
-        unreal.EditorAssetLibrary.save_loaded_asset(baked)
-        unreal.EditorAssetLibrary.save_loaded_asset(sequence)
-        report = {"sequence": sequence_path, "baked": baked.get_path_name(), "length": baked.sequence_length, "samples": []}
-        for time in sample_times:
-            before = _pose(source, mesh, time)
-            after = _pose(baked, mesh, time)
-            differences = []
-            for name in unreal.AnimPoseExtensions.get_bone_names(before):
-                a = unreal.AnimPoseExtensions.get_bone_pose(before, name, unreal.AnimPoseSpaces.LOCAL)
-                b = unreal.AnimPoseExtensions.get_bone_pose(after, name, unreal.AnimPoseSpaces.LOCAL)
-                distance = (a.translation - b.translation).length()
-                dot = abs(a.rotation.x * b.rotation.x + a.rotation.y * b.rotation.y + a.rotation.z * b.rotation.z + a.rotation.w * b.rotation.w)
-                angle = math.degrees(2.0 * math.acos(min(1.0, dot)))
-                if distance > 0.01 or angle > 0.1:
-                    differences.append({"bone": str(name), "cm": distance, "degrees": angle})
+            temporary_paths.append(scope.get_path_name())
+            temporary_sequence = unreal.SystemLibrary.duplicate_object(sequence, scope, "Sequence")
+            if not isinstance(temporary_sequence, unreal.LevelSequence):
+                raise RuntimeError("无法建立序列瞬态副本")
 
-            report["samples"].append({"time": time, "differences": differences})
+            temporary_paths.append(temporary_sequence.get_path_name())
+            baked = unreal.SystemLibrary.duplicate_object(source, scope, "Animation")
+            if not isinstance(baked, unreal.AnimSequence):
+                raise RuntimeError("无法建立动画瞬态副本")
 
-        folder = os.path.join(unreal.Paths.project_saved_dir(), "Diagnostics")
-        os.makedirs(folder, exist_ok=True)
-        path = os.path.abspath(os.path.join(folder, report_name))
-        with open(path, "w", encoding="utf-8") as output:
-            json.dump(report, output, ensure_ascii=False, indent=4)
+            temporary_paths.append(baked.get_path_name())
+            if temporary_sequence.get_outermost().get_path_name() != "/Engine/Transient" or baked.get_outermost().get_path_name() != "/Engine/Transient":
+                raise RuntimeError("审计副本不属于纯瞬态包 禁止烘焙")
 
-        unreal.log("[BBBControlRigAuthoring] 正式烘焙对照报告 " + path)
-        return json.dumps({"report": path, "length": baked.sequence_length, "differentBones": sorted({bone["bone"] for sample in report["samples"] for bone in sample["differences"]})})
+            temporary_binding = _mesh_binding(temporary_sequence, mesh)
+            _validate_sequence_audit_spawn(temporary_sequence, temporary_binding)
+            options = unreal.AnimSeqExportOption()
+            options.export_transforms = True
+            options.export_morph_targets = False
+            options.export_attribute_curves = True
+            options.export_material_curves = False
+            world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+            baked.controller.remove_all_bone_tracks(False)
+            if not unreal.SequencerTools.export_anim_sequence(world, temporary_sequence, baked, options, temporary_binding, False):
+                raise RuntimeError("官方序列瞬态烘焙失败 未修改源序列或正式动画")
+
+            if baked.sequence_length <= 0.0 or any(time > baked.sequence_length for time in sample_times):
+                raise RuntimeError("审计烘焙结果为空或采样时间越界")
+
+            report = {"sequence": sequence_path, "source": source_path, "mesh": mesh_path, "baked": baked.get_path_name(), "storage": "transient_only", "length": baked.sequence_length, "samples": []}
+            for time in sample_times:
+                before = _pose(source, mesh, time)
+                after = _pose(baked, mesh, time)
+                before_names = list(unreal.AnimPoseExtensions.get_bone_names(before))
+                after_names = list(unreal.AnimPoseExtensions.get_bone_names(after))
+                if not before_names or before_names != after_names:
+                    raise RuntimeError("审计原生姿势为空或骨骼集合不一致")
+
+                differences = []
+                for name in before_names:
+                    a = unreal.AnimPoseExtensions.get_bone_pose(before, name, unreal.AnimPoseSpaces.LOCAL)
+                    b = unreal.AnimPoseExtensions.get_bone_pose(after, name, unreal.AnimPoseSpaces.LOCAL)
+                    distance = (a.translation - b.translation).length()
+                    norm_a = math.sqrt(a.rotation.x ** 2 + a.rotation.y ** 2 + a.rotation.z ** 2 + a.rotation.w ** 2)
+                    norm_b = math.sqrt(b.rotation.x ** 2 + b.rotation.y ** 2 + b.rotation.z ** 2 + b.rotation.w ** 2)
+                    if not math.isfinite(distance) or not math.isfinite(norm_a * norm_b) or norm_a * norm_b < 1.0e-12:
+                        raise RuntimeError("审计骨骼变换包含无效值 " + str(name))
+
+                    dot = abs(a.rotation.x * b.rotation.x + a.rotation.y * b.rotation.y + a.rotation.z * b.rotation.z + a.rotation.w * b.rotation.w) / (norm_a * norm_b)
+                    angle = math.degrees(2.0 * math.acos(min(1.0, dot)))
+                    if distance > 0.01 or angle > 0.1:
+                        differences.append({"bone": str(name), "cm": distance, "degrees": angle})
+
+                report["samples"].append({"time": time, "differences": differences})
+
+        finally:
+            temporary_binding = None
+            options = None
+            before = None
+            after = None
+            temporary_sequence = None
+            baked = None
+            if scope is not None:
+                unreal.purge_object_references(scope, True)
+
+            scope = None
+            unreal.collect_garbage()
+            retained = [name for name in temporary_paths if unreal.find_object(None, name) is not None]
+            cleanup = {"state": "released", "retained": retained}
+            if retained:
+                cleanup["state"] = "pending_host_shutdown"
+                unreal.log_warning("[BBBControlRigAuthoring] 审计瞬态对象仍由宿主持有 等待正常宿主退出 " + ", ".join(retained))
+
+        report["cleanup"] = cleanup
+        _sequence_audit_report_path(report_name)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        report_created = False
+        try:
+            with open(path, "x", encoding="utf-8") as output:
+                report_created = True
+                json.dump(report, output, ensure_ascii=False, indent=4)
+
+        except Exception:
+            if report_created and os.path.isfile(path):
+                os.remove(path)
+
+            raise
+
+        unreal.log("[BBBControlRigAuthoring] 只读瞬态烘焙对照报告 " + path)
+        return json.dumps({"report": path, "length": report["length"], "cleanup": cleanup, "transientObjectsReleased": cleanup["state"] == "released", "differentBones": sorted({bone["bone"] for sample in report["samples"] for bone in sample["differences"]})})
 
 
 _official_python = os.path.join(unreal.Paths.engine_plugins_dir(), "Experimental", "Toolsets", "AnimationAssistantToolset", "Content", "Python")
