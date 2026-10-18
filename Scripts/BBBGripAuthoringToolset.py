@@ -481,8 +481,8 @@ class BBBGripAuthoringToolset(unreal.ToolsetDefinition):
                 response['next'] = {'type': 'visible_editor_handoff', 'asset': recipe['sequence']}
                 return json.dumps(response, ensure_ascii=False)
             asset = _asset(recipe['sequence'], unreal.LevelSequence)
-            unreal.get_editor_subsystem(unreal.AssetEditorSubsystem).open_editor_for_asset(asset)
-            unreal.LevelSequenceEditorBlueprintLibrary.open_level_sequence(asset)
+            if not unreal.LevelSequenceEditorBlueprintLibrary.open_level_sequence(asset):
+                raise RuntimeError('GRIP_REVIEW_OPEN_FAILED: 无法打开握姿制作序列')
             unreal.LevelSequenceEditorBlueprintLibrary.set_current_time(0)
             response['opened'] = recipe['sequence']
             if response['status'] in ('needs_human_review', 'ready_for_runtime_acceptance'):

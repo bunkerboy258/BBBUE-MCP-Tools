@@ -176,6 +176,8 @@ Python 3.12.14 / NumPy 2.3.5
 
 `review` 在带窗口的编辑器打开本型号 Sequencer 并停在第 0 帧。NullRHI 宿主返回明确的窗口交接要求。
 
+打开底稿使用 `LevelSequenceEditorBlueprintLibrary.open_level_sequence` 并检查布尔返回值；失败时报 `GRIP_REVIEW_OPEN_FAILED`。2026-10-18 已在前台 HighThroughput 宿主通过正式 `review` 入口真实打开 Rifle01 底稿，几何失败状态保持原值，打开预览不改变审核结果。
+
 需要图像时复用 `control_rig.capture_attachment_pose`。该入口新增：
 
 - `target_bone`：默认 `hand_l`，右手用 `hand_r`。
