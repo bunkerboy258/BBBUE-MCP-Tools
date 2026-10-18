@@ -512,7 +512,7 @@ class BBBGripAuthoringToolset(unreal.ToolsetDefinition):
         if type(action_index) != int or action_index < 0 or action_index >= len(actions):
             raise RuntimeError('ACTION_INDEX_INVALID')
         request = actions[action_index]
-        allowed = {'clavicle_l', 'upperarm_l', 'lowerarm_l', 'hand_l', 'ik_hand_l', 'ik_hand_r', 'ik_hand_gun'}
+        allowed = {'clavicle_l', 'upperarm_l', 'lowerarm_l', 'hand_l', 'ik_hand_l', 'ik_hand_r', 'ik_hand_gun'} | set(_FINGERS)
         if not request.get('tracks') or not set(request['tracks']) <= allowed:
             raise RuntimeError('ACTION_BONE_SCOPE_INVALID')
         for field, folder in (('asset', '/Animation/Sequence/'), ('sequence', '/Animation/work/')):

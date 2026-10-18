@@ -46,6 +46,46 @@ def record(matrix):
     return {'position': values[:3], 'rotation': values[3:7], 'scale': values[7:]}
 
 
+def phase_weight(frame, phases):
+    """/** @param frame 实际动作帧 @param phases 进入 满权 结束满权 退出帧 @return 显式阶段的平滑权重 */"""
+    first, full, leave, end = phases
+    if not first < full <= leave < end:
+        raise ValueError('动作修正阶段必须按时间顺序明确')
+    return float(smooth((frame - first) / (full - first)) * (1 - smooth((frame - leave) / (end - leave))))
+
+
+def apply_finger_curls(surface, local, corrections, weight):
+    """/** @param surface 实际骨架 @param local 当前局部姿态 @param corrections 明确掌空间弯曲平面和关节角 @param weight 阶段权重 @return 只追加指定关节卷曲 不搜索参数 */"""
+    output = local.copy()
+    if not np.isfinite(weight) or not 0 <= weight <= 1:
+        raise ValueError('动作指骨阶段权重必须有限且位于零至一')
+    for correction in corrections:
+        hand = correction['hand']
+        if hand not in ('hand_l', 'hand_r') or hand not in surface.names:
+            raise ValueError('动作指骨必须指定实际左右手骨')
+        axis = np.asarray(correction['axis_in_hand'], dtype=float)
+        if axis.shape != (3,) or not np.all(np.isfinite(axis)) or np.linalg.norm(axis) < 1e-8:
+            raise ValueError('必须明确实际手掌空间的连续卷曲平面')
+        axis /= np.linalg.norm(axis)
+        for name, degrees in correction['angles_degrees'].items():
+            if name not in surface.names or not name.endswith(hand[-2:]) or not name.startswith(('thumb_', 'index_', 'middle_', 'ring_', 'pinky_')):
+                raise ValueError('动作指骨修正范围无效: ' + name)
+            if not np.isfinite(degrees) or abs(degrees) > 90:
+                raise ValueError('动作指骨追加角必须有限且不超过九十度')
+            if weight == 0:
+                continue
+            components = surface.components(output)
+            world_axis = components[surface.names[hand], :3, :3] @ axis
+            world_axis /= np.linalg.norm(world_axis)
+            angle = np.deg2rad(degrees * weight)
+            delta = rotation_matrix(np.r_[world_axis * np.sin(angle / 2), np.cos(angle / 2)])
+            index = surface.names[name]
+            parent = surface.bones[index]['parent']
+            desired = delta @ components[index, :3, :3]
+            output[index, :3, :3] = np.linalg.solve(components[parent, :3, :3], desired)
+    return output
+
+
 def contact_target(old_weapon, new_weapon, wrist):
     """/** @param old_weapon 原挂接组件变换 @param new_weapon 新挂接组件变换 @param wrist 原腕姿态 @return 保持武器局部接触的腕姿态 */"""
     return new_weapon @ np.linalg.inv(old_weapon) @ wrist
@@ -143,9 +183,26 @@ def build(request):
             target = moved.copy()
             target[:3, 3] = moved[:3, 3] * (1 - weight) + hold[:3, 3] * weight
             target[:3, :3] = blend_rotation(moved[:3, :3], hold[:3, :3], weight)
+            if action.get('contact_translation'):
+                correction = action['contact_translation']
+                delta = np.asarray(correction['delta_weapon_cm'], dtype=float)
+                if delta.shape != (3,) or not np.all(np.isfinite(delta)):
+                    raise ValueError('机构接触平移必须为明确有限厘米三向量')
+                target[:3, 3] += new_weapon[:3, :3] @ delta * phase_weight(frame, correction['phase_frames'])
             adjusted, angle = clavicle_adjustment(surface, local, target)
             poses.append({'local': local, 'target': target, 'hold': hold, 'weight': float(weight), 'angle': angle})
         tracks = {name: [] for name in CHANGED_BONES}
+        for correction in action.get('finger_curls', []):
+            for name in correction['angles_degrees']:
+                tracks[name] = []
+        finger_return_start = None
+        if action.get('finger_return_frames'):
+            contact, returned = action['finger_return_frames']
+            if not 0 <= contact < returned < len(poses):
+                raise ValueError('机构操作后的手指回握阶段无效')
+            for name in recipe['solution']['finger_rotations']:
+                if name.endswith('_l'):
+                    tracks[name] = []
         keys = []
         metrics = []
         for frame, pose in enumerate(poses):
@@ -157,8 +214,20 @@ def build(request):
                 output = arm_pose(surface, pose['target'], {})
             except ValueError as error:
                 raise ValueError(action['kind'] + ' frame ' + str(frame) + ': ' + str(error)) from error
+            if action.get('finger_curls'):
+                output = apply_finger_curls(surface, output, action['finger_curls'], phase_weight(frame, action['finger_phase_frames']))
+            if action.get('finger_return_frames'):
+                contact, returned = action['finger_return_frames']
+                if frame == contact:
+                    finger_return_start = output.copy()
+                if frame > contact:
+                    weight = float(smooth((frame - contact) / (returned - contact)))
+                    for name, quaternion in recipe['solution']['finger_rotations'].items():
+                        if name.endswith('_l'):
+                            index = surface.names[name]
+                            output[index, :3, :3] = blend_rotation(finger_return_start[index, :3, :3], rotation_matrix(quaternion), weight)
             output, components = synchronize_hand_helpers(surface, output)
-            for name in CHANGED_BONES:
+            for name in tracks:
                 tracks[name].append(record(output[surface.names[name]]))
             control_bones = list(surface.names)
             if not action.get('new_sequence', False):
