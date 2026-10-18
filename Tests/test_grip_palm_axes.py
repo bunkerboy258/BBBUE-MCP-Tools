@@ -7,11 +7,19 @@ import unittest
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'Scripts'))
-from BBBGripAuthoring import palm_axis_audit
+from BBBGripAuthoring import matrix_quaternion, palm_axis_audit
 from BBBGripPoseFitting import rotation_matrix
 
 
 class PalmAxesTests(unittest.TestCase):
+    def test_quaternion_rejects_homogeneous_or_non_rotation_matrix(self):
+        for matrix in (np.eye(4), np.diag([1., 1., -1.]), np.diag([2., 1., 1.]), np.full((3, 3), np.nan)):
+            with self.subTest(matrix=matrix):
+                with self.assertRaises(ValueError):
+                    matrix_quaternion(matrix)
+        rotation = rotation_matrix([0, .7071067811865476, 0, .7071067811865476])
+        np.testing.assert_allclose(rotation_matrix(matrix_quaternion(rotation)), rotation, atol=1e-10)
+
     def setUp(self):
         self.locals = np.array([np.eye(4), np.eye(4), np.eye(4), np.eye(4)])
         self.surface = types.SimpleNamespace(

@@ -14,6 +14,10 @@ from BBBGripSolidAudit import WeldedSolidSurface
 def matrix_quaternion(matrix):
     """/** @param matrix 纯旋转矩阵 @return 最短符号归一化XYZW四元数 */"""
     m = np.asarray(matrix, dtype=float)
+    if m.shape != (3, 3) or not np.all(np.isfinite(m)):
+        raise ValueError('四元数转换必须传入有限三乘三旋转矩阵')
+    if np.max(np.abs(m.T @ m - np.eye(3))) > 1e-5 or abs(np.linalg.det(m) - 1) > 1e-5:
+        raise ValueError('四元数转换拒绝缩放剪切或镜像矩阵')
     eigen = np.array([[m[0, 0] - m[1, 1] - m[2, 2], m[0, 1] + m[1, 0], m[0, 2] + m[2, 0], m[2, 1] - m[1, 2]],
                       [m[0, 1] + m[1, 0], m[1, 1] - m[0, 0] - m[2, 2], m[1, 2] + m[2, 1], m[0, 2] - m[2, 0]],
                       [m[0, 2] + m[2, 0], m[1, 2] + m[2, 1], m[2, 2] - m[0, 0] - m[1, 1], m[1, 0] - m[0, 1]],
