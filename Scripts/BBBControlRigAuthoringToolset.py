@@ -1482,19 +1482,22 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
                     raise RuntimeError("组件空间批量写键要求无父级控制器 " + key["control"])
                 offset = hierarchy.get_global_control_offset_transform(element, True)
                 local = _transform(value).make_relative(offset)
-                source_groups.setdefault(key["control"], []).append({"frame": key["frame"], "value": _read_transform(local)})
+                source_groups.setdefault(key["control"], []).append({"frame": key["frame"], "value": _read_transform(local), "component": value})
                 continue
 
             unreal.ControlRigSequencerLibrary.set_local_control_rig_float(sequence, rig, key["control"], frame, value, set_key=True)
 
+        if source_groups:
+            from BBBHandRetargetBatchToolset import _set_component_keys
+
+            channels = {str(channel.channel_name): channel
+                        for section in track.get_sections() for channel in section.get_all_channels()}
+
         for control, control_keys in source_groups.items():
             frames = [unreal.FrameNumber(value=key["frame"]) for key in control_keys]
             transforms = [_transform(key["value"]) for key in control_keys]
-            values = [unreal.EulerTransform(location=transform.translation, rotation=transform.rotation.rotator(), scale=transform.scale3d) for transform in transforms]
-            for frame, value in zip(frames, values):
-                unreal.LevelSequenceEditorBlueprintLibrary.set_current_time(frame.value)
-                unreal.LevelSequenceEditorBlueprintLibrary.force_update()
-                unreal.ControlRigSequencerLibrary.set_local_control_rig_euler_transform(sequence, rig, control, frame, value, set_key=True)
+            components = [_transform(key["component"]) for key in control_keys]
+            _set_component_keys(channels, hierarchy, control, components, frames)
             unreal.LevelSequenceEditorBlueprintLibrary.force_update()
             actuals = unreal.ControlRigSequencerLibrary.get_local_control_rig_euler_transforms(sequence, rig, control, frames)
             if len(actuals) != len(control_keys):

@@ -316,7 +316,7 @@ def _rig_graph(names):
         links.append([get_name + '.Transform', 'ApplyPose.Transforms.' + str(index)])
     items = '(' + ','.join('(Type=Bone,Name="' + name + '")' for name in names) + ')'
     identity = '(Rotation=(X=0,Y=0,Z=0,W=1),Translation=(X=0,Y=0,Z=0),Scale3D=(X=1,Y=1,Z=1))'
-    nodes.append({'name': 'ApplyPose', 'struct': '/Script/ControlRig.RigUnit_SetTransformArray', 'position': [400, 0],
+    nodes.append({'name': 'ApplyPose', 'struct': '/Script/ControlRig.RigUnit_SetTransformItemArray', 'position': [400, 0],
                   'defaults': {'Items': items, 'Transforms': '(' + ','.join(identity for name in names) + ')',
                                'Space': 'GlobalSpace', 'bInitial': 'False', 'Weight': '1.0', 'bPropagateToChildren': 'False'}})
     return controls, {'nodes': nodes, 'links': links}

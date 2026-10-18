@@ -54,6 +54,32 @@ def arm_sample():
             'triangles': []}
 
 
+class GripAuthoringGraphTests(unittest.TestCase):
+    def test_apply_pose_uses_native_item_array_contract_for_each_bone(self):
+        """/** @return 原始骨数组与现行原生节点同型并逐项连接控制器 */"""
+        source = ROOT / 'Scripts/BBBGripAuthoringToolset.py'
+        tree = ast.parse(source.read_text(encoding='utf-8'))
+        function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == '_rig_graph')
+        namespace = {}
+        exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), 'exec'), namespace)
+        names = ['root', 'upperarm_l', 'lowerarm_l', 'hand_l']
+        controls, graph = namespace['_rig_graph'](names)
+        apply = next(node for node in graph['nodes'] if node['name'] == 'ApplyPose')
+        self.assertEqual(apply['struct'], '/Script/ControlRig.RigUnit_SetTransformItemArray')
+        expected_items = '(' + ','.join('(Type=Bone,Name="' + name + '")' for name in names) + ')'
+        self.assertEqual(apply['defaults']['Items'], expected_items)
+        self.assertNotIn('Keys=', apply['defaults']['Items'])
+        self.assertEqual(apply['defaults']['Transforms'].count('Translation='), len(names))
+        self.assertEqual([control['name'] for control in controls], ['pose_' + name for name in names])
+        self.assertIn(['Begin.ExecutePin', 'ApplyPose.ExecutePin'], graph['links'])
+        for index, name in enumerate(names):
+            self.assertIn(['Read_' + name + '.Transform', 'ApplyPose.Transforms.' + str(index)], graph['links'])
+            read = next(node for node in graph['nodes'] if node['name'] == 'Read_' + name)
+            self.assertEqual(read['defaults']['Item'], '(Type=Control,Name="pose_' + name + '")')
+        existing = (ROOT / 'Scripts/BBBControlRigAuthoringToolset.py').read_text(encoding='utf-8-sig')
+        self.assertIn('"/Script/ControlRig.RigUnit_SetTransformItemArray"', existing)
+
+
 class GripAuthoringMathTests(unittest.TestCase):
     def test_contact_on_one_phalanx_does_not_approve_a_detached_distal_pad(self):
         surface = types.SimpleNamespace(ids={10: 0, 11: 1, 20: 2, 21: 3},

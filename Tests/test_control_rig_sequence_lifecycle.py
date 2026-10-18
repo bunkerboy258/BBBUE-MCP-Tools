@@ -3,7 +3,9 @@ import json
 import math
 from pathlib import Path
 import unittest
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock, MagicMock, patch
+import sys
+import types
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -185,6 +187,12 @@ class ControlRigSequenceLifecycleTests(unittest.TestCase):
         self.binding.find_tracks_by_type.return_value = []
         self.track.get_sections.return_value = []
         self.rig = Mock()
+        self.component_writer = Mock()
+        dependency = types.ModuleType("BBBHandRetargetBatchToolset")
+        dependency._set_component_keys = self.component_writer
+        module_patch = patch.dict(sys.modules, {"BBBHandRetargetBatchToolset": dependency})
+        module_patch.start()
+        self.addCleanup(module_patch.stop)
         self.engine.ControlRigSequencerLibrary.is_layered_control_rig.return_value = False
         self.track.get_path_name.return_value = "Track"
         self.rig.get_path_name.return_value = "RigInstance"
@@ -255,7 +263,11 @@ class ControlRigSequenceLifecycleTests(unittest.TestCase):
 
         component.make_relative.assert_called_once_with(hierarchy.get_global_control_offset_transform.return_value)
         hierarchy.get_global_control_offset_transform.assert_called_once_with("hand_l_ik_ctrl", True)
-        self.engine.ControlRigSequencerLibrary.set_local_control_rig_euler_transform.assert_called_once()
+        self.component_writer.assert_called_once()
+        self.assertEqual(self.component_writer.call_args.args[2], "hand_l_ik_ctrl")
+        self.assertIs(self.component_writer.call_args.args[3][0], component)
+        self.assertIsNot(self.component_writer.call_args.args[3][0], local)
+        self.engine.ControlRigSequencerLibrary.set_local_control_rig_euler_transforms.assert_not_called()
         self.engine.ControlRigSequencerLibrary.set_control_rig_world_transform.assert_not_called()
 
     def test_parented_component_control_is_rejected_before_save(self):
@@ -304,11 +316,69 @@ class ControlRigSequenceLifecycleTests(unittest.TestCase):
         self.track.get_sections.return_value = [Mock(get_all_channels=Mock(return_value=[channel]))]
         keys = [{"frame": frame, "control": "source_hand_l", "value": {"position": [1, 2, 3]}} for frame in [0, 1]]
         self.configure("Sequence", "Rig", json.dumps(keys), False, "Mesh")
+        self.component_writer.assert_called_once()
+        written = self.component_writer.call_args.args
+        self.assertIs(written[1], self.rig.get_hierarchy.return_value)
+        self.assertEqual(written[2], "source_hand_l")
+        self.assertEqual(written[3], [transform, transform])
+        self.assertEqual(len(written[4]), 2)
         self.engine.ControlRigSequencerLibrary.set_local_control_rig_euler_transforms.assert_not_called()
-        self.assertEqual(self.engine.ControlRigSequencerLibrary.set_local_control_rig_euler_transform.call_count, 2)
-        for call in self.engine.ControlRigSequencerLibrary.set_local_control_rig_euler_transform.call_args_list:
-            self.assertTrue(call.kwargs["set_key"])
+        self.engine.LevelSequenceEditorBlueprintLibrary.set_current_time.assert_not_called()
+        self.assertEqual(self.engine.LevelSequenceEditorBlueprintLibrary.force_update.call_count, 2)
+        self.engine.ControlRigSequencerLibrary.set_local_control_rig_euler_transform.assert_not_called()
         self.assertEqual(actual.location.__sub__.call_count, 2)
+
+    def test_varying_components_reach_channel_writer_in_original_space(self):
+        """/** @return 不同帧组件目标保持原空间且只对局部目标验收 */"""
+        components = [MagicMock(), MagicMock()]
+        locals_ = [MagicMock(), MagicMock()]
+        actuals = [MagicMock(), MagicMock()]
+        for component, local, actual in zip(components, locals_, actuals):
+            component.make_relative.return_value = local
+            actual.location.__sub__.return_value.length.return_value = 0.0
+            actual.rotation.quaternion.return_value.__mul__.return_value.w = 1.0
+        self.namespace["_transform"] = lambda value: locals_[value["local"]] if "local" in value else components[value["component"]]
+        self.namespace["_read_transform"] = lambda value: {"local": locals_.index(value)}
+        self.engine.FrameNumber.side_effect = lambda value: value
+        self.engine.ControlRigSequencerLibrary.get_local_control_rig_euler_transforms.return_value = actuals
+        channel = Mock(get_keys=Mock(return_value=[object(), object()]))
+        self.track.get_sections.return_value = [Mock(get_all_channels=Mock(return_value=[channel]))]
+        keys = [{"frame": frame, "control": "pose_root", "value": {"component": frame}} for frame in [0, 1]]
+        self.configure("Sequence", "Rig", json.dumps(keys), False, "Mesh")
+        written = self.component_writer.call_args.args
+        self.assertEqual(written[3], components)
+        self.assertEqual(written[4], [0, 1])
+        for actual, local in zip(actuals, locals_):
+            actual.location.__sub__.assert_called_once_with(local.translation)
+        self.engine.EditorAssetLibrary.save_loaded_asset.assert_called_once_with(self.sequence)
+
+    def test_second_varying_frame_mismatch_never_saves(self):
+        """/** @return 首帧正确但下一帧被写成末值时仍拒绝保存 */"""
+        transform = MagicMock()
+        actuals = [MagicMock(), MagicMock()]
+        for actual, error in zip(actuals, [0.0, .02]):
+            actual.location.__sub__.return_value.length.return_value = error
+            actual.rotation.quaternion.return_value.__mul__.return_value.w = 1.0
+        self.namespace["_transform"] = lambda value: transform
+        self.engine.ControlRigSequencerLibrary.get_local_control_rig_euler_transforms.return_value = actuals
+        keys = [{"frame": frame, "control": "pose_root", "value": {"position": [frame, 0, 0]}} for frame in [0, 1]]
+        with self.assertRaisesRegex(RuntimeError, "帧 1"):
+            self.configure("Sequence", "Rig", json.dumps(keys), False, "Mesh")
+        self.assertEqual(actuals[0].location.__sub__.call_count, 1)
+        self.assertEqual(actuals[1].location.__sub__.call_count, 1)
+        self.engine.EditorAssetLibrary.save_loaded_asset.assert_not_called()
+
+    def test_wrong_value_in_batched_source_readback_never_saves(self):
+        """/** @return 批量写入后任一帧的位置误差仍然阻止保存 */"""
+        transform = MagicMock()
+        actual = MagicMock()
+        actual.location.__sub__.return_value.length.return_value = .02
+        actual.rotation.quaternion.return_value.__mul__.return_value.w = 1.0
+        self.configure.__globals__["_transform"] = lambda value: transform
+        self.engine.ControlRigSequencerLibrary.get_local_control_rig_euler_transforms.return_value = [actual]
+        with self.assertRaisesRegex(RuntimeError, "写键不一致"):
+            self.configure("Sequence", "Rig", json.dumps([{"frame": 0, "control": "source_hand_l", "value": {}}]), False, "Mesh")
+        self.engine.EditorAssetLibrary.save_loaded_asset.assert_not_called()
 
     def test_incomplete_source_readback_never_saves(self):
         """/** @return 批量接口少返回一帧时拒绝保存 */"""

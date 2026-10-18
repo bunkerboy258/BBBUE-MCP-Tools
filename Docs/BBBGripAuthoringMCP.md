@@ -2,6 +2,12 @@
 
 入口：`grip.author_weapon`。实现位于 `Scripts/BBBGripAuthoringToolset.py`，离线数学位于 `Scripts/BBBGripAuthoring.py`，邻指几何位于 `Scripts/BBBGripFingerConstraints.py`，稳定手部截图位于 `Scripts/BBBGripCaptureTools.py`。它复用正式网格采样、Control Rig、Sequencer、动画烘焙和接触拟合工具。
 
+## 2026-10-18 新建握姿 Rig 的骨数组契约
+
+`_rig_graph` 使用现行 `/Script/ControlRig.RigUnit_SetTransformItemArray`，其 `Items` 是 `TArray<FRigElementKey>`，与生成的逐骨项目数组和 `Transforms` 一一对应。旧 `RigUnit_SetTransformArray` 的 `Items` 是包含 `Keys` 的 `FRigElementKeyCollection`；将裸数组字符串传入旧结构会让新建 Rig 的控制器有值、骨骼仍保持参考姿势。生成图回归核对节点类型、每根骨的项目、变换数组长度和逐项连线，不依赖已有 Rifle01 资产掩盖新建流程问题。
+
+25 项制作回归通过。UE5.8 共享宿主原生替换 Rifle02 的 ApplyPose 后，正式保存及原生回读通过：姿势最大位置误差 1.11e-5 cm、角度误差 0.000254°、左腕目标误差 1.67e-5 cm，武器定义匹配且几何审计通过。这验证了现行节点的求解与烘焙；人工握姿外观另行确认。已有 Rig 的节点修正通过原生图工具执行并重新回读，不能将关键帧控制器读回成功视为骨骼求解成功。
+
 ## 低思考深度会话的执行约定
 
 先读目标项目根 Law、Items Law 和本文。登记 MCP 干员，核对项目、宿主进程和端口，按正常 MCP 批次调用入口。
