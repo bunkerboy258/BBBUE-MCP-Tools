@@ -13,9 +13,9 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'Scripts'))
-from BBBGripAuthoring import arm_pose, bounded_search, canonical_digest, matrix_quaternion, matrix_values, quaternion_angle_degrees, runtime_geometry
+from BBBGripAuthoring import arm_pose, bounded_search, canonical_digest, contact_pad_audit, matrix_quaternion, matrix_values, quaternion_angle_degrees, runtime_geometry
 from BBBGripFingerConstraints import triangle_pair_metrics
-from BBBGripPoseFitting import SurfacePose, rotation_matrix, transform_matrix
+from BBBGripPoseFitting import SurfacePose, TriangleQuery, rotation_matrix, transform_matrix
 import BBBMcpCapabilities as capabilities
 
 
@@ -55,6 +55,23 @@ def arm_sample():
 
 
 class GripAuthoringMathTests(unittest.TestCase):
+    def test_contact_on_one_phalanx_does_not_approve_a_detached_distal_pad(self):
+        surface = types.SimpleNamespace(ids={10: 0, 11: 1, 20: 2, 21: 3},
+                                        names={'middle_02_r': 0, 'middle_03_r': 1},
+                                        data={'vertices': [{'weights': [[0, 1]]}, {'weights': [[0, 1]]},
+                                                           {'weights': [[1, 1]]}, {'weights': [[1, 1]]}]})
+        points = np.asarray([[1, 1, .05], [2, 1, .08], [1, 2, .8], [2, 2, .9]])
+        query = TriangleQuery(np.asarray([[[0, 0, 0], [10, 0, 0], [0, 10, 0]]], dtype=float))
+        request = {'bones': ['middle_02_r', 'middle_03_r'], 'minimum_pad_contact_vertices': 2,
+                   'pad_contact_distance_cm': .2, 'pad_groups': {'middle_02_r': [10, 11], 'middle_03_r': [20, 21]}}
+        reports = contact_pad_audit(surface, points, query, request)
+        self.assertTrue(reports[0]['passed'])
+        self.assertFalse(reports[1]['passed'])
+        self.assertEqual(reports[1]['nearContactVertexCount'], 0)
+        request['pad_groups']['middle_03_r'] = [10, 11]
+        with self.assertRaisesRegex(ValueError, '权重'):
+            contact_pad_audit(surface, points, query, request)
+
     def test_rotation_comparison_normalizes_float_storage_and_quaternion_sign(self):
         original = np.asarray([0, -.9357631206512451, 0, .3526292145252228])
         self.assertLess(quaternion_angle_degrees(original, original * (1 - 1e-7)), .00001)

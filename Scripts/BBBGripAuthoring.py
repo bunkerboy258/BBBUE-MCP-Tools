@@ -295,6 +295,32 @@ def _refine_neighbors(surface, weapon, matrix, rotations, recipe):
     return overrides(values)
 
 
+def contact_pad_audit(surface, points, query, request):
+    """/** @param surface 实际蒙皮和骨骼权重 @param points 当前顶点 @param query 明确握持部件表面 @param request 每节指腹接触区及门槛 @return 各指腹独立接触结果 */"""
+    groups = request.get('pad_groups', {})
+    if not groups:
+        return []
+    minimum = request.get('minimum_pad_contact_vertices')
+    distance = request.get('pad_contact_distance_cm')
+    if type(minimum) is not int or minimum < 1 or type(distance) not in (int, float) or not np.isfinite(distance) or distance <= 0:
+        raise ValueError('指腹分区必须明确正数接触距离和最少顶点数量')
+    reports = []
+    for name, identifiers in groups.items():
+        if name not in request['bones'] or not identifiers or len(set(identifiers)) != len(identifiers) or len(identifiers) < minimum:
+            raise ValueError('指腹分区必须属于当前手指且包含足够的唯一顶点')
+        rows = [surface.ids[identifier] for identifier in identifiers]
+        index = surface.names[name]
+        if any(sum(weight for bone, weight in surface.data['vertices'][row]['weights'] if bone == index) < .5 for row in rows):
+            raise ValueError('指腹顶点的实际权重不属于明确指节')
+        unused, distances, gaps = query.nearest(points[rows])
+        near = int((distances <= distance).sum())
+        reports.append({'name': name, 'vertexIds': identifiers, 'nearContactVertexCount': near,
+                        'meanDistanceCm': float(distances.mean()), 'maximumDistanceCm': float(distances.max()),
+                        'maximumContactDistanceCm': distance, 'minimumContactVertices': minimum,
+                        'passed': near >= minimum})
+    return reports
+
+
 def geometry_audit(character, weapon, matrix, rotations, recipe):
     """/** @param character 校准后角色 @param weapon 武器采样 @param matrix 完整挂接矩阵 @param rotations 当前指骨覆盖 @param recipe 验收范围 @return 接触闭合组件和指间距的独立结果 */"""
     surface = SurfacePose(character)
@@ -309,16 +335,18 @@ def geometry_audit(character, weapon, matrix, rotations, recipe):
     for request in recipe['fitting']['contacts']:
         target = region_triangles(weapon, request.get('weapon_bounds'), matrix, request.get('weapon_triangle_ids'))
         rows = [surface.ids[identifier] for identifier in request['vertex_ids']]
-        _, distances, gaps = TriangleQuery(target).nearest(points[rows])
+        query = TriangleQuery(target)
+        _, distances, gaps = query.nearest(points[rows])
         bone_indices = {surface.names[name] for name in request['bones']}
         finger_rows = [index for index, vertex in enumerate(character['vertices'])
                        if sum(weight for bone, weight in vertex['weights'] if bone in bone_indices) >= .35]
-        _, finger_distances, unused = TriangleQuery(target).nearest(points[finger_rows])
+        _, finger_distances, unused = query.nearest(points[finger_rows])
         contacts.append({'name': request['name'], 'meanDistanceCm': float(distances.mean()),
                          'minimumFingerDistanceCm': float(finger_distances.min()),
                          'nearContactVertexCount': int((finger_distances <= recipe['checks']['contact_patch_distance_cm']).sum()),
                          'minimumOutwardNormalGapCm': float((gaps * request['surface_normal_sign']).min()),
-                         'selectionReviewed': request.get('selection_reviewed') is True})
+                         'selectionReviewed': request.get('selection_reviewed') is True,
+                         'pads': contact_pad_audit(surface, points, query, request)})
     neighbors = neighbor_audit(surface, rotations, recipe['neighbors'])
     failures = []
     if solid['insideDepthMaximumCm'] > recipe['checks']['maximum_inside_depth_cm']:
@@ -328,6 +356,7 @@ def geometry_audit(character, weapon, matrix, rotations, recipe):
         minimum = request.get('minimum_contact_patch_vertices', recipe['checks']['minimum_contact_patch_vertices'])
         if contact['nearContactVertexCount'] < minimum:
             failures.append('contact_patch:' + contact['name'])
+        failures.extend('contact_pad:' + contact['name'] + ':' + pad['name'] for pad in contact['pads'] if not pad['passed'])
     failures.extend('neighbor:' + item['name'] for item in neighbors if not item['passed'])
     return {'contacts': contacts, 'closedComponents': solid, 'neighbors': neighbors,
             'passed': not failures, 'failures': failures,
