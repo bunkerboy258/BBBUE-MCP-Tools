@@ -2,6 +2,14 @@
 
 入口：`grip.author_weapon`。实现位于 `Scripts/BBBGripAuthoringToolset.py`，离线数学位于 `Scripts/BBBGripAuthoring.py`，邻指几何位于 `Scripts/BBBGripFingerConstraints.py`，稳定手部截图位于 `Scripts/BBBGripCaptureTools.py`。它复用正式网格采样、Control Rig、Sequencer、动画烘焙和接触拟合工具。
 
+## 2026-10-18 掌空间自然度方向约束
+
+Rifle02 与 Rifle03 第一轮几何检查通过后，人工仍发现食指弯折、拇指向下及三指末端方向散乱。实际接触、无穿透和局部关节角不能代替掌空间方向检查。新制作输入可配置 `natural_pose.axes`，正式 `solve` 与烘焙后实际回读均通过同一 `palm_axis_audit` 检查，失败项进入 `palm_axis:<name>`，阻止运行配置写入。
+
+每项明确 `name`、`hand`、`bone`、骨局部非零 `axis` 与 `maximum_degrees`。与已确认握姿比较时提供 `reference_in_hand` 三维方向；检查两根当前骨轴并排时提供 `other_bone`、`other_axis`。两种比较必须二选一。算法把当前骨轴转换至实际手掌空间，方向上限必须有限且小于 180 度。骨轴应按真实子骨位移或明确末节指腹语义点构造，不假设全部指骨的 X 轴指向指尖。
+
+拟合阶段应使用共同卷曲平面和中末节共享参数，减少各骨独立扭转自由度；方向审核作为保存门槛，不替代接触、闭合体深度、实际面片交叉和指间表面间隙。Rifle01 原有已确认排列不等于完全平行，新枪的并排目标与相对参考偏角应分别声明，不能把同一姿势同时认定为两种互相矛盾的边界。新增四项方向回归与既有 25 项制作回归通过。真实 UE5.8 重新采样被人工否决的 Rifle03 动画，24 条方向约束中明确拒绝 14 条：拇指三节方向偏差约 64.635°、66.355°、68.581°，与离线候选复查一致；自然度修正版及人工复核继续进行。
+
 ## 2026-10-18 新建握姿 Rig 的骨数组契约
 
 `_rig_graph` 使用现行 `/Script/ControlRig.RigUnit_SetTransformItemArray`，其 `Items` 是 `TArray<FRigElementKey>`，与生成的逐骨项目数组和 `Transforms` 一一对应。旧 `RigUnit_SetTransformArray` 的 `Items` 是包含 `Keys` 的 `FRigElementKeyCollection`；将裸数组字符串传入旧结构会让新建 Rig 的控制器有值、骨骼仍保持参考姿势。生成图回归核对节点类型、每根骨的项目、变换数组长度和逐项连线，不依赖已有 Rifle01 资产掩盖新建流程问题。

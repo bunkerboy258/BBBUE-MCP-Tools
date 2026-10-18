@@ -321,6 +321,41 @@ def contact_pad_audit(surface, points, query, request):
     return reports
 
 
+def palm_axis_audit(surface, rotations, rules):
+    """/** @param surface 实际姿势 @param rotations 指骨覆盖 @param rules 明确掌空间参考或双骨轴约束 @return 逐项方向偏差与判定 */"""
+    local = surface.locals.copy()
+    for name, quaternion in rotations.items():
+        index = surface.names[name]
+        local[index, :3, :3] = rotation_matrix(quaternion) @ np.diag(surface.bones[index]['local'][7:10])
+    components = surface.components(local)
+    reports = []
+
+    def unit(vector):
+        value = np.asarray(vector, dtype=float)
+        if value.shape != (3,) or not np.all(np.isfinite(value)) or np.linalg.norm(value) < 1e-10:
+            raise ValueError('掌空间轴必须为非零有限三维向量')
+        return value / np.linalg.norm(value)
+
+    for rule in rules:
+        limit = rule['maximum_degrees']
+        if type(limit) not in (int, float) or not np.isfinite(limit) or not 0 <= limit < 180:
+            raise ValueError('掌空间角度上限必须有限且位于零至一百八十度之间')
+        if ('reference_in_hand' in rule) == ('other_bone' in rule):
+            raise ValueError('掌空间参考与双骨轴比较必须明确二选一')
+        hand = components[surface.names[rule['hand']], :3, :3]
+        first = unit(np.linalg.solve(hand, components[surface.names[rule['bone']], :3, :3] @ unit(rule['axis'])))
+        second = None
+        if 'reference_in_hand' in rule:
+            second = unit(rule['reference_in_hand'])
+        if 'other_bone' in rule:
+            second = unit(np.linalg.solve(hand, components[surface.names[rule['other_bone']], :3, :3] @ unit(rule['other_axis'])))
+        angle = float(np.degrees(np.arccos(np.clip(first @ second, -1, 1))))
+        reports.append({'name': rule['name'], 'angleDegrees': angle, 'maximumDegrees': limit,
+                        'directionInHand': first.tolist(), 'comparisonInHand': second.tolist(),
+                        'passed': angle <= limit + 1e-6})
+    return reports
+
+
 def geometry_audit(character, weapon, matrix, rotations, recipe):
     """/** @param character 校准后角色 @param weapon 武器采样 @param matrix 完整挂接矩阵 @param rotations 当前指骨覆盖 @param recipe 验收范围 @return 接触闭合组件和指间距的独立结果 */"""
     surface = SurfacePose(character)
@@ -348,6 +383,10 @@ def geometry_audit(character, weapon, matrix, rotations, recipe):
                          'selectionReviewed': request.get('selection_reviewed') is True,
                          'pads': contact_pad_audit(surface, points, query, request)})
     neighbors = neighbor_audit(surface, rotations, recipe['neighbors'])
+    natural = recipe.get('natural_pose')
+    if natural is not None and not natural.get('axes'):
+        raise ValueError('明确启用自然度检查后必须配置实际掌空间轴约束')
+    axes = palm_axis_audit(surface, rotations, natural['axes']) if natural is not None else []
     failures = []
     if solid['insideDepthMaximumCm'] > recipe['checks']['maximum_inside_depth_cm']:
         failures.append('weapon_internal_depth')
@@ -358,7 +397,9 @@ def geometry_audit(character, weapon, matrix, rotations, recipe):
             failures.append('contact_patch:' + contact['name'])
         failures.extend('contact_pad:' + contact['name'] + ':' + pad['name'] for pad in contact['pads'] if not pad['passed'])
     failures.extend('neighbor:' + item['name'] for item in neighbors if not item['passed'])
+    failures.extend('palm_axis:' + item['name'] for item in axes if not item['passed'])
     return {'contacts': contacts, 'closedComponents': solid, 'neighbors': neighbors,
+            'palmAxes': axes,
             'passed': not failures, 'failures': failures,
             'baselineSkinningErrorCm': skinning_error,
             'contactSelectionReviewRequired': any(not item['selectionReviewed'] for item in contacts),
