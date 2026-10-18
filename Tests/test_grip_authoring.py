@@ -13,7 +13,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'Scripts'))
-from BBBGripAuthoring import arm_pose, bounded_search, canonical_digest, matrix_quaternion, matrix_values, runtime_geometry
+from BBBGripAuthoring import arm_pose, bounded_search, canonical_digest, matrix_quaternion, matrix_values, quaternion_angle_degrees, runtime_geometry
 from BBBGripFingerConstraints import triangle_pair_metrics
 from BBBGripPoseFitting import SurfacePose, rotation_matrix, transform_matrix
 import BBBMcpCapabilities as capabilities
@@ -55,6 +55,15 @@ def arm_sample():
 
 
 class GripAuthoringMathTests(unittest.TestCase):
+    def test_rotation_comparison_normalizes_float_storage_and_quaternion_sign(self):
+        original = np.asarray([0, -.9357631206512451, 0, .3526292145252228])
+        self.assertLess(quaternion_angle_degrees(original, original * (1 - 1e-7)), .00001)
+        self.assertLess(quaternion_angle_degrees(original, -original), .00001)
+        half_angle = np.deg2rad(1) / 2
+        self.assertAlmostEqual(quaternion_angle_degrees([0, 0, 0, 1], [0, np.sin(half_angle), 0, np.cos(half_angle)]), 1, places=8)
+        with self.assertRaises(ValueError):
+            quaternion_angle_degrees([0, 0, 0, 0], original)
+
     def test_quaternion_round_trip_handles_half_turn_and_sign(self):
         for quaternion in ([1, 0, 0, 0], [0, -1, 0, 0], [.5, .5, .5, .5], [0, 0, 0, -1]):
             matrix = rotation_matrix(quaternion)

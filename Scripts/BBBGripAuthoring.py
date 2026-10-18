@@ -39,6 +39,17 @@ def canonical_digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(',', ':'), allow_nan=False).encode('utf-8')).hexdigest()
 
 
+def quaternion_angle_degrees(first, second):
+    """/** @param first 第一XYZW四元数 @param second 第二XYZW四元数 @return 忽略符号和浮点长度误差的最短角度差 */"""
+    first = np.asarray(first, dtype=float)
+    second = np.asarray(second, dtype=float)
+    for value in (first, second):
+        if value.shape != (4,) or not np.all(np.isfinite(value)) or np.linalg.norm(value) < 1e-12:
+            raise ValueError('旋转角度比较需要两个非零有限XYZW四元数')
+    dot = abs(float(first @ second / (np.linalg.norm(first) * np.linalg.norm(second))))
+    return float(np.degrees(2 * np.arccos(np.clip(dot, 0, 1))))
+
+
 def bounded_search(initial, limits, steps, evaluate, maximum_passes=12):
     """/** @param initial 初始参数 @param limits 每轴明确范围 @param steps 搜索步长 @param evaluate 确定性代价函数 @param maximum_passes 每级最大轮数 @return 有界最优参数与代价 */"""
     values = np.asarray(initial, dtype=float)
@@ -385,10 +396,7 @@ def audit(request):
             actual = bone['local']
             desired = expected[bone['name']]
             maximum_position = max(maximum_position, float(np.linalg.norm(np.asarray(actual[:3]) - desired[:3])))
-            first = np.asarray(actual[3:7])
-            second = np.asarray(desired[3:7])
-            dot = abs(float(first @ second / (np.linalg.norm(first) * np.linalg.norm(second))))
-            maximum_rotation = max(maximum_rotation, float(np.degrees(2 * np.arccos(np.clip(dot, 0, 1)))))
+            maximum_rotation = max(maximum_rotation, quaternion_angle_degrees(actual[3:7], desired[3:7]))
             maximum_scale = max(maximum_scale, float(np.max(np.abs(np.asarray(actual[7:10]) - desired[7:10]))))
     wrist = transform_matrix(next(bone for bone in character['bones'] if bone['name'] == 'hand_l')['component'])
     wrist_error = float(np.linalg.norm(wrist[:3, 3] - target[:3, 3]))
@@ -402,10 +410,7 @@ def audit(request):
         actual_matrix = transform_matrix(actual['position'] + actual['rotation'] + actual['scale'])
         actual = matrix_values(offset_matrix @ actual_matrix)
         control_position = max(control_position, float(np.linalg.norm(np.asarray(actual[:3]) - desired[:3])))
-        first = np.asarray(actual[3:7])
-        second = np.asarray(desired[3:7])
-        dot = abs(float(first @ second / (np.linalg.norm(first) * np.linalg.norm(second))))
-        control_rotation = max(control_rotation, float(np.degrees(2 * np.arccos(np.clip(dot, 0, 1)))))
+        control_rotation = max(control_rotation, quaternion_angle_degrees(actual[3:7], desired[3:7]))
     passed = geometry['passed'] and maximum_position <= checks['maximum_pose_position_error_cm']
     passed &= maximum_rotation <= checks['maximum_pose_rotation_error_degrees'] and maximum_scale <= .0001
     passed &= static_motion <= checks['maximum_static_motion_cm'] and wrist_error <= checks['maximum_wrist_error_cm']
@@ -414,8 +419,7 @@ def audit(request):
     definition_errors = {}
     for field in ('spawn_offset', 'left_ik_offset'):
         definition_errors[field] = float(np.max(np.abs(np.asarray(actual_definition[field]) - calibration[field])))
-    dot = abs(float(np.asarray(actual_definition['left_ik_rotation']) @ calibration['left_ik_rotation']))
-    definition_errors['leftRotationDegrees'] = float(np.degrees(2 * np.arccos(np.clip(dot, 0, 1))))
+    definition_errors['leftRotationDegrees'] = quaternion_angle_degrees(actual_definition['left_ik_rotation'], calibration['left_ik_rotation'])
     definition_matches = definition_errors['spawn_offset'] <= .0001 and definition_errors['left_ik_offset'] <= .0001 and definition_errors['leftRotationDegrees'] <= .02
     if request.get('require_definition_match', True):
         passed &= definition_matches
