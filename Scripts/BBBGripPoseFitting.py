@@ -130,8 +130,8 @@ class SurfacePose:
         self.ids = {vertex['id']: i for i, vertex in enumerate(data['vertices'])}
         if not self.ids or len(self.ids) != len(data['vertices']):
             raise ValueError('网格顶点为空或含重复编号')
-        self.bind = np.array([vertex['bindPosition'] + [1] for vertex in data['vertices']])
-        self.initial = np.array([vertex['position'] for vertex in data['vertices']])
+        self.bind = np.array([vertex['bindPosition'] + [1] for vertex in data['vertices']], dtype=float)
+        self.initial = np.array([vertex['position'] for vertex in data['vertices']], dtype=float)
         self.weights = []
         for vertex_index, vertex in enumerate(data['vertices']):
             for bone, weight in vertex['weights']:

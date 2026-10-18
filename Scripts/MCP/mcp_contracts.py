@@ -36,6 +36,7 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
+    'grip.author_weapon': {'scope': {'fields': ['weapon_root']}, 'world': 'editor'},
     'editor.sample_skeletal_mesh_surface': {'access': 'read'},
     'editor.audit_hand_pose_layer': {'access': 'read', 'world': 'editor'},
     'editor.configure_hand_pose_layer': {'scope': {'fields': ['main_path', 'base_path', 'interface_path', 'child_layer_paths']}, 'completion': 'verified_save'},
@@ -215,7 +216,7 @@ TOOL_POLICIES = {
     'control_rig.build_hand_retarget_sequences': {'scope': {'fields': ['write_paths']}},
     'control_rig.bake_hand_retarget_sequences': {'scope': {'fields': ['write_paths']}},
     'control_rig.build_pose_control_keys': {'scope': {'fields': ['animation_path']}},
-    'control_rig.capture_attachment_pose': {'world': 'pie'},
+    'control_rig.capture_attachment_pose': {'access': 'pie', 'world': 'pie', 'scope': {'kind': 'session'}},
     'control_rig.configure_control_rig_graph': {'scope': {'fields': ['asset_path']}},
     'control_rig.configure_sequence_animation_source': {'scope': {'fields': ['sequence_path']}},
     'control_rig.configure_sequence_attachment_animation': {'scope': {'fields': ['sequence_path']}},

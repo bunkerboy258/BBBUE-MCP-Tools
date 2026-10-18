@@ -26,6 +26,7 @@ ALIASES = {
 }
 
 HINTS = {
+    "grip.author_weapon": "握姿 双手 手指 掌面 武器 校准 拟合 制作 审核 低思考 grip hand fingers palm calibration authoring workflow",
     "control_rig.build_hand_retarget_sequences": "batch left hand IK grip retarget contact frames sequence",
     "control_rig.bake_hand_retarget_sequences": "bake left arm animation preserve curves notifies additive root motion",
     "animation.sample_weapon_handling_runtime": "reload equip runtime acceptance",
@@ -41,6 +42,7 @@ HINTS = {
 }
 
 SUMMARIES = {
+    "grip.author_weapon": "按正式制作配置完成武器握姿并返回唯一下一步",
     "animation.get_pie_character_motion_capture_status": "读取角色动作采样进度",
     "animation.inspect_pie_arm_pose": "读取运行时手臂骨骼姿态",
     "animation.validate_backward_recoil_animation": "验证后坐力动画方向与关键帧",

@@ -26,6 +26,7 @@ TOOL_DOMAINS = {
     "BBBRigidPartToolset": "rigid",
     "BBBControlRigAuthoringToolset": "control_rig",
     "BBBHandRetargetBatchToolset": "control_rig",
+    "BBBGripAuthoringToolset": "grip",
     "BBBMcpRuntimeToolset": "runtime",
     "BBBMcpTaskToolset": None,
     "BBBAssetMaintenanceToolset": "assets",
@@ -44,6 +45,7 @@ TOOL_DOMAINS = {
 TOOLSET_ROUTES = tuple(name for name in TOOL_DOMAINS if name.startswith("BBB"))
 
 HELPER_MODULES = (
+    "BBBGripCaptureTools",
     "BBBGripGeometryTools",
     "BBBHandPoseLayerTools",
     "BBBBlueprintLayout", "BBBBlueprintAnnotations", "BBBAnimationMotionTools",
@@ -521,6 +523,10 @@ def tool_contract(toolset, name, schema, description=""):
 def resolve_access(contract, arguments):
     """/** @param contract 工具契约 @param arguments 本次参数 @return 权限与世界约束 */"""
     access, world = contract["access"], contract["world"]
+    if contract["id"] == "grip.author_weapon" and arguments.get("action", "inspect") in {"inspect", "audit", "review"}:
+        return "read", "editor"
+    if contract["id"] == "control_rig.capture_attachment_pose" and arguments.get("action", "start") == "status":
+        return "read", "any"
     if contract["definition"] == "BBBGenericEditorToolset" and contract["name"] == "schedule_pie_actor_function" and arguments.get("action") == "status":
         return "read", "any"
     if "dry_run" in contract["parameters"].get("properties", {}) and arguments.get("dry_run", contract["parameters"]["properties"]["dry_run"].get("default", False)) is True:

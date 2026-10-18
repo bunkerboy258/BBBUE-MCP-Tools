@@ -1,7 +1,6 @@
 import json
 import math
 import os
-import stat
 import sys
 import traceback
 import uuid
@@ -346,7 +345,8 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def capture_attachment_pose(animation_path: str, mesh_path: str, time_seconds: float, attachments_json: str, camera_offset: list[float], file_name: str) -> str:
+    def capture_attachment_pose(animation_path: str, mesh_path: str, time_seconds: float, attachments_json: str, camera_offset: list[float], file_name: str,
+                                exposure_bias: float = 0.0, target_bone: str = 'hand_l', action: str = 'start', capture_id: str = '') -> str:
         """
         /**
          * 离屏拍摄动画及插槽附件 不修改任何资产
@@ -359,112 +359,14 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
          * @return 图像路径
          */
         """
-        output_parts = file_name.replace("\\", "/").split("/")
-        if (len(camera_offset) != 3 or len(output_parts) != 2
-                or any(not part or part in {".", ".."} or ":" in part for part in output_parts)
-                or not output_parts[1].endswith(".png")):
-            raise RuntimeError("截图参数无效")
+        import BBBGripCaptureTools
 
-        directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "temp", output_parts[0]))
-        path = os.path.join(directory, output_parts[1])
-        if os.path.lexists(directory) and (os.path.islink(directory)
-                or getattr(os.lstat(directory), "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT):
-            raise RuntimeError("截图目录不得为链接")
-        if os.path.lexists(path):
-            raise RuntimeError("截图目标已存在 禁止覆盖 " + path)
-
-        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
-        if world is None:
-            raise RuntimeError("离屏截图需要渲染 PIE 世界")
-
-        actors = []
-        try:
-            actor = unreal.BBBBlueprintEditorLibrary.spawn_transient_pie_actor(world, unreal.SkeletalMeshActor, unreal.Transform(location=unreal.Vector(0.0, 0.0, 10000.0)))
-            actors.append(actor)
-            component = actor.skeletal_mesh_component
-            component.set_skeletal_mesh_asset(_asset(mesh_path, unreal.SkeletalMesh))
-            if not unreal.BBBBlueprintEditorLibrary.evaluate_animation_preview_pose(component, _asset(animation_path, unreal.AnimSequence), time_seconds):
-                raise RuntimeError("角色动画求值失败")
-
-            visible = [actor]
-            for entry in json.loads(attachments_json):
-                asset = unreal.load_asset(entry["mesh"])
-                actor_class = unreal.StaticMeshActor
-                if isinstance(asset, unreal.SkeletalMesh):
-                    actor_class = unreal.SkeletalMeshActor
-
-                prop = unreal.BBBBlueprintEditorLibrary.spawn_transient_pie_actor(world, actor_class, unreal.Transform())
-                actors.append(prop)
-                prop_component = prop.get_component_by_class(unreal.MeshComponent)
-                prop_component.set_mobility(unreal.ComponentMobility.MOVABLE)
-                if isinstance(asset, unreal.SkeletalMesh):
-                    prop_component.set_skeletal_mesh_asset(asset)
-                    if entry.get("animation"):
-                        if not unreal.BBBBlueprintEditorLibrary.evaluate_animation_preview_pose(prop_component, _asset(entry["animation"], unreal.AnimSequence), entry.get("animation_time_seconds", time_seconds)):
-                            raise RuntimeError("附件动画求值失败")
-
-                    for bone in entry.get("hidden_bones", []):
-                        prop_component.hide_bone_by_name(bone, unreal.PhysBodyOp.PBO_NONE)
-
-                    if entry.get("hidden_bones"):
-                        if not entry.get("animation") or not unreal.BBBBlueprintEditorLibrary.evaluate_animation_preview_pose(prop_component, _asset(entry["animation"], unreal.AnimSequence), entry.get("animation_time_seconds", time_seconds)):
-                            raise RuntimeError("附件骨骼显隐需要明确动画并完成重新求值")
-
-                if isinstance(asset, unreal.StaticMesh):
-                    prop_component.set_static_mesh(asset)
-
-                parent = component.get_socket_transform(entry["socket"], unreal.RelativeTransformSpace.RTS_WORLD)
-                prop.set_actor_transform(unreal.MathLibrary.compose_transforms(_transform(entry["transform"]), parent), False, True)
-                visible.append(prop)
-
-            target = component.get_socket_location("hand_l")
-            location = target + unreal.Vector(*camera_offset)
-            light = unreal.BBBBlueprintEditorLibrary.spawn_transient_pie_actor(world, unreal.PointLight, unreal.Transform(location=location))
-            actors.append(light)
-            light_component = light.get_component_by_class(unreal.PointLightComponent)
-            light_component.set_intensity(2000.0)
-            light_component.set_attenuation_radius(2000.0)
-            light_component.set_cast_shadows(False)
-            camera = unreal.BBBBlueprintEditorLibrary.spawn_transient_pie_actor(world, unreal.SceneCapture2D, unreal.Transform(location=location, rotation=unreal.MathLibrary.find_look_at_rotation(location, target)))
-            actors.append(camera)
-            capture = camera.capture_component2d
-            capture.set_editor_property("capture_every_frame", False)
-            capture.set_editor_property("capture_on_movement", False)
-            render_target = unreal.RenderingLibrary.create_render_target2d(world, 640, 640, unreal.TextureRenderTargetFormat.RTF_RGBA8)
-            capture.set_editor_property("texture_target", render_target)
-            capture.set_editor_property("capture_source", unreal.SceneCaptureSource.SCS_FINAL_COLOR_LDR)
-            capture.set_editor_property("primitive_render_mode", unreal.SceneCapturePrimitiveRenderMode.PRM_USE_SHOW_ONLY_LIST)
-            capture.set_editor_property("show_only_actors", visible)
-            capture.set_editor_property("fov_angle", 45.0)
-            settings = capture.get_editor_property("post_process_settings")
-            settings.set_editor_property("override_auto_exposure_method", True)
-            settings.set_editor_property("auto_exposure_method", unreal.AutoExposureMethod.AEM_MANUAL)
-            settings.set_editor_property("override_auto_exposure_bias", True)
-            settings.set_editor_property("auto_exposure_bias", 10.0)
-            settings.set_editor_property("override_auto_exposure_apply_physical_camera_exposure", True)
-            settings.set_editor_property("auto_exposure_apply_physical_camera_exposure", False)
-            settings.set_editor_property("auto_exposure_bias", 0.0)
-            studio_cube = unreal.load_asset("/Engine/EngineResources/GrayLightTextureCube")
-            if studio_cube is None:
-                raise RuntimeError("手部观察所需的引擎环境光纹理不存在")
-            settings.set_editor_property("ambient_cubemap", studio_cube)
-            settings.set_editor_property("override_ambient_cubemap_intensity", True)
-            settings.set_editor_property("ambient_cubemap_intensity", 1.0)
-            settings.set_editor_property("override_ambient_cubemap_tint", True)
-            settings.set_editor_property("ambient_cubemap_tint", unreal.LinearColor.WHITE)
-            capture.set_editor_property("post_process_settings", settings)
-            capture.capture_scene()
-            os.makedirs(directory, exist_ok=True)
-            unreal.RenderingLibrary.export_render_target(world, render_target, directory, output_parts[1])
-            if not os.path.isfile(path) or os.path.getsize(path) < 1024:
-                raise RuntimeError("离屏图像无有效内容")
-
-            unreal.log("[BBBControlRigAuthoring] 离屏截图 " + path)
-            return json.dumps({"imagePath": path, "time": time_seconds, "resolution": [640, 640]})
-        finally:
-            for actor in reversed(actors):
-                if actor is not None:
-                    actor.destroy_actor()
+        if action == 'status':
+            return json.dumps(BBBGripCaptureTools.capture_status(capture_id), ensure_ascii=False)
+        if action != 'start':
+            raise RuntimeError('手部截图动作必须为start或status')
+        return BBBGripCaptureTools.start_capture(animation_path, mesh_path, time_seconds, attachments_json,
+                                                 camera_offset, file_name, exposure_bias, target_bone)
 
     @mcp_tool
     @staticmethod

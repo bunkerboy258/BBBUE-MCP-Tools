@@ -9152,6 +9152,7 @@
       }
     },
     "capture_attachment_pose": {
+      "description": "/**\n         * 离屏拍摄动画及插槽附件 不修改任何资产\n         *",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -9181,6 +9182,21 @@
           "file_name": {
             "type": "string",
             "description": "输出文件名 *"
+          },
+          "exposure_bias": {
+            "type": "number",
+            "default": 0
+          },
+          "target_bone": {
+            "type": "string",
+            "default": "hand_l"
+          },
+          "action": {
+            "type": "string",
+            "default": "start"
+          },
+          "capture_id": {
+            "type": "string"
           }
         },
         "required": [
@@ -9189,7 +9205,8 @@
           "time_seconds",
           "attachments_json",
           "camera_offset",
-          "file_name"
+          "file_name",
+          "capture_id"
         ]
       },
       "outputSchema": {
@@ -14345,6 +14362,70 @@
         "properties": {
           "returnValue": {
             "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    }
+  },
+  "BBBGripAuthoringToolset": {
+    "author_weapon": {
+      "description": "/**\n         * 按唯一制作源执行握姿求解 保存 数值检查和人工审核交接\n         *",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "weapon_root": {
+            "type": "string",
+            "description": "明确武器型号根 *"
+          },
+          "recipe_path": {
+            "type": "string",
+            "description": "项目相对Source/Animation制作文件.json.source *"
+          },
+          "action": {
+            "type": "string",
+            "description": "initialize inspect solve save audit review accept adopt *",
+            "default": "inspect"
+          },
+          "python_executable": {
+            "type": "string",
+            "description": "已安装NumPy的外部python.exe *"
+          },
+          "review_note": {
+            "type": "string",
+            "description": "仅accept使用的人类明确审核意见 *"
+          },
+          "definition_path": {
+            "type": "string",
+            "description": "仅initialize使用的明确武器定义 *"
+          },
+          "character_mesh_path": {
+            "type": "string",
+            "description": "仅initialize使用的实际角色网格 *"
+          },
+          "reference_animation_path": {
+            "type": "string",
+            "description": "仅initialize使用的公共参考动画 *"
+          }
+        },
+        "required": [
+          "weapon_root",
+          "recipe_path",
+          "python_executable",
+          "review_note",
+          "definition_path",
+          "character_mesh_path",
+          "reference_animation_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "当前结果 唯一下一步及实际验收边界 */"
           }
         },
         "required": [
