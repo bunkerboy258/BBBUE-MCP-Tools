@@ -83,7 +83,7 @@ def configure_hand_pose_layer(main_path, base_path, interface_path, child_layer_
                               left_finger_roots, right_finger_roots):
     """
     /**
-     * 定向替换已有单手层 全部编译通过后才保存明确的目标
+     * 将手部数据与权重封装到基础层 主图仅保留姿势调用 全部编译通过才保存明确目标
      * @param main_path\t\t主动画蓝图包路径
      * @param base_path\t\t共享基础动画层包路径
      * @param interface_path\t\t已有动画层接口包路径

@@ -1,5 +1,7 @@
 # BBBUE MCP Tools
 
+2026-10-19 手部层完整封装到 Base 主图仅保留一个姿势 Layer 调用。握姿与空值门控在 Base 读取 两侧曲线通过线程安全主实例查询取得。配置入口原位删除旧三个接口参数及其独占主图依赖 不保留兼容入口。离线验收与表面采样从瞬态主实例提供曲线与握姿 并检验关联实例自身曲线不会被误用。
+
 2026-10-19 新增独立调试靶表面图集和多断点构建 检查及重排工具 `hit.build_zombie_debug_gore_surface` `hit.inspect_zombie_debug_gore_surface` `hit.repack_zombie_debug_wound_atlas`。仅写调试目录 不启动 PIE。五项工具边界测试通过 固定 2048 图集使用 GPU 可读的 UV2 长肢体默认约束同步保存 避免恢复为 45 度。原生与资产检查结果以任务最终交付为准 参数与验收边界见 Docs/BBBHitReactionMCP.md。
 
 2026-10-19 新增通用 editor.reparent_skeletal_mesh_socket：在保留参考组件变换的前提下，将已有自有网格插槽挂到实际机构骨，原生校验位置、角度和网格归属后保存。Shotgun01 的 LeftHand 已实际重挂 Pump_joint；独立回读参考位置误差 0.000000234cm、角度0，第三方共享骨架摘要不变，真实开火机构轨道位移6.522cm。这里只证明插槽和实际机构数据，未冒称完整运行时动画图验收；网格自有插槽分支已实际验证，继承插槽覆盖分支尚未做项目实测。详见 Docs/BBBGenericEditorMCP.md。
