@@ -74,6 +74,19 @@ def prepare(recipe, path, project):
     require_asset_write([sequence, asset])
     names = list(recipe['solution']['component_pose'])
     pose = _pose(_asset(recipe['animation'], unreal.AnimSequence), names, _asset(recipe['character_mesh'], unreal.SkeletalMesh))
+    if recipe.get('wrist_application', {}).get('format') == 'BBBGripPositionIKWrist':
+        desired = (pose['hand_r']['component'].rotation * unreal.Quat(*recipe['wrist_application']['desiredHandRRotation'])).normalized()
+        wrist = pose['hand_l']['component']
+        delta = (desired * wrist.rotation.inversed()).normalized()
+        pivot = wrist.translation
+        for name in [name for name in _FINGERS if name.endswith('_l')]:
+            child = pose[name]['component']
+            child.translation = pivot + unreal.MathLibrary.quat_rotate_vector(delta, child.translation - pivot)
+            child.rotation = (delta * child.rotation).normalized()
+        wrist.rotation = desired
+        pose['hand_l']['local'].rotation = (pose['lowerarm_l']['component'].rotation.inversed() * desired).normalized()
+        if 'ik_hand_l' in pose:
+            pose['ik_hand_l']['component'] = wrist
     hierarchy = asset.hierarchy
     controller = hierarchy.get_controller()
     for control in list(hierarchy.get_controls()):
@@ -258,6 +271,10 @@ def apply(recipe, path, project):
                           'component_pose': {name: _values(baked[name]['component']) for name in names},
                           'finger_rotations': recipe['pose']['local_rotations'], 'passed': True, 'origin': 'human_manual_edit'}
     _apply_definition(recipe)
+    import importlib
+    import BBBGripWristApplication
+    importlib.reload(BBBGripWristApplication)
+    recipe['wrist_application'] = {'format': 'BBBGripPositionIKWrist', **BBBGripWristApplication.bake_recipe(recipe, True)}
     recipe['manual_edit']['definitionApplied'] = True
     recipe['validation'] = {'passed': True, 'fingerprint': _fingerprint(recipe, project), 'scope': 'manual_bake_readback_and_offsets', 'geometryProven': False}
     recipe.pop('review', None)

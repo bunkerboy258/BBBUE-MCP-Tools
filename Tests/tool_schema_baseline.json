@@ -7531,6 +7531,45 @@
           "returnValue"
         ]
       }
+    },
+    "bake_grip_wrist_applications": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "weapon_roots": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "recipe_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "apply": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "weapon_roots",
+          "recipe_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBLevelEditingToolset": {

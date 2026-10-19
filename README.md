@@ -326,3 +326,5 @@ python -B Tests/benchmark_mcp_workflows.py --catalog '<当前目录缓存>' --su
 2026-10-19 新增参考姿势相对的前臂 Swing/Twist Rig 制作、可选原生蒙皮参数审计和正式 AnimGraph 节点插入入口。正式双侧 Rig 与主图已编译保存；用户停止测试后采用左右0.5基准，不宣称最佳参数或完整运行验收。48场景七档RigVM调用在停止指令前已结束，非目标局部变换保持；正式单节点原生求值入口本轮未执行。详见 [BBBControlRigAuthoringMCP.md](Docs/BBBControlRigAuthoringMCP.md)。
 
 2026-10-19 手部应用改为正式握姿 AS 驱动腕部与手指 位置 Two Bone IK 使用已有肘部虚拟骨 移除运行时角度字段读写和旧右腕工具入口 UE5.8 完整编译通过 实际 Base 四个继承层和主图迁移编译保存回读通过 肘部目标实际为 clavicle_l 上的 LeftHandIKJointTarget Socket 未执行 PIE 或额外测试
+
+2026-10-19 补齐旧角度向正式握姿 AS 的位置双骨IK腕部烘焙 14 把原生保存回读通过 最大基准角度误差约 0.000031 度 人工 LS 保留 manual_apply 后续自动换算 不恢复运行时代码角度链 未运行 PIE

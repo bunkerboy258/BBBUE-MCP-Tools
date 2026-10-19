@@ -4850,6 +4850,16 @@ return saturate(edge*3)*smoothstep(0.18,0.7,n)*0.8;
 
     @mcp_tool
     @staticmethod
+    def bake_grip_wrist_applications(weapon_roots: list[str], recipe_paths: list[str], apply: bool = False) -> str:
+        """/** @param weapon_roots 明确武器根 @param recipe_paths 唯一制作源 @param apply 是否写正式握姿 @return 将旧角度换算为位置双骨IK腕部的报告 不改制作序列 */"""
+        import importlib
+        import BBBGripWristApplication
+        importlib.reload(BBBGripWristApplication)
+        return json.dumps(BBBGripWristApplication.bake_wrist_applications(weapon_roots, recipe_paths, apply), ensure_ascii=False)
+
+
+    @mcp_tool
+    @staticmethod
     def configure_hand_grip_application(base_path: str, child_layer_paths: list[str], main_path: str,
                                          joint_target_bone: str) -> str:
         """/** @param base_path 基础层 @param child_layer_paths 继承层 @param main_path 主图 @param joint_target_bone 现有肘部虚拟骨 @return 位置双骨IK与腕指层编译保存结果 */"""

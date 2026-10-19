@@ -255,3 +255,13 @@ editor.configure_hand_grip_application(base_path, child_layer_paths, main_path, 
 editor.sample_hand_handling_surface 不再接收 right_hand_offset 直接执行正式握姿层 不构造旧的右腕增量节点。不执行瞄准或全身 IK 不代表玩法验收。
 
 引擎核对当前角色没有 VirtualBones 用户配置的 LeftHandIKJointTarget 实际是 Skeleton Socket 父骨 clavicle_l 位置 (45.251 -41.948 -33.233) 厘米 本次明确使用 JointTarget.bUseSocket=true 和该插槽 不伪造虚拟骨
+
+## 旧握持角度的正式烘焙迁移
+
+2026-10-19 修正上轮迁移漏项 仅扩大腕部蒙版不足以保持旧 FABRIK 的目标朝向 位置 Two Bone IK 保持相对前臂的局部旋转 换肘部平面后必须重新换算腕部。
+
+editor.bake_grip_wrist_applications(weapon_roots, recipe_paths, apply=false) 从唯一制作源的旧角度 当前挂接和插槽重建原 hand_r 空间目标 使用原生 AnimGraphLibrary.two_bone_ik 和现有 LeftHandIKJointTarget 插槽求新前臂位置 换算并写入正式 AS 的 hand_l 与 hand_r 局部旋转 保持腕部平移 缩放 手指及其它轨道 制作 LS 不动 重复计算从源目标进行 不累加旋转。
+
+manual_apply 在原始人工烘焙回读通过并保存新位置配置后 自动执行同一腕部换算 后续首次 manual_prepare 还原对应制作空间的掌面朝向 已存在的人工序列继续直接恢复不重置。
+
+14 把正式 AS 已实际保存回读 目标位置误差为零 基准数学重建后的烘焙朝向最大误差约 0.000031 度 此数值不包含运行时完整动画图或 PIE 视觉验收 本轮未运行 PIE。

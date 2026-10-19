@@ -451,6 +451,7 @@ TOOL_POLICIES = {
     'assets.move_assets_batch': {'scope': {'rows': ['moves', ['source', 'destination']], 'referencers': True}},
     'assets.consolidate_verified_asset_copies': {'scope': {'rows': ['moves', ['source', 'destination']], 'referencers': True}},
     'hit.plan_zombie_wound_presentation_set': {'access': 'read'},
+    'editor.bake_grip_wrist_applications': {'scope': {'fields': ['weapon_roots']}, 'world': 'editor', 'completion': 'verified_save'},
     'editor.configure_hand_grip_application': {'scope': {'fields': ['base_path', 'child_layer_paths', 'main_path']}, 'completion': 'verified_save'},
     'editor.sample_hand_handling_surface': {'access': 'read'},
     'editor.reparent_skeletal_mesh_socket': {'scope': {'fields': ['mesh_path']}, 'world': 'editor', 'completion': 'verified_save'},
