@@ -402,6 +402,7 @@ TOOL_POLICIES = {
     'editor.duplicate_loaded_actors_to_current_level': {'scope': {'fields': ['actor_paths']}},
     'editor.reimport_sound_waves': {'scope': {'fields': ['destination_path']}},
     'level.break_level_instance_to_current_level': {'scope': {'fields': ['level_instance_path']}},
+    'scene.remove_from_scene': {'scope': {'fields': ['actor']}},
     'level.configure_mass_display_spawners': {'scope': {'fields': ['expected_level']}},
     'rigid.configure_rigid_blueprint_part': {'scope': {'fields': ['leader_node_path', 'slot_node_path']}},
     'assets.delete_unreferenced_asset_packages': {'scope': {'fields': ['asset_paths']}},

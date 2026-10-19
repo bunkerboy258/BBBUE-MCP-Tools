@@ -7,6 +7,26 @@ from BBBMcpCapabilities import mcp_tool
 from toolset_registry.registration import Registration
 
 
+MCP_INPUTS = {
+    'set_static_mesh_nanite_settings': {'settings_json': {
+        'type': 'object', 'minProperties': 1, 'additionalProperties': False,
+        'properties': {
+            'bEnabled': {'type': 'boolean'},
+            'bExplicitTangents': {'type': 'boolean'},
+            'positionPrecision': {'type': 'integer'},
+            'normalPrecision': {'type': 'integer', 'minimum': -1, 'maximum': 16},
+            'tangentPrecision': {'type': 'integer', 'minimum': -1, 'maximum': 16},
+            'keepPercentTriangles': {'type': 'number', 'minimum': 0, 'maximum': 1},
+            'trimRelativeError': {'type': 'number', 'minimum': 0, 'maximum': 1000},
+            'fallbackTarget': {'type': 'string', 'enum': ['Auto', 'PercentTriangles', 'RelativeError']},
+            'fallbackPercentTriangles': {'type': 'number', 'minimum': 0, 'maximum': 1},
+            'fallbackRelativeError': {'type': 'number', 'minimum': 0, 'maximum': 1000},
+            'shapePreservation': {'type': 'string', 'enum': ['None', 'PreserveArea', 'Voxelize']},
+        },
+    }},
+}
+
+
 @unreal.uclass()
 class BBBLevelEditingToolset(unreal.ToolsetDefinition):
     """提供当前关卡的项目级编辑工具"""
@@ -255,6 +275,247 @@ class BBBLevelEditingToolset(unreal.ToolsetDefinition):
         if not report.get("success", False):
             raise RuntimeError(report.get("error", "关卡实例拆解失败"))
 
+        return json.dumps(report, ensure_ascii=False)
+
+
+    @mcp_tool
+    @staticmethod
+    def audit_static_scene_components(expected_level: str, actor_paths: list[str]) -> str:
+        """
+        /**
+         * 只读统计明确演员的静态网格组件和实例 不运行构造脚本
+         * @param expected_level\t预期编辑器主世界的关卡包路径
+         * @param actor_paths\t一至一百二十八个当前世界演员路径
+         * @return 组件网格 材质 碰撞 实例数量与三角形估计
+         */
+        """
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+        if world is None or world.get_path_name().rsplit(".", 1)[0] != expected_level:
+            raise RuntimeError("场景审计世界不匹配")
+        if not 1 <= len(actor_paths) <= 128 or len(set(actor_paths)) != len(actor_paths):
+            raise RuntimeError("场景审计需要一至一百二十八个不重复演员")
+
+        targets = []
+        for path in actor_paths:
+            actor = unreal.find_object(None, path)
+            if not isinstance(actor, unreal.Actor) or actor.get_world() != world:
+                raise RuntimeError("场景审计演员不属于当前世界 " + path)
+            targets.append(actor)
+
+        tags = {}
+        rows = []
+        total_instances = 0
+        total_triangles = 0
+        for actor in targets:
+            components = []
+            for component in sorted(actor.get_components_by_class(unreal.StaticMeshComponent), key=lambda value: value.get_path_name()):
+                mesh = component.get_editor_property("static_mesh")
+                if mesh is None:
+                    continue
+                mesh_path = mesh.get_path_name()
+                if mesh_path not in tags:
+                    data = unreal.EditorAssetLibrary.find_asset_data(mesh_path)
+                    triangles = data.get_tag_value("Triangles")
+                    tags[mesh_path] = int(triangles) if triangles else None
+
+                count = 1
+                if isinstance(component, unreal.InstancedStaticMeshComponent):
+                    count = component.get_instance_count()
+                materials = []
+                for index in range(component.get_num_materials()):
+                    material = component.get_material(index)
+                    materials.append(material.get_path_name() if material else None)
+                position = component.get_world_location()
+                components.append({
+                    "path": component.get_path_name(),
+                    "class": component.get_class().get_path_name(),
+                    "mesh": mesh_path,
+                    "instances": count,
+                    "lod0_triangles": tags[mesh_path],
+                    "materials": materials,
+                    "mobility": str(component.get_editor_property("mobility")),
+                    "collision": str(component.get_collision_enabled()),
+                    "collision_profile": str(component.get_collision_profile_name()),
+                    "simulate_physics": component.is_simulating_physics(),
+                    "visible": component.is_visible(),
+                    "hidden_in_game": component.get_editor_property("hidden_in_game"),
+                    "cast_shadow": component.get_editor_property("cast_shadow"),
+                    "position": [position.x, position.y, position.z],
+                })
+                total_instances += count
+                if tags[mesh_path] is not None:
+                    total_triangles += count * tags[mesh_path]
+
+            rows.append({"actor": actor.get_path_name(), "class": actor.get_class().get_path_name(),
+                         "components": components,
+                         "instances": sum(value["instances"] for value in components)})
+
+        return json.dumps({"world": world.get_path_name(), "actors": rows,
+                           "actor_count": len(rows), "instance_count": total_instances,
+                           "lod0_triangles_estimate": total_triangles}, ensure_ascii=False)
+
+
+    @mcp_tool
+    @staticmethod
+    def create_static_actor_mesh(actor_path: str, asset_path: str, nanite_enabled: bool = False) -> str:
+        """
+        /**
+         * 将明确演员的静态组件合并到新网格 保留原演员供独立验收
+         * @param actor_path\t当前编辑器世界的明确来源演员
+         * @param asset_path\t尚不存在的新网格包路径
+         * @param nanite_enabled\t创建时生成精确 Nanite 保留完整源三角形和回退网格
+         * @return 原材质 原几何 LOD 合并结果与枢轴
+         */
+        """
+        from BBBAssetWritePolicy import require_write_access
+
+        actor = unreal.find_object(None, actor_path)
+        if not isinstance(actor, unreal.Actor):
+            raise RuntimeError("明确来源演员不存在")
+        if not asset_path.startswith("/Game/") or unreal.EditorAssetLibrary.does_asset_exist(asset_path):
+            raise RuntimeError("新网格目标包不合法或已存在")
+        expected_materials = set()
+        for component in actor.get_components_by_class(unreal.StaticMeshComponent):
+            if component.get_editor_property("static_mesh") is None:
+                continue
+            if isinstance(component, unreal.InstancedStaticMeshComponent) and component.get_instance_count() == 0:
+                continue
+            for index in range(component.get_num_materials()):
+                material = component.get_material(index)
+                if material is not None:
+                    expected_materials.add(material.get_path_name())
+        require_write_access(asset_path)
+        report = json.loads(unreal.BBBSceneGeometryEditorLibrary.create_static_actor_mesh(actor, asset_path, nanite_enabled))
+        if not report.get("success", False):
+            raise RuntimeError(report.get("error", "静态场景合并失败"))
+        mesh = unreal.load_object(None, report["mesh"])
+        if not isinstance(mesh, unreal.StaticMesh):
+            raise RuntimeError("合并结果不是静态网格 禁止重放")
+        actual_materials = {slot.material_interface.get_path_name() for slot in mesh.get_editor_property("static_materials") if slot.material_interface is not None}
+        if mesh.get_outermost().get_path_name() != asset_path or actual_materials != expected_materials or report["source_lod0_triangles"] != report["merged_lod0_triangles"]:
+            report["expected_materials"] = sorted(expected_materials)
+            report["actual_materials"] = sorted(actual_materials)
+            removed = unreal.EditorAssetLibrary.delete_loaded_asset(mesh)
+            raise RuntimeError("合并不一致 已撤销新建网格 " + str(removed) + " " + json.dumps(report, ensure_ascii=False))
+        report["materials"] = sorted(actual_materials)
+        if not unreal.EditorAssetLibrary.save_loaded_asset(mesh, only_if_is_dirty=False):
+            raise RuntimeError("合并网格保存失败 禁止重放")
+        return json.dumps(report, ensure_ascii=False)
+
+
+    @mcp_tool
+    @staticmethod
+    def set_static_mesh_nanite_settings(asset_path: str, settings_json: str, dry_run: bool = True) -> str:
+        """
+        /**
+         * 一次性提交静态网格 Nanite 几何和精度设置 只触发一次网格重建
+         * @param asset_path\t明确的已有静态网格资产
+         * @param settings_json\t明确设置字段 其它 Nanite 字段保留
+         * @param dry_run\t只核验字段并返回前后值 不重建或保存
+         * @return 前后设置 保存与独立子系统回读证据
+         */
+        """
+        from BBBAssetWritePolicy import require_write_access
+
+        level_subsystem = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
+        if level_subsystem is None or level_subsystem.is_in_play_in_editor():
+            raise RuntimeError("Nanite 设置需要非 PIE 的编辑宿主")
+        patch = json.loads(settings_json)
+        schema = MCP_INPUTS['set_static_mesh_nanite_settings']['settings_json']['properties']
+        if not isinstance(patch, dict) or not patch or set(patch) - set(schema):
+            raise RuntimeError("需要明确且受支持的 Nanite 设置字段")
+        properties = {
+            'bEnabled': 'enabled', 'bExplicitTangents': 'explicit_tangents',
+            'positionPrecision': 'position_precision', 'normalPrecision': 'normal_precision',
+            'tangentPrecision': 'tangent_precision', 'keepPercentTriangles': 'keep_percent_triangles',
+            'trimRelativeError': 'trim_relative_error', 'fallbackTarget': 'fallback_target',
+            'fallbackPercentTriangles': 'fallback_percent_triangles',
+            'fallbackRelativeError': 'fallback_relative_error', 'shapePreservation': 'shape_preservation',
+        }
+        enums = {
+            'fallbackTarget': {'Auto': unreal.NaniteFallbackTarget.AUTO,
+                               'PercentTriangles': unreal.NaniteFallbackTarget.PERCENT_TRIANGLES,
+                               'RelativeError': unreal.NaniteFallbackTarget.RELATIVE_ERROR},
+            'shapePreservation': {'None': unreal.NaniteShapePreservation.NONE,
+                                  'PreserveArea': unreal.NaniteShapePreservation.PRESERVE_AREA,
+                                  'Voxelize': unreal.NaniteShapePreservation.VOXELIZE},
+        }
+        for key, value in patch.items():
+            rule = schema[key]
+            if rule['type'] == 'boolean' and type(value) is not bool:
+                raise RuntimeError("Nanite 布尔设置类型错误 " + key)
+            if rule['type'] in ('number', 'integer'):
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                    raise RuntimeError("Nanite 数值设置类型错误 " + key)
+                if rule['type'] == 'integer' and type(value) is not int:
+                    raise RuntimeError("Nanite 整数设置类型错误 " + key)
+                if value < rule.get('minimum', value) or value > rule.get('maximum', value):
+                    raise RuntimeError("Nanite 数值设置超出范围 " + key)
+            if key in enums and value not in enums[key]:
+                raise RuntimeError("Nanite 枚举设置无效 " + key)
+            if key == 'positionPrecision' and value != -2147483648 and not -6 <= value <= 13:
+                raise RuntimeError("Nanite 位置精度超出范围")
+        mesh = unreal.load_object(None, asset_path)
+        if not isinstance(mesh, unreal.StaticMesh):
+            raise RuntimeError("明确目标不是静态网格")
+        subsystem = unreal.get_editor_subsystem(unreal.StaticMeshEditorSubsystem)
+        settings = subsystem.get_nanite_settings(mesh)
+
+        def geometry():
+            return {'lod_count': subsystem.get_lod_count(mesh),
+                    'lod0_triangles': mesh.get_num_triangles(0),
+                    'nanite_triangles': mesh.get_num_nanite_triangles()}
+
+        def read(current):
+            values = {}
+            for key, prop in properties.items():
+                value = current.get_editor_property(prop)
+                if key in enums:
+                    value = next(name for name, item in enums[key].items() if value == item)
+                values[key] = value
+            return values
+
+        before = read(settings)
+        geometry_before = geometry()
+        for key, value in patch.items():
+            settings.set_editor_property(properties[key], enums[key][value] if key in enums else value)
+        expected = read(settings)
+        if dry_run:
+            return json.dumps({'dry_run': True, 'mesh': mesh.get_path_name(), 'before': before,
+                               'expected': expected, 'geometry_before': geometry_before}, ensure_ascii=False)
+        require_write_access(mesh)
+        subsystem.set_nanite_settings(mesh, settings, True)
+        after = read(subsystem.get_nanite_settings(mesh))
+        if after != expected:
+            raise RuntimeError("Nanite 重建后设置不一致 禁止重放")
+        if not unreal.EditorAssetLibrary.save_loaded_asset(mesh, only_if_is_dirty=False):
+            raise RuntimeError("Nanite 网格保存失败 禁止重放")
+        return json.dumps({'success': True, 'mesh': mesh.get_path_name(), 'before': before,
+                           'after': after, 'geometry_before': geometry_before,
+                           'geometry_after': geometry(), 'saved': True}, ensure_ascii=False)
+
+
+    @mcp_tool
+    @staticmethod
+    def audit_static_actor_collision(source_actor_path: str, candidate_actor_path: str,
+                                     grid_size: int = 5, tolerance_cm: float = 0.5) -> str:
+        """
+        /**
+         * 对来源和候选演员分别采样简单与复杂碰撞 不改变碰撞或可见性
+         * @param source_actor_path\t明确来源演员路径
+         * @param candidate_actor_path\t明确候选演员路径
+         * @param grid_size\t六向采样网格边长 二至九
+         * @param tolerance_cm\t命中距离允许误差厘米 零至五
+         * @return 命中与差异统计和有限样例 采样不能证明全表面完全一致
+         */
+        """
+        source = unreal.find_object(None, source_actor_path)
+        candidate = unreal.find_object(None, candidate_actor_path)
+        if not isinstance(source, unreal.Actor) or not isinstance(candidate, unreal.Actor):
+            raise RuntimeError("碰撞比较的明确演员不存在")
+        report = json.loads(unreal.BBBSceneGeometryEditorLibrary.audit_static_actor_collision(source, candidate, grid_size, tolerance_cm))
+        if not report.get("success", False):
+            raise RuntimeError(report.get("error", "静态场景碰撞审计失败"))
         return json.dumps(report, ensure_ascii=False)
 
 
