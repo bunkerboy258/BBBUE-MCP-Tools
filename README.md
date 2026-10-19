@@ -324,3 +324,5 @@ python -B Tests/benchmark_mcp_workflows.py --catalog '<当前目录缓存>' --su
 2026-10-19 公共目录迁移最终核验：Other1657全部原生迁移闭合，Used242及2个Items输入的244旧源在新宿主按真实引用顺序严格SHA冷清理后独立核验通过；Base重新编译，Main/Base/ALI及四层实际全部BS_UP_TO_DATE。另66个完整骨轨公共可编辑LS同名迁入Used/hold并独立核验通过，全部边界dirty为空。保留前次同宿主部分失败记录，不冒称自动链一次成功，也不将制作底稿归属证明当作成品全帧等价。详见Docs/BBBAssetMaintenanceMCP.md。
 
 2026-10-19 新增参考姿势相对的前臂 Swing/Twist Rig 制作、可选原生蒙皮参数审计和正式 AnimGraph 节点插入入口。正式双侧 Rig 与主图已编译保存；用户停止测试后采用左右0.5基准，不宣称最佳参数或完整运行验收。48场景七档RigVM调用在停止指令前已结束，非目标局部变换保持；正式单节点原生求值入口本轮未执行。详见 [BBBControlRigAuthoringMCP.md](Docs/BBBControlRigAuthoringMCP.md)。
+
+2026-10-19 手部应用改为正式握姿 AS 驱动腕部与手指 位置 Two Bone IK 使用已有肘部虚拟骨 移除运行时角度字段读写和旧右腕工具入口 UE5.8 完整编译通过 实际 Base 四个继承层和主图迁移编译保存回读通过 肘部目标实际为 clavicle_l 上的 LeftHandIKJointTarget Socket 未执行 PIE 或额外测试

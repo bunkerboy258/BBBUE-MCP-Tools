@@ -4838,24 +4838,24 @@ return saturate(edge*3)*smoothstep(0.18,0.7,n)*0.8;
     @staticmethod
     def sample_hand_handling_surface(mesh_path: str, main_path: str, base_path: str, interface_path: str,
                                       animation_path: str, grip_path: str, time_seconds: float,
-                                      right_hand_offset: list[float], equipment_enabled: bool,
+                                      equipment_enabled: bool,
                                       left_grip_alpha: float, right_grip_alpha: float,
                                       selected_bones: list[str], minimum_selected_weight: float,
                                       material_indices: list[int]) -> str:
-        """/** @param mesh_path 实际网格 @param main_path 主实例类型 @param base_path 正式基础层 @param interface_path 正式接口 @param animation_path 动作 @param grip_path 握姿 @param time_seconds 秒数 @param right_hand_offset 俯仰偏航滚转 @param equipment_enabled 装备快照 @param left_grip_alpha 左指权重 @param right_grip_alpha 右指权重 @param selected_bones 表面骨骼 @param minimum_selected_weight 选取阈值 @param material_indices 材质筛选 @return 实际正式层求值和原生蒙皮 无 PIE */"""
+        """/** @param mesh_path 实际网格 @param main_path 主实例类型 @param base_path 正式基础层 @param interface_path 正式接口 @param animation_path 动作 @param grip_path 握姿 @param time_seconds 秒数 @param equipment_enabled 装备快照 @param left_grip_alpha 左指权重 @param right_grip_alpha 右指权重 @param selected_bones 表面骨骼 @param minimum_selected_weight 选取阈值 @param material_indices 材质筛选 @return 实际正式层求值和原生蒙皮 无 PIE */"""
         from BBBHandPoseLayerTools import sample_hand_handling_surface
         return json.dumps(sample_hand_handling_surface(mesh_path, main_path, base_path, interface_path,
-            animation_path, grip_path, time_seconds, right_hand_offset, equipment_enabled,
+            animation_path, grip_path, time_seconds, equipment_enabled,
             left_grip_alpha, right_grip_alpha, selected_bones, minimum_selected_weight, material_indices), ensure_ascii=False)
 
     @mcp_tool
     @staticmethod
-    def configure_right_hand_grip_rotation(base_path: str, child_layer_paths: list[str], main_path: str,
-                                           graph_name: str, before_node_guid: str) -> str:
-        """/** @param base_path 基础层 @param child_layer_paths 明确继承层 @param main_path 主图 @param graph_name 骨骼控制图 @param before_node_guid 已有瞄准节点 @return 原生右腕增量配置与全部编译保存结果 */"""
-        from BBBHandPoseLayerTools import configure_right_hand_grip_rotation
-        return json.dumps(configure_right_hand_grip_rotation(base_path, child_layer_paths, main_path,
-                                                            graph_name, before_node_guid), ensure_ascii=False)
+    def configure_hand_grip_application(base_path: str, child_layer_paths: list[str], main_path: str,
+                                         joint_target_bone: str) -> str:
+        """/** @param base_path 基础层 @param child_layer_paths 继承层 @param main_path 主图 @param joint_target_bone 现有肘部虚拟骨 @return 位置双骨IK与腕指层编译保存结果 */"""
+        from BBBHandPoseLayerTools import configure_hand_grip_application
+        return json.dumps(configure_hand_grip_application(base_path, child_layer_paths, main_path,
+                                                          joint_target_bone), ensure_ascii=False)
 
     @mcp_tool
     @staticmethod

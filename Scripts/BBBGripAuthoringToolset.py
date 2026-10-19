@@ -184,8 +184,8 @@ def _definition(recipe):
         raise RuntimeError('DEFINITION_MESH_MISMATCH')
     return definition, {'spawn_offset': _values(definition.get_editor_property('spawn_offset')),
                         'left_ik_offset': list(definition.get_editor_property('left_hand_ik_offset').to_tuple()),
-                        'left_ik_rotation': list(definition.get_editor_property('left_hand_ik_rotation').quaternion().to_tuple()),
-                        'right_wrist_delta': list(definition.get_editor_property('right_hand_grip_rotation_offset').quaternion().to_tuple())}
+                        'left_ik_rotation': list(recipe['calibration']['left_ik_rotation']),
+                        'right_wrist_delta': list(recipe['calibration']['right_wrist_delta'])}
 
 
 def _fingerprint(recipe, project):
@@ -388,8 +388,6 @@ def _apply_definition(recipe):
     calibration = recipe['solution']['calibration']
     definition.set_editor_property('spawn_offset', _transform(calibration['spawn_offset']))
     definition.set_editor_property('left_hand_ik_offset', unreal.Vector(*calibration['left_ik_offset']))
-    definition.set_editor_property('left_hand_ik_rotation', unreal.Quat(*calibration['left_ik_rotation']).rotator())
-    definition.set_editor_property('right_hand_grip_rotation_offset', unreal.Quat(*calibration['right_wrist_delta']).rotator())
     definition.set_editor_property('character_grip_pose', _asset(recipe['animation'], unreal.AnimSequence))
     if not unreal.EditorAssetLibrary.save_loaded_asset(definition, False):
         raise RuntimeError('DEFINITION_SAVE_FAILED')

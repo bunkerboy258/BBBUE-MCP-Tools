@@ -243,3 +243,15 @@ Python 3.12.14 / NumPy 2.3.5
 握把接触可明确配置 `pad_groups`，按骨名列出实际指腹顶点编号，同时设置 `minimum_pad_contact_vertices` 和 `pad_contact_distance_cm`。每个分组独立检查接触数量，避免整根手指少数顶点接触掩盖中节或末节悬空。顶点必须存在、唯一，并对所命名骨具有至少 0.5 权重；不符合时拒绝配置。
 
 未满足的分节接触返回 `contact_pad:<接触名>:<骨名>`；完整实体包含与邻指交叉仍独立检查。该检查不把算法选点变成人工认可，`selection_reviewed` 仍须如实保存。24 项制作回归包含中节接触而末节悬空，以及错误骨权重的拒绝验证。
+
+## 腕部和位置 IK 的应用边界
+
+2026-10-19 手部层改为采样原有正式握姿 AS 的 hand_l 与 hand_r 分支 包括腕部与手指。运行时位置 Two Bone IK 使用既有肘部目标（虚拟骨或插槽） 不复制武器插槽角度 保持输入腕部局部旋转。
+
+manual_apply 继续从现有人工 LS 烘焙同一正式 AS 只向装备定义写握姿引用 SpawnOffset 和 LeftHandIKOffset 不写已移除的 LeftHandIKRotation 或 RightHandGripRotationOffset。JSON 中角度用于离线姿势制作和几何记录 不再从运行配置读取或写回 不重建或覆盖已有人工序列。
+
+editor.configure_hand_grip_application(base_path, child_layer_paths, main_path, joint_target_bone) 定向迁移共享 Base 的唯一左手 FABRIK 移除旧角度消费节点 改为双骨位置 IK 将既有两个手部蒙版起点扩展至腕骨 编译全部明确蓝图后保存。虚拟骨不存在或连线不唯一时报错 不创建骨骼 不重烘焙逐枪动画。不自动重复迁移。
+
+editor.sample_hand_handling_surface 不再接收 right_hand_offset 直接执行正式握姿层 不构造旧的右腕增量节点。不执行瞄准或全身 IK 不代表玩法验收。
+
+引擎核对当前角色没有 VirtualBones 用户配置的 LeftHandIKJointTarget 实际是 Skeleton Socket 父骨 clavicle_l 位置 (45.251 -41.948 -33.233) 厘米 本次明确使用 JointTarget.bUseSocket=true 和该插槽 不伪造虚拟骨

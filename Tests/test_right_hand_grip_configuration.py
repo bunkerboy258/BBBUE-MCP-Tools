@@ -6,12 +6,12 @@ import unittest
 from unittest.mock import Mock
 
 
-class RightHandGripConfigurationTests(unittest.TestCase):
+class HandGripApplicationConfigurationTests(unittest.TestCase):
     """/** 验证共享图修改在未交接或原生失败时不保存资产 */"""
 
     def setUp(self):
         tree = ast.parse((Path(__file__).resolve().parents[1] / "Scripts/BBBHandPoseLayerTools.py").read_text(encoding="utf-8-sig"))
-        function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "configure_right_hand_grip_rotation")
+        function = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "configure_hand_grip_application")
 
         class Blueprint:
             def __init__(self, path, parent=None):
@@ -48,23 +48,23 @@ class RightHandGripConfigurationTests(unittest.TestCase):
                          get_editor_subsystem=lambda kind: SimpleNamespace(get_game_world=lambda: None),
                          load_asset=lambda path: self.assets[path],
                          EditorLoadingAndSavingUtils=SimpleNamespace(get_dirty_content_packages=lambda: self.dirty),
-                         BBBHandPoseLayerEditorLibrary=SimpleNamespace(configure_right_hand_grip_rotation=self.native),
+                         BBBHandPoseLayerEditorLibrary=SimpleNamespace(configure_hand_grip_application=self.native),
                          BlueprintEditorLibrary=SimpleNamespace(compile_blueprint=self.compile),
                          BlueprintStatus=SimpleNamespace(BS_UP_TO_DATE="ready"),
                          EditorAssetLibrary=SimpleNamespace(save_loaded_asset=self.save))}
         exec(compile(ast.Module(body=[function], type_ignores=[]), "right_hand_grip", "exec"), namespace)
-        self.run_tool = lambda: namespace[function.name]("/Game/Base", ["/Game/Child"], "/Game/Main", "Skeletal", "a-guid")
+        self.run_tool = lambda: namespace[function.name]("/Game/Base", ["/Game/Child"], "/Game/Main", "LeftHandIKJointTarget")
 
     def test_dirty_target_blocks_native_edit(self):
         self.dirty = [self.base.get_outermost()]
-        with self.assertRaisesRegex(RuntimeError, "未保存"):
+        with self.assertRaisesRegex(RuntimeError, "未交接"):
             self.run_tool()
         self.native.assert_not_called()
         self.save.assert_not_called()
 
     def test_native_failure_is_not_saved(self):
         self.native.return_value = json.dumps({"status": "error", "compiled": False})
-        with self.assertRaisesRegex(RuntimeError, "配置失败"):
+        with self.assertRaisesRegex(RuntimeError, "迁移失败"):
             self.run_tool()
         self.save.assert_not_called()
 
