@@ -1,5 +1,19 @@
 # 武器双手握姿正式制作流程
 
+## 2026-10-19 人工逐把制作
+
+同一 `grip.author_weapon` 入口新增 `manual_prepare` 和 `manual_apply`。实现为 `Scripts/BBBGripManualAuthoring.py`，复用型号正式 LS、Rig、AS，不创建副本。
+
+- `manual_prepare` 从正式 AS 读取起始姿势，将型号 Rig 改为三十根指骨逐节 FK、右腕 FK、左腕 IK 与左肘方向控制器。手指控制器跟随父骨，右上臂和前臂没有编辑控制器。重复打开保留已经制作的内容，不重置。
+- 前台在第 0 帧编辑。`fk_<指骨>` 只旋转；`fk_hand_r` 只调整腕部旋转；`hand_l_ik_ctrl` 调左手位置和角度；`elbow_l_pv_ctrl` 调左肘方向。武器绑定的 Transform 轨道调整挂接，编辑后在当前帧打键并保存 LS。
+- `manual_apply` 必须在当前制作序列第 0 帧运行。读取实际 Rig 和已生成武器，保留手工控制值并统一静止帧，烘焙正式 AS，比较烘焙姿势及冻结的右臂，再写正式 DataAsset。手指位移被拒绝，左手位置偏移按 hand_r 空间换算，旋转按实际武器左手插槽换算。
+- 手工模式拒绝 `solve/save/save_draft/adopt` 覆盖控制器。不会调用自动拟合，也不把烘焙回读等同于人体自然度、无穿模或运行验收通过。
+- 每次只准备当前型号；人工说“应用”后才应用配置和推进下一把。挂接改变后，动作衔接需要依据新基准处理，不能从静态握姿应用推断动作已经完成。
+
+人工应用的指骨及右腕平移检查直接读取 FK 控制器的实际平移增量。控制器关键帧保存的是相对 Offset 的增量 非零平移超过 0.01 厘米时拒绝应用 不能把初始零增量与骨骼局部位置直接比较 否则未移动的指骨也会被误报为 MANUAL_FINGER_TRANSLATED。
+
+2026-10-19 首次真实人工应用已完成 Rifle01 的右拇指第二节约 17.3092 度修改 正式 AS 及第 0 与第 1 帧控制器回读一致 右上臂和前臂保持。Rifle02 的 manual_prepare 已实际完成 使用其现有正式握姿起步 未改写 Rifle02 的运行动画和配置。未运行 PIE 或额外测试 不将本次读回扩大为全部动作或运行验收。
+
 入口：`grip.author_weapon`。实现位于 `Scripts/BBBGripAuthoringToolset.py`，离线数学位于 `Scripts/BBBGripAuthoring.py`，邻指几何位于 `Scripts/BBBGripFingerConstraints.py`，稳定手部截图位于 `Scripts/BBBGripCaptureTools.py`。它复用正式网格采样、Control Rig、Sequencer、动画烘焙和接触拟合工具。
 
 ## 2026-10-18 掌空间自然度方向约束

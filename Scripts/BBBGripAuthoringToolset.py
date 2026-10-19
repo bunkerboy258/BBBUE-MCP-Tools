@@ -624,7 +624,7 @@ class BBBGripAuthoringToolset(unreal.ToolsetDefinition):
          * @return 当前结果 唯一下一步及实际验收边界
          */
         """
-        if action not in ('initialize', 'inspect', 'solve', 'save', 'audit', 'review', 'accept', 'adopt'):
+        if action not in ('initialize', 'inspect', 'solve', 'save', 'audit', 'review', 'accept', 'adopt', 'manual_prepare', 'manual_apply'):
             raise RuntimeError('GRIP_ACTION_INVALID')
         if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
             raise RuntimeError('PIE_ACTIVE: 握姿制作须在PIE退出后执行')
@@ -635,6 +635,15 @@ class BBBGripAuthoringToolset(unreal.ToolsetDefinition):
         if not path.is_file():
             return json.dumps({'status': 'needs_recipe', 'next': {'action': 'configure_recipe', 'documentation': 'Docs/BBBGripAuthoringMCP.md'}, 'recipe': str(path)})
         recipe = _recipe(path, weapon_root)
+        if action in ('manual_prepare', 'manual_apply'):
+            import importlib
+            import BBBGripManualAuthoring as manual
+
+            importlib.reload(manual)
+            function = {'manual_prepare': manual.prepare, 'manual_apply': manual.apply}[action]
+            return json.dumps(function(recipe, path, project), ensure_ascii=False)
+        if recipe.get('manual_edit', {}).get('format') == 'BBBGripManual' and action in ('solve', 'save', 'save_draft', 'adopt'):
+            raise RuntimeError('MANUAL_AUTHORING_ACTIVE: 使用manual_apply读取手工编辑 禁止重新拟合或覆盖控制器')
         inputs = _inputs(recipe, project)
         response = _response(recipe, inputs, project)
         if action == 'inspect':
