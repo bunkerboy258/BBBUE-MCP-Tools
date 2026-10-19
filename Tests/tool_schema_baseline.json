@@ -7317,7 +7317,7 @@
         ]
       }
     },
-    "configure_hand_grip_application": {
+    "configure_right_hand_grip_rotation": {
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -7333,7 +7333,10 @@
           "main_path": {
             "type": "string"
           },
-          "joint_target_bone": {
+          "graph_name": {
+            "type": "string"
+          },
+          "before_node_guid": {
             "type": "string"
           }
         },
@@ -7342,7 +7345,8 @@
           "base_path",
           "child_layer_paths",
           "main_path",
-          "joint_target_bone"
+          "graph_name",
+          "before_node_guid"
         ]
       },
       "outputSchema": {
@@ -7382,6 +7386,12 @@
           "time_seconds": {
             "type": "number"
           },
+          "right_hand_offset": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
           "equipment_enabled": {
             "type": "boolean"
           },
@@ -7416,6 +7426,7 @@
           "animation_path",
           "grip_path",
           "time_seconds",
+          "right_hand_offset",
           "equipment_enabled",
           "left_grip_alpha",
           "right_grip_alpha",
@@ -7519,45 +7530,6 @@
           "parent_bone_name"
         ],
         "additionalProperties": false
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "bake_grip_wrist_applications": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "weapon_roots": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "recipe_paths": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "apply": {
-            "type": "boolean",
-            "default": false
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "weapon_roots",
-          "recipe_paths"
-        ]
       },
       "outputSchema": {
         "type": "object",

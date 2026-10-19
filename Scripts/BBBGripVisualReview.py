@@ -83,25 +83,45 @@ def handling_surface(report, recipe, action_recipe, action_index):
     """/** @param report 真实原生节点求值报告 @param recipe 正式校准 @param action_recipe 正式动作源 @param action_index 动作序号 @return 仅整理原生字段的表面 不覆盖姿态 */"""
     if report.get('status') != 'ok' or report.get('readOnly') is not True or report.get('projectDirtyPackagesUnchanged') is not True:
         raise ValueError('需要未修改项目的正式原生动画节点报告')
-    if report.get('evaluationRoute') != 'TransientAnimBlueprint->FormalHandPose':
+    if report.get('evaluationRoute') != 'TransientAnimBlueprint->FormalHandPose->NativeModifyBoneFromFormalConfiguration':
         raise ValueError('不接受未知的动画层求值路径')
     if any(report.get(field) is not False for field in ('mainGameplayEvaluated', 'fullBodyLayerEvaluated', 'aimIKEnabled', 'leftHandIKEnabled')):
         raise ValueError('动画层报告必须明确限定实际求值范围')
+    configuration = report.get('nativeNodeConfiguration', {})
+    expected = {'bone': 'hand_r', 'rotationMode': 'AddToExisting', 'rotationSpace': 'ParentBoneSpace',
+                'translationMode': 'Ignore', 'scaleMode': 'Ignore', 'alphaInputType': 'Bool',
+                'blendInTime': 0, 'blendOutTime': 0, 'rotationGetter': 'GetRightHandGripRotationOffset',
+                'gateGetter': 'HasRightHandGripRotationOffset'}
+    if any(configuration.get(key) != value for key, value in expected.items()):
+        raise ValueError('原生节点配置与正式右腕职责不同')
     snapshot = report['inputSnapshot']
     action = action_recipe['actions'][action_index]
     if asset_package(snapshot['animation']) != asset_package(action['asset']) or asset_package(snapshot['grip']) != asset_package(recipe['animation']):
         raise ValueError('原生动画层求值未使用本型号正式动作和握姿')
     if asset_package(snapshot['mesh']) != asset_package(recipe['character_mesh']) or snapshot.get('equipmentEnabled') is not True:
         raise ValueError('原生动画层求值的网格或装备事实不匹配')
+    if asset_package(report['nativeNodeConfigurationSource']) != asset_package(snapshot['base']):
+        raise ValueError('原生节点不是从指定正式基础层读取')
     time = snapshot['timeSeconds']
     if not np.isfinite(time) or time < 0 or abs(time - report['timeSeconds']) > 1e-7:
         raise ValueError('原生动画层求值时间不一致')
+    delta = np.asarray(recipe['calibration']['right_wrist_delta'], dtype=float)
+    actual = np.asarray(snapshot['rightHandOffsetQuaternion'], dtype=float)
+    if delta.shape != (4,) or actual.shape != (4,) or not np.all(np.isfinite(delta)) or not np.all(np.isfinite(actual)) or abs(np.linalg.norm(actual) - 1) > .0001 or abs(np.linalg.norm(delta) - 1) > .0001:
+        raise ValueError('原生右腕快照必须是单位四元数')
+    delta = delta / np.linalg.norm(delta)
+    actual = actual / np.linalg.norm(actual)
+    if abs(float(delta @ actual)) < np.cos(np.radians(.02) / 2):
+        raise ValueError('原生右腕快照与正式DA校准不同')
     for side, curve in [('left', 'DisableLeftHandPoseOverride'), ('right', 'DisableRightHandPoseOverride')]:
         alpha = saved_curve_alpha(action_recipe, action['asset'], curve, time)
         if not np.isfinite(snapshot[side + 'GripAlpha']) or abs(snapshot[side + 'GripAlpha'] - alpha) > .0001:
             raise ValueError('原生指层快照与正式抑制曲线不一致: ' + side)
     local = {name.casefold(): values for name, values in report['localBones'].items()}
     source = transform_matrix(report['sourceRightHandLocal'])
+    expected_rotation = transform_matrix([0, 0, 0] + delta.tolist() + [1, 1, 1])[:3, :3] @ source[:3, :3]
+    if np.max(np.abs(transform_matrix(local['hand_r'])[:3, :3] - expected_rotation)) > .001 or report['parentSpacePreMultiplyErrorDegrees'] > .02:
+        raise ValueError('真实原生右腕不符合父骨空间增量')
     if np.linalg.norm(np.asarray(local['hand_r'][:3]) - source[:3, 3]) > .001:
         raise ValueError('原生右腕节点意外改变了腕部局部位置')
     surface = dict(report['surface'])
