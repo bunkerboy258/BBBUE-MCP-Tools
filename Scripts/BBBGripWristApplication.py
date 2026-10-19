@@ -44,7 +44,17 @@ def bake_recipe(recipe, apply):
     if (solved_end - target).length() > 0.01:
         raise RuntimeError('WRIST_APPLICATION_TARGET_UNREACHABLE: ' + recipe['weapon_root'])
     swing = unreal.MathLibrary.quat_find_between_vectors(wrist - elbow, solved_end - solved_elbow)
-    lower_rotation = (swing * base['lowerarm_l']['component'].rotation).normalized()
+    solver_path = '/Game/_Project/Characters/BBBC_UA/Animation/UsedAnimation/blueprints/ABP_BBB_LocomotionLayer_Base.ABP_BBB_LocomotionLayer_Base:FullBody_SkeletalControls.AnimGraphNode_TwoBoneIK_0'
+    solver = unreal.load_object(None, solver_path)
+    if solver is None:
+        raise RuntimeError('WRIST_APPLICATION_SOLVER_REQUIRED')
+    solver_node = solver.get_editor_property('node')
+    if solver_node.get_editor_property('bTakeRotationFromEffectorSpace'):
+        raise RuntimeError('WRIST_APPLICATION_REQUIRES_POSE_ROTATION')
+    maintain_relative = bool(solver_node.get_editor_property('bMaintainEffectorRelRot'))
+    lower_rotation = base['lowerarm_l']['component'].rotation
+    if maintain_relative:
+        lower_rotation = (swing * lower_rotation).normalized()
     left_local = (lower_rotation.inversed() * desired).normalized()
     actual = (lower_rotation * left_local).normalized()
     values_a, values_b = actual.to_tuple(), desired.to_tuple()
@@ -54,7 +64,7 @@ def bake_recipe(recipe, apply):
     report = {'animation': recipe['animation'], 'targetPositionErrorCm': (solved_end - target).length(),
               'targetRotationErrorDegrees': error, 'leftLocalRotation': list(left_local.to_tuple()),
               'rightLocalRotation': list(right_local.to_tuple()), 'desiredHandRRotation': list((right.rotation.inversed() * desired).normalized().to_tuple()),
-              'sourceLeftIKRotation': calibration['left_ik_rotation'], 'applied': False}
+              'sourceLeftIKRotation': calibration['left_ik_rotation'], 'maintainEffectorRelativeRotation': maintain_relative, 'applied': False}
     if error > 0.001:
         raise RuntimeError('WRIST_APPLICATION_ROTATION_MISMATCH: ' + str(error))
     if apply:

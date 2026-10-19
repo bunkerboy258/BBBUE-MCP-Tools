@@ -265,3 +265,11 @@ editor.bake_grip_wrist_applications(weapon_roots, recipe_paths, apply=false) 从
 manual_apply 在原始人工烘焙回读通过并保存新位置配置后 自动执行同一腕部换算 后续首次 manual_prepare 还原对应制作空间的掌面朝向 已存在的人工序列继续直接恢复不重置。
 
 14 把正式 AS 已实际保存回读 目标位置误差为零 基准数学重建后的烘焙朝向最大误差约 0.000031 度 此数值不包含运行时完整动画图或 PIE 视觉验收 本轮未运行 PIE。
+
+## 关闭末端局部旋转保持
+
+2026-10-19 根据视角移动时掌面漂移反馈 当前正式 Two Bone IK 的 bMaintainEffectorRelRot 已关闭 bTakeRotationFromEffectorSpace 保持关闭 位置目标和肘部插槽保留。
+
+腕部烘焙现在直接读取正式节点实际选项 关闭时按求解前的前臂组件旋转换算腕部 不再烘焙求解后前臂的局部补偿 14 把已重新保存回读最大基准角误差约 0.000042 度 不代表全视角运行验收。
+
+实际引用的站立及蹲伏左右转身均为 hold 下 MM_Rifle_*Turn*_90 四条序列 四条均不存在 DisableLeftHandPoseOverride 或 DisableRightHandPoseOverride 无曲线可删除 未写入替代零曲线 未运行 PIE。

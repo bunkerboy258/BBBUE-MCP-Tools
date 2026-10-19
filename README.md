@@ -328,3 +328,5 @@ python -B Tests/benchmark_mcp_workflows.py --catalog '<当前目录缓存>' --su
 2026-10-19 手部应用改为正式握姿 AS 驱动腕部与手指 位置 Two Bone IK 使用已有肘部虚拟骨 移除运行时角度字段读写和旧右腕工具入口 UE5.8 完整编译通过 实际 Base 四个继承层和主图迁移编译保存回读通过 肘部目标实际为 clavicle_l 上的 LeftHandIKJointTarget Socket 未执行 PIE 或额外测试
 
 2026-10-19 补齐旧角度向正式握姿 AS 的位置双骨IK腕部烘焙 14 把原生保存回读通过 最大基准角度误差约 0.000031 度 人工 LS 保留 manual_apply 后续自动换算 不恢复运行时代码角度链 未运行 PIE
+
+2026-10-19 正式左手 Two Bone IK 已关闭末端局部旋转保持 腕部烘焙读取正式节点的实际选项 并重新保存14把握姿 基准回读通过 未执行PIE
