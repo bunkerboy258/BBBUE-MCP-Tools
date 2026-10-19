@@ -13,7 +13,7 @@ class DebugGoreSurfaceTests(unittest.TestCase):
         self.engine = Mock()
         self.access = Mock()
         self.scope = {"unreal": self.engine, "json": json, "require_asset_write": self.access}
-        for name in ("build_zombie_debug_gore_surface", "inspect_zombie_debug_gore_surface", "repack_zombie_debug_wound_atlas"):
+        for name in ("build_zombie_debug_gore_surface", "inspect_zombie_debug_gore_surface", "repack_zombie_debug_wound_atlas", "rebuild_zombie_debug_gore_cuts"):
             method = next(item for item in ast.walk(tree) if isinstance(item, ast.FunctionDef) and item.name == name)
             method.decorator_list = []
             exec(compile(ast.Module(body=[method], type_ignores=[]), "debug_gore_surface", "exec"), self.scope)
@@ -47,6 +47,25 @@ class DebugGoreSurfaceTests(unittest.TestCase):
         """/** @return 重排不能写入正式身体 */"""
         with self.assertRaises(RuntimeError):
             self.scope["repack_zombie_debug_wound_atlas"]("/Game/_Project/Mass")
+        self.access.assert_not_called()
+
+    def test_cut_rebuild_rejects_formal_folder(self):
+        """/** @return 断面重建不能修改正式尸群 */"""
+        with self.assertRaises(RuntimeError):
+            self.scope["rebuild_zombie_debug_gore_cuts"]("/Game/_Project/Mass", "/Game/_Project/Mass/Style")
+        self.access.assert_not_called()
+
+    def test_cut_rebuild_rejects_external_style(self):
+        """/** @return 本靶断面不能写入第三方素材 */"""
+        with self.assertRaises(RuntimeError):
+            self.scope["rebuild_zombie_debug_gore_cuts"]("/Game/_Project/Debug/ZombieHitReaction/Gore", "/Game/_ThirdParty/Style")
+        self.engine.load_asset.assert_not_called()
+
+    def test_cut_rebuild_rejects_pie(self):
+        """/** @return 运行中不替换蒙皮资源 */"""
+        self.engine.get_editor_subsystem.return_value.get_game_world.return_value = object()
+        with self.assertRaises(RuntimeError):
+            self.scope["rebuild_zombie_debug_gore_cuts"]("/Game/_Project/Debug/ZombieHitReaction/Gore", "/Game/_Project/Debug/ZombieHitReaction/Gore/Environment/Style")
         self.access.assert_not_called()
 
 

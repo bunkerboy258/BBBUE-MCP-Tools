@@ -100,6 +100,38 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def rebuild_zombie_debug_gore_cuts(output_folder: str, blood_style_path: str) -> str:
+        """
+        /**
+         * @param output_folder\t现有独立调试靶目录
+         * @param blood_style_path\t同目录 Environment 下提供湿血参数的材质
+         * @return 原位重建无骨头的非规则断面 保留现有物理 保存资源 不启动 PIE
+         */
+        """
+        if output_folder != "/Game/_Project/Debug/ZombieHitReaction/Gore":
+            raise RuntimeError("只允许明确的调试靶输出目录")
+        if not blood_style_path.startswith(output_folder + "/Environment/"):
+            raise RuntimeError("只允许本靶环境血迹风格")
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止重建断面")
+        style = unreal.load_asset(blood_style_path)
+        if not isinstance(style, unreal.MaterialInterface):
+            raise RuntimeError("湿血风格必须是材质")
+        require_asset_write([output_folder])
+        result = str(unreal.BBBZombieSeveringEditorLibrary.rebuild_debug_gore_cuts(output_folder, style))
+        if result.startswith("失败"):
+            raise RuntimeError(result)
+        saved = []
+        for package in unreal.EditorAssetLibrary.list_assets(output_folder, recursive=True, include_folder=False):
+            if not unreal.EditorAssetLibrary.save_asset(package, only_if_is_dirty=True):
+                raise RuntimeError("资源保存失败 " + package)
+            saved.append(package)
+        report = json.loads(result)
+        report["savedAssets"] = saved
+        return json.dumps(report, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def build_zombie_debug_gore_surface(source_mesh_path: str, output_folder: str) -> str:
         """
         /**

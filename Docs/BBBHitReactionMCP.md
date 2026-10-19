@@ -1,5 +1,11 @@
 # Mass 部位受击与共享血效
 
+## 调试断面血红风格与不规则几何
+
+`hit.rebuild_zombie_debug_gore_cuts(output_folder, blood_style_path)` 只接受既有 `/Game/_Project/Debug/ZombieHitReaction/Gore` 及其 Environment 下的自有材质。读取实际 WetTint 和 WetRoughness 原位重建断面材质 去掉骨白与脂肪分色。重建九组身体封口与掉落件的全部 CutSurface 几何 不保留骨头柱体 不隐藏骨头 不新增旧效果开关。以原始外表面开放闭环和身体封口接缝完整配对后重建 皮肤边界不移动 内部两层褶皱使用稳定的不同半径和深度。保持蒙皮索引 现有 UV 图集 部件路径及物理资产 不创建中间资产。运行中拒绝执行 保存实际修改资源并返回静态报告。
+
+工具不自动修改关卡中的调色覆盖。运行时调试组件逐帧写入组织参数 因此调用后还必须将目标 GoreDebug 的 TissueTint 与 TissueRoughness 同步到实际血迹风格 并保存关卡。调试默认高光为 0.35。编译和非 PIE 几何检查不能代替用户实际射击验收。
+
 ## 独立调试靶表面与多断点
 
 `hit.build_zombie_debug_gore_surface(source_mesh_path, output_folder)` 只接受自有身体和 `/Game/_Project/Debug/ZombieHitReaction/Gore` 输出。拒绝 PIE 和已有目标身体或定义。不修改源身体。生成独占 UV 图集的单 LOD 身体 头部一个断点 四肢各两个断点 立体躯干创口及独立材质。长掉落肢体两个刚体和一个锁定线性位移的受限关节 短段一个刚体。保存生成资源后返回静态报告。不启动游戏 不以资源生成代替效果验收。

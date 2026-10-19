@@ -14285,6 +14285,34 @@
           "returnValue"
         ]
       }
+    },
+    "rebuild_zombie_debug_gore_cuts": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "output_folder": {
+            "type": "string"
+          },
+          "blood_style_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "output_folder",
+          "blood_style_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBMeleeToolset": {

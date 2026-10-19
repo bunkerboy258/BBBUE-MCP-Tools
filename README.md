@@ -1,5 +1,7 @@
 # BBBUE MCP Tools
 
+2026-10-19 新增 `hit.rebuild_zombie_debug_gore_cuts` 以实际湿血材质参数原位重建调试靶九组无骨头断面 皮肤接缝不移动 内部生成非对称两层褶皱 保留物理与既有图集 不创建烘焙中间资产。八项工具边界检查与 32 项受击公共入口基线匹配通过。用户停止测试后仅继续静态编辑和保存 最终资源不标记为经过运行或画面验收。见 Docs/BBBHitReactionMCP.md。
+
 2026-10-19 手部层完整封装到 Base 主图仅保留一个姿势 Layer 调用。握姿与空值门控在 Base 读取 两侧曲线通过线程安全主实例查询取得。配置入口原位删除旧三个接口参数及其独占主图依赖 不保留兼容入口。离线验收与表面采样从瞬态主实例提供曲线与握姿 并检验关联实例自身曲线不会被误用。
 
 2026-10-19 新增独立调试靶表面图集和多断点构建 检查及重排工具 `hit.build_zombie_debug_gore_surface` `hit.inspect_zombie_debug_gore_surface` `hit.repack_zombie_debug_wound_atlas`。仅写调试目录 不启动 PIE。五项工具边界测试通过 固定 2048 图集使用 GPU 可读的 UV2 长肢体默认约束同步保存 避免恢复为 45 度。原生与资产检查结果以任务最终交付为准 参数与验收边界见 Docs/BBBHitReactionMCP.md。
