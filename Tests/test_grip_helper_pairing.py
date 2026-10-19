@@ -47,7 +47,8 @@ def audit_request(character):
     """/** @param character 实际姿势 @return 期望与实际完全相同的静态审计请求以独立检出辅助骨错误 */"""
     local = {bone['name']: bone['local'] for bone in character['bones']}
     components = {bone['name']: bone['component'] for bone in character['bones']}
-    calibration = {'spawn_offset': list(IDENTITY), 'left_ik_offset': [0, 0, 0], 'left_ik_rotation': [0, 0, 0, 1]}
+    calibration = {'spawn_offset': list(IDENTITY), 'left_ik_offset': [0, 0, 0], 'left_ik_rotation': [0, 0, 0, 1],
+                   'right_wrist_delta': [0, 0, 0, 1]}
     keys = []
     offsets = {}
     for name, values in components.items():

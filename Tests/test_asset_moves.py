@@ -37,7 +37,7 @@ class AssetMoveTests(unittest.TestCase):
         )
         self.runtime.update({
             "_move_filename": lambda path, extension=".uasset": path + extension,
-            "_move_dirty_packages": lambda: [],
+            "_move_dirty_packages": lambda scope=None: [],
             "unreal": types.SimpleNamespace(log=lambda message: None, AssetRegistryDependencyOptions=lambda **options: options, find_object=lambda outer, path: object(), EditorAssetLibrary=types.SimpleNamespace(does_directory_exist=lambda path: False)),
         })
         return registry, packages, calls
@@ -79,7 +79,7 @@ class AssetMoveTests(unittest.TestCase):
     def test_plan_preserves_dirty_and_missing_native_blockers(self):
         """/** @return 查询去重不绕过脏包和缺失原生类型检查 */"""
         registry, packages, calls = self._plan_fixture(1)
-        self.runtime["_move_dirty_packages"] = lambda: ["/Game/Dirty"]
+        self.runtime["_move_dirty_packages"] = lambda scope=None: ["/Game/Dirty"]
         self.runtime["unreal"].find_object = lambda outer, path: None
         with patch("os.path.isfile", return_value=True), patch("os.path.exists", return_value=False):
             result = self.runtime["_plan_asset_moves"]([{"source": "/Game/Old", "destination": "/Game/New"}], registry)
@@ -106,6 +106,7 @@ class AssetMoveTests(unittest.TestCase):
         objects = [types.SimpleNamespace(path=path + "." + path.rsplit("/", 1)[-1]) for path in paths]
         for asset in objects:
             asset.get_path_name = lambda asset=asset: asset.path
+            asset.get_outermost = lambda asset=asset: types.SimpleNamespace(get_path_name=lambda: asset.path.split(".")[0])
             asset.get_class = lambda: types.SimpleNamespace(get_class_path_name=lambda: types.SimpleNamespace(package_name="/Script/Engine", asset_name="StaticMesh"))
         writes = []
         renames = []
@@ -117,9 +118,12 @@ class AssetMoveTests(unittest.TestCase):
         report = {"referencer_packages": ["/Game/Shared"], "assets": [{"source": source, "destination": target, "source_object": asset.path, "destination_object": target + "." + target.rsplit("/", 1)[-1], "class_path": "/Script/Engine.StaticMesh"} for source, target, asset in zip(paths, targets, objects)]}
         self.runtime.update({
             "require_asset_write": lambda sources, destinations: writes.append((set(sources), destinations)),
-            "_move_dirty_packages": lambda: [],
-            "BBBAssetMaintenanceToolset": types.SimpleNamespace(verify_asset_moves=lambda moves: verifications.append(json.loads(moves)) or json.dumps({"success": False})),
-            "unreal": types.SimpleNamespace(log=lambda message: None, log_error=lambda message: None, EditorAssetLibrary=types.SimpleNamespace(load_asset=lambda path: next(asset for asset in objects if asset.path == path)), AssetRenameData=lambda **values: values, AssetToolsHelpers=types.SimpleNamespace(get_asset_tools=lambda: types.SimpleNamespace(rename_assets=rename))),
+            "_move_dirty_packages": lambda scope=None: [],
+            "_persist_asset_moves": lambda *args: {"success": True},
+            "_move_file_sha256": lambda path: "source-sha",
+            "_move_filename": lambda path: path + ".uasset",
+            "_verify_asset_moves_json": lambda moves: verifications.append(json.loads(moves)) or json.dumps({"success": False}),
+            "unreal": types.SimpleNamespace(log=lambda message: None, log_error=lambda message: None, load_package=lambda path: types.SimpleNamespace(get_path_name=lambda: path), EditorAssetLibrary=types.SimpleNamespace(load_asset=lambda path: next(asset for asset in objects if asset.path == path)), AssetRenameData=lambda **values: values, AssetToolsHelpers=types.SimpleNamespace(get_asset_tools=lambda: types.SimpleNamespace(rename_assets=rename))),
         })
         return report, writes, renames, verifications
 
@@ -133,7 +137,7 @@ class AssetMoveTests(unittest.TestCase):
         self.assertEqual(len(renames), 1)
         self.assertEqual(len(verifications), 1)
         self.assertEqual(writes[0][0], {"/Game/Old/A", "/Game/Old/B", "/Game/Shared"})
-        self.assertEqual(set(result["timings_ms"]), {"write_preflight", "source_load", "native_rename", "verification"})
+        self.assertEqual(set(result["timings_ms"]), {"write_preflight", "source_load", "native_rename", "persistence", "verification"})
 
     def test_execution_write_denial_does_not_load_or_rename(self):
         """/** @return 写前拒绝不会加载源对象或触发原生移动 */"""
@@ -151,7 +155,7 @@ class AssetMoveTests(unittest.TestCase):
     def test_execution_dirty_after_load_does_not_rename(self):
         """/** @return 加载产生脏包时保留原生移动前的拒绝检查 */"""
         report, writes, renames, verifications = self._execution_fixture()
-        self.runtime["_move_dirty_packages"] = lambda: ["/Game/Dirty"]
+        self.runtime["_move_dirty_packages"] = lambda scope=None: ["/Game/Dirty"]
         with self.assertRaisesRegex(RuntimeError, "加载后出现脏包"):
             self.runtime["_execute_asset_moves"](report)
         self.assertEqual(renames, [])
@@ -167,7 +171,7 @@ class AssetMoveTests(unittest.TestCase):
                 item["asset"].path = item["new_package_path"] + "/" + item["new_name"] + "." + item["new_name"]
             return True
         self.runtime["unreal"].AssetToolsHelpers.get_asset_tools = lambda: types.SimpleNamespace(rename_assets=rename_all)
-        self.runtime["BBBAssetMaintenanceToolset"].verify_asset_moves = lambda moves: verifications.append(json.loads(moves)) or json.dumps({"success": True})
+        self.runtime["_verify_asset_moves_json"] = lambda moves: verifications.append(json.loads(moves)) or json.dumps({"success": True})
         result = json.loads(self.runtime["_execute_asset_moves"](report))
         self.assertTrue(result["success"])
         self.assertFalse(result["partial"])
@@ -197,7 +201,7 @@ class AssetMoveTests(unittest.TestCase):
                 return True
             control = types.SimpleNamespace(is_enabled=lambda: True, is_available=lambda: True, current_provider=lambda: "Perforce", query_file_states=lambda paths, **options: [state], mark_files_for_delete=native_delete)
             registry = types.SimpleNamespace(get_assets_by_package_name=lambda path: [])
-            self.runtime.update({"_move_registry": lambda: registry, "_move_dirty_packages": lambda: [], "_move_referencers": lambda registry, path: [], "unreal": types.SimpleNamespace(Paths=types.SimpleNamespace(project_content_dir=lambda: str(content)), SourceControl=control, LevelEditorSubsystem=object, get_editor_subsystem=lambda kind: types.SimpleNamespace(is_in_play_in_editor=lambda: False), log=lambda message: None)})
+            self.runtime.update({"_move_registry": lambda: registry, "_move_dirty_packages": lambda scope=None: [], "_move_referencers": lambda registry, path: [], "unreal": types.SimpleNamespace(Paths=types.SimpleNamespace(project_content_dir=lambda: str(content)), SourceControl=control, LevelEditorSubsystem=object, get_editor_subsystem=lambda kind: types.SimpleNamespace(is_in_play_in_editor=lambda: False), log=lambda message: None)})
             preview = json.loads(self.runtime[method.name]([package], str(backup_root), True))
             self.assertTrue(preview["success"])
             self.assertFalse(backup.exists())
@@ -272,7 +276,7 @@ class AssetMoveTests(unittest.TestCase):
         actor = types.SimpleNamespace(get_destroy_on_system_finish=lambda: False, get_attach_parent_actor=lambda: None, get_path_name=lambda: "/Game/World.World:PersistentLevel.Actor", get_class=lambda: types.SimpleNamespace(get_path_name=lambda: "/Script/Engine.Actor"), get_editor_property=lambda name: types.SimpleNamespace(to_string=lambda: "01234567-89AB-CDEF-0123-456789ABCDEF"))
         record = types.SimpleNamespace(get_asset=lambda: actor)
         registry = types.SimpleNamespace(get_assets_by_package_name=lambda path: [record])
-        runtime = {"json": json, "_move_dirty_packages": lambda: [], "_move_registry": lambda: registry, "_external_actor_package_path": lambda path: path, "_move_referencers": lambda registry, path: [], "unreal": types.SimpleNamespace(Actor=types.SimpleNamespace, NiagaraActor=types.SimpleNamespace, LevelEditorSubsystem=object, get_editor_subsystem=lambda kind: types.SimpleNamespace(is_in_play_in_editor=lambda: False), log=lambda message: None)}
+        runtime = {"json": json, "_move_dirty_packages": lambda scope=None: [], "_move_registry": lambda: registry, "_external_actor_package_path": lambda path: path, "_move_referencers": lambda registry, path: [], "unreal": types.SimpleNamespace(Actor=types.SimpleNamespace, NiagaraActor=types.SimpleNamespace, LevelEditorSubsystem=object, get_editor_subsystem=lambda kind: types.SimpleNamespace(is_in_play_in_editor=lambda: False), log=lambda message: None)}
         exec(compile(ast.Module(body=[method], type_ignores=[]), str(source), "exec"), runtime)
         report = json.loads(runtime["inspect_external_actor_packages"](["/Game/__ExternalActors__/World/A/B/Actor"]))
         self.assertEqual(report["packages"][0]["actors"][0]["actor_guid"], "01234567-89AB-CDEF-0123-456789ABCDEF")
@@ -448,7 +452,7 @@ class AssetMoveTests(unittest.TestCase):
         self.runtime.update({
             "_move_registry": lambda: registry,
             "_move_class_path": lambda value: value,
-            "_move_dirty_packages": lambda: [],
+            "_move_dirty_packages": lambda scope=None: [],
             "_move_referencers": lambda registry, path: [actor],
             "_external_actor_package_path": lambda path: path,
             "_require_external_actor_world_owners": lambda registry, paths: ["/Game/World"],
@@ -485,7 +489,7 @@ class AssetMoveTests(unittest.TestCase):
         self.runtime.update({
             "_move_registry": lambda: registry,
             "_move_class_path": lambda value: value,
-            "_move_dirty_packages": lambda: [],
+            "_move_dirty_packages": lambda scope=None: [],
             "_move_referencers": lambda registry, path: [actor],
             "_external_actor_package_path": lambda path: path,
             "_require_external_actor_world_owners": lambda registry, paths: ["/Game/World"],
@@ -528,7 +532,7 @@ class AssetMoveTests(unittest.TestCase):
             self.runtime.update({
                 "unreal": types.SimpleNamespace(Paths=types.SimpleNamespace(project_content_dir=lambda: directory), log=lambda message: None),
                 "_move_registry": lambda: registry,
-                "_move_dirty_packages": lambda: [],
+                "_move_dirty_packages": lambda scope=None: [],
                 "_move_referencers": lambda registry, path: ["/Game/Showroom"],
                 "_move_class_path": lambda value: value,
             })

@@ -333,7 +333,7 @@ class BBBTraversalToolset(unreal.ToolsetDefinition):
         layer_classes = []
         if include_ik_curves:
             for name in ("Rifle", "Unarmed"):
-                path = "/Game/_Project/Characters/BBBC_UA/AnimationSystem/Layers/ABP_BBB_LocomotionLayer_" + name
+                path = "/Game/_Project/Characters/BBBC_UA/Animation/UsedAnimation/blueprints/ABP_BBB_LocomotionLayer_" + name
                 layer_classes.append(_blueprint(path).generated_class())
 
         def tick(delta):

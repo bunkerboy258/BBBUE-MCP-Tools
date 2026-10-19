@@ -207,6 +207,23 @@ class ActionVisualReviewTests(unittest.TestCase):
         self.assertFalse(scope['runtime_visibility_notifies_simulated'])
         self.assertFalse(scope['independent_hand_attachments_included'])
 
+    def test_native_weapon_play_rate_maps_time_without_accepting_arbitrary_frames(self):
+        """/** @return 原生蒙太奇非一倍速只允许对应的真实源帧 */"""
+        action = self.action_recipe['actions'][0]
+        action['weapon_animation'] = self.root + '/Animation/WeaponReload'
+        action['weapon_animation_play_rate'] = .45454543828964233
+        self.weapon['animation'] = action['weapon_animation']
+        self.character['timeSeconds'] = 1.2
+        self.weapon['timeSeconds'] = .5454545021057129
+        self.assertEqual(self.context()[3]['weapon_animation_play_rate'], action['weapon_animation_play_rate'])
+        self.weapon['timeSeconds'] = 1.2
+        with self.assertRaisesRegex(ValueError, '采样时间不一致'):
+            self.context()
+        for invalid in (0, -1, float('nan'), True, '0.45'):
+            action['weapon_animation_play_rate'] = invalid
+            with self.assertRaisesRegex(ValueError, '有限正播放倍率'):
+                self.context()
+
     def test_action_recipe_must_be_formal_source_path(self):
         """/** @return 临时候选动作源和缺序号参数不能成为正式动作输入 */"""
         with tempfile.TemporaryDirectory() as directory:
@@ -305,6 +322,51 @@ class AttachmentVisualReviewTests(unittest.TestCase):
         self.assertEqual(hidden_weapon_triangle_ids(self.action, regions, native_sample(), .8)[0], set())
         with self.assertRaisesRegex(ValueError, '有效的明确区域'):
             hidden_weapon_triangle_ids(self.action, {'regions': {}}, native_sample(), .5)
+
+    def test_same_magazine_mesh_can_follow_disjoint_notify_transforms(self):
+        """/** @return 旧新匣共用一份真实网格时只绘制当前通知对应的挂接 */"""
+        second = copy.deepcopy(self.entry)
+        second.update(start=.8,end=1.2,local=[12,3,4]+IDENTITY[3:])
+        self.action['attachments'].append(second)
+        self.character['timeSeconds'] = .8
+        faces,report = attachment_geometry(self.character,self.action,[self.path])
+        self.assertEqual(len(faces),1)
+        self.assertEqual([item['active'] for item in report],[False,True])
+        np.testing.assert_allclose(faces[0][0,0],[19,3,4])
+
+    def test_duplicate_attachment_overlap_or_native_digest_conflict_is_rejected(self):
+        """/** @return 重叠声明及同网格不同原生样本不能冒充明确附件 */"""
+        second = copy.deepcopy(self.entry)
+        self.action['attachments'].append(second)
+        with self.assertRaisesRegex(ValueError,'窗口重叠'):
+            attachment_geometry(self.character,self.action,[self.path])
+        second.update(start=.8,end=1.2,sample_sha256='0'*64)
+        with self.assertRaisesRegex(ValueError,'相同原生采样'):
+            attachment_geometry(self.character,self.action,[self.path])
+
+    def test_two_native_shell_instances_share_geometry_and_keep_distinct_transforms(self):
+        """/** @return 双管装填的两个真实通知实例可同时使用同一发射物网格 */"""
+        self.entry['instance_id']='/Game/Test/Reload.Reload:NotifyShell_0'
+        second=copy.deepcopy(self.entry)
+        second.update(instance_id='/Game/Test/Reload.Reload:NotifyShell_1',local=[12,3,4]+IDENTITY[3:])
+        self.action['attachments'].append(second)
+        faces,report=attachment_geometry(self.character,self.action,[self.path])
+        self.assertEqual(len(faces),2)
+        self.assertEqual([item['active'] for item in report],[True,True])
+        self.assertEqual([item['instance_id'] for item in report],[self.entry['instance_id'],second['instance_id']])
+        np.testing.assert_allclose(faces[0][0,0],[9,3,4])
+        np.testing.assert_allclose(faces[1][0,0],[19,3,4])
+
+    def test_overlapping_instances_reject_duplicate_or_missing_identity(self):
+        """/** @return 不可区分的同网格同时附件仍严格拒绝 */"""
+        self.entry['instance_id']='native_0'
+        second=copy.deepcopy(self.entry)
+        self.action['attachments'].append(second)
+        with self.assertRaisesRegex(ValueError,'唯一'):
+            attachment_geometry(self.character,self.action,[self.path])
+        second.pop('instance_id')
+        with self.assertRaisesRegex(ValueError,'窗口重叠'):
+            attachment_geometry(self.character,self.action,[self.path])
 
 
 if __name__ == '__main__':

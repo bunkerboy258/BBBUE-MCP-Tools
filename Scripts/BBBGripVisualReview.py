@@ -46,6 +46,90 @@ def asset_package(value):
     return value.split('.', 1)[0]
 
 
+def saved_curve_alpha(action_recipe, animation, name, time):
+    """/** @param action_recipe 正式动作源 @param animation 明确动作 @param name 抑制曲线 @param time 秒数 @return 原生曲线证据对应的实际指层权重 */"""
+    matches = [item for item in action_recipe.get('curves', []) if asset_package(item['asset']) == asset_package(animation)]
+    if len(matches) != 1 or name not in matches[0].get('curves', {}):
+        raise ValueError('真实动画层视觉需要已保存曲线的独立原生回读: ' + name)
+    curve = matches[0]['curves'][name]
+    if curve.get('exists') is False:
+        return 1.
+    keys = curve.get('keys')
+    if not curve.get('exists') or not keys:
+        raise ValueError('已存在的抑制曲线缺少完整原生关键帧')
+    if any(second['time'] <= first['time'] for first, second in zip(keys, keys[1:])):
+        raise ValueError('抑制曲线时间必须严格递增')
+    value = keys[0]['value']
+    if time >= keys[-1]['time']:
+        value = keys[-1]['value']
+    for first, second in zip(keys, keys[1:]):
+        if not first['time'] <= time < second['time']:
+            continue
+        weight = (time - first['time']) / (second['time'] - first['time'])
+        mode = first['interp_mode']
+        if mode == 'RCIM_Cubic':
+            if abs(first['leave_tangent']) > 1e-12 or abs(second['arrive_tangent']) > 1e-12:
+                raise ValueError('动画层视觉目前只支持明确水平切线的三次曲线')
+            weight = weight * weight * (3 - 2 * weight)
+        if mode not in ('RCIM_Cubic', 'RCIM_Linear'):
+            raise ValueError('动画层视觉不猜测未知曲线插值')
+        value = first['value'] * (1 - weight) + second['value'] * weight
+    if not np.isfinite(value):
+        raise ValueError('原生抑制曲线值必须有限')
+    return float(np.clip(1 - value, 0, 1))
+
+
+def handling_surface(report, recipe, action_recipe, action_index):
+    """/** @param report 真实原生节点求值报告 @param recipe 正式校准 @param action_recipe 正式动作源 @param action_index 动作序号 @return 仅整理原生字段的表面 不覆盖姿态 */"""
+    if report.get('status') != 'ok' or report.get('readOnly') is not True or report.get('projectDirtyPackagesUnchanged') is not True:
+        raise ValueError('需要未修改项目的正式原生动画节点报告')
+    if report.get('evaluationRoute') != 'TransientAnimBlueprint->FormalHandPose->NativeModifyBoneFromFormalConfiguration':
+        raise ValueError('不接受未知的动画层求值路径')
+    if any(report.get(field) is not False for field in ('mainGameplayEvaluated', 'fullBodyLayerEvaluated', 'aimIKEnabled', 'leftHandIKEnabled')):
+        raise ValueError('动画层报告必须明确限定实际求值范围')
+    configuration = report.get('nativeNodeConfiguration', {})
+    expected = {'bone': 'hand_r', 'rotationMode': 'AddToExisting', 'rotationSpace': 'ParentBoneSpace',
+                'translationMode': 'Ignore', 'scaleMode': 'Ignore', 'alphaInputType': 'Bool',
+                'blendInTime': 0, 'blendOutTime': 0, 'rotationGetter': 'GetRightHandGripRotationOffset',
+                'gateGetter': 'HasRightHandGripRotationOffset'}
+    if any(configuration.get(key) != value for key, value in expected.items()):
+        raise ValueError('原生节点配置与正式右腕职责不同')
+    snapshot = report['inputSnapshot']
+    action = action_recipe['actions'][action_index]
+    if asset_package(snapshot['animation']) != asset_package(action['asset']) or asset_package(snapshot['grip']) != asset_package(recipe['animation']):
+        raise ValueError('原生动画层求值未使用本型号正式动作和握姿')
+    if asset_package(snapshot['mesh']) != asset_package(recipe['character_mesh']) or snapshot.get('equipmentEnabled') is not True:
+        raise ValueError('原生动画层求值的网格或装备事实不匹配')
+    if asset_package(report['nativeNodeConfigurationSource']) != asset_package(snapshot['base']):
+        raise ValueError('原生节点不是从指定正式基础层读取')
+    time = snapshot['timeSeconds']
+    if not np.isfinite(time) or time < 0 or abs(time - report['timeSeconds']) > 1e-7:
+        raise ValueError('原生动画层求值时间不一致')
+    delta = np.asarray(recipe['calibration']['right_wrist_delta'], dtype=float)
+    actual = np.asarray(snapshot['rightHandOffsetQuaternion'], dtype=float)
+    if delta.shape != (4,) or actual.shape != (4,) or not np.all(np.isfinite(delta)) or not np.all(np.isfinite(actual)) or abs(np.linalg.norm(actual) - 1) > .0001 or abs(np.linalg.norm(delta) - 1) > .0001:
+        raise ValueError('原生右腕快照必须是单位四元数')
+    delta = delta / np.linalg.norm(delta)
+    actual = actual / np.linalg.norm(actual)
+    if abs(float(delta @ actual)) < np.cos(np.radians(.02) / 2):
+        raise ValueError('原生右腕快照与正式DA校准不同')
+    for side, curve in [('left', 'DisableLeftHandPoseOverride'), ('right', 'DisableRightHandPoseOverride')]:
+        alpha = saved_curve_alpha(action_recipe, action['asset'], curve, time)
+        if not np.isfinite(snapshot[side + 'GripAlpha']) or abs(snapshot[side + 'GripAlpha'] - alpha) > .0001:
+            raise ValueError('原生指层快照与正式抑制曲线不一致: ' + side)
+    local = {name.casefold(): values for name, values in report['localBones'].items()}
+    source = transform_matrix(report['sourceRightHandLocal'])
+    expected_rotation = transform_matrix([0, 0, 0] + delta.tolist() + [1, 1, 1])[:3, :3] @ source[:3, :3]
+    if np.max(np.abs(transform_matrix(local['hand_r'])[:3, :3] - expected_rotation)) > .001 or report['parentSpacePreMultiplyErrorDegrees'] > .02:
+        raise ValueError('真实原生右腕不符合父骨空间增量')
+    if np.linalg.norm(np.asarray(local['hand_r'][:3]) - source[:3, 3]) > .001:
+        raise ValueError('原生右腕节点意外改变了腕部局部位置')
+    surface = dict(report['surface'])
+    surface['bones'] = [{**bone, 'local': local[bone['name'].casefold()]} for bone in surface['bones']]
+    surface.update({'readOnly': True, 'localRotationOverrides': {}, 'animation': snapshot['animation'], 'timeSeconds': time})
+    return surface
+
+
 def check_native(sample, expected_mesh, expected_animation=None):
     """/** @param sample 原生采样 @param expected_mesh 正式网格 @param expected_animation 正式动画 @return 校验后的原生来源信息 */"""
     if sample.get('readOnly') is not True or sample.get('localRotationOverrides') != {}:
@@ -184,7 +268,10 @@ def action_context(character, weapon, recipe, action_recipe, action_index):
         raise ValueError('武器动画不在本型号目录中')
     if weapon_animation is not None:
         weapon_time = weapon.get('timeSeconds')
-        if type(weapon_time) not in (int, float) or not np.isfinite(weapon_time) or abs(weapon_time - time_seconds) > 0.0001:
+        play_rate = action.get('weapon_animation_play_rate', 1.)
+        if type(play_rate) not in (int, float) or not np.isfinite(play_rate) or play_rate <= 0:
+            raise ValueError('武器动画需要原生蒙太奇已核验的有限正播放倍率')
+        if type(weapon_time) not in (int, float) or not np.isfinite(weapon_time) or abs(weapon_time - time_seconds * play_rate) > 0.0001:
             raise ValueError('角色和武器实际动画采样时间不一致')
     attachment = recipe['solution']['inputs']['context']['attachment_socket']
     bones = {bone['name']: bone for bone in character['bones']}
@@ -207,6 +294,7 @@ def action_context(character, weapon, recipe, action_recipe, action_index):
         'character_time_seconds': time_seconds,
         'weapon_animation': weapon_animation,
         'weapon_time_seconds': weapon.get('timeSeconds'),
+        'weapon_animation_play_rate': action.get('weapon_animation_play_rate', 1.),
         'weapon_pose_mode': 'specified_native_animation' if weapon_animation is not None else 'static_native_reference',
     }
     return character_info, weapon_info, matrix, scope
@@ -242,11 +330,22 @@ def attachment_geometry(character, action, sample_paths):
     if not isinstance(entries, list):
         raise ValueError('动作 attachments 必须为数组')
     declared = {}
+    instance_ids = set()
     for entry in entries:
         mesh = asset_package(entry.get('mesh'))
-        if mesh in declared:
-            raise ValueError('当前动作重复声明同一附件网格，来源存在歧义')
-        declared[mesh] = entry
+        time_window(entry, character['timeSeconds'])
+        instance_id = entry.get('instance_id')
+        if 'instance_id' in entry:
+            if not isinstance(instance_id, str) or not instance_id.strip() or instance_id in instance_ids:
+                raise ValueError('附件 instance_id 必须为明确唯一的实际通知实例')
+            instance_ids.add(instance_id)
+        for previous in declared.get(mesh, []):
+            if entry['start'] < previous['end'] and previous['start'] < entry['end']:
+                if not instance_id or not previous.get('instance_id'):
+                    raise ValueError('同一附件网格的声明时间窗口重叠时必须各有唯一 instance_id')
+            if entry.get('sample_sha256') != previous.get('sample_sha256'):
+                raise ValueError('同一附件网格必须使用相同原生采样 SHA256')
+        declared.setdefault(mesh, []).append(entry)
     samples = {}
     for path in sample_paths:
         sample, source = read_json(path)
@@ -259,13 +358,14 @@ def attachment_geometry(character, action, sample_paths):
             raise ValueError('附件必须是无候选覆盖的只读原生采样')
         if sample.get('space') != 'mesh_component_centimeters' or sample.get('lod') != 0:
             raise ValueError('附件需要 LOD0 组件空间厘米采样')
-        if source['sha256'] != declared[mesh].get('sample_sha256'):
+        if source['sha256'] != declared[mesh][0].get('sample_sha256'):
             raise ValueError('附件原生采样与正式动作源 SHA256 不匹配')
         samples[mesh] = (sample, source)
     bones = {bone['name']: bone for bone in character['bones']}
     geometries = []
     report = []
-    for mesh, entry in declared.items():
+    for entry in entries:
+        mesh = asset_package(entry['mesh'])
         active = time_window(entry, character['timeSeconds'])
         bone = entry.get('bone')
         if bone not in bones:
@@ -275,6 +375,7 @@ def attachment_geometry(character, action, sample_paths):
         if not isinstance(digest, str) or len(digest) != 64 or any(value not in '0123456789abcdef' for value in digest):
             raise ValueError('附件声明需要明确原生采样 SHA256')
         item = {'mesh': mesh, 'bone': bone, 'local': entry['local'], 'start': entry['start'], 'end': entry['end'],
+                'instance_id': entry.get('instance_id'),
                 'source_note': entry['source_note'], 'active': active, 'sample_sha256': digest, 'triangle_count': 0,
                 'material_world_position_offset_simulated': False}
         if mesh in samples:
@@ -388,7 +489,17 @@ def generate(project_root, character_path, weapon_path, recipe_path, regions_pat
         matrix = weapon_matrix(character, recipe)
     if action_recipe_path is not None:
         action_recipe, action_source = read_action_recipe(project_root, action_recipe_path, action_index)
+        handling = character if 'surface' in character else None
+        if handling is not None:
+            character = handling_surface(handling, recipe, action_recipe, action_index)
         character_info, weapon_info, matrix, scope = action_context(character, weapon, recipe, action_recipe, action_index)
+        if handling is not None:
+            scope.update({'mode': 'native_formal_hand_pose_and_wrist',
+                          'description': '真实UE正式手指层与正式右腕节点求值；未求值主玩法、Aim或左手IK',
+                          'native_handling_evaluated': True, 'main_gameplay_evaluated': False,
+                          'full_body_controls_evaluated': False, 'aim_and_left_ik_evaluated': False,
+                          'native_node_configuration_source': handling['nativeNodeConfigurationSource'],
+                          'input_snapshot': handling['inputSnapshot']})
         action = action_recipe['actions'][action_index]
         attachment_faces, attachments = attachment_geometry(character, action, attachment_sample_paths)
         hidden_ids, hidden_regions = hidden_weapon_triangle_ids(action, regions, weapon, character['timeSeconds'])

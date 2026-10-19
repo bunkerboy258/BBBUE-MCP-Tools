@@ -184,7 +184,8 @@ class GripAuthoringMathTests(unittest.TestCase):
             offsets[control] = {'position': offset[:3], 'rotation': offset[3:7], 'scale': offset[7:10]}
             for frame in (0, 1):
                 keys.append({'control': control, 'frame': frame, 'value': {'position': values[:3], 'rotation': values[3:7], 'scale': values[7:10]}})
-        calibration = {'spawn_offset': IDENTITY[:], 'left_ik_offset': [0, 0, 0], 'left_ik_rotation': [0, 0, 0, 1]}
+        calibration = {'spawn_offset': IDENTITY[:], 'left_ik_offset': [0, 0, 0], 'left_ik_rotation': [0, 0, 0, 1],
+                       'right_wrist_delta': [0, 0, 0, 1]}
         request = {'recipe': {'solution': {'calibration': calibration, 'local_pose': local, 'component_pose': component},
                               'checks': {'maximum_pose_position_error_cm': .001, 'maximum_pose_rotation_error_degrees': .02,
                                          'maximum_static_motion_cm': .001, 'maximum_wrist_error_cm': .001}},

@@ -8,7 +8,7 @@ import unittest
 class AnimationNotifyInspectionTests(unittest.TestCase):
     """/** 验证完整通知数组不被轨道缓存漏报 */"""
 
-    def inspect(self, events, cached_events=None):
+    def inspect(self, events, cached_events=None, native_rows=None):
         """/** @return 不加载 UE 的真实检查函数输出 */"""
         source = Path(__file__).resolve().parents[1] / "Scripts/BBBGenericEditorToolset.py"
         tree = ast.parse(source.read_text(encoding="utf-8-sig"))
@@ -24,10 +24,19 @@ class AnimationNotifyInspectionTests(unittest.TestCase):
             get_anim_notify_event_trigger_time=lambda event: 0.5,
             get_anim_notify_event_duration=lambda event: 0.01,
         )
+        if native_rows is None:
+            native_rows = []
+            for index, event in enumerate(events):
+                instance = event.get_editor_property('notify') or event.get_editor_property('notify_state_class')
+                native_rows.append({'sourceIndex': index, 'notifyInstance': instance.get_path_name() if instance else '',
+                                    'nativeTriggerTime': .5, 'nativeDuration': .01, 'nativeEndTriggerTime': .51,
+                                    'triggerTimeOffset': 0., 'endTriggerTimeOffset': 0.})
         unreal = SimpleNamespace(
             AnimSequenceBase=asset_class,
             EditorAssetLibrary=SimpleNamespace(load_asset=lambda path: asset_class()),
             AnimationLibrary=library,
+            BBBHandPoseLayerEditorLibrary=SimpleNamespace(inspect_animation_notify_timing=lambda asset:
+                json.dumps({'readOnly': True, 'events': native_rows})),
         )
         namespace = {"unreal": unreal, "json": json}
         exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), "exec"), namespace)
@@ -36,6 +45,7 @@ class AnimationNotifyInspectionTests(unittest.TestCase):
     def event(self, index=0):
         """/** @return 同类同刻但独立的通知事件 */"""
         instance = SimpleNamespace(get_class=lambda: SimpleNamespace(get_path_name=lambda: "/Script/Test.Case"))
+        instance.get_path_name = lambda: 'Notify_' + str(id(instance))
         values = {"track_index": index, "notify": None,
                   "notify_state_class": instance, "notify_name": "Case"}
         return SimpleNamespace(get_editor_property=lambda name: values[name])
@@ -53,6 +63,30 @@ class AnimationNotifyInspectionTests(unittest.TestCase):
         self.assertEqual(len(result["events"]), 6)
         self.assertEqual(result["events"][0]["track"], "Cases")
         self.assertTrue(all(event["track"] is None for event in result["events"][1:]))
+
+    def test_native_end_and_offsets_are_not_recomputed_in_python(self):
+        """/** @return 保留原生结束浮点边界及偏移 不把双精度相加冒充真实结束 */"""
+        event = self.event()
+        row = {'sourceIndex': 0, 'notifyInstance': event.get_editor_property('notify_state_class').get_path_name(),
+               'nativeTriggerTime': .30000001192092896, 'nativeDuration': 1.2000000476837158, 'nativeEndTriggerTime': 1.5,
+               'triggerTimeOffset': .0001, 'endTriggerTimeOffset': -.0002}
+        result = self.inspect([event], native_rows=[row])['events'][0]
+        self.assertEqual(result['nativeEndTriggerTime'], 1.5)
+        self.assertNotEqual(result['nativeEndTriggerTime'], result['time'] + result['duration'])
+        self.assertEqual(result['nativeTriggerTime'], result['time'])
+        self.assertEqual(result['nativeDuration'], result['duration'])
+        self.assertEqual(result['triggerTimeOffset'], .0001)
+        self.assertEqual(result['endTriggerTimeOffset'], -.0002)
+
+    def test_native_count_and_identity_must_match_actual_event_array(self):
+        """/** @return 原生数组错位时明确拒绝 不给其它通知套用错误时间 */"""
+        event = self.event()
+        with self.assertRaisesRegex(RuntimeError, 'COUNT_MISMATCH'):
+            self.inspect([event], native_rows=[])
+        row = {'sourceIndex': 0, 'notifyInstance': 'WrongNotify', 'nativeTriggerTime': .5, 'nativeDuration': .01,
+               'nativeEndTriggerTime': .51, 'triggerTimeOffset': 0., 'endTriggerTimeOffset': 0.}
+        with self.assertRaisesRegex(RuntimeError, 'IDENTITY_MISMATCH'):
+            self.inspect([event], native_rows=[row])
 
 
 class AnimationNotifyPropertySelectionTests(unittest.TestCase):

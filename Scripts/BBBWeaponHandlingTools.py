@@ -179,7 +179,7 @@ def sample_runtime(action, seconds, equipment_class_path):
     camera_manager = unreal.GameplayStatics.get_player_camera_manager(world, 0)
     if camera_manager is None:
         raise RuntimeError("持枪采样缺少实际玩家镜头")
-    layer_class = unreal.load_class(None, "/Game/_Project/Characters/BBBC_UA/AnimationSystem/Layers/ABP_BBB_LocomotionLayer_Base.ABP_BBB_LocomotionLayer_Base_C")
+    layer_class = unreal.load_class(None, "/Game/_Project/Characters/BBBC_UA/Animation/UsedAnimation/blueprints/ABP_BBB_LocomotionLayer_Base.ABP_BBB_LocomotionLayer_Base_C")
     if layer_class is None:
         raise RuntimeError("持枪采样缺少正式公共动画层")
     start = unreal.GameplayStatics.get_time_seconds(world)

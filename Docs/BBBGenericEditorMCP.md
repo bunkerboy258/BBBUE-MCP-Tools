@@ -399,3 +399,17 @@ PIE 反射调用中的 Guid 返回值按标准字符串序列化 位置参数可
 2026-10-17 动画层动作配置：新增 `editor.configure_animation_montage_selector` 为继承的无参纯函数配置同骨架蒙太奇固定返回值。拒绝非纯函数 不匹配返回类型及已有连线返回逻辑 编译成功后保存。`editor.configure_action_montage` 保留目标已有的 UpperBody 或 UpperBodyAdditive 槽位 并拒绝其它动作槽位。本轮按用户要求不运行自动化或 PIE 验收。
 
 原生资产删除在明确目标包集合内解除动画数据模型临时控制器的根引用 避免无持久引用动画仍被临时控制器阻止删除 不处理其它包控制器 不直接删除资产文件 不创建备份。
+
+## 保持参考姿势重挂网格插槽
+
+`editor.reparent_skeletal_mesh_socket(mesh_path, socket_name, parent_bone_name, dry_run=true)` 只接受明确的自有骨骼网格、已存在的插槽和真实骨骼。原生计算新父骨参考空间的相对变换，并回报重挂前后参考姿势的位置与旋转误差；默认只读检查。设置 `dry_run=false` 后通过写入网关保存网格。
+
+原插槽若来自共享 Skeleton，创建该网格自身的同名插槽，保持共享 Skeleton 原样；原插槽已属于网格时直接更新。工具保留静态参考位置与角度，运行时插槽随新父骨运动。此操作不验证完整运行时动画图，调用者还需检查目标机构的真实骨轨和最终握持几何。
+
+## 原生定长数组属性只读检查
+
+`editor.inspect_asset_properties` 的既有点路径读取现在同时识别 `unreal.FixedArray`，例如 `blend_parameters.min`、`blend_parameters.grid_num` 和 `interpolation_param.interpolation_time`。逐项保留原生定长数组顺序、剩余结构路径和值；直接读取定长数组叶值也按 JSON 数组序列化，不再把它降为字符串或对数组错误调用结构体属性读取。
+
+没有新增工具或改变参数契约，不写资产，不推测不存在的字段；缺字段仍返回原错误。四项离线专项回归覆盖实际独立数组类型、轴字段顺序、数组叶值、动态与定长嵌套以及缺字段失败；原生宿主需与本轮其他工具修改统一重载后验收。
+
+2026-10-19 原生核验：UE5.8 后台宿主实际读取两份 `BS_MM_Rifle_Jog_Leans` 的 32 项公共设置及 1D `scale_animation`，所有运行时设置、样本与定长轴和插值值逐项相等，无属性读取错误或脏包。预览网格字段未公开给 Python，单独尝试保留其真实读取错误，不把缺字段当作空值相等；比较证据在本次任务临时目录，工具本身不合并或删除资产。

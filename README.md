@@ -1,5 +1,26 @@
 # BBBUE MCP Tools
 
+2026-10-19 新增通用 editor.reparent_skeletal_mesh_socket：在保留参考组件变换的前提下，将已有自有网格插槽挂到实际机构骨，原生校验位置、角度和网格归属后保存。Shotgun01 的 LeftHand 已实际重挂 Pump_joint；独立回读参考位置误差 0.000000234cm、角度0，第三方共享骨架摘要不变，真实开火机构轨道位移6.522cm。这里只证明插槽和实际机构数据，未冒称完整运行时动画图验收；网格自有插槽分支已实际验证，继承插槽覆盖分支尚未做项目实测。详见 Docs/BBBGenericEditorMCP.md。
+
+2026-10-19 明确资产删除与迁移空原包清理改为单次原生整组删除，全部SHA、精确路径、真实类型及组外硬软引用保护保持，逐文件核验，失败不重试；43项移动、5项整组删除和7项既有保护回归通过。此前61旧包冷清、8旧LS及Other首16项真实原生收口通过，新批量实现仍待统一重载后的独立实际验证。
+
+同日前台宿主37312实际完成LMG01唯一Preview迁移和新实现16项Other整组移动清理，目标保存、旧文件及注册表清理、引用和脏包独立核验全部通过。新16项22秒，旧16项87秒，均保留真实报告；后续公共归整继续逐批核验，不把该小批结果扩张为全目录已完成。
+
+随后Other1656项及独立延后1项已实际完成原生移动与全量核验；新增11个已获制作者交接的旧LS严格整组删除通过。Used244合并批次真实改名和429正式目标/引用者保存已完成，但循环蓝图占位类及旧包脏标记使自动终验失败，按精确原生重载和集中冷清理收口，不重复改名、不将该部分执行伪称自动成功。详见专用资产维护文档。
+
+2026-10-19 原生普通删除与重定向器删除共用精确目标包动画控制器根引用释放 防止已改名动画的临时控制器阻止旧包原生清理。其它包及非控制器根引用保持不变 新增真实双包控制器自动化隔离回归待编译执行 Python迁移专项42项离线通过 实际自动迁移仍待统一加载验证。见 Docs/BBBAssetMaintenanceMCP.md。
+
+同日原生构建与真实 `BBB.Editor.AssetRepair.ControllerRootScope` 隔离回归已通过 Rifle03剩9旧包严格摘要原生删除完成 18条最终独立核验旧文件 旧引用 重定向器及脏包均为零 DA和6蒙太奇实际引用正确 新自动执行器的完整移动验收另行记录。
+
+Sniper02随后完整自动入口仍因同宿主空原包持有而如实失败 新目标与引用者已保存 按本次已批准流程集中保留原SHA待最终冷宿主严格原生清理 中途只精确丢弃已证空旧包的脏标记 不重复改名 不将旧残留未清零的状态标成迁移完成。详见上述维护文档的实际边界。
+
+SMG03唯一弹匣预览的单项真实自动迁移已完整成功 新目标与旧HandEdit引用者均保存 旧文件 旧引用 重定向器和脏包独立核验为零 不建立第二份预览。该单项成功与上述特定旧资产仍需冷清理的边界分别如实记录。
+
+2026-10-19 原生批量迁移补齐完全空原包的封闭收口：保存真实目标与引用者后，只对本次已改名且无子对象的原包执行原生重载，再按原文件SHA、真实类型和无组外引用约束原生删除。40项迁移回归通过；Rifle03两AS已分步恢复并通过最终磁盘、注册表、旧引用和脏包核验，新增自动收口仍待统一重载后验证。未扩大到未知空包，不直接删除包文件。详见 Docs/BBBAssetMaintenanceMCP.md。
+
+2026-10-19 普通资产批量迁移在原生重命名后显式保存实际目标、引用者和原包，再刷新目录及验证；报告单独记录持久化结果，失败不自动重试。35项离线迁移回归通过，真实两动作迁移仍待工具重载后核验。原生 FixedArray 点路径已在实际 BlendSpace 两资产的32项设置和1D缩放字段中验证，逐项值相等且无脏包。详见 Docs/BBBAssetMaintenanceMCP.md 与 Docs/BBBGenericEditorMCP.md。
+
+
 2026-10-19 专属动作支持显式掌空间指节卷曲、四阶段枪组件接触平移及操作后左指平滑回握；按实际骨架只写明确臂、辅助骨和手指，不进行握姿优化或参数搜索。74项针对性检查通过；Rifle02最终四动作405帧原生回读通过，最终换弹LS九阶段独立瞬态烘焙未检出骨骼差异，薄截面握匣与回握图由代理实际检查。真实插入对应顶点误差约0.0000669cm，拒绝的90度匣体旋转版本未合入。详见 Docs/BBBWeaponActionAuthoring.md。
 
 2026-10-19 新增正式握姿彩色三视图 CLI、独立静态附件实际 RenderData LOD0 只读采样和显式动作绝对轨道写入入口。Rifle02 四条动作共405帧原生回读通过，双手静态图与实际取匣附件图已检查；69项针对性回归通过，涵盖视觉来源、动作数学、静态附件、瞬态审计和原有握姿制作。静态与动作共用父骨先于子骨的辅助骨同步，Rifle01/02真实三对手部辅助骨均在原0.001cm/0.02度内，修正后正式双手图已检查；没有把技术修正版冒充新一次人工accept。序列烘焙审计改用纯瞬态副本，四动作官方烘焙对照未发现超过阈值的差异，不再创建正式临时资产或写源LS；UE控制器暂存对象如实标为等待宿主退出，未冒称即时释放。详见 Docs/BBBGripVisualReview.md、Docs/BBBWeaponActionAuthoring.md、Docs/BBBControlRigAuthoringMCP.md；数字回读与图生成不替代自然握持或最终用户运行观感验收。
@@ -256,3 +277,42 @@ python -B Tests/benchmark_mcp_workflows.py --catalog '<当前目录缓存>' --su
 2026-10-18 Rifle01 双手握姿样板：新增真实 LOD0 蒙皮采样、带全指面清除约束的离线接触拟合和闭合组件深度审计；新增正式双手 Linked Layer 配置及 EditorPreview 实际求值工具。UE5.8 Development Editor 构建、49 项相关 Python 检查、正式 Base 六个独立权重场景通过；无曲线长源可直接烘焙短静态样板，并拒绝意外新增曲线。Rifle01 制作样板已本地保存，PIE 与自然程度等待用户人工验收。详见 Docs/HandPoseLayer.md、Docs/BBBGripPoseFitting.md。
 
 2026-10-18 握姿制作流程规范化：新增唯一入口 `grip.author_weapon` 和型号 `Source/Animation` 正式制作配置，支持初始化、依赖核对、掌面平移校准、保骨长腕部求解、手指接触拟合、邻指约束、制作保存、真实回读和人工审核交接。输入变化使旧结果失效，求解及烘焙回读两道检查通过后才接入武器配置；重复保存和采纳有明确状态。邻指检查包含共面三角面分离轴及边边距离。手部截图新增独立目标腕骨、跨帧预热、状态回读及 -6 至 +6 档线性亮度补偿；同参数重复图像像素差为零，+1 档前景平均亮度实测提高约 13%。75 项相关数学与制作检查、15 项 MCP 契约检查通过；Rifle01 实际底稿的 68 个控制器和 136 个关键帧回读通过，扩大邻指检查发现左手两对局部交叉并阻止继续写入，保留既有外观。完整调用方法、低思考深度会话指令与验收边界见 [BBBGripAuthoringMCP.md](Docs/BBBGripAuthoringMCP.md)。
+
+## 工具动态
+
+2026-10-19 双管装填三视图允许两个实际 Notify 实例以不同 `instance_id` 共用一份同SHA原生StaticMesh，并分别显示重叠窗口内的真实挂接；缺失或重复实例仍拒绝歧义。新增两项防错后视觉检查24项通过，见 [BBBGripVisualReview.md](Docs/BBBGripVisualReview.md)。
+
+2026-10-19 分段换弹动作可通过明确的 `entry_hold_release_frame` 从静态握持释放，循环和结束段不被错误识别为重新入场；拒绝非正与非有限帧。必要分段回归及既有动作检查共16项通过，详见 [BBBWeaponActionAuthoring.md](Docs/BBBWeaponActionAuthoring.md)。
+
+2026-10-19 动作附件改握以 `hand_attachment_grip_changes` 的原/当前局部刚体和显式阶段统一反补腕目标，保持匣体世界轨迹；实际证据支持的小角度机构修正可另用枪空间 `contact_transforms`。拒绝缩放、非法四元数、窗口重叠及重复机构来源，空程不改原轨迹。3项必要刚体回归与既有动作检查共15项通过；自然程度仍须实际原生蒙皮看图，详见 [BBBWeaponActionAuthoring.md](Docs/BBBWeaponActionAuthoring.md)。
+
+2026-10-19 显式机构平移支持有序不重叠的 `contact_translation.phase_windows`，把同一已证平移分别用于取旧匣与插新匣，中间身体取匣空程不改变；禁止同一修正同时指定单窗及多窗。2项必要防错与既有动作检查共12项通过，见 [BBBWeaponActionAuthoring.md](Docs/BBBWeaponActionAuthoring.md)。
+
+2026-10-19 动作附件三视图支持旧匣与新匣在不重叠的原生通知窗口共用同一真实StaticMesh样本，保持各自挂接变换；拒绝窗口重叠、同网格摘要冲突及任意源帧。新增两项必要回归后22项视觉工具检查通过，见 [BBBGripVisualReview.md](Docs/BBBGripVisualReview.md)。
+
+2026-10-19 动作三视图支持从正式动作源读取实际武器蒙太奇播放倍率，严格按角色秒数乘该倍率选择真实武器源帧，不接受任意不同时间或非法倍率；未指定仍要求同秒数。一项新增回归覆盖真实非一倍速映射及错误帧、零值、负值、非有限值拒绝，20项视觉工具检查通过。见 [BBBGripVisualReview.md](Docs/BBBGripVisualReview.md)。
+
+2026-10-19 右腕路径真实验收完成：正式 AimIK 前增量节点配置与六个动画蓝图编译保存通过 五个瞬态原生 ModifyBone 预览场景的父空间左乘误差均零 零偏移与禁用装备完整姿势一致 非交换错误乘法偏差约 46.8736 度 每次输出 2716 个手部顶点且无项目脏包。Rifle01 制作 LS 的源引用已通过仅替换入口切到等价私有序列 其它片段参数和轨道保持 旧公共源无引用。范围与证据见 [HandPoseLayer.md](Docs/HandPoseLayer.md)。
+
+2026-10-19 新增只读 `editor.sample_hand_handling_surface` 在瞬态 EditorPreview 世界实际执行正式双手握姿与按正式已保存配置复制的原生右腕节点 按显式动作秒数和装备右腕快照输出实际 local/component 骨骼及原生 LOD0 CPU 线性蒙皮 用于既有彩色三视图。主玩法图 枪口瞄准与左手 FABRIK 目标未注入时明确不作为这些路径验收 不保存正式资产。原生构建及真实节点求值待统一验证 见 [HandPoseLayer.md](Docs/HandPoseLayer.md)。
+
+2026-10-19 新增 `editor.configure_right_hand_grip_rotation` 在明确 AimIK 前配置共享右腕增量 采用父骨骼空间 AddToExisting 独立装备门控 零偏移停用 不使用手指 Disable 曲线。角色配置和动画事实链同步提供线程安全查询 四项保存边界检查通过 原生构建与真实图求值另行验收。见 [HandPoseLayer.md](Docs/HandPoseLayer.md)。
+
+2026-10-19 新增 `control_rig.replace_sequence_animation_references`，以显式映射仅替换已有骨骼动画片段引用，等长同骨架且每项实际匹配后才写入。保留停用状态、时间范围、完整其他片段参数和制作轨道，不调整播放长度或重烘焙。6 项独立离线检查通过；真实 UE 制作序列回读另行记录，调用细节见 [BBBControlRigAuthoringMCP.md](Docs/BBBControlRigAuthoringMCP.md)。
+
+2026-10-19 原生 handling 视觉校验对已通过单位范数门槛的右腕四元数归一化后比较方向，保留原 `0.02` 度角差门槛。真实 float32 同方向快照回归与其余四项 handling 检查通过，错误方向仍拒绝。
+
+2026-10-19 动作工作器新增明确 `forearm_roll` 窗口，将指定旋前/旋后分配给真实前臂与皮肤扭转骨，保持已求解腕组件目标和骨长；仅声明并校验此字段时允许新增该扭转轨。两个必要专项及现有动作共十八项检查通过，正式自然性仍由实际原生前臂蒙皮视图验收。调用与有限角度边界见 [BBBWeaponActionAuthoring.md](Docs/BBBWeaponActionAuthoring.md)。
+
+2026-10-19 增加显式 `finger_pose_windows`，在真实持物窗口混入本枪完整十五指骨局部旋转，保持骨长、缩放和腕轨迹，避免原动画中段指形漂移使鼓匣穿掌。入口拒绝不完整、非法四元数、越界及重叠窗口；两个必要回归覆盖动画源指形不同仍保持同一握物形状、零权重精确保留及非法输入拒绝。完整原生保存、显示窗口逐帧诊断和实际前臂/双手看图仍由制作任务执行，见 [BBBWeaponActionAuthoring.md](Docs/BBBWeaponActionAuthoring.md)。
+
+2026-10-19 固定指姿和有界阶段声明的唯一验证提取到纯标准库 `BBBWeaponActionPolicy.py`，避免编辑器包装导入 NumPy 工作器；保留明确 `boundary_hold` 规则。新增真实 `python -S` 导入检查，正式编辑器 dry_run 与保存仍需单独回读。
+
+2026-10-19 动作工作器支持明确人工左腕组件关键姿态 `left_wrist_component_keys`，先计算枪空间接触和附件改握反补，再覆盖指定段，严格匹配已经修正与反补后的首尾目标。二十六项动作回归通过，包含非轴对齐反补后七厘米边界保持、中段腕旋转覆盖及旧边界拒绝；接口保留唯一可复建制作输入，原生视觉与机构验收保持独立。
+
+2026-10-19 `editor.inspect_animation_notifies` 从既有编辑器库原生读取 `GetTriggerTime/GetEndTriggerTime/GetDuration` 及触发偏移，新增 `nativeTriggerTime/nativeEndTriggerTime/nativeDuration/triggerTimeOffset/endTriggerTimeOffset`；按通知实例和数组位置校验对应关系，禁止通过 Python 双精度相加推测通知结束。八项通知检查通过，包括真实浮点边界保留与数组错位拒绝；C++ 构建及实际通知回读由统一宿主重载验收，见 [BBBAnimationNotifyMCP.md](Docs/BBBAnimationNotifyMCP.md)。
+
+2026-10-19 分段换弹的明确 `boundary_hold` 使腕附件反补和十五指姿窗口最多跨动作前后各一帧，保持 Start/Loop/End 实际边界握姿连续；未声明时继续严格限制。完整动作二十三项检查通过，包括真实七厘米腕反补及固定指姿跨三个片段保持、正常退出和非法越界拒绝。接口见 [BBBWeaponActionAuthoring.md](Docs/BBBWeaponActionAuthoring.md)。同轮原生通知时间入口已在八个真实蒙太奇的三十六条通知上独立回读成功，证实 SMG 旧匣应第十七帧退出及 LMG01 第四十五帧恢复枪匣，未以双精度和替代原生结束。
+2026-10-19 动作原生回读的满回握检查按该帧声明的机构平移、刚体接触和握匣反补计算实际目标，避免把仍有效的接槽窗口误算为静态握姿误差；退出窗仍回到静态目标。专项回归同时验证正确枪空间接触通过，以及错误轨道虽然与保存动画一致仍被目标检查拒绝。原生资产未因此重烘，视觉验收保持独立。
+
+2026-10-19 公共目录迁移最终核验：Other1657全部原生迁移闭合，Used242及2个Items输入的244旧源在新宿主按真实引用顺序严格SHA冷清理后独立核验通过；Base重新编译，Main/Base/ALI及四层实际全部BS_UP_TO_DATE。另66个完整骨轨公共可编辑LS同名迁入Used/hold并独立核验通过，全部边界dirty为空。保留前次同宿主部分失败记录，不冒称自动链一次成功，也不将制作底稿归属证明当作成品全帧等价。详见Docs/BBBAssetMaintenanceMCP.md。

@@ -68,3 +68,20 @@
 最终握姿经独立制作序列正式烘焙后，在批次 `1000c1e28139e824` 重复全部 6 个场景，结果仍全部通过。最终输入相对基准的手指最大差异约 `30.7312°`，位置和缩放误差均为 `0`，最大旋转误差约 `0.00000242°`，非手指最大旋转误差约 `0.00000171°`。该结果仍只证明正式 Base 手指层，不代表 Main 曲线同帧或 PIE 验收。
 
 负例批次 `df0f1a05e964e645` 对已成功的正式图重复配置，按预期以 `ALREADY_CONFIGURED` 拒绝，未产生脏包或保存。前后回读批次 `2fd3186bd5b23b14` 证明主图仍为 41 节点、34 连线，Base 握姿图仍为 6 节点、9 连线，两个 `logicSignature` 完全不变。模拟宿主测试最终共 12 项通过。
+# 右腕握持增量
+
+`editor.sample_hand_handling_surface` 只读运行瞬态包装图 `SequenceEvaluator -> 正式 HandPose_OverrideState -> 按正式配置复制的原生 ModifyBone`。参数明确给出 `mesh_path` `main_path` `base_path` `interface_path` `animation_path` `grip_path` `time_seconds` `right_hand_offset` `equipment_enabled` `left_grip_alpha` `right_grip_alpha` `selected_bones` `minimum_selected_weight` `material_indices`。`right_hand_offset` 顺序为俯仰 偏航 滚转 单位度 双手指权重是本次明确快照 不自动冒充主图曲线实测。
+
+瞬态实例继承正式主图的原生父类 不执行其玩法图；正式握姿层生成类必须与实际关联实例完全一致 右腕节点配置必须来自已保存正式基础层且验证相同骨骼 模式 空间 旋转查询和装备门控。输出 `localBones` `componentBones` 为实际求值姿势 `sourceRightHandLocal` 来自同一动作同一秒数的原生 SingleNode 求值 `parentSpacePreMultiplyErrorDegrees` 对照父空间左乘语义。`surface` 复用既有原生 LOD0 导入顶点和真实权重 CPU 线性蒙皮 不包含 morph cloth 或 deformer。采样结果可供既有彩色三视图直接渲染 无引擎截图 无 PIE 无正式资产保存 并检查项目脏包集合保持。
+
+本接口未注入真实玩法装备实例和枪口目标 `aimIKEnabled=false` `leftHandIKEnabled=false` `mainGameplayEvaluated=false` `fullBodyLayerEvaluated=false`。输出记录 `nativeNodeConfigurationSource` 和复制配置。它证明实际已编译握姿与右腕增量链及当前输入下表面 不代表整套主图运行验收；动作换弹阶段由调用方传入实际曲线对应权重 不能把全部时间权重一当作最终动作。
+
+2026-10-19 原生验收在已保存正式节点配置上完成五个场景：零增量 装备禁用 非交换 `[Pitch17 Yaw23 Roll-11]` 于动作 `0.9s` 同增量于 `1.1s` 左指 `0.5` 右指 `1` 混合。父空间左乘角误差均 `0°` 零增量与装备禁用的完整组件姿势相同 非交换样本若后乘会偏 `46.8736036°` 两个秒数的源腕姿势不同。每场景产生 `2716` 个实际手部顶点 项目脏包集合保持。此结果只验收正式握姿层与正式配置的原生 ModifyBone 不包含整套骨骼控制层或主图玩法。
+
+装备公共配置 `RightHandGripRotationOffset` 是父骨骼空间的旋转增量 默认零。角色 AnimationSystem 在游戏线程采集到事实快照 再发布到主动画实例 链接层通过线程安全 `GetRightHandGripRotationOffset` 和 `HasRightHandGripRotationOffset` 读取 不在工作线程访问装备或 DA。无装备时清零 只有装备类别有效且增量非零才启用该节点 门控不依赖左右手指的 Disable 曲线。
+
+`editor.configure_right_hand_grip_rotation(base_path, child_layer_paths, main_path, graph_name, before_node_guid)` 在指定既有 AimIK 的组件姿势输入前插入 `Transform Modify Bone` 只对 `hand_r` 使用 `AddToExisting` 与 `ParentBoneSpace` 平移与缩放均 Ignore。节点使用独立 bool 门控且混入混出时间为零 由动作已有过渡保持姿势连续 避免固定挂接反补偿与腕偏移使用不同混合时间。工具拒绝已有右腕变换节点 不重复叠加；基础层 继承层和主图全部编译通过才逐一保存 不修改动画层接口或手指蒙版。
+
+制作四元数采用 `q_out(t)=D*q_source(t)` 因而参考姿势增量为 `D=q_target_ref*inverse(q_source_ref)`。静态握姿和制作 LS 可以展示该增量 运行时动作 AS 必须保留源右腕 否则会重复叠加。挂接反补偿使用同一参考姿势下的实际腕变换完整求解 不只调整欧拉角。真实原生节点的乘法次序与零偏移通过条件须另行实测 不能将离线公式当作真实动画图验收。
+
+离线 `test_right_hand_grip_configuration.py` 的四项门控检查覆盖目标有未保存修改 原生失败 继承层编译失败和精确目标保存顺序。原生图编译与真实蒙皮预览仍待实际引擎验收。既有末尾 `CR_BBB_MannequinFootPlant` 不读写手部辅助骨 不能假定它会将 `ik_hand_r` 或 `ik_hand_gun` 同步到偏移后的真实右腕。

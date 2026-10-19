@@ -14,6 +14,7 @@ from BBBAssetWritePolicy import require_write_access, require_asset_write
 
 
 MCP_INPUTS = {
+    'replace_sequence_animation_references': {'replacements_json': {'type': 'object', 'minProperties': 1, 'additionalProperties': {'type': 'string', 'minLength': 1}}},
     'capture_attachment_pose': {
         'attachments_json': {
             'type': 'array',
@@ -2189,6 +2190,85 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
 
         unreal.log("[BBBControlRigAuthoring] 只读瞬态烘焙对照报告 " + path)
         return json.dumps({"report": path, "length": report["length"], "cleanup": cleanup, "transientObjectsReleased": cleanup["state"] == "released", "differentBones": sorted({bone["bone"] for sample in report["samples"] for bone in sample["differences"]})})
+
+    @mcp_tool
+    @staticmethod
+    def replace_sequence_animation_references(sequence_path: str, replacements_json: str, dry_run: bool = True) -> str:
+        """
+        /**
+         * 仅替换已有骨骼动画片段引用 保持所有其他片段参数与轨道
+         * @param sequence_path\t已有序列路径
+         * @param replacements_json\t旧动画到新动画的显式映射
+         * @param dry_run\t仅预检引用与等长同骨架条件
+         * @return 匹配片段及原位保存回读结果
+         */
+        """
+        replacements = json.loads(replacements_json)
+        if not isinstance(replacements, dict) or not replacements:
+            raise RuntimeError("必须提供非空动画引用映射")
+        sequence = _asset(sequence_path, unreal.LevelSequence)
+        mappings = {}
+        for source_path, destination_path in replacements.items():
+            if not isinstance(source_path, str) or not isinstance(destination_path, str):
+                raise RuntimeError("动画映射路径必须是字符串")
+            source = _asset(source_path, unreal.AnimSequence)
+            destination = _asset(destination_path, unreal.AnimSequence)
+            source_name = source.get_path_name()
+            if source == destination or source_name in mappings:
+                raise RuntimeError("动画映射重复或源目标相同")
+            if source.get_editor_property("skeleton") != destination.get_editor_property("skeleton"):
+                raise RuntimeError("替换动画骨架不同")
+            if not math.isclose(source.get_play_length(), destination.get_play_length(), rel_tol=0.0, abs_tol=0.000001):
+                raise RuntimeError("仅允许等长动画引用替换")
+            mappings[source_name] = {"source": source, "destination": destination, "count": 0}
+
+        matched = []
+        tracks = list(sequence.get_tracks())
+        for binding in sequence.get_bindings():
+            tracks.extend(binding.get_tracks())
+        for track in tracks:
+            if not isinstance(track, unreal.MovieSceneSkeletalAnimationTrack):
+                continue
+            for section in track.get_sections():
+                params = section.get_editor_property("params")
+                animation = params.animation
+                if animation is None or animation.get_path_name() not in mappings:
+                    continue
+                mapping = mappings[animation.get_path_name()]
+                if params.export_text().count(animation.get_path_name()) != 1:
+                    raise RuntimeError("动画片段原生导出引用不唯一")
+                mapping["count"] += 1
+                matched.append((section, params.export_text(), mapping))
+        missing = [path for path, mapping in mappings.items() if mapping["count"] == 0]
+        if missing:
+            raise RuntimeError("序列没有匹配片段: " + json.dumps(missing))
+        report = {"sequence": sequence.get_path_name(), "dryRun": dry_run,
+                  "replacements": [{"source": path, "destination": row["destination"].get_path_name(),
+                                    "sections": row["count"]} for path, row in mappings.items()]}
+        if dry_run:
+            return json.dumps(report, ensure_ascii=False)
+
+        require_write_access(sequence)
+        sequence.modify()
+        for section, before, mapping in matched:
+            section.modify()
+            params = section.get_editor_property("params")
+            params.animation = mapping["destination"]
+            section.set_editor_property("params", params)
+        for section, before, mapping in matched:
+            params = section.get_editor_property("params")
+            if params.animation != mapping["destination"]:
+                raise RuntimeError("动画引用回读不一致")
+            expected = before.replace(mapping["source"].get_path_name(), mapping["destination"].get_path_name())
+            if params.export_text() != expected:
+                raise RuntimeError("动画片段其他参数发生变化")
+        if not unreal.EditorAssetLibrary.save_loaded_asset(sequence, False):
+            raise RuntimeError("动画引用替换保存失败")
+        report["saved"] = True
+        report["parametersPreserved"] = True
+        unreal.log("[BBBSequenceReferences] 已保存 {} 个片段引用".format(len(matched)))
+        return json.dumps(report, ensure_ascii=False)
+
 
 
 _official_python = os.path.join(unreal.Paths.engine_plugins_dir(), "Experimental", "Toolsets", "AnimationAssistantToolset", "Content", "Python")

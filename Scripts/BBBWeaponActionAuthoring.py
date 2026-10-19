@@ -6,6 +6,7 @@ import numpy as np
 
 from BBBGripAuthoring import arm_pose, matrix_quaternion, matrix_values, quaternion_angle_degrees, runtime_geometry, synchronize_hand_helpers
 from BBBGripPoseFitting import SurfacePose, rotation_matrix, transform_matrix
+from BBBWeaponActionPolicy import validate_action_phase_window, validate_finger_pose_windows
 
 
 CHANGED_BONES = ('clavicle_l', 'upperarm_l', 'lowerarm_l', 'hand_l', 'ik_hand_l', 'ik_hand_r', 'ik_hand_gun')
@@ -54,6 +55,90 @@ def phase_weight(frame, phases):
     return float(smooth((frame - first) / (full - first)) * (1 - smooth((frame - leave) / (end - leave))))
 
 
+def contact_translation_weight(frame, correction):
+    """/** @param frame 实际动作帧 @param correction 单一平移及明确接触窗口 @return 接触窗口并集权重 取匣空程不累加位移 */"""
+    if ('phase_frames' in correction) == ('phase_windows' in correction):
+        raise ValueError('机构平移必须明确单窗口或多窗口之一')
+    windows = correction.get('phase_windows')
+    if 'phase_frames' in correction:
+        windows = [correction['phase_frames']]
+    if not isinstance(windows, list) or not windows:
+        raise ValueError('机构接触窗口必须为非空数组')
+    previous_end = -1
+    weights = []
+    for phases in windows:
+        if not isinstance(phases, list) or len(phases) != 4 or any(type(value) not in (int, float) or not np.isfinite(value) or value < 0 for value in phases):
+            raise ValueError('机构接触窗口必须为四个有限非负帧号')
+        if phases[0] < previous_end:
+            raise ValueError('机构接触窗口必须有序且不能重叠')
+        weights.append(phase_weight(frame, phases))
+        previous_end = phases[-1]
+    return max(weights)
+
+
+def rigid_attachment_matrix(values):
+    """/** @param values 明确厘米位置 单位四元数及单位缩放 @return 经严格校验的刚体矩阵 */"""
+    values = np.asarray(values, dtype=float)
+    if values.shape != (10,) or not np.all(np.isfinite(values)) or not np.allclose(values[7:], 1, atol=1e-6, rtol=0) or abs(np.linalg.norm(values[3:7]) - 1) > .0001:
+        raise ValueError('附件与机构变换必须为有限单位四元数和单位缩放刚体')
+    return transform_matrix(values)
+
+
+def explicit_rigid_contact(target, gun, frame, contacts):
+    """/** @param target 原左腕目标 @param gun 本帧实际枪体 @param frame 实际帧 @param contacts 枪空间刚体接触修正及阶段 @return 保留空程的明确机构接触目标 */"""
+    output = target.copy()
+    if not isinstance(contacts, list):
+        raise ValueError('机构刚体接触必须为显式数组')
+    previous_end = -1
+    for contact in contacts:
+        if not isinstance(contact, dict):
+            raise ValueError('机构刚体接触条目必须为对象')
+        phases = contact.get('phase_frames')
+        weight = contact_translation_weight(frame, {'phase_frames': phases})
+        if phases[0] < previous_end:
+            raise ValueError('机构刚体接触窗口必须有序且不重叠')
+        previous_end = phases[-1]
+        delta = rigid_attachment_matrix(contact.get('delta_weapon'))
+        if weight == 0:
+            continue
+        desired = gun @ delta @ np.linalg.inv(gun) @ target
+        output[:3, 3] = target[:3, 3] * (1 - weight) + desired[:3, 3] * weight
+        output[:3, :3] = blend_rotation(target[:3, :3], desired[:3, :3], weight)
+    return output
+
+
+def bounded_action_phase_weight(frame, window, frame_count=None):
+    """/** @param frame 实际帧 @param window 明确阶段及可选边界保持 @param frame_count 真实帧数 @return 严格范围内的五次平滑权重 仅显式允许前后各一帧 */"""
+    phases = validate_action_phase_window(window, frame_count)
+    return phase_weight(frame, phases)
+
+
+def compensate_hand_attachment_grip(target, frame, changes, frame_count=None):
+    """/** @param target 原左腕组件目标 @param frame 实际动作帧 @param changes 原附件局部变换与新握持及阶段 @return 保持附件世界轨迹的刚体腕反补偿 */"""
+    output = target.copy()
+    if not isinstance(changes, list):
+        raise ValueError('独立附件握持反补偿必须为显式数组')
+    previous_end = -1
+    for change in changes:
+        if not isinstance(change, dict):
+            raise ValueError('独立附件握持反补偿条目必须为对象')
+        if change.get('bone') != 'hand_l':
+            raise ValueError('当前附件握持反补偿只处理左手实际动作目标')
+        original = rigid_attachment_matrix(change.get('reference_attachment_local'))
+        current = rigid_attachment_matrix(change.get('attachment_local'))
+        phases = change.get('phase_frames')
+        weight = bounded_action_phase_weight(frame, change, frame_count)
+        if phases[0] < previous_end:
+            raise ValueError('独立附件握持反补偿窗口必须有序且不重叠')
+        previous_end = phases[-1]
+        if weight == 0:
+            continue
+        desired = target @ original @ np.linalg.inv(current)
+        output[:3, 3] = target[:3, 3] * (1 - weight) + desired[:3, 3] * weight
+        output[:3, :3] = blend_rotation(target[:3, :3], desired[:3, :3], weight)
+    return output
+
+
 def apply_finger_curls(surface, local, corrections, weight):
     """/** @param surface 实际骨架 @param local 当前局部姿态 @param corrections 明确掌空间弯曲平面和关节角 @param weight 阶段权重 @return 只追加指定关节卷曲 不搜索参数 */"""
     output = local.copy()
@@ -86,9 +171,37 @@ def apply_finger_curls(surface, local, corrections, weight):
     return output
 
 
+def apply_finger_pose_windows(surface, local, frame, windows):
+    """/** @param surface 实际骨架 @param local 当前局部姿态 @param frame 源帧 @param windows 已校验完整指姿窗口 @return 仅混入明确指骨局部旋转 保留位置缩放和其它骨 */"""
+    output = local.copy()
+    for window in windows:
+        weight = phase_weight(frame, window['phase_frames'])
+        if weight == 0:
+            continue
+        for name, quaternion in window['local_rotations'].items():
+            index = surface.names[name]
+            scale = np.linalg.norm(output[index, :3, :3], axis=0)
+            if np.any(scale < 1e-12):
+                raise ValueError('固定手指姿态不能修改零缩放骨')
+            original = output[index, :3, :3] / scale[None, :]
+            output[index, :3, :3] = blend_rotation(original, rotation_matrix(quaternion), weight) @ np.diag(scale)
+    return output
+
+
 def contact_target(old_weapon, new_weapon, wrist):
     """/** @param old_weapon 原挂接组件变换 @param new_weapon 新挂接组件变换 @param wrist 原腕姿态 @return 保持武器局部接触的腕姿态 */"""
     return new_weapon @ np.linalg.inv(old_weapon) @ wrist
+
+
+def runtime_right_hand(surface, components, local, quaternion):
+    """/** @param surface 实际骨架 @param components 动作原生组件姿态 @param local 动作原生局部姿态 @param quaternion 正式父骨空间腕增量 @return 不改动作源的实际右腕组件姿态 */"""
+    index = surface.names['hand_r']
+    parent = surface.bones[index]['parent']
+    wrist = local[index].copy()
+    wrist[:3, :3] = rotation_matrix(quaternion) @ wrist[:3, :3]
+    if parent < 0:
+        return wrist
+    return components[parent] @ wrist
 
 
 def clavicle_adjustment(surface, local, target, minimum_angle=0):
@@ -127,6 +240,89 @@ def clavicle_adjustment(surface, local, target, minimum_angle=0):
     return result, float(np.rad2deg(angle))
 
 
+def entry_hold_weight(action, frame):
+    """/** @param action 实际分段动作与明确起始释放帧 @param frame 实际帧 @return 从已保存静态握持淡出的权重 */"""
+    if 'entry_hold_release_frame' not in action and action['kind'] not in ('reload', 'melee'):
+        return 0.
+    release = action.get('entry_hold_release_frame', action.get('release_frame'))
+    if type(release) not in (int, float) or not np.isfinite(release) or release <= 0:
+        raise ValueError('动作起始握持释放帧必须为正有限数值')
+    return float(1 - smooth(frame / release))
+
+
+def explicit_forearm_roll(surface, local, frame, windows):
+    """/** @param surface 实际左臂骨架 @param local 双骨求解后的局部姿态 @param frame 实际帧 @param windows 明确轴向角与阶段 @return 保持腕组件目标的前臂旋转与皮肤扭转分配 */"""
+    if not isinstance(windows, list) or not windows:
+        raise ValueError('前臂轴向旋转必须为非空显式窗口数组')
+    lower = surface.names['lowerarm_l']
+    hand = surface.names['hand_l']
+    twist = surface.names['lowerarm_twist_01_l']
+    if surface.bones[hand]['parent'] != lower or surface.bones[twist]['parent'] != lower:
+        raise ValueError('前臂旋转需要腕与扭转骨直接从属于实际左前臂')
+    previous_end = -1
+    output = local.copy()
+    for window in windows:
+        if not isinstance(window, dict):
+            raise ValueError('前臂旋转窗口必须为对象')
+        angle = window.get('angle_degrees')
+        fraction = window.get('twist_fraction', .5)
+        if type(angle) not in (int, float) or not np.isfinite(angle) or abs(angle) > 90:
+            raise ValueError('前臂轴向旋转角必须有限且不超过九十度')
+        if type(fraction) not in (int, float) or not np.isfinite(fraction) or not 0 <= fraction <= 1:
+            raise ValueError('前臂皮肤扭转比例必须有限且位于零至一')
+        phases = window.get('phase_frames')
+        weight = contact_translation_weight(frame, {'phase_frames': phases})
+        if phases[0] < previous_end:
+            raise ValueError('前臂旋转窗口必须有序且不重叠')
+        previous_end = phases[-1]
+        if weight == 0 or angle == 0:
+            continue
+        before = surface.components(output)
+        axis = before[hand, :3, 3] - before[lower, :3, 3]
+        length = np.linalg.norm(axis)
+        if length < 1e-8:
+            raise ValueError('实际前臂轴长度退化')
+        axis /= length
+        radians = np.radians(angle * weight)
+        delta = rotation_matrix(np.r_[axis * np.sin(radians / 2), np.cos(radians / 2)])
+        desired_lower = before[lower].copy()
+        desired_lower[:3, :3] = delta @ desired_lower[:3, :3]
+        parent = surface.bones[lower]['parent']
+        output[lower] = np.linalg.inv(before[parent]) @ desired_lower
+        after_lower = surface.components(output)
+        output[hand] = np.linalg.inv(after_lower[lower]) @ before[hand]
+        twist_radians = radians * fraction
+        twist_delta = rotation_matrix(np.r_[axis * np.sin(twist_radians / 2), np.cos(twist_radians / 2)])
+        desired_twist = before[twist].copy()
+        desired_twist[:3, :3] = twist_delta @ desired_twist[:3, :3]
+        output[twist, :3, :3] = np.linalg.solve(after_lower[lower, :3, :3], desired_twist[:3, :3])
+    return output
+
+
+def explicit_wrist_component_path(targets, keys):
+    """/** @param targets 原始逐帧组件腕目标 @param keys 人工明确帧与刚体目标 @return 首尾连续的五次平滑短路径 不搜索接触或改变右臂 */"""
+    if not isinstance(keys, list) or len(keys) < 2:
+        raise ValueError('左腕短路径必须有至少两个明确关键帧')
+    parsed = []
+    previous = -1
+    for key in keys:
+        if not isinstance(key, dict) or type(key.get('frame')) != int or not previous < key['frame'] < len(targets):
+            raise ValueError('左腕短路径关键帧必须为范围内严格递增整数')
+        matrix = rigid_attachment_matrix(key.get('transform'))
+        parsed.append((key['frame'], matrix))
+        previous = key['frame']
+    for frame, matrix in (parsed[0], parsed[-1]):
+        if np.linalg.norm(matrix[:3, 3] - targets[frame][:3, 3]) > .001 or quaternion_angle_degrees(matrix_quaternion(matrix[:3, :3]), matrix_quaternion(targets[frame][:3, :3])) > .02:
+            raise ValueError('左腕短路径首尾必须匹配原目标 避免切入或退出突变')
+    output = [matrix.copy() for matrix in targets]
+    for (first, a), (end, b) in zip(parsed, parsed[1:]):
+        for frame in range(first, end + 1):
+            weight = float(smooth((frame - first) / (end - first)))
+            output[frame][:3, 3] = a[:3, 3] * (1 - weight) + b[:3, 3] * weight
+            output[frame][:3, :3] = blend_rotation(a[:3, :3], b[:3, :3], weight)
+    return output
+
+
 def build(request):
     """/** @param request 实际逐帧采样和明确接触阶段 @return 非累积绝对轨道 制作控制器与诊断数据 */"""
     recipe = request['recipe']
@@ -156,9 +352,10 @@ def build(request):
             local = np.array([np.linalg.inv(components[bone['parent']]) @ components[index]
                               if bone['parent'] >= 0 else components[index]
                               for index, bone in enumerate(surface.bones)])
-            right = components[surface.names['hand_r']]
+            source_right = components[surface.names['hand_r']]
+            right = runtime_right_hand(surface, components, local, recipe['calibration'].get('right_wrist_delta', [0, 0, 0, 1]))
             wrist = components[surface.names['hand_l']].copy()
-            old_weapon = right @ transform_matrix(context['attachment_socket']['local']) @ original_attachment
+            old_weapon = source_right @ transform_matrix(context['attachment_socket']['local']) @ original_attachment
             new_weapon = right @ transform_matrix(context['attachment_socket']['local']) @ current_attachment
             transformed = contact_target(old_weapon, new_weapon, wrist)
             mount_weight = 1.
@@ -176,8 +373,7 @@ def build(request):
             moved[:3, :3] = blend_rotation(wrist[:3, :3], transformed[:3, :3], mount_weight)
             hold = right @ relative
             weight = smooth((frame - start) / max(1, end - start))
-            if action['kind'] in ('reload', 'melee'):
-                weight = max(weight, 1 - smooth(frame / max(1, action['release_frame'])))
+            weight = max(weight, entry_hold_weight(action, frame))
             if action['kind'] == 'return':
                 weight = 1.
             target = moved.copy()
@@ -188,12 +384,28 @@ def build(request):
                 delta = np.asarray(correction['delta_weapon_cm'], dtype=float)
                 if delta.shape != (3,) or not np.all(np.isfinite(delta)):
                     raise ValueError('机构接触平移必须为明确有限厘米三向量')
-                target[:3, 3] += new_weapon[:3, :3] @ delta * phase_weight(frame, correction['phase_frames'])
+                target[:3, 3] += new_weapon[:3, :3] @ delta * contact_translation_weight(frame, correction)
+            if action.get('contact_transforms'):
+                if action.get('contact_translation'):
+                    raise ValueError('同一动作必须明确平移接触或完整刚体接触之一')
+                target = explicit_rigid_contact(target, new_weapon, frame, action['contact_transforms'])
+            if action.get('hand_attachment_grip_changes'):
+                target = compensate_hand_attachment_grip(target, frame, action['hand_attachment_grip_changes'], len(frames))
             adjusted, angle = clavicle_adjustment(surface, local, target)
             poses.append({'local': local, 'target': target, 'hold': hold, 'weight': float(weight), 'angle': angle})
+        if 'left_wrist_component_keys' in action:
+            targets = explicit_wrist_component_path([pose['target'] for pose in poses], action['left_wrist_component_keys'])
+            for pose, target in zip(poses, targets):
+                pose['target'] = target
+                _, pose['angle'] = clavicle_adjustment(surface, pose['local'], target)
         tracks = {name: [] for name in CHANGED_BONES}
+        if 'forearm_roll' in action:
+            tracks['lowerarm_twist_01_l'] = []
         for correction in action.get('finger_curls', []):
             for name in correction['angles_degrees']:
+                tracks[name] = []
+        if 'finger_pose_windows' in action:
+            for name in sorted(validate_finger_pose_windows(action['finger_pose_windows'], surface.names, len(poses))):
                 tracks[name] = []
         finger_return_start = None
         if action.get('finger_return_frames'):
@@ -214,8 +426,12 @@ def build(request):
                 output = arm_pose(surface, pose['target'], {})
             except ValueError as error:
                 raise ValueError(action['kind'] + ' frame ' + str(frame) + ': ' + str(error)) from error
+            if 'forearm_roll' in action:
+                output = explicit_forearm_roll(surface, output, frame, action['forearm_roll'])
             if action.get('finger_curls'):
                 output = apply_finger_curls(surface, output, action['finger_curls'], phase_weight(frame, action['finger_phase_frames']))
+            if 'finger_pose_windows' in action:
+                output = apply_finger_pose_windows(surface, output, frame, action['finger_pose_windows'])
             if action.get('finger_return_frames'):
                 contact, returned = action['finger_return_frames']
                 if frame == contact:
@@ -264,7 +480,8 @@ def verify(request, result, saved):
         actual = actual_assets[action['asset']]
         if actual['keys'] != len(actual['samples']) or actual['keys'] != source['keys']:
             raise ValueError('正式回读必须覆盖全部帧')
-        report = {'asset': action['asset'], 'kind': action['kind'], 'frames': actual['keys']}
+        report = {'asset': action['asset'], 'kind': action['kind'], 'frames': actual['keys'],
+                  'fullhold_with_declared_contact_frames': [], 'fullhold_pure_static_frames': []}
         errors = {name: 0. for name in ('helper_position_cm', 'helper_rotation_degrees', 'other_local_position_cm',
                                       'other_local_rotation_degrees', 'track_position_cm', 'track_rotation_degrees',
                                       'hold_position_cm', 'hold_rotation_degrees')}
@@ -289,7 +506,24 @@ def verify(request, result, saved):
                     expected = transform_matrix(key['position'] + key['rotation'] + key['scale'])
                     pairs.append(('track', expected, second))
             if metric['holdWeight'] >= .999999:
-                pairs.append(('hold', after['hand_r'] @ relative, after['hand_l']))
+                components = np.array([after[bone['name'].casefold()] for bone in surface.bones])
+                local = np.array([np.linalg.inv(components[bone['parent']]) @ components[index]
+                                  if bone['parent'] >= 0 else components[index]
+                                  for index, bone in enumerate(surface.bones)])
+                right = runtime_right_hand(surface, components, local, recipe['calibration'].get('right_wrist_delta', [0, 0, 0, 1]))
+                expected_hold = right @ relative
+                context = recipe['solution']['inputs']['context']
+                gun = right @ transform_matrix(context['attachment_socket']['local']) @ transform_matrix(recipe['calibration']['spawn_offset'])
+                if action.get('contact_translation'):
+                    correction = action['contact_translation']
+                    expected_hold[:3, 3] += gun[:3, :3] @ np.asarray(correction['delta_weapon_cm'], dtype=float) * contact_translation_weight(frame, correction)
+                if action.get('contact_transforms'):
+                    expected_hold = explicit_rigid_contact(expected_hold, gun, frame, action['contact_transforms'])
+                if action.get('hand_attachment_grip_changes'):
+                    expected_hold = compensate_hand_attachment_grip(expected_hold, frame, action['hand_attachment_grip_changes'], actual['keys'])
+                category = 'fullhold_pure_static_frames' if np.allclose(expected_hold, right @ relative, atol=1e-10, rtol=0) else 'fullhold_with_declared_contact_frames'
+                report[category].append(frame)
+                pairs.append(('hold', expected_hold, after['hand_l']))
             for prefix, first, second in pairs:
                 position = float(np.linalg.norm(first[:3, 3] - second[:3, 3]))
                 angle = quaternion_angle_degrees(matrix_quaternion(first[:3, :3]), matrix_quaternion(second[:3, :3]))

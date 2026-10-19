@@ -221,6 +221,19 @@ def _repose(surface, local):
     return result
 
 
+def right_wrist_pose(surface, quaternion):
+    """/** @param surface 实际参考骨架 @param quaternion 父骨空间左乘增量XYZW @return 只改变右腕旋转的完整局部姿态 */"""
+    quaternion = np.asarray(quaternion, dtype=float)
+    if quaternion.shape != (4,) or not np.all(np.isfinite(quaternion)) or abs(np.linalg.norm(quaternion) - 1) > .0001:
+        raise ValueError('右腕父骨空间增量必须是单位四元数')
+    if 'hand_r' not in surface.names:
+        raise ValueError('右腕增量需要实际hand_r骨')
+    local = surface.locals.copy()
+    index = surface.names['hand_r']
+    local[index, :3, :3] = rotation_matrix(quaternion) @ local[index, :3, :3]
+    return local
+
+
 def calibrate(character, weapon, context, recipe):
     """/** @param character 角色基准 @param weapon 武器参考 @param context 运行时插槽关系 @param recipe 明确制作配置 @return 掌面校准结果和完整左臂姿势 */"""
     surface = SurfacePose(character)
@@ -229,6 +242,8 @@ def calibrate(character, weapon, context, recipe):
         raise ValueError('原生采样与离线蒙皮基线不一致')
     config = copy.deepcopy(recipe['calibration'])
     seed = recipe['pose']['local_rotations']
+    if 'right_wrist_delta' in config:
+        surface.locals = right_wrist_pose(surface, config['right_wrist_delta'])
     transform_matrix(config['spawn_offset'])
     rotation_matrix(config['left_ik_rotation'])
     adjustments = {}
@@ -274,7 +289,9 @@ def calibrate(character, weapon, context, recipe):
     matrix, target = runtime_geometry(surface, weapon, context, config)
     local = arm_pose(surface, target, seed)
     return {'spawn_offset': config['spawn_offset'], 'left_ik_offset': config['left_ik_offset'],
-            'left_ik_rotation': config['left_ik_rotation'], 'adjustments': adjustments}, local, matrix, target, baseline_error
+            'left_ik_rotation': config['left_ik_rotation'],
+            'right_wrist_delta': config.get('right_wrist_delta', [0, 0, 0, 1]),
+            'adjustments': adjustments}, local, matrix, target, baseline_error
 
 
 def _refine_neighbors(surface, weapon, matrix, rotations, recipe):
@@ -534,7 +551,9 @@ def audit(request):
     for field in ('spawn_offset', 'left_ik_offset'):
         definition_errors[field] = float(np.max(np.abs(np.asarray(actual_definition[field]) - calibration[field])))
     definition_errors['leftRotationDegrees'] = quaternion_angle_degrees(actual_definition['left_ik_rotation'], calibration['left_ik_rotation'])
+    definition_errors['rightWristRotationDegrees'] = quaternion_angle_degrees(actual_definition['right_wrist_delta'], calibration['right_wrist_delta'])
     definition_matches = definition_errors['spawn_offset'] <= .0001 and definition_errors['left_ik_offset'] <= .0001 and definition_errors['leftRotationDegrees'] <= .02
+    definition_matches &= definition_errors['rightWristRotationDegrees'] <= .02
     if request.get('require_definition_match', True):
         passed &= definition_matches
     return {'passed': bool(passed), 'geometry': geometry, 'maximumPosePositionErrorCm': maximum_position,

@@ -184,7 +184,8 @@ def _definition(recipe):
         raise RuntimeError('DEFINITION_MESH_MISMATCH')
     return definition, {'spawn_offset': _values(definition.get_editor_property('spawn_offset')),
                         'left_ik_offset': list(definition.get_editor_property('left_hand_ik_offset').to_tuple()),
-                        'left_ik_rotation': list(definition.get_editor_property('left_hand_ik_rotation').quaternion().to_tuple())}
+                        'left_ik_rotation': list(definition.get_editor_property('left_hand_ik_rotation').quaternion().to_tuple()),
+                        'right_wrist_delta': list(definition.get_editor_property('right_hand_grip_rotation_offset').quaternion().to_tuple())}
 
 
 def _fingerprint(recipe, project):
@@ -388,6 +389,7 @@ def _apply_definition(recipe):
     definition.set_editor_property('spawn_offset', _transform(calibration['spawn_offset']))
     definition.set_editor_property('left_hand_ik_offset', unreal.Vector(*calibration['left_ik_offset']))
     definition.set_editor_property('left_hand_ik_rotation', unreal.Quat(*calibration['left_ik_rotation']).rotator())
+    definition.set_editor_property('right_hand_grip_rotation_offset', unreal.Quat(*calibration['right_wrist_delta']).rotator())
     definition.set_editor_property('character_grip_pose', _asset(recipe['animation'], unreal.AnimSequence))
     if not unreal.EditorAssetLibrary.save_loaded_asset(definition, False):
         raise RuntimeError('DEFINITION_SAVE_FAILED')
@@ -513,6 +515,25 @@ class BBBGripAuthoringToolset(unreal.ToolsetDefinition):
             raise RuntimeError('ACTION_INDEX_INVALID')
         request = actions[action_index]
         allowed = {'clavicle_l', 'upperarm_l', 'lowerarm_l', 'hand_l', 'ik_hand_l', 'ik_hand_r', 'ik_hand_gun'} | set(_FINGERS)
+        if 'forearm_roll' in request:
+            windows = request['forearm_roll']
+            if not isinstance(windows, list) or not windows:
+                raise RuntimeError('ACTION_FOREARM_ROLL_INVALID')
+            previous_end = -1
+            for window in windows:
+                if not isinstance(window, dict):
+                    raise RuntimeError('ACTION_FOREARM_ROLL_INVALID')
+                angle = window.get('angle_degrees')
+                fraction = window.get('twist_fraction', .5)
+                phases = window.get('phase_frames')
+                if type(angle) not in (int, float) or not math.isfinite(angle) or abs(angle) > 90 or type(fraction) not in (int, float) or not math.isfinite(fraction) or not 0 <= fraction <= 1:
+                    raise RuntimeError('ACTION_FOREARM_ROLL_INVALID')
+                if not isinstance(phases, list) or len(phases) != 4 or any(type(value) not in (int, float) or not math.isfinite(value) or value < 0 for value in phases):
+                    raise RuntimeError('ACTION_FOREARM_ROLL_INVALID')
+                if not phases[0] < phases[1] <= phases[2] < phases[3] or phases[0] < previous_end:
+                    raise RuntimeError('ACTION_FOREARM_ROLL_INVALID')
+                previous_end = phases[-1]
+            allowed.add('lowerarm_twist_01_l')
         if not request.get('tracks') or not set(request['tracks']) <= allowed:
             raise RuntimeError('ACTION_BONE_SCOPE_INVALID')
         for field, folder in (('asset', '/Animation/Sequence/'), ('sequence', '/Animation/work/')):
@@ -527,6 +548,18 @@ class BBBGripAuthoringToolset(unreal.ToolsetDefinition):
             raise RuntimeError('ACTION_GRIP_BASELINE_STALE')
         source = _asset(request['source'], unreal.AnimSequence)
         count = source.data_model_interface.get_number_of_keys()
+        if 'finger_pose_windows' in request:
+            from BBBWeaponActionPolicy import validate_finger_pose_windows
+            try:
+                validate_finger_pose_windows(request['finger_pose_windows'], request['tracks'], count)
+            except (ValueError, TypeError, KeyError) as error:
+                raise RuntimeError('ACTION_FINGER_POSE_INVALID: ' + str(error)) from error
+        sequence_exists = unreal.EditorAssetLibrary.does_asset_exist(request['sequence'])
+        if sequence_exists and request.get('attachment_label'):
+            sequence = _asset(request['sequence'], unreal.LevelSequence)
+            matching = [binding for binding in sequence.get_bindings() if binding.get_name() == request['attachment_label']]
+            if len(matching) != 1:
+                raise RuntimeError('ACTION_ATTACHMENT_BINDING_NOT_UNIQUE: ' + request['attachment_label'])
         if any(len(keys) != count for keys in request['tracks'].values()):
             raise RuntimeError('ACTION_FRAME_COUNT_MISMATCH')
         controls = json.loads(authoring.inspect_control_rig_controls(recipe['rig']))['controls']
@@ -556,8 +589,15 @@ class BBBGripAuthoringToolset(unreal.ToolsetDefinition):
         names = {str(name).casefold(): str(name) for name in animation.data_model_interface.get_bone_track_names()}
         tracks = {names[name]: keys for name, keys in request['tracks'].items()}
         response['tracks'] = json.loads(migration.replace_animation_bone_tracks(request['asset'], json.dumps(tracks)))
-        if not unreal.EditorAssetLibrary.does_asset_exist(request['sequence']):
+        if not sequence_exists:
             authoring.prepare_animation_sequence(request['sequence'], request['source'], recipe['mesh'])
+            if request.get('attachment_label'):
+                sequence = _asset(request['sequence'], unreal.LevelSequence)
+                ranges = [[sequence.get_playback_start(), sequence.get_playback_end() + 1]]
+                authoring.create_sequence_attachment(request['sequence'], request['attachment_label'],
+                                                    grip['weapon_mesh'], grip['attachment_socket'],
+                                                    json.dumps(recipe['attachment']), json.dumps(ranges),
+                                                    request.get('weapon_animation', ''))
         response['draft'] = json.loads(authoring.configure_sequence_rig(request['sequence'], recipe['rig'], json.dumps(keys), False, recipe['mesh']))
         response['attachment'] = None
         if request.get('attachment_label'):

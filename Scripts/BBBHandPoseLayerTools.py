@@ -4,6 +4,79 @@ import unreal
 from BBBAssetWritePolicy import require_asset_write
 
 
+def sample_hand_handling_surface(mesh_path, main_path, base_path, interface_path, animation_path, grip_path,
+                                 time_seconds, right_hand_offset, equipment_enabled, left_grip_alpha,
+                                 right_grip_alpha, selected_bones, minimum_selected_weight, material_indices):
+    """/** @param mesh_path 网格 @param main_path 主图类型 @param base_path 正式层 @param interface_path 正式接口 @param animation_path 源动作 @param grip_path 静态握姿 @param time_seconds 动作秒数 @param right_hand_offset 俯仰偏航滚转度数 @param equipment_enabled 装备事实 @param left_grip_alpha 左指权重 @param right_grip_alpha 右指权重 @param selected_bones 表面骨骼 @param minimum_selected_weight 最低权重 @param material_indices 材质筛选 @return 实际正式层姿势和原生线性蒙皮表面 */"""
+    if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+        raise RuntimeError("离线动作表面采样禁止 PIE")
+    if len(right_hand_offset) != 3:
+        raise RuntimeError("右腕快照必须是俯仰 偏航 滚转三个度数")
+    mesh, main, base, interface, animation, grip = [unreal.load_asset(path) for path in
+        [mesh_path, main_path, base_path, interface_path, animation_path, grip_path]]
+    dirty_before = {package.get_path_name() for package in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
+    offset = unreal.Rotator(pitch=right_hand_offset[0], yaw=right_hand_offset[1], roll=right_hand_offset[2])
+    report = json.loads(unreal.BBBHandPoseLayerEditorLibrary.sample_hand_handling_surface(
+        mesh, main, base, interface, animation, grip, time_seconds,
+        offset,
+        equipment_enabled, left_grip_alpha, right_grip_alpha, selected_bones, minimum_selected_weight, material_indices))
+    dirty_after = {package.get_path_name() for package in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
+    if dirty_after != dirty_before:
+        raise RuntimeError("正式层动作表面采样意外改变项目脏包")
+    if report.get("status") != "ok":
+        raise RuntimeError("正式层动作表面采样失败: " + json.dumps(report, ensure_ascii=False))
+    report["projectDirtyPackagesUnchanged"] = True
+    report["readOnly"] = True
+    report["animation"] = animation.get_path_name()
+    report["gripAnimation"] = grip.get_path_name()
+    report["inputSnapshot"] = {"rightHandOffsetPitchYawRoll": list(right_hand_offset),
+                               "rightHandOffsetQuaternion": list(offset.quaternion().to_tuple()),
+                               "animation": animation.get_path_name(), "grip": grip.get_path_name(),
+                               "main": main.get_path_name(), "base": base.get_path_name(),
+                               "interface": interface.get_path_name(), "mesh": mesh.get_path_name(),
+                               "timeSeconds": time_seconds,
+                               "equipmentEnabled": equipment_enabled,
+                               "leftGripAlpha": left_grip_alpha, "rightGripAlpha": right_grip_alpha,
+                               "animationTimeSeconds": time_seconds}
+    return report
+
+
+def configure_right_hand_grip_rotation(base_path, child_layer_paths, main_path, graph_name, before_node_guid):
+    """/** @param base_path 基础层 @param child_layer_paths 明确继承层 @param main_path 主图 @param graph_name 骨骼控制图 @param before_node_guid 已有瞄准节点 @return 编译保存与原生连线证据 */"""
+    if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+        raise RuntimeError("PIE 期间禁止修改共享右腕校准")
+    paths = [base_path] + list(child_layer_paths) + [main_path]
+    if not child_layer_paths or len(paths) != len(set(paths)) or any(not path.startswith("/Game/") for path in paths):
+        raise RuntimeError("必须明确唯一基础层 继承层及主图包路径")
+    targets = [unreal.load_asset(path) for path in paths]
+    if any(not isinstance(target, unreal.AnimBlueprint) for target in targets):
+        raise RuntimeError("右腕校准目标必须是动画蓝图")
+    base = targets[0]
+    parents = [base.generated_class()]
+    for child in targets[1:-1]:
+        if child.get_blueprint_parent_class() not in parents:
+            raise RuntimeError("必须按父层在前列出指定基础层的继承层")
+        parents.append(child.generated_class())
+    dirty = {package.get_path_name() for package in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
+    if any(target.get_outermost().get_path_name() in dirty for target in targets):
+        raise RuntimeError("共享蓝图仍有未保存修改 请先交接")
+    require_asset_write(targets)
+    report = json.loads(unreal.BBBHandPoseLayerEditorLibrary.configure_right_hand_grip_rotation(base, graph_name, before_node_guid))
+    if report.get("status") != "ok" or not report.get("compiled"):
+        raise RuntimeError("右腕校准配置失败 未保存: " + json.dumps(report, ensure_ascii=False))
+    for target in targets:
+        unreal.BlueprintEditorLibrary.compile_blueprint(target)
+        if target.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+            raise RuntimeError("共享右腕校准蓝图编译失败 未保存: " + target.get_path_name())
+    saved = []
+    for target in targets:
+        if not unreal.EditorAssetLibrary.save_loaded_asset(target, False):
+            raise RuntimeError("右腕校准保存失败 已保存: " + json.dumps(saved))
+        saved.append(target.get_path_name())
+    report["saved"] = saved
+    return report
+
+
 def configure_hand_pose_layer(main_path, base_path, interface_path, child_layer_paths,
                               old_layer_name, layer_name, before_layer_name, grip_getter_name,
                               left_disable_curve, right_disable_curve,

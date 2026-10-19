@@ -521,6 +521,217 @@ def _move_class_path(path):
     return str(path.package_name) + "." + str(path.asset_name)
 
 
+def _verify_asset_moves_json(moves_json):
+    """/** @param moves_json 精确映射 @return 未经工具装饰的原核验报告 */"""
+    registry = _move_registry()
+    requests = _move_requests(moves_json)
+    results = []
+    dirty = set(_move_dirty_packages())
+    source_folders = set()
+    seen_sources = set()
+    seen_destinations = set()
+    for item in requests:
+        source = item["source"]
+        destination = item["destination"]
+        if source.casefold() in seen_sources or destination.casefold() in seen_destinations:
+            raise RuntimeError("核验清单包含重复源或目标")
+        seen_sources.add(source.casefold())
+        seen_destinations.add(destination.casefold())
+        expected_class = item.get("class_path")
+        if not isinstance(expected_class, str) or not expected_class.startswith("/") or "." not in expected_class:
+            raise RuntimeError("必须使用预览返回的精确 assets 清单 含 class_path")
+        target_data = _move_primary_assets(registry.get_assets_by_package_name(destination))
+        old_data = list(registry.get_assets_by_package_name(source))
+        destination_object = destination + "." + destination.rsplit("/", 1)[-1]
+        target_valid = (
+            len(target_data) == 1
+            and _move_class_path(target_data[0].asset_class_path) == expected_class
+            and str(target_data[0].asset_name) == destination.rsplit("/", 1)[-1]
+        )
+        redirectors = [data for data in old_data if _move_class_path(data.asset_class_path) == "/Script/CoreUObject.ObjectRedirector"]
+        redirector_targets = []
+        for data in redirectors:
+            exported_target = str(data.get_tag_value("DestinationObject") or "")
+            object_target = exported_target
+            if "'" in exported_target:
+                object_target = exported_target.split("'", 1)[1].rstrip("'")
+            redirector_targets.append(object_target)
+        old_references = _move_referencers(registry, source)
+        target_exists = os.path.isfile(_move_filename(destination))
+        old_file_exists = os.path.isfile(_move_filename(source))
+        old_state_valid = not old_data and not old_file_exists and not old_references
+        if old_data and len(old_data) == len(redirectors):
+            old_state_valid = (
+                old_file_exists
+                and destination_object in redirector_targets
+                and all(
+                    target in {destination_object, destination + "." + str(data.asset_name)}
+                    for data, target in zip(redirectors, redirector_targets)
+                )
+            )
+        pending = sorted(set(item.get("referencers", [])) | {source, destination})
+        unsaved = sorted(dirty.intersection(pending))
+        success = target_valid and target_exists and old_state_valid and not unsaved
+        results.append({
+            "source": source,
+            "destination": destination,
+            "destination_registered": target_valid,
+            "destination_file_exists": target_exists,
+            "old_file_exists": old_file_exists,
+            "redirector_targets": redirector_targets,
+            "old_referencers": old_references,
+            "unsaved_packages": unsaved,
+            "success": success,
+        })
+        source_folder = item.get("source_folder", source.rsplit("/", 1)[0])
+        if source_folder != "/Game":
+            source_folder = _move_path(source_folder)
+        if not source.casefold().startswith(source_folder.casefold() + "/"):
+            raise RuntimeError("清单的 source_folder 不是源资产父目录: " + source)
+        source_folders.add(source_folder)
+
+    folders = []
+    for folder in sorted(source_folders):
+        if any(folder.casefold().startswith(other.casefold() + "/") for other in source_folders if other != folder):
+            continue
+        directory = os.path.dirname(_move_filename(folder + "/__FolderProbe"))
+        remaining_files = []
+        if os.path.isdir(directory):
+            for root, directories, files in os.walk(directory, followlinks=False):
+                remaining_files.extend(os.path.join(root, name) for name in files)
+                remaining_files.extend(os.path.join(root, name) for name in directories if os.path.islink(os.path.join(root, name)))
+        registered = [str(data.package_name) for data in registry.get_assets_by_path(folder, recursive=True)]
+        folders.append({
+            "folder": folder,
+            "remaining_files": sorted(remaining_files),
+            "remaining_packages": sorted(set(registered)),
+            "empty_on_disk_and_registry": not remaining_files and not registered,
+        })
+    report = {
+        "read_only": True,
+        "asset_count": len(results),
+        "success": all(item["success"] for item in results),
+        "results": results,
+        "source_folders": folders,
+    }
+    unreal.log("[BBBAssetMoveVerify]{} {} 个资产".format("PASS" if report["success"] else "FAIL", len(results)))
+    return json.dumps(report, ensure_ascii=False)
+
+
+def _move_file_sha256(path):
+    """/** @param path 精确包文件 @return 当前文件真实摘要 */"""
+    with open(path, "rb") as handle:
+        return hashlib.sha256(handle.read()).hexdigest()
+
+
+def _cleanup_empty_move_sources(report, packages):
+    """
+    /**
+     * 只清理本次已成功移动且完全空的原包 不改正式目标
+     * @param report	已保存实际目标与引用者的移动报告
+     * @param packages	逐项确认没有任何子对象的原包
+     * @return 原生重载及旧文件删除证据
+     */
+    """
+    registry = _move_registry()
+    sources = {package.get_path_name() for package in packages}
+    rows = [item for item in report["assets"] if item["source"] in sources]
+    result = {"packages": sorted(sources), "reloaded": False, "deleted": []}
+    if not packages:
+        return result
+    for item in rows:
+        if not os.path.isfile(_move_filename(item["destination"])) or _move_file_sha256(_move_filename(item["source"])) != item["source_sha256"]:
+            raise RuntimeError("空原包清理缺少已保存目标或原文件摘要变化: " + item["source"])
+        if set(_move_referencers(registry, item["source"])) - sources:
+            raise RuntimeError("空原包仍有组外引用 拒绝清理: " + item["source"])
+    any_reloaded, error = unreal.EditorLoadingAndSavingUtils.reload_packages(packages, unreal.ReloadPackagesInteractionMode.ASSUME_POSITIVE)
+    result["reloaded"] = bool(any_reloaded)
+    result["reload_error"] = str(error)
+    if not any_reloaded or str(error) or _move_dirty_packages(list(sources)):
+        raise RuntimeError("仅本次空原包的原生重载失败: " + json.dumps(result, ensure_ascii=False))
+    packages.clear()
+    objects = []
+    for item in rows:
+        if _move_file_sha256(_move_filename(item["source"])) != item["source_sha256"]:
+            raise RuntimeError("重载后原文件摘要变化: " + item["source"])
+        asset = unreal.load_object(None, item["source_object"], follow_redirectors=False)
+        if asset is None or asset.get_path_name() != item["source_object"] or _move_class_path(asset.get_class().get_class_path_name()) != item["class_path"]:
+            raise RuntimeError("重载旧磁盘对象路径或类型不符: " + item["source"])
+        objects.append(asset)
+    if _move_dirty_packages(list(sources)) or any(set(_move_referencers(registry, path)) - sources for path in sources):
+        raise RuntimeError("加载旧文件产生脏包或组外引用 拒绝清理")
+    if not unreal.BBBAssetRepairEditorLibrary.delete_asset_packages(objects):
+        raise RuntimeError("已移动原文件原生删除失败 不自动重试")
+    registry.scan_paths_synchronous(sorted({path.rsplit("/", 1)[0] for path in sources}), force_rescan=True)
+    for path in sorted(sources):
+        if os.path.isfile(_move_filename(path)) or registry.get_assets_by_package_name(path):
+            raise RuntimeError("已移动原包仍存在: " + path)
+        result["deleted"].append(path)
+    return result
+
+
+def _persist_asset_moves(report, source_packages, loaded_assets, referencer_packages):
+    """
+    /**
+     * 原生重命名后显式保存目标 引用者及原包 再刷新精确目录
+     * @param report	原生移动报告
+     * @param source_packages	移动前保留的原包对象
+     * @param loaded_assets	移动后的实际资产对象
+     * @param referencer_packages	移动前完整加载的引用者包对象
+     * @return 保存状态及实际包清单 失败不自动重试
+     */
+    """
+    packages = {}
+    for asset in loaded_assets:
+        package = asset.get_outermost()
+        packages[package.get_path_name()] = package
+    for package in referencer_packages:
+        packages[package.get_path_name()] = package
+    renamed = {item["source"] for item in report.get("object_results", []) if item["renamed"]}
+    children = {package.get_path_name(): [] for package in source_packages}
+    for obj in unreal.ObjectIterator():
+        outer = obj.get_outermost()
+        path = outer.get_path_name()
+        if path in children and obj != outer:
+            children[path].append(obj)
+    empty_sources = []
+    for package in source_packages:
+        path = package.get_path_name()
+        if path in renamed and not children[path] and os.path.isfile(_move_filename(path)):
+            empty_sources.append(package)
+            packages.pop(path, None)
+            continue
+        packages[path] = package
+    allowed = set(report["referencer_packages"])
+    allowed.update(item[key] for item in report["assets"] for key in ("source", "destination"))
+    unexpected = sorted(set(packages) - allowed)
+    if unexpected:
+        raise RuntimeError("原生移动产生范围外包 拒绝保存: " + str(unexpected))
+    result = {"success": False, "requested_packages": list(packages), "saved_packages": []}
+    if packages:
+        result["success"] = bool(unreal.EditorLoadingAndSavingUtils.save_packages(list(packages.values()), False))
+    if result["success"]:
+        result["saved_packages"] = list(packages)
+        pending = set(_move_dirty_packages(list(allowed)))
+        empty_paths = {package.get_path_name() for package in empty_sources}
+        if pending - empty_paths:
+            result["unsaved_packages"] = sorted(pending)
+            result["success"] = False
+            return result
+        registry = _move_registry()
+        registry.scan_paths_synchronous(sorted({path.rsplit("/", 1)[0] for path in packages}), force_rescan=True)
+        source_packages.clear()
+        referencer_packages.clear()
+        packages.clear()
+        package = None
+        outer = None
+        obj = None
+        result["empty_source_cleanup"] = _cleanup_empty_move_sources(report, empty_sources)
+    result["unsaved_packages"] = _move_dirty_packages(list(allowed))
+    result["success"] = result["success"] and not result["unsaved_packages"]
+    return result
+
+
 class _AssetMoveQueryContext:
     """/** 仅在单次移动预检内复用只读查询 不跨执行阶段保存状态 */"""
 
@@ -781,6 +992,8 @@ def _execute_asset_moves(report):
         report["checkout_checked"] = True
     renames = []
     loaded_assets = []
+    source_packages = []
+    referencer_packages = []
     with _move_phase(report, "source_load"):
         for item in report["assets"]:
             asset = unreal.EditorAssetLibrary.load_asset(item["source_object"])
@@ -789,11 +1002,18 @@ def _execute_asset_moves(report):
             if _move_class_path(asset.get_class().get_class_path_name()) != item["class_path"]:
                 raise RuntimeError("源资产类型与预检不一致: " + item["source"])
             loaded_assets.append(asset)
+            source_packages.append(asset.get_outermost())
+            item["source_sha256"] = _move_file_sha256(_move_filename(item["source"]))
             renames.append(unreal.AssetRenameData(
                 asset=asset,
                 new_package_path=item["destination"].rsplit("/", 1)[0],
                 new_name=item["destination"].rsplit("/", 1)[-1],
             ))
+        for path in report["referencer_packages"]:
+            package = unreal.load_package(path)
+            if package is None or package.get_path_name() != path:
+                raise RuntimeError("无法完整加载精确引用者包: " + path)
+            referencer_packages.append(package)
         if _move_dirty_packages([item[key] for item in report["assets"] for key in ("source", "destination")] + [ref for item in report["assets"] for ref in item.get("referencers", [])]):
             raise RuntimeError("加载后出现脏包 已中止移动 请先检查并保存")
 
@@ -814,13 +1034,20 @@ def _execute_asset_moves(report):
         }
         for item, asset in zip(report["assets"], loaded_assets)
     ]
+    package = None
+    try:
+        with _move_phase(report, "persistence"):
+            report["persistence"] = _persist_asset_moves(report, source_packages, loaded_assets, referencer_packages)
+    except Exception as error:
+        report["persistence"] = {"success": False, "error": str(error)}
     try:
         with _move_phase(report, "verification"):
-            report["verification"] = json.loads(BBBAssetMaintenanceToolset.verify_asset_moves(json.dumps(report["assets"])))
+            report["verification"] = json.loads(_verify_asset_moves_json(json.dumps(report["assets"])))
     except Exception as error:
         report["verification"] = {"success": False, "error": str(error)}
     report["success"] = (
         report["engine_success"]
+        and report["persistence"]["success"]
         and report["verification"]["success"]
         and all(item["renamed"] for item in report["object_results"])
     )
@@ -2233,99 +2460,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
          * @return JSON 核验结果 包括旧引用与阻止目录清理的剩余文件
          */
         """
-        registry = _move_registry()
-        requests = _move_requests(moves_json)
-        results = []
-        dirty = set(_move_dirty_packages())
-        source_folders = set()
-        seen_sources = set()
-        seen_destinations = set()
-        for item in requests:
-            source = item["source"]
-            destination = item["destination"]
-            if source.casefold() in seen_sources or destination.casefold() in seen_destinations:
-                raise RuntimeError("核验清单包含重复源或目标")
-            seen_sources.add(source.casefold())
-            seen_destinations.add(destination.casefold())
-            expected_class = item.get("class_path")
-            if not isinstance(expected_class, str) or not expected_class.startswith("/") or "." not in expected_class:
-                raise RuntimeError("必须使用预览返回的精确 assets 清单 含 class_path")
-            target_data = _move_primary_assets(registry.get_assets_by_package_name(destination))
-            old_data = list(registry.get_assets_by_package_name(source))
-            destination_object = destination + "." + destination.rsplit("/", 1)[-1]
-            target_valid = (
-                len(target_data) == 1
-                and _move_class_path(target_data[0].asset_class_path) == expected_class
-                and str(target_data[0].asset_name) == destination.rsplit("/", 1)[-1]
-            )
-            redirectors = [data for data in old_data if _move_class_path(data.asset_class_path) == "/Script/CoreUObject.ObjectRedirector"]
-            redirector_targets = []
-            for data in redirectors:
-                exported_target = str(data.get_tag_value("DestinationObject") or "")
-                object_target = exported_target
-                if "'" in exported_target:
-                    object_target = exported_target.split("'", 1)[1].rstrip("'")
-                redirector_targets.append(object_target)
-            old_references = _move_referencers(registry, source)
-            target_exists = os.path.isfile(_move_filename(destination))
-            old_file_exists = os.path.isfile(_move_filename(source))
-            old_state_valid = not old_data and not old_file_exists and not old_references
-            if old_data and len(old_data) == len(redirectors):
-                old_state_valid = (
-                    old_file_exists
-                    and destination_object in redirector_targets
-                    and all(
-                        target in {destination_object, destination + "." + str(data.asset_name)}
-                        for data, target in zip(redirectors, redirector_targets)
-                    )
-                )
-            pending = sorted(set(item.get("referencers", [])) | {source, destination})
-            unsaved = sorted(dirty.intersection(pending))
-            success = target_valid and target_exists and old_state_valid and not unsaved
-            results.append({
-                "source": source,
-                "destination": destination,
-                "destination_registered": target_valid,
-                "destination_file_exists": target_exists,
-                "old_file_exists": old_file_exists,
-                "redirector_targets": redirector_targets,
-                "old_referencers": old_references,
-                "unsaved_packages": unsaved,
-                "success": success,
-            })
-            source_folder = item.get("source_folder", source.rsplit("/", 1)[0])
-            if source_folder != "/Game":
-                source_folder = _move_path(source_folder)
-            if not source.casefold().startswith(source_folder.casefold() + "/"):
-                raise RuntimeError("清单的 source_folder 不是源资产父目录: " + source)
-            source_folders.add(source_folder)
-
-        folders = []
-        for folder in sorted(source_folders):
-            if any(folder.casefold().startswith(other.casefold() + "/") for other in source_folders if other != folder):
-                continue
-            directory = os.path.dirname(_move_filename(folder + "/__FolderProbe"))
-            remaining_files = []
-            if os.path.isdir(directory):
-                for root, directories, files in os.walk(directory, followlinks=False):
-                    remaining_files.extend(os.path.join(root, name) for name in files)
-                    remaining_files.extend(os.path.join(root, name) for name in directories if os.path.islink(os.path.join(root, name)))
-            registered = [str(data.package_name) for data in registry.get_assets_by_path(folder, recursive=True)]
-            folders.append({
-                "folder": folder,
-                "remaining_files": sorted(remaining_files),
-                "remaining_packages": sorted(set(registered)),
-                "empty_on_disk_and_registry": not remaining_files and not registered,
-            })
-        report = {
-            "read_only": True,
-            "asset_count": len(results),
-            "success": all(item["success"] for item in results),
-            "results": results,
-            "source_folders": folders,
-        }
-        unreal.log("[BBBAssetMoveVerify]{} {} 个资产".format("PASS" if report["success"] else "FAIL", len(results)))
-        return json.dumps(report, ensure_ascii=False)
+        return _verify_asset_moves_json(moves_json)
 
     @mcp_tool
     @staticmethod
@@ -2776,9 +2911,18 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         if dry_run:
             return json.dumps({'dryRun': True, 'files': rows})
         require_asset_write(paths, [])
+        objects = []
         for row in rows:
-            asset = unreal.load_object(None, row['package'] + '.' + row['package'].rsplit('/', 1)[-1], follow_redirectors=False)
-            row['nativeDeleted'] = unreal.BBBAssetRepairEditorLibrary.delete_asset_packages([asset])
+            object_path = row['package'] + '.' + row['package'].rsplit('/', 1)[-1]
+            asset = unreal.load_object(None, object_path, follow_redirectors=False)
+            if asset is None or asset.get_path_name() != object_path:
+                raise RuntimeError('待删除对象原生路径不符 ' + row['package'])
+            objects.append(asset)
+        if _move_dirty_packages(paths) or any(set(_move_referencers(registry, path)) - set(paths) for path in paths):
+            raise RuntimeError('加载待删除组后出现脏包或组外引用')
+        native_deleted = unreal.BBBAssetRepairEditorLibrary.delete_asset_packages(objects)
+        for row in rows:
+            row['nativeDeleted'] = bool(native_deleted)
             row['fileAbsent'] = not os.path.exists(row['file'])
             if not row['nativeDeleted'] or not row['fileAbsent']:
                 raise RuntimeError('自有资产原生删除核验失败 ' + row['package'])

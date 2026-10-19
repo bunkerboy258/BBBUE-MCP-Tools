@@ -204,7 +204,7 @@ def _serialize_value(value):
     if isinstance(value, unreal.Guid):
         return value.to_string()
 
-    if isinstance(value, (list, tuple, unreal.Array, unreal.Set)):
+    if isinstance(value, (list, tuple, unreal.Array, unreal.Set, unreal.FixedArray)):
         return [_serialize_value(item) for item in value]
 
     if isinstance(value, (dict, unreal.Map)):
@@ -287,7 +287,7 @@ def _read_asset_property_path(value, path):
     if not path:
         return _serialize_value(value)
 
-    if isinstance(value, (list, tuple, unreal.Array, unreal.Set)):
+    if isinstance(value, (list, tuple, unreal.Array, unreal.Set, unreal.FixedArray)):
         return [_read_asset_property_path(item, path) for item in value]
 
     name, _, remainder = path.partition(".")
@@ -1846,11 +1846,21 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         tracks = list(library.get_animation_notify_track_names(asset))
         cached_tracks = [(str(track), list(library.get_animation_notify_events_for_track(asset, track)))
                          for track in tracks]
+        native_timing = json.loads(unreal.BBBHandPoseLayerEditorLibrary.inspect_animation_notify_timing(asset))
+        if native_timing.get('error') or not native_timing.get('readOnly'):
+            raise RuntimeError('NATIVE_NOTIFY_TIMING_FAILED: ' + str(native_timing))
+        events = list(library.get_animation_notify_events(asset))
+        timing_rows = native_timing.get('events', [])
+        if len(events) != len(timing_rows):
+            raise RuntimeError('NATIVE_NOTIFY_TIMING_COUNT_MISMATCH')
         results = []
-        for event in library.get_animation_notify_events(asset):
+        for event_index, event in enumerate(events):
             notify = event.get_editor_property("notify")
             state = event.get_editor_property("notify_state_class")
             instance = notify if notify is not None else state
+            timing = timing_rows[event_index]
+            if timing.get('sourceIndex') != event_index or timing.get('notifyInstance') != (instance.get_path_name() if instance else ''):
+                raise RuntimeError('NATIVE_NOTIFY_TIMING_IDENTITY_MISMATCH')
             matching_tracks = []
             for track, cached_events in cached_tracks:
                 for cached in cached_events:
@@ -1863,8 +1873,13 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
                 "track": track_name,
                 "name": str(event.get_editor_property("notify_name")),
                 "classPath": instance.get_class().get_path_name() if instance else None,
-                "time": library.get_anim_notify_event_trigger_time(event),
-                "duration": library.get_anim_notify_event_duration(event),
+                "time": timing['nativeTriggerTime'],
+                "duration": timing['nativeDuration'],
+                "nativeTriggerTime": timing['nativeTriggerTime'],
+                "nativeEndTriggerTime": timing['nativeEndTriggerTime'],
+                "nativeDuration": timing['nativeDuration'],
+                "triggerTimeOffset": timing['triggerTimeOffset'],
+                "endTriggerTimeOffset": timing['endTriggerTimeOffset'],
                 "isState": state is not None,
             })
 
@@ -4818,6 +4833,60 @@ return saturate(edge*3)*smoothstep(0.18,0.7,n)*0.8;
             layer_name, before_layer_name, grip_getter_name, left_disable_curve,
             right_disable_curve, left_finger_roots, right_finger_roots)
         return json.dumps(result, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def sample_hand_handling_surface(mesh_path: str, main_path: str, base_path: str, interface_path: str,
+                                      animation_path: str, grip_path: str, time_seconds: float,
+                                      right_hand_offset: list[float], equipment_enabled: bool,
+                                      left_grip_alpha: float, right_grip_alpha: float,
+                                      selected_bones: list[str], minimum_selected_weight: float,
+                                      material_indices: list[int]) -> str:
+        """/** @param mesh_path 实际网格 @param main_path 主实例类型 @param base_path 正式基础层 @param interface_path 正式接口 @param animation_path 动作 @param grip_path 握姿 @param time_seconds 秒数 @param right_hand_offset 俯仰偏航滚转 @param equipment_enabled 装备快照 @param left_grip_alpha 左指权重 @param right_grip_alpha 右指权重 @param selected_bones 表面骨骼 @param minimum_selected_weight 选取阈值 @param material_indices 材质筛选 @return 实际正式层求值和原生蒙皮 无 PIE */"""
+        from BBBHandPoseLayerTools import sample_hand_handling_surface
+        return json.dumps(sample_hand_handling_surface(mesh_path, main_path, base_path, interface_path,
+            animation_path, grip_path, time_seconds, right_hand_offset, equipment_enabled,
+            left_grip_alpha, right_grip_alpha, selected_bones, minimum_selected_weight, material_indices), ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def configure_right_hand_grip_rotation(base_path: str, child_layer_paths: list[str], main_path: str,
+                                           graph_name: str, before_node_guid: str) -> str:
+        """/** @param base_path 基础层 @param child_layer_paths 明确继承层 @param main_path 主图 @param graph_name 骨骼控制图 @param before_node_guid 已有瞄准节点 @return 原生右腕增量配置与全部编译保存结果 */"""
+        from BBBHandPoseLayerTools import configure_right_hand_grip_rotation
+        return json.dumps(configure_right_hand_grip_rotation(base_path, child_layer_paths, main_path,
+                                                            graph_name, before_node_guid), ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def reparent_skeletal_mesh_socket(mesh_path: str, socket_name: str, parent_bone_name: str, dry_run: bool = True) -> str:
+        """
+        /**
+         * 保持参考姿势位置与角度将实际网格插槽重挂到另一骨骼 共享骨架保持原样
+         * @param mesh_path 明确自有骨骼网格
+         * @param socket_name 已存在插槽名
+         * @param parent_bone_name 实际目标父骨
+         * @param dry_run 仅检查及返回目标相对变换
+         * @return 原生误差 归属与保存结果
+         */
+        """
+        from BBBAssetWritePolicy import require_write_access
+        mesh = unreal.load_asset(mesh_path)
+        if not mesh_path.startswith('/Game/_Project/') or not isinstance(mesh, unreal.SkeletalMesh):
+            raise RuntimeError('需要明确自有骨骼网格')
+        if not dry_run:
+            require_write_access(mesh)
+        result = json.loads(unreal.BBBAssetRepairEditorLibrary.reparent_skeletal_mesh_socket(
+            mesh, socket_name, parent_bone_name, dry_run))
+        if not result.get('success'):
+            raise RuntimeError('插槽重挂原生验证失败 ' + str(result))
+        if not dry_run and result['changed'] and not unreal.EditorAssetLibrary.save_loaded_asset(mesh, False):
+            raise RuntimeError('插槽重挂保存失败')
+        result.update({'mesh': mesh_path, 'socket': socket_name, 'saved': not dry_run})
+        return json.dumps(result)
+
+
+
 
 
 _registration = Registration([BBBGenericEditorToolset])

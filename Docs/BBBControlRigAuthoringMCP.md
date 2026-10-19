@@ -152,3 +152,11 @@ MCP 调用须显式传入 `controller_path` 使用默认玩家时传空字符串
 成功与失败路径均在 `finally` 中释放副本及其内含对象的 Python 引用并运行引擎垃圾回收。UE 的动画控制器或序列系统仍持有瞬态对象时，已完成的对照结果保留，并如实输出 `cleanup.state="pending_host_shutdown"`、具体 `retained` 路径和 `transientObjectsReleased=false`；调用者须在之后正常关闭所属宿主并核实 PID 已退出，才能完成这一生命周期检查。全部对象已即时回收时输出 `cleanup.state="released"`。工具不删除瞬态包、不修改引擎控制器根引用，也不将宿主缓存误报为已经释放。`differentBones` 是实际原生 RAW 局部姿势的厘米与四元数角度差异，不代表视觉通过或运行时动画层验收。
 
 离线回归使用 `python -B -m unittest discover -s Tests -p test_control_rig_sequence_audit.py -v`，覆盖副本隔离、缺失生成轨、官方导出失败、姿势读取失败、宿主持有瞬态对象的待关闭状态、已有报告保护、无效时间与文件名、复制失败。真实 UE 验收需记录调用前后正式 LS 文件 SHA256、生成轨关键帧及资产 dirty 状态；分别检查成功与失败调用没有新增内容资产、没有改变正式 LS，按报告的清理状态记录即时回收或后续宿主 PID 退出证据。离线替身测试不能代替这一真实验收。
+
+## 仅替换已有片段动画引用
+
+`control_rig.replace_sequence_animation_references(sequence_path, replacements, dry_run=true)` 接受旧动画路径到新动画路径的显式字典，检查每项在已有骨骼动画轨道内至少出现一次，源目标必须为等长同骨架的 AnimSequence。未匹配或条件不符时整批在写入前拒绝；停用片段同样会匹配，适合整理仍需保留的制作源引用。
+
+正式应用只设置匹配片段的 `params.animation`，保留片段其他参数、启停状态、时间区间和现有控制器及附件轨道，不同步播放长度，不创建轨道，不重烘焙。写入后用原生参数结构完整导出文本核对其他参数，再保存目标序列。此入口只处理引用等价替换；动作内容的等价性仍需调用者另行原生采样确认。Python 实现参数名为 `replacements_json`，MCP 调用使用结构化 `replacements`。
+
+`python -B -m unittest discover -s Tests -p test_control_rig_sequence_references.py -v` 的 6 项独立检查覆盖预检无写入、停用偏移片段保留、共享原生结构体视图回读不反写、遗漏映射整批拒绝、骨架或长度差异拒绝、保存失败不报成功。真实 UE 验收还须对照制作序列的片段参数、播放区间、控制器关键帧、附件配置与实际引用，离线替身不能代替原生验证。
