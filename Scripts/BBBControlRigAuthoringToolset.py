@@ -14,6 +14,9 @@ from BBBAssetWritePolicy import require_write_access, require_asset_write
 
 
 MCP_INPUTS = {
+    'create_twist_driver': {'chains_json': {'type': 'array', 'minItems': 1, 'maxItems': 8, 'items': {'type': 'object', 'properties': {'parent': {'type': 'string'}, 'driver': {'type': 'string'}, 'twist': {'type': 'string'}, 'variable': {'type': 'string'}, 'fraction': {'type': 'number', 'minimum': 0, 'maximum': 1}}, 'required': ['parent', 'driver', 'twist', 'variable', 'fraction'], 'additionalProperties': False}}},
+    'audit_twist_driver': {'chains_json': {'type': 'array', 'minItems': 1, 'maxItems': 8, 'items': {'type': 'object', 'properties': {'parent': {'type': 'string'}, 'driver': {'type': 'string'}, 'twist': {'type': 'string'}, 'variable': {'type': 'string'}, 'fraction': {'type': 'number', 'minimum': 0, 'maximum': 1}}, 'required': ['parent', 'driver', 'twist', 'variable', 'fraction'], 'additionalProperties': False}}, 'cases_json': {'type': 'array', 'minItems': 1, 'maxItems': 128, 'items': {'type': 'object', 'properties': {'name': {'type': 'string'}, 'animation': {'type': 'string'}, 'time': {'type': 'number', 'minimum': 0}, 'driver_rotations': {'type': 'object', 'additionalProperties': {'type': 'array', 'items': {'type': 'number'}, 'minItems': 4, 'maxItems': 4}}}, 'required': ['animation', 'time'], 'additionalProperties': False}}},
+    'insert_post_process_rig': {'input_values_json': {'type':'object','minProperties':1,'additionalProperties':{'type':'number'}}},
     'replace_sequence_animation_references': {'replacements_json': {'type': 'object', 'minProperties': 1, 'additionalProperties': {'type': 'string', 'minLength': 1}}},
     'capture_attachment_pose': {
         'attachments_json': {
@@ -2268,6 +2271,43 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         report["parametersPreserved"] = True
         unreal.log("[BBBSequenceReferences] 已保存 {} 个片段引用".format(len(matched)))
         return json.dumps(report, ensure_ascii=False)
+
+
+
+
+    @mcp_tool
+    @staticmethod
+    def create_twist_driver(asset_path: str, mesh_path: str, chains_json: str) -> str:
+        """/** @param asset_path 新绑定 @param mesh_path 实际网格 @param chains_json 明确父骨 驱动骨 目标骨 公开比例 @return 参考姿势与官方RigVM创建结果 */"""
+        from BBBArmTwistRigTools import create
+        return json.dumps(create(asset_path, mesh_path, chains_json), ensure_ascii=False)
+
+
+    @mcp_tool
+    @staticmethod
+    def audit_twist_driver(asset_path: str, mesh_path: str, chains_json: str, cases_json: str,
+                           fractions: list[float], output_name: str) -> str:
+        """/** @param asset_path 正式绑定 @param mesh_path 实际网格 @param chains_json 驱动链 @param cases_json 真实动作与明确旋转 @param fractions 候选分配 @param output_name 任务目录与报告名 @return 原生执行与蒙皮误差 资产保持不变 */"""
+        from BBBArmTwistRigTools import audit
+        return json.dumps(audit(asset_path, mesh_path, chains_json, cases_json, fractions, output_name), ensure_ascii=False)
+
+
+    @mcp_tool
+    @staticmethod
+    def insert_post_process_rig(main_path: str, asset_path: str, after_node_guid: str,
+                                before_node_guid: str, output_bones: list[str], input_values_json: str) -> str:
+        """/** @param main_path 主图 @param asset_path 绑定 @param after_node_guid 上游 @param before_node_guid 下游 @param output_bones 仅回写骨骼 @param input_values_json 浮点输入 @return 保存与独立原节点校验 */"""
+        from BBBArmTwistRigTools import insert
+        return json.dumps(insert(main_path, asset_path, after_node_guid, before_node_guid, output_bones, input_values_json), ensure_ascii=False)
+
+
+    @mcp_tool
+    @staticmethod
+    def sample_post_process_rig(main_path: str, mesh_path: str, node_guid: str,
+                               animation_path: str, time_seconds: float, output_name: str) -> str:
+        """/** @param main_path 已保存主图 @param mesh_path 网格 @param node_guid 正式节点 @param animation_path 绝对动作 @param time_seconds 取样秒数 @param output_name 临时报告名 @return 正式原生节点隔离执行结果 */"""
+        from BBBArmTwistRigTools import sample_node
+        return json.dumps(sample_node(main_path, mesh_path, node_guid, animation_path, time_seconds, output_name), ensure_ascii=False)
 
 
 

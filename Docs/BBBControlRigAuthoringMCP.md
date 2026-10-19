@@ -160,3 +160,15 @@ MCP 调用须显式传入 `controller_path` 使用默认玩家时传空字符串
 正式应用只设置匹配片段的 `params.animation`，保留片段其他参数、启停状态、时间区间和现有控制器及附件轨道，不同步播放长度，不创建轨道，不重烘焙。写入后用原生参数结构完整导出文本核对其他参数，再保存目标序列。此入口只处理引用等价替换；动作内容的等价性仍需调用者另行原生采样确认。Python 实现参数名为 `replacements_json`，MCP 调用使用结构化 `replacements`。
 
 `python -B -m unittest discover -s Tests -p test_control_rig_sequence_references.py -v` 的 6 项独立检查覆盖预检无写入、停用偏移片段保留、共享原生结构体视图回读不反写、遗漏映射整批拒绝、骨架或长度差异拒绝、保存失败不报成功。真实 UE 验收还须对照制作序列的片段参数、播放区间、控制器关键帧、附件配置与实际引用，离线替身不能代替原生验证。
+
+## 前臂扭转驱动与主图绑定插入
+
+`control_rig.create_twist_driver(asset_path, mesh_path, chains)` 创建参考姿势相对的 Swing/Twist 四元数图。每条显式链包含 parent、driver、twist、variable、fraction；驱动骨与无子骨的 twist 必须同属 parent。初始局部姿势按实际网格统一，轴来自驱动骨的参考位移。输出为 `Slerp(Identity, Twist(CurrentHand * Inverse(ReferenceHand)), Fraction) * ReferenceTwist`，使用绝对局部旋转覆盖，不累加。
+
+`control_rig.audit_twist_driver(asset_path, mesh_path, chains, cases, fractions, output_name)` 是可选只读工具。按原生骨名映射 Rig 姿势，执行正式 RigVM，采样实际 CPU 线性蒙皮，比较边长应变和面积，检查非目标旋转、位置、缩放及重复执行。`output_name` 为 `Task/Name` 且不带扩展名。分数只代表明确样本和几何指标，不代表自然观感或全局最优。Morph、Cloth、材质与完整玩法未执行。
+
+`control_rig.insert_post_process_rig(main_path, asset_path, after_node_guid, before_node_guid, output_bones, input_values)` 在唯一直接相邻姿势连接之间插入正式节点。明确公开浮点值，传递全部输入姿势和曲线，不重置输入姿势，参考姿势来自当前网格，仅回写指定骨骼，编译保存并保留原节点标识。UE5.8 私有节点配置通过反射属性设置。
+
+`control_rig.sample_post_process_rig(main_path, mesh_path, node_guid, animation_path, time_seconds, output_name)` 提供正式单节点的瞬态原生 AnimGraph 求值入口，不执行主图玩法。本轮用户要求停止测试后未执行此入口，不把它声称为已在真实宿主验证。
+
+2026-10-19：原生编辑器构建成功；正式双侧 Rig 创建及主图插入保存完成。用户停止测试前，48 场景、7 档比例的 RigVM/CPU 蒙皮调用已完成，非目标局部旋转最大误差 0.000002415 度，位置/缩放误差为零，无累积。按用户最新要求不继续测试或优化，实际节点左右均采用 0.5 基准比例，观感待用户检查。此前3项离线几何检查通过；未执行完整运行时验收。

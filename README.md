@@ -320,3 +320,5 @@ python -B Tests/benchmark_mcp_workflows.py --catalog '<当前目录缓存>' --su
 2026-10-19 动作原生回读的满回握检查按该帧声明的机构平移、刚体接触和握匣反补计算实际目标，避免把仍有效的接槽窗口误算为静态握姿误差；退出窗仍回到静态目标。专项回归同时验证正确枪空间接触通过，以及错误轨道虽然与保存动画一致仍被目标检查拒绝。原生资产未因此重烘，视觉验收保持独立。
 
 2026-10-19 公共目录迁移最终核验：Other1657全部原生迁移闭合，Used242及2个Items输入的244旧源在新宿主按真实引用顺序严格SHA冷清理后独立核验通过；Base重新编译，Main/Base/ALI及四层实际全部BS_UP_TO_DATE。另66个完整骨轨公共可编辑LS同名迁入Used/hold并独立核验通过，全部边界dirty为空。保留前次同宿主部分失败记录，不冒称自动链一次成功，也不将制作底稿归属证明当作成品全帧等价。详见Docs/BBBAssetMaintenanceMCP.md。
+
+2026-10-19 新增参考姿势相对的前臂 Swing/Twist Rig 制作、可选原生蒙皮参数审计和正式 AnimGraph 节点插入入口。正式双侧 Rig 与主图已编译保存；用户停止测试后采用左右0.5基准，不宣称最佳参数或完整运行验收。48场景七档RigVM调用在停止指令前已结束，非目标局部变换保持；正式单节点原生求值入口本轮未执行。详见 [BBBControlRigAuthoringMCP.md](Docs/BBBControlRigAuthoringMCP.md)。

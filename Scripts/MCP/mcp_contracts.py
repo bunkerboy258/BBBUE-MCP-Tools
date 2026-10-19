@@ -36,6 +36,10 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
+    'control_rig.sample_post_process_rig': {'access': 'read', 'world': 'editor', 'completion': 'observed'},
+    'control_rig.create_twist_driver': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['asset_path']}, 'completion': 'verified_save'},
+    'control_rig.audit_twist_driver': {'access': 'read', 'world': 'editor', 'completion': 'observed'},
+    'control_rig.insert_post_process_rig': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['main_path']}, 'completion': 'verified_save'},
     'hit.build_zombie_debug_gore_surface': {'scope': {'fields': ['output_folder']}, 'world': 'editor', 'completion': 'verified_save'},
     'hit.inspect_zombie_debug_gore_surface': {'access': 'read'},
     'hit.repack_zombie_debug_wound_atlas': {'scope': {'fields': ['output_folder']}, 'world': 'editor', 'completion': 'verified_save'},
