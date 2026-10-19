@@ -100,6 +100,76 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def build_zombie_debug_gore_surface(source_mesh_path: str, output_folder: str) -> str:
+        """
+        /**
+         * @param source_mesh_path\t只读的自有完整身体
+         * @param output_folder\t独立调试靶伤口目录
+         * @return 保存后的表面图集 九个断点与物理静态报告 不启动 PIE
+         */
+        """
+        if output_folder != "/Game/_Project/Debug/ZombieHitReaction/Gore":
+            raise RuntimeError("只允许明确的调试靶输出目录")
+        if not source_mesh_path.startswith("/Game/_Project/"):
+            raise RuntimeError("只允许自有身体网格")
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止生成伤口资源")
+        source = unreal.load_asset(source_mesh_path)
+        if not isinstance(source, unreal.SkeletalMesh):
+            raise RuntimeError("源身体必须是骨骼网格")
+        require_asset_write([], destinations=[output_folder])
+        result = str(unreal.BBBZombieSeveringEditorLibrary.build_debug_gore_surface(source, output_folder))
+        if result.startswith("失败"):
+            raise RuntimeError(result)
+        packages = unreal.EditorAssetLibrary.list_assets(output_folder, recursive=True, include_folder=False)
+        saved = []
+        for package in packages:
+            if not unreal.EditorAssetLibrary.save_asset(package, only_if_is_dirty=True):
+                raise RuntimeError("资源保存失败 " + package)
+            saved.append(package)
+        report = json.loads(result)
+        report["savedAssets"] = saved
+        report["saved"] = True
+        return json.dumps(report, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def inspect_zombie_debug_gore_surface(definition_path: str) -> str:
+        """
+        /**
+         * @param definition_path\t独立调试靶定义对象路径
+         * @return 当前图集 断点与物理约束静态报告 不启动世界
+         */
+        """
+        if not definition_path.startswith("/Game/_Project/Debug/ZombieHitReaction/"):
+            raise RuntimeError("只允许独立调试靶定义")
+        result = str(unreal.BBBZombieSeveringEditorLibrary.inspect_debug_gore_surface(definition_path))
+        if result.startswith("失败"):
+            raise RuntimeError(result)
+        return result
+
+    @mcp_tool
+    @staticmethod
+    def repack_zombie_debug_wound_atlas(output_folder: str) -> str:
+        """
+        /**
+         * @param output_folder\t独立调试靶伤口目录
+         * @return 固化身体与部件图集 材质坐标及断肢约束后的静态诊断 保存资源 不启动游戏
+         */
+        """
+        if output_folder != "/Game/_Project/Debug/ZombieHitReaction/Gore":
+            raise RuntimeError("只允许明确的调试靶输出目录")
+        require_asset_write([output_folder])
+        result = str(unreal.BBBZombieSeveringEditorLibrary.repack_debug_wound_atlas(output_folder))
+        if result.startswith("失败"):
+            raise RuntimeError(result)
+        for package in unreal.EditorAssetLibrary.list_assets(output_folder, recursive=True, include_folder=False):
+            if not unreal.EditorAssetLibrary.save_asset(package, only_if_is_dirty=True):
+                raise RuntimeError("资源保存失败 " + package)
+        return result
+
+    @mcp_tool
+    @staticmethod
     def normalize_zombie_gib_material_bindings(mesh_paths: list[str], apply_changes: bool = False) -> str:
         """
         /**

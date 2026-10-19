@@ -36,6 +36,9 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
+    'hit.build_zombie_debug_gore_surface': {'scope': {'fields': ['output_folder']}, 'world': 'editor', 'completion': 'verified_save'},
+    'hit.inspect_zombie_debug_gore_surface': {'access': 'read'},
+    'hit.repack_zombie_debug_wound_atlas': {'scope': {'fields': ['output_folder']}, 'world': 'editor', 'completion': 'verified_save'},
     'grip.author_weapon': {'scope': {'fields': ['weapon_root']}, 'world': 'editor'},
     'grip.apply_action_recipe': {'scope': {'fields': ['weapon_root']}, 'world': 'editor', 'completion': 'verified_save'},
     'grip.sample_static_attachment_surface': {'access': 'read'},

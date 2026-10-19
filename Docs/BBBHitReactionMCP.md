@@ -1,5 +1,15 @@
 # Mass 部位受击与共享血效
 
+## 独立调试靶表面与多断点
+
+`hit.build_zombie_debug_gore_surface(source_mesh_path, output_folder)` 只接受自有身体和 `/Game/_Project/Debug/ZombieHitReaction/Gore` 输出。拒绝 PIE 和已有目标身体或定义。不修改源身体。生成独占 UV 图集的单 LOD 身体 头部一个断点 四肢各两个断点 立体躯干创口及独立材质。长掉落肢体两个刚体和一个锁定线性位移的受限关节 短段一个刚体。保存生成资源后返回静态报告。不启动游戏 不以资源生成代替效果验收。
+
+`hit.inspect_zombie_debug_gore_surface(definition_path)` 只读核对独立调试定义。报告图集重叠像素 身体三角面数 每断点身体封口配对后的新增开放边界 刚体与关节数和有限包围盒。不运行物理 不测量实际伤口随动或落地轨迹。图集重叠和新增开放边界需要单独判读 不能只看工具成功状态。
+
+本能力由 `BBBZombieSeveringEditorLibrary` 承载。调试靶不改 Mass 六部位伤害池 不保存逐弹历史 不推广到正式尸群。`UBBB.Debug.ZombieGoreSurfaceAssets` 和 `UBBB.Debug.ZombieWoundEvent` 为无 PIE 的资源与公开点伤害数据测试。
+
+`hit.repack_zombie_debug_wound_atlas(output_folder)` 只接受同一调试目录。在内存验证每个掉落三角面与身体的精确位置和 UV0 匹配后 固化独立 2048 图集到 UV2 同步九个部件和封口的四组坐标及自有材质 并固化长肢体默认物理约束。关节线性三轴锁定 摆动 25/15 度 扭转 12 度且使用硬限制 同步 `SetDefaultProfile` 防止保存时恢复默认角度。CPU 与 GPU 图集各 16 MiB 另有上传暂存。这是单调试靶的明确成本 不是正式尸群方案。入口不运行游戏 返回重叠像素和边界报告 保存所有实际脏资源。
+
 `finalize_zombie_wound_material_masks(material_paths)` 在非 PIE 编辑阶段对一至三十二个明确的共享伤口主材质逐项检查源控权限. 只启用已连接的透明裁剪表达式并完成编译 不修改输入连接 不重建网格 不保存. 材质必须位于 Shared/Wounds 且为带表达式的 Masked 主材质. 复制不透明主材质时必须清除 OpacityMask.UseConstant 和 bCanMaskedBeAssumedOpaque 否则表达式被常量忽略或运行时仍按不透明渲染. 返回 constantsReplaced 与 opaqueAssumptionsReplaced 分别说明两类标记的处理数量. 实际画面验收须确认原部位消失 掉落部件独立存在.
 
 `inspect_zombie_gib_presentation()` 在当前真实 PIE 查询世界碎片池的模拟数 静止数与已分配槽位数 以及伤口蒙皮的分配数 可见数和对应身体 LOD 不生成碎片 不推进寿命 不改变状态. 用于实际武器链验收 32 个模拟与 128 个静止残留预算. 演员复用后再次查询可确认残留不依赖原演员生命周期. 伤口蒙皮只在身体 LOD0/LOD1 显示 更远距离保留身体血污与缺肢轮廓 未显示过近距伤口的远处演员不预分配蒙皮载体.

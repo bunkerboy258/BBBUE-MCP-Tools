@@ -14209,6 +14209,82 @@
           "returnValue"
         ]
       }
+    },
+    "build_zombie_debug_gore_surface": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_mesh_path": {
+            "type": "string"
+          },
+          "output_folder": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_mesh_path",
+          "output_folder"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_zombie_debug_gore_surface": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "definition_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "definition_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "repack_zombie_debug_wound_atlas": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "output_folder": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "output_folder"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBMeleeToolset": {
