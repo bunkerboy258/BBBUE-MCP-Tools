@@ -522,6 +522,11 @@ def _finalize(path, recipe, write_paths):
 
 
 def process(recipe_path, action, write_paths, job_index):
+    if action == 'prepare_action':
+        import importlib
+        import BBBManualActionAuthoring
+        importlib.reload(BBBManualActionAuthoring)
+        return BBBManualActionAuthoring.prepare(recipe_path, write_paths)
     if unreal.EditorLevelLibrary.get_pie_worlds(False):
         raise RuntimeError('BODY_POSE_PIE_FORBIDDEN')
     path, recipe = _recipe(recipe_path)

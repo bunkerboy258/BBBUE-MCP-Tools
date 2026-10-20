@@ -334,3 +334,5 @@ python -B Tests/benchmark_mcp_workflows.py --catalog '<当前目录缓存>' --su
 2026-10-20 新增指定FK骨骼参考旋转恢复入口，保持父级与其它控制器并核验实际正向求解；SMG03右拇指三节第0/1帧恢复并保存，最大角度误差0.00000342度。未运行PIE或额外测试。
 
 2026-10-20 新增已有Rig控制器局部关键帧写入入口，支持带骨骼父级的FK，仅写明确控制器和帧并回读位置、旋转、缩放，不修改偏移或放宽手指平移检查。
+
+2026-10-20 新增 `control_rig.process_dual_arm_body_pose(action=prepare_action)`，按正式制作源分阶段保存装备或换弹动作的完整源轨迹、双臂 IK 与逐节手指 FK；使用 UE5.8 生命周期绑定，避免重复 Transform 轨导致偏移减半。枪体与旧、新弹匣预览读取当前配置及原生通知时间；显隐预览只归制作 LS。Rifle01 装备51帧、换弹67帧原生全帧对照及实际挂接回读通过，最大位置差小于0.000257厘米。准备入口不写运行配置，不覆盖已进入人工编辑的序列；尚未执行人工结果应用，未启动PIE。见 [BBBManualActionAuthoringMCP.md](Docs/BBBManualActionAuthoringMCP.md)。
