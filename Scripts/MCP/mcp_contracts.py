@@ -232,6 +232,7 @@ TOOL_POLICIES = {
     'control_rig.configure_sequence_attachment_animation': {'scope': {'fields': ['sequence_path']}},
     'control_rig.restore_sequence_fk_reference': {'scope': {'fields': ['sequence_path']}, 'world': 'editor', 'completion': 'verified_save'},
     'control_rig.set_sequence_control_local_keys': {'scope': {'fields': ['sequence_path']}, 'world': 'editor', 'completion': 'verified_save'},
+    'control_rig.process_dual_arm_body_pose': {'scope': {'fields': ['write_paths']}, 'world': 'editor', 'completion': 'verified_save', 'input_rules': {'properties': {'action': {'enum': ['capture', 'inspect', 'bake', 'finalize']}}}},
     'control_rig.configure_sequence_rig': {'scope': {'fields': ['sequence_path']}},
     'control_rig.convert_component_mesh_grips': {'scope': {'fields': ['mesh_path']}},
     'control_rig.create_attachment_preview_animation': {'scope': {'fields': ['destination_path']}},

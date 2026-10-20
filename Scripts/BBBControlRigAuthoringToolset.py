@@ -1464,6 +1464,15 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def process_dual_arm_body_pose(recipe_path: str, action: str, write_paths: list[str], job_index: int = -1) -> str:
+        """/** @param recipe_path 角色正式双臂制作源 @param action capture inspect bake finalize @param write_paths 明确写入包 @param job_index 明确烘焙项 @return 人工采纳、逐帧烘焙或正式配置回读 */"""
+        import importlib
+        import BBBDualArmBodyPoseTools
+        importlib.reload(BBBDualArmBodyPoseTools)
+        return json.dumps(BBBDualArmBodyPoseTools.process(recipe_path, action, write_paths, job_index), ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def set_sequence_control_local_keys(sequence_path: str, keys_json: str) -> str:
         """只写已有欧拉控制器的明确局部增量关键帧 保留控制绑定和其它关键帧"""
         import importlib

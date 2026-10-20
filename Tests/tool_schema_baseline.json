@@ -10020,6 +10020,45 @@
           "returnValue"
         ]
       }
+    },
+    "process_dual_arm_body_pose": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "recipe_path": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "write_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "job_index": {
+            "type": "integer",
+            "default": -1
+          }
+        },
+        "required": [
+          "recipe_path",
+          "action",
+          "write_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBHandRetargetBatchToolset": {
