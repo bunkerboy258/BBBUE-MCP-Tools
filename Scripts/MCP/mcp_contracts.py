@@ -230,6 +230,7 @@ TOOL_POLICIES = {
     'control_rig.configure_control_rig_graph': {'scope': {'fields': ['asset_path']}},
     'control_rig.configure_sequence_animation_source': {'scope': {'fields': ['sequence_path']}},
     'control_rig.configure_sequence_attachment_animation': {'scope': {'fields': ['sequence_path']}},
+    'control_rig.restore_sequence_fk_reference': {'scope': {'fields': ['sequence_path']}, 'world': 'editor', 'completion': 'verified_save'},
     'control_rig.configure_sequence_rig': {'scope': {'fields': ['sequence_path']}},
     'control_rig.convert_component_mesh_grips': {'scope': {'fields': ['mesh_path']}},
     'control_rig.create_attachment_preview_animation': {'scope': {'fields': ['destination_path']}},

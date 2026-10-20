@@ -172,3 +172,9 @@ MCP 调用须显式传入 `controller_path` 使用默认玩家时传空字符串
 `control_rig.sample_post_process_rig(main_path, mesh_path, node_guid, animation_path, time_seconds, output_name)` 提供正式单节点的瞬态原生 AnimGraph 求值入口，不执行主图玩法。本轮用户要求停止测试后未执行此入口，不把它声称为已在真实宿主验证。
 
 2026-10-19：原生编辑器构建成功；正式双侧 Rig 创建及主图插入保存完成。用户停止测试前，48 场景、7 档比例的 RigVM/CPU 蒙皮调用已完成，非目标局部旋转最大误差 0.000002415 度，位置/缩放误差为零，无累积。按用户最新要求不继续测试或优化，实际节点左右均采用 0.5 基准比例，观感待用户检查。此前3项离线几何检查通过；未执行完整运行时验收。
+
+## 指定FK骨骼恢复参考旋转
+
+control_rig.restore_sequence_fk_reference(sequence_path, animation_path, mesh_path, controls, frames) 将指定FK控制器对应骨骼的局部旋转恢复到参考动画第0秒。controls为控制器到骨骼映射，要求控制器直接归属于目标骨骼的父骨，FName按不区分大小写核对。保留控制器平移/缩放及所有其它欧拉控制器的逐帧值，写键后从关键帧重新加载控制值并执行Forwards Solve核验实际骨局部旋转，不能将延迟的Sequencer显示值当作已求解骨姿态。操作使用单次编辑器事务并保存原LS，不修改Rig资产、正式AS或装备配置。
+
+2026-10-20在SMG03人工握姿序列真实应用右拇指三节，第0/1帧与MM_Rifle_Idle_Hipfire局部旋转最大误差0.00000342度，其它控制器完全一致。未运行PIE或额外测试。实现位于BBBControlRigReferenceTools.py，既有工具集注册并热加载实现。

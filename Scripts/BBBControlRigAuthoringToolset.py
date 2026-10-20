@@ -14,6 +14,7 @@ from BBBAssetWritePolicy import require_write_access, require_asset_write
 
 
 MCP_INPUTS = {
+    'restore_sequence_fk_reference': {'controls_json': {'type': 'object', 'minProperties': 1, 'maxProperties': 32, 'additionalProperties': {'type': 'string'}}},
     'create_twist_driver': {'chains_json': {'type': 'array', 'minItems': 1, 'maxItems': 8, 'items': {'type': 'object', 'properties': {'parent': {'type': 'string'}, 'driver': {'type': 'string'}, 'twist': {'type': 'string'}, 'variable': {'type': 'string'}, 'fraction': {'type': 'number', 'minimum': 0, 'maximum': 1}}, 'required': ['parent', 'driver', 'twist', 'variable', 'fraction'], 'additionalProperties': False}}},
     'audit_twist_driver': {'chains_json': {'type': 'array', 'minItems': 1, 'maxItems': 8, 'items': {'type': 'object', 'properties': {'parent': {'type': 'string'}, 'driver': {'type': 'string'}, 'twist': {'type': 'string'}, 'variable': {'type': 'string'}, 'fraction': {'type': 'number', 'minimum': 0, 'maximum': 1}}, 'required': ['parent', 'driver', 'twist', 'variable', 'fraction'], 'additionalProperties': False}}, 'cases_json': {'type': 'array', 'minItems': 1, 'maxItems': 128, 'items': {'type': 'object', 'properties': {'name': {'type': 'string'}, 'animation': {'type': 'string'}, 'time': {'type': 'number', 'minimum': 0}, 'driver_rotations': {'type': 'object', 'additionalProperties': {'type': 'array', 'items': {'type': 'number'}, 'minItems': 4, 'maxItems': 4}}}, 'required': ['animation', 'time'], 'additionalProperties': False}}},
     'insert_post_process_rig': {'input_values_json': {'type':'object','minProperties':1,'additionalProperties':{'type':'number'}}},
@@ -1459,6 +1460,17 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         if len(rows) != len(times):
             raise RuntimeError("引擎返回的采样数量不符")
         return result
+
+    @mcp_tool
+    @staticmethod
+    def restore_sequence_fk_reference(sequence_path: str, animation_path: str, mesh_path: str,
+                                      controls_json: str, frames: list[int]) -> str:
+        """从参考动画第0秒恢复指定FK骨骼的局部旋转 保留其它控制器和位置缩放"""
+        import importlib
+        import BBBControlRigReferenceTools
+        importlib.reload(BBBControlRigReferenceTools)
+        return BBBControlRigReferenceTools.restore_sequence_fk_reference(
+            sequence_path, animation_path, mesh_path, controls_json, frames)
 
     @mcp_tool
     @staticmethod

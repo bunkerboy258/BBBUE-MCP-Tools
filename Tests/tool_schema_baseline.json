@@ -9949,6 +9949,49 @@
           "returnValue"
         ]
       }
+    },
+    "restore_sequence_fk_reference": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sequence_path": {
+            "type": "string"
+          },
+          "animation_path": {
+            "type": "string"
+          },
+          "mesh_path": {
+            "type": "string"
+          },
+          "controls_json": {
+            "type": "string"
+          },
+          "frames": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          }
+        },
+        "required": [
+          "sequence_path",
+          "animation_path",
+          "mesh_path",
+          "controls_json",
+          "frames"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBHandRetargetBatchToolset": {

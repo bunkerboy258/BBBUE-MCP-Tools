@@ -328,3 +328,5 @@ python -B Tests/benchmark_mcp_workflows.py --catalog '<当前目录缓存>' --su
 2026-10-19 经用户批准恢复完整FABRIK握持应用与原右腕配置工具，manual_apply恢复角度写回，删除位置双骨IK腕部换算工具、注册与记录。UE5.8完整编译及六个动画蓝图编译保存通过，14把握姿/配置已回读，28份人工LS/Rig哈希不变；未执行PIE或额外测试。
 
 2026-10-20 新增只读 `level.audit_static_scene_components` 统计明确演员的组件 材质 碰撞 实例与 LOD0 几何估计 UE5.8 宿主核验 115 个楼体 1881 个组件 219202 个实例且无脏包 新增 `level.create_static_actor_mesh` 保留原材质 所有源 LOD 和碰撞 创建时可一次生成保留完整回退几何的精确 Nanite 真实渲染宿主的 11 栋创建与保存回读已通过 六向碰撞采样发现 2 栋复杂碰撞差异且合并没有帧率收益 已恢复来源并清理候选 新增 `level.set_static_mesh_nanite_settings` 一次性提交原网格 Nanite 精度与回退几何设置 默认只预检 语法和真实宿主重建通过 23 个硬表面及 2 个树木试验无帧率收益 已恢复原 Nanite 配置 材质与 BodySetup 引用不变 派生数据由引擎重算 同时补全官方 `scene.remove_from_scene` 的明确演员写入范围 300 FPS 完整验收仍在进行 约束见 `Docs/BBBSceneOptimizationMCP.md`
+
+2026-10-20 新增指定FK骨骼参考旋转恢复入口，保持父级与其它控制器并核验实际正向求解；SMG03右拇指三节第0/1帧恢复并保存，最大角度误差0.00000342度。未运行PIE或额外测试。
