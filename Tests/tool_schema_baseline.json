@@ -9992,6 +9992,34 @@
           "returnValue"
         ]
       }
+    },
+    "set_sequence_control_local_keys": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sequence_path": {
+            "type": "string"
+          },
+          "keys_json": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence_path",
+          "keys_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBHandRetargetBatchToolset": {

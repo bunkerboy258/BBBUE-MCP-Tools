@@ -178,3 +178,7 @@ MCP 调用须显式传入 `controller_path` 使用默认玩家时传空字符串
 control_rig.restore_sequence_fk_reference(sequence_path, animation_path, mesh_path, controls, frames) 将指定FK控制器对应骨骼的局部旋转恢复到参考动画第0秒。controls为控制器到骨骼映射，要求控制器直接归属于目标骨骼的父骨，FName按不区分大小写核对。保留控制器平移/缩放及所有其它欧拉控制器的逐帧值，写键后从关键帧重新加载控制值并执行Forwards Solve核验实际骨局部旋转，不能将延迟的Sequencer显示值当作已求解骨姿态。操作使用单次编辑器事务并保存原LS，不修改Rig资产、正式AS或装备配置。
 
 2026-10-20在SMG03人工握姿序列真实应用右拇指三节，第0/1帧与MM_Rifle_Idle_Hipfire局部旋转最大误差0.00000342度，其它控制器完全一致。未运行PIE或额外测试。实现位于BBBControlRigReferenceTools.py，既有工具集注册并热加载实现。
+
+## 已有控制器局部关键帧写入
+
+control_rig.set_sequence_control_local_keys(sequence_path, keys) 只编辑既有Rig的欧拉控制器局部增量，不重建轨道、不修改控制器Offset。keys逐项提供frame、control、完整value(position/quaternion XYZW/scale)。支持骨骼父级的FK，写键后逐项回读位置、旋转和缩放再保存。适用于明确授权的误平移清零并保留当前旋转，不通过组件空间接口修改父级控制器，不放宽manual_apply的手指平移检查。

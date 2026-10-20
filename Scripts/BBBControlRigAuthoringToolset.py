@@ -14,6 +14,7 @@ from BBBAssetWritePolicy import require_write_access, require_asset_write
 
 
 MCP_INPUTS = {
+    'set_sequence_control_local_keys': {'keys_json': {'type': 'array', 'minItems': 1, 'maxItems': 600, 'items': {'type': 'object', 'properties': {'frame': {'type': 'integer'}, 'control': {'type': 'string'}, 'value': {'$ref': '#/$defs/TransformQuaternion'}}, 'required': ['frame', 'control', 'value'], 'additionalProperties': False}}},
     'restore_sequence_fk_reference': {'controls_json': {'type': 'object', 'minProperties': 1, 'maxProperties': 32, 'additionalProperties': {'type': 'string'}}},
     'create_twist_driver': {'chains_json': {'type': 'array', 'minItems': 1, 'maxItems': 8, 'items': {'type': 'object', 'properties': {'parent': {'type': 'string'}, 'driver': {'type': 'string'}, 'twist': {'type': 'string'}, 'variable': {'type': 'string'}, 'fraction': {'type': 'number', 'minimum': 0, 'maximum': 1}}, 'required': ['parent', 'driver', 'twist', 'variable', 'fraction'], 'additionalProperties': False}}},
     'audit_twist_driver': {'chains_json': {'type': 'array', 'minItems': 1, 'maxItems': 8, 'items': {'type': 'object', 'properties': {'parent': {'type': 'string'}, 'driver': {'type': 'string'}, 'twist': {'type': 'string'}, 'variable': {'type': 'string'}, 'fraction': {'type': 'number', 'minimum': 0, 'maximum': 1}}, 'required': ['parent', 'driver', 'twist', 'variable', 'fraction'], 'additionalProperties': False}}, 'cases_json': {'type': 'array', 'minItems': 1, 'maxItems': 128, 'items': {'type': 'object', 'properties': {'name': {'type': 'string'}, 'animation': {'type': 'string'}, 'time': {'type': 'number', 'minimum': 0}, 'driver_rotations': {'type': 'object', 'additionalProperties': {'type': 'array', 'items': {'type': 'number'}, 'minItems': 4, 'maxItems': 4}}}, 'required': ['animation', 'time'], 'additionalProperties': False}}},
@@ -1460,6 +1461,15 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         if len(rows) != len(times):
             raise RuntimeError("引擎返回的采样数量不符")
         return result
+
+    @mcp_tool
+    @staticmethod
+    def set_sequence_control_local_keys(sequence_path: str, keys_json: str) -> str:
+        """只写已有欧拉控制器的明确局部增量关键帧 保留控制绑定和其它关键帧"""
+        import importlib
+        import BBBControlRigReferenceTools
+        importlib.reload(BBBControlRigReferenceTools)
+        return BBBControlRigReferenceTools.set_sequence_control_local_keys(sequence_path, keys_json)
 
     @mcp_tool
     @staticmethod
