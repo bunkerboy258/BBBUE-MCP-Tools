@@ -522,6 +522,13 @@ def _finalize(path, recipe, write_paths):
 
 
 def process(recipe_path, action, write_paths, job_index):
+    if action == 'bake' and recipe_path.endswith('_ManualAction.json.source'):
+        import importlib
+        import BBBManualActionAuthoring
+        importlib.reload(BBBManualActionAuthoring)
+        import BBBManualActionBake
+        importlib.reload(BBBManualActionBake)
+        return BBBManualActionBake.bake_review(recipe_path, write_paths)
     if action == 'inspect' and recipe_path.endswith('_ManualAction.json.source'):
         import importlib
         import BBBManualActionAuthoring

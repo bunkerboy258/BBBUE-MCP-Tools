@@ -634,6 +634,38 @@ def _verify_previews(sequence, preview):
     return maximum
 
 
+def _evaluate_control_curves(sequence, channels, hierarchy, time):
+    """
+    /**
+     * @param sequence	制作序列
+     * @param channels	明确Rig的原生通道
+     * @param hierarchy	独立Rig层级
+     * @param time	采样秒数
+     * @return	按真实Tick读取全部控制器 不依赖视口缓存
+     */
+    """
+    tick_rate = sequence.get_tick_resolution()
+    suffixes = ('Location.X', 'Location.Y', 'Location.Z', 'Rotation.X', 'Rotation.Y', 'Rotation.Z', 'Scale.X', 'Scale.Y', 'Scale.Z')
+    tick = round(time * tick_rate.numerator / tick_rate.denominator)
+    span = next(iter(channels.values())).compute_effective_range()
+    span.set_editor_property('has_start_value', True)
+    span.set_editor_property('has_end_value', True)
+    span.set_editor_property('inclusive_start', tick)
+    span.set_editor_property('exclusive_end', tick + 1)
+    if abs(unreal.SequencerScriptingRangeExtensions.get_start_seconds(span) - time) > tick_rate.denominator / tick_rate.numerator:
+        raise RuntimeError('ACTION_INSPECT_NATIVE_CURVE_RANGE')
+    for control in hierarchy.get_controls():
+        name = str(control.name)
+        values = []
+        for suffix in suffixes:
+            samples = channels[name + '.' + suffix].evaluate_keys(span, tick_rate)
+            if len(samples) != 1:
+                raise RuntimeError('ACTION_INSPECT_NATIVE_CURVE_SAMPLE')
+            values.append(samples[0])
+        value = unreal.EulerTransform(location=unreal.Vector(*values[:3]), rotation=unreal.Rotator(roll=values[3], pitch=values[4], yaw=values[5]), scale=unreal.Vector(*values[6:9]))
+        hierarchy.set_control_value(control, unreal.RigHierarchy.make_control_value_from_euler_transform(value))
+
+
 def _inspect_subframe_samples(sequence, baked, mesh, asset, frames):
     """
     /**
@@ -654,29 +686,10 @@ def _inspect_subframe_samples(sequence, baked, mesh, asset, frames):
     instance.execute_event('Forwards Solve')
     hierarchy = instance.get_hierarchy()
     rate = sequence.get_display_rate()
-    tick_rate = sequence.get_tick_resolution()
-    suffixes = ('Location.X', 'Location.Y', 'Location.Z', 'Rotation.X', 'Rotation.Y', 'Rotation.Z', 'Scale.X', 'Scale.Y', 'Scale.Z')
     result = []
     for frame in sorted(frames):
         time = frame * rate.denominator / rate.numerator
-        tick = round(time * tick_rate.numerator / tick_rate.denominator)
-        span = next(iter(channels.values())).compute_effective_range()
-        span.set_editor_property('has_start_value', True)
-        span.set_editor_property('has_end_value', True)
-        span.set_editor_property('inclusive_start', tick)
-        span.set_editor_property('exclusive_end', tick + 1)
-        if abs(unreal.SequencerScriptingRangeExtensions.get_start_seconds(span) - time) > tick_rate.denominator / tick_rate.numerator:
-            raise RuntimeError('ACTION_INSPECT_NATIVE_CURVE_RANGE')
-        for control in hierarchy.get_controls():
-            name = str(control.name)
-            values = []
-            for suffix in suffixes:
-                samples = channels[name + '.' + suffix].evaluate_keys(span, tick_rate)
-                if len(samples) != 1:
-                    raise RuntimeError('ACTION_INSPECT_NATIVE_CURVE_SAMPLE')
-                values.append(samples[0])
-            value = unreal.EulerTransform(location=unreal.Vector(*values[:3]), rotation=unreal.Rotator(roll=values[3], pitch=values[4], yaw=values[5]), scale=unreal.Vector(*values[6:9]))
-            hierarchy.set_control_value(control, unreal.RigHierarchy.make_control_value_from_euler_transform(value))
+        _evaluate_control_curves(sequence, channels, hierarchy, time)
         if not instance.execute_event('Forwards Solve'):
             raise RuntimeError('ACTION_INSPECT_NATIVE_RIG_SAMPLE')
         pose = _pose(baked, mesh, min(time, baked.get_play_length()))
@@ -757,20 +770,30 @@ def inspect_manual(recipe_path, write_paths):
     review = data.get('review_bake')
     if review:
         baked = _asset(review['animation'], unreal.AnimSequence)
-        try:
-            error = _verify_sequence(data, sequence, baked, mesh, baked.data_model_interface.get_number_of_keys())
-            result['bake_matches_saved_integer_frames'] = True
-            result['export_position_error_cm'] = error
-        except RuntimeError as error:
-            result['bake_matches_saved_integer_frames'] = False
-            result['export_mismatch'] = str(error)
+        if review.get('continuous_result'):
+            result['bake_mode'] = 'continuous_manual_correction'
+            result['original_dense_sequence_expected_to_differ'] = True
+        else:
+            try:
+                error = _verify_sequence(data, sequence, baked, mesh, source.data_model_interface.get_number_of_keys())
+                result['bake_matches_saved_integer_frames'] = True
+                result['export_position_error_cm'] = error
+            except RuntimeError as error:
+                result['bake_matches_saved_integer_frames'] = False
+                result['export_mismatch'] = str(error)
         subframes = {row['frame'] for control in edited for row in control['subframe_keys']}
         if subframes:
             samples = subframes | {math.floor(frame) for frame in subframes} | {math.ceil(frame) for frame in subframes}
+            if review.get('continuous_result'):
+                samples |= {0, source.data_model_interface.get_number_of_keys() - 1}
             result['subframe_preview_comparison'] = _inspect_subframe_samples(sequence, baked, mesh, asset, samples)
             result['subframe_peak_hand_error_cm'] = max(row['hands']['hand_l']['cm'] for row in result['subframe_preview_comparison'] if row['frame'] in subframes)
             result['integer_hand_error_cm'] = max(row['hands']['hand_l']['cm'] for row in result['subframe_preview_comparison'] if row['frame'] not in subframes)
-            result['manual_subframe_positions_preserved'] = result['subframe_peak_hand_error_cm'] < 0.1
+            tolerance = data['continuous_review']['max_anchor_error_cm'] if review.get('continuous_result') else 0.1
+            result['manual_position_tolerance_cm'] = tolerance
+            result['manual_subframe_positions_preserved'] = result['subframe_peak_hand_error_cm'] < tolerance
+            if review.get('continuous_result'):
+                result['endpoint_hand_errors'] = [row for row in result['subframe_preview_comparison'] if row['frame'] in (0, source.data_model_interface.get_number_of_keys() - 1)]
     return result
 
 

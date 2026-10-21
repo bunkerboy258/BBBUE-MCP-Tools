@@ -340,3 +340,5 @@ python -B Tests/benchmark_mcp_workflows.py --catalog '<当前目录缓存>' --su
 2026-10-21 统一小怪出生工具接入：展示入口改用 BBBMonsterSpawnDefinition 和正式统一生成处理器；资产入口明确十六个配置并保留导演调度。UE5.8 编译、生成器与导演八项自动化、Python 三项契约测试及 BBBTest 十种各一只实际追逐攻击抽样通过。按用户要求取消耗时渲染重跑与多机验收，不宣称完整联机验收。详见 Docs/BBBMonsterSpawningMCP.md。
 
 2026-10-21 人工动作 inspect 增加正式源摘要、实际改键范围和小数帧原生曲线加Rig求值诊断，分开报告整数帧烘焙一致性与手调小数帧保留。Rifle01 四个左手子帧键在30 FPS成品中相差12.34至3.35厘米，而相邻整数帧误差小于0.000061厘米；原生回读通过，没有修改用户资产，不宣称穿模已修复。入口与结果见 [BBBManualActionAuthoringMCP.md](Docs/BBBManualActionAuthoringMCP.md)。
+
+2026-10-21 人工动作 bake 新增现有左手子帧修正的连续审核烘焙：纯瞬态移除窄峰基线、右手空间人工差值、保留起止姿态的平滑连接与120 FPS骨轨输出。Rifle01 201个采样全部原始骨轨回读通过，四处原人工点最大实际预览误差3.70毫米，原LS/Rig的SHA不变；成品已打开供用户审核，运行引用未变，不宣称穿模视觉验收通过。详见 [BBBManualActionAuthoringMCP.md](Docs/BBBManualActionAuthoringMCP.md)。
