@@ -9,7 +9,7 @@ from BBBControlRigAuthoringToolset import _asset, _mesh_binding
 from BBBManualActionAuthoring import _source, _save, _digest
 
 
-def _channel_digest(sequence):
+def _channel_digest(sequence, excluded=None):
     """/** @param sequence\t现有制作序列 @return\t全部通道时间值及默认值摘要 */"""
     rows = []
     for binding in sequence.get_bindings():
@@ -17,6 +17,8 @@ def _channel_digest(sequence):
             for section in track.get_sections():
                 channels = []
                 for channel in section.get_all_channels():
+                    if excluded and str(channel.channel_name).split('.')[0] in excluded:
+                        continue
                     keys = []
                     for key in channel.get_keys():
                         stamp = key.get_time(unreal.MovieSceneTimeUnit.DISPLAY_RATE)
@@ -27,6 +29,125 @@ def _channel_digest(sequence):
                     channels.append([str(channel.channel_name), default, keys])
                 rows.append([binding.get_id().export_text(), section.get_path_name(), channels])
     return hashlib.sha256(json.dumps(rows, ensure_ascii=False).encode()).hexdigest()
+
+
+def restore_left_reference(data, sequence):
+    """/** @param data\t明确左侧参考的制作源 @param sequence\t现有序列 @return\t只恢复一次的逐帧核验结果 */"""
+    request = data.get('left_reference')
+    if not request or request.get('applied'):
+        return
+    if data['action'] != 'reload':
+        raise RuntimeError('LEFT_REFERENCE_RELOAD_ONLY')
+    from BBBControlRigAuthoringToolset import _pose, _key
+    mesh = _asset(data['mesh'], unreal.SkeletalMesh)
+    source = _asset(data['animation'], unreal.AnimSequence)
+    reference = _asset(request['animation'], unreal.AnimSequence)
+    rate = sequence.get_display_rate()
+    count = source.data_model_interface.get_number_of_keys()
+    if abs(reference.get_play_length() - source.get_play_length()) > 0.0001:
+        raise RuntimeError('LEFT_REFERENCE_LENGTH_MISMATCH')
+    if reference.get_editor_property('skeleton') != mesh.get_editor_property('skeleton'):
+        raise RuntimeError('LEFT_REFERENCE_SKELETON_MISMATCH')
+    require_asset_write([sequence])
+    scope = unreal.new_object(unreal.LevelSequence, name='BBBLeftReference_' + uuid.uuid4().hex)
+    try:
+        before = _export(sequence, source, mesh, scope, 'BeforeLeft')
+        copied = unreal.SystemLibrary.duplicate_object(sequence, scope, 'LeftSequence')
+        _export(copied, source, mesh, scope, 'InitializeLeft', False)
+        tracks = _mesh_binding(copied, mesh).find_tracks_by_type(unreal.MovieSceneControlRigParameterTrack)
+        if len(tracks) != 1:
+            raise RuntimeError('LEFT_REFERENCE_SINGLE_TRACK')
+        sections = list(tracks[0].get_sections())
+        bases = [s for s in sections if s.get_blend_type().blend_type == unreal.MovieSceneBlendType.ABSOLUTE]
+        if len(bases) != 1:
+            raise RuntimeError('LEFT_REFERENCE_SINGLE_BASE')
+        original_tracks = _mesh_binding(sequence, mesh).find_tracks_by_type(unreal.MovieSceneControlRigParameterTrack)
+        proxies = [p for p in unreal.ControlRigSequencerLibrary.get_control_rigs(sequence) if p.track == original_tracks[0]]
+        if len(proxies) != 1:
+            raise RuntimeError('LEFT_REFERENCE_RIG_INSTANCE')
+        rig = proxies[0].control_rig
+        hierarchy = rig.get_hierarchy()
+        fingers = [f'{finger}_{joint:02}_l' for finger in ('thumb', 'index', 'middle', 'ring', 'pinky') for joint in (1, 2, 3)]
+        names = [str(n) for n in unreal.AnimPoseExtensions.get_bone_names(_pose(reference, mesh, 0))]
+        bones = [n for n in names if n.lower().endswith('_l') and n.lower().startswith(('clavicle_', 'upperarm_', 'lowerarm_', 'hand_', 'thumb_', 'index_', 'middle_', 'ring_', 'pinky_', 'ik_hand_'))]
+        controls = {'clavicle_l_ctrl': 'clavicle_l', 'hand_l_ik_ctrl': 'hand_l', 'elbow_l_pv_ctrl': 'lowerarm_l'}
+        controls.update({'source_' + n: n for n in bones})
+        selected = set(controls) | {'fk_' + n for n in fingers}
+        preserved = _channel_digest(sequence, selected)
+        values = {name: [] for name in selected}
+        for frame in range(count):
+            pose = _pose(reference, mesh, frame * rate.denominator / rate.numerator)
+            for name, bone in controls.items():
+                world = unreal.AnimPoseExtensions.get_bone_pose(pose, bone, unreal.AnimPoseSpaces.WORLD)
+                offset = hierarchy.get_global_control_offset_transform(_key(name, 'CONTROL'), True)
+                values[name].append(world.make_relative(offset))
+            for bone in fingers:
+                values['fk_' + bone].append(unreal.AnimPoseExtensions.get_bone_pose(pose, bone, unreal.AnimPoseSpaces.LOCAL))
+        suffixes = ('Location.X', 'Location.Y', 'Location.Z', 'Rotation.X', 'Rotation.Y', 'Rotation.Z', 'Scale.X', 'Scale.Y', 'Scale.Z')
+        def write(track):
+            for section in track.get_sections():
+                section.set_is_locked(False)
+                channels = {str(c.channel_name): c for c in section.get_all_channels()}
+                additive = section.get_blend_type().blend_type == unreal.MovieSceneBlendType.ADDITIVE
+                for name in selected:
+                    targets = [channels[name + '.' + suffix] for suffix in suffixes]
+                    for channel in targets:
+                        for key in list(channel.get_keys()):
+                            channel.remove_key(key)
+                        if additive:
+                            channel.set_default(0.0)
+                    if additive:
+                        continue
+                    previous = None
+                    for frame, transform in enumerate(values[name]):
+                        rotation = transform.rotation.rotator()
+                        angles = [rotation.roll, rotation.pitch, rotation.yaw]
+                        if previous is not None:
+                            angles = [a + 360 * round((b - a) / 360) for a, b in zip(angles, previous)]
+                        previous = angles
+                        numbers = list(transform.translation.to_tuple()) + angles + list(transform.scale3d.to_tuple())
+                        for channel, number in zip(targets, numbers):
+                            channel.add_key(unreal.FrameNumber(value=frame), number, 0.0, unreal.MovieSceneTimeUnit.DISPLAY_RATE, unreal.MovieSceneKeyInterpolation.LINEAR)
+                section.set_is_locked(not additive)
+        write(tracks[0])
+        after = _export(copied, source, mesh, scope, 'AfterLeft')
+        maximum = 0.0
+        failures = []
+        for frame in range(count):
+            time = frame * rate.denominator / rate.numerator
+            expected = _pose(reference, mesh, time)
+            actual = _pose(after, mesh, time)
+            for bone in ('clavicle_l', 'upperarm_l', 'lowerarm_l', 'hand_l', *fingers):
+                a = unreal.AnimPoseExtensions.get_bone_pose(expected, bone, unreal.AnimPoseSpaces.WORLD)
+                b = unreal.AnimPoseExtensions.get_bone_pose(actual, bone, unreal.AnimPoseSpaces.WORLD)
+                error = (a.translation - b.translation).length()
+                maximum = max(maximum, error)
+                cosine = abs(sum(x * y for x, y in zip(a.rotation.to_tuple(), b.rotation.to_tuple())))
+                if error > 0.05 or cosine < 0.99999:
+                    if len(failures) < 8:
+                        failures.append('%s frame=%d cm=%f cosine=%f' % (bone, frame, error, cosine))
+        if failures:
+            raise RuntimeError('LEFT_REFERENCE_POSE: ' + '; '.join(failures) + ' bones=' + str(bones))
+        for bone in before.data_model_interface.get_bone_track_names():
+            if str(bone).lower() in {n.lower() for n in bones}:
+                continue
+            a = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(before, bone)
+            b = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(after, bone)
+            if len(a) != len(b) or any((x.translation - y.translation).length() > 0.001 or abs(sum(i * j for i, j in zip(x.rotation.to_tuple(), y.rotation.to_tuple()))) < 0.999999 for x, y in zip(a, b)):
+                raise RuntimeError('LEFT_REFERENCE_CHANGED_OTHER_BONE: ' + str(bone))
+        original_track = _mesh_binding(sequence, mesh).find_tracks_by_type(unreal.MovieSceneControlRigParameterTrack)[0]
+        sequence.modify()
+        write(original_track)
+        if preserved != _channel_digest(sequence, selected):
+            raise RuntimeError('LEFT_REFERENCE_CHANGED_OTHER_CHANNELS')
+        if not unreal.EditorAssetLibrary.save_loaded_asset(sequence, False):
+            raise RuntimeError('LEFT_REFERENCE_SAVE')
+        request.update({'applied': True, 'reference_digest': _digest(reference), 'frames': count,
+                        'max_position_error_cm': maximum, 'other_channels_preserved': True})
+        unreal.LevelSequenceEditorBlueprintLibrary.refresh_current_level_sequence()
+        return request
+    finally:
+        unreal.purge_object_references(scope, True)
 
 
 def prepare_preview_mesh(data, sequence):

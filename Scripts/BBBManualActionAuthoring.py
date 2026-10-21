@@ -660,6 +660,7 @@ def prepare(recipe_path, write_paths):
         importlib.reload(BBBManualActionNative)
         BBBManualActionNative.prepare_preview_mesh(data, sequence)
         native_edit = BBBManualActionNative.prepare_offset(data, sequence)
+        BBBManualActionNative.restore_left_reference(data, sequence)
         if 'preview_attachment_error_cm' not in data['validation']:
             data['validation']['preview_attachment_error_cm'] = _verify_previews(sequence, data['weapon_preview'])
         data['status'] = 'manual_edit_ready'

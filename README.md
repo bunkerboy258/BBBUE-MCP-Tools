@@ -348,3 +348,7 @@ python -B Tests/benchmark_mcp_workflows.py --catalog '<当前目录缓存>' --su
 
 
 2026-10-21：人工装备换弹制作入口自动使用完整手臂预览，原位保留角色绑定及所有手调通道；Rifle01换弹关键帧摘要一致、网格替换前后原生骨轨零差，肘部控制保持。详见Docs/BBBManualActionAuthoringMCP.md。
+
+### 2026-10-21 换弹左侧原通用动作恢复
+
+人工动作prepare_action支持制作源显式left_reference，原生瞬态副本核验后只恢复左臂、手腕与手指通道，清除左侧叠加偏移，保留右侧及附件。applied标志使重复打开不覆盖新手调。Rifle02全67帧官方导出核对最大位置差0.000174厘米，其他通道摘要和非左侧骨轨不变，重复调用通过；未跑PIE。详见Docs/BBBManualActionAuthoringMCP.md。

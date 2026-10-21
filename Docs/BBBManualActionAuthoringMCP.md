@@ -101,3 +101,11 @@ bake 仅调用官方 SequencerTools.export_anim_sequence 对实际序列求值�
 修改前后逐通道核对所有关键帧的显示帧时间、子帧、值与默认值摘要，绑定GUID使用export_text稳定表示；不将Python结构显示字符串中的地址写入摘要。另在纯瞬态中官方导出替换前后实际动画，核对全部骨轨位置、旋转及缩放。失败恢复原预览网格；不重建LS，不写控制键，不做自动拟合。
 
 实际Rifle01换弹批次61c60ffb20d0b446完成：现用SK_arms，通道摘要11f03a44a30bd612b5884f595ffaca0f0c2a7cceb7b05ae41eab18bb732d5f32前后一致，原生骨轨差0，绑定保留。用户左手叠加位置与旋转各10键、缩放各3键保留，旧/新弹匣Transform轨保留。肘部控制与Rig资产未写入，未跑PIE，不生成备份资产。
+
+## 换弹左侧恢复原通用动作（2026-10-21）
+
+后续换弹人工制作按用户要求，以对应原通用换弹的左臂、左腕和手指开始编辑，不能用专属Grip或静态握姿替代原通用换弹。为每条新ManualAction制作源显式填写left_reference.animation与applied=false；Rifle Reload基准使用/Game/_Project/Characters/BBBC_UA/Animation/OtherAnimation/Lyra/Rifle/MM_Rifle_Reload。其他动作基准须选自身对应原通用动画，长度或骨架不匹配会拒绝，不猜测时间映射。装备不应用此操作；已确认的历史动画不回改。
+
+prepare_action恢复阶段调用restore_left_reference：先在纯瞬态副本逐帧重写左侧原生Absolute控制通道，并清除左侧Additive偏移；肩、肘、腕、源骨和逐节手指同时恢复。以官方导出核对全部67帧左侧位置和旋转，另核对非左侧骨轨不变，再写入原LS。其它通道的全部键时间、子帧、数值和默认值摘要必须一致，武器及弹匣轨道不变。UE骨名比较忽略大小写，写入仍使用实际通道名称。
+
+成功后制作源记录applied=true、参考骨轨摘要和误差；后续打开不再重复恢复，用户之后的手调可继续按原生Offset编辑及直接烘焙。没有自动平滑、重建LS、运行引用变更或备份资产。Rifle02原生批次6c82ef18cd19d245完成，最大左侧位置误差0.000174厘米、其他通道保持；fb4bbfeda1fc46e4验证重复打开不重置。
