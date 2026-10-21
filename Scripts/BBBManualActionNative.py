@@ -49,6 +49,108 @@ def repair_timeline_range(sequence):
             **after, 'channels_preserved': True, 'playback_preserved': True}
 
 
+def sync_reload_timing(path, data, write_paths):
+    """Apply explicit magazine frame timing to both configured montages, retaining notify instances."""
+    if data['action'] != 'reload' or unreal.EditorLevelLibrary.get_pie_worlds(False):
+        raise RuntimeError('RELOAD_TIMING_EDITOR_ONLY')
+    timing = data['rifle_reload_timing']
+    fps = float(timing['display_fps'])
+    out_time, in_time = timing['magazine_out_frame'] / fps, timing['magazine_in_frame'] / fps
+    if not 0 < out_time < in_time or not all(math.isfinite(v) for v in (out_time, in_time)):
+        raise RuntimeError('RELOAD_TIMING_FRAME_RANGE')
+    definition = _asset(data['definition'], unreal.DataAsset)
+    owners = [definition.get_editor_property(name) for name in ('character_reload_montage', 'equipment_reload_montage')]
+    if set(write_paths) != {owner.get_path_name().split('.')[0] for owner in owners}:
+        raise RuntimeError('RELOAD_TIMING_WRITE_SCOPE')
+    from BBBManualActionAuthoring import _single_segment
+    library = unreal.AnimationLibrary
+    reports = []
+    metadata = ('TriggerWeightThreshold', 'MontageTickType', 'NotifyTriggerChance',
+                'NotifyFilterType', 'NotifyFilterLOD', 'bCanBeFilteredViaRequest',
+                'bTriggerOnDedicatedServer', 'bTriggerOnFollower')
+    for role, owner in zip(('character', 'weapon'), owners):
+        segment = _single_segment(owner)
+        if role == 'character' and abs(segment.get_editor_property('anim_play_rate') - 1.0) > 1e-6:
+            raise RuntimeError('RELOAD_TIMING_REQUIRES_UNIT_RATE')
+        original = list(library.get_animation_notify_events(owner))
+        native = json.loads(unreal.BBBHandPoseLayerEditorLibrary.inspect_animation_notify_timing(owner))['events']
+        track_names = list(library.get_animation_notify_track_names(owner))
+        plans = []
+        for event, row in zip(original, native):
+            state = event.get_editor_property('notify_state_class')
+            notify = state or event.get_editor_property('notify')
+            name = notify.get_class().get_name() if notify else ''
+            matches = [str(t) for t in track_names if any(
+                (e.get_editor_property('notify_state_class') or e.get_editor_property('notify')) == notify
+                for e in library.get_animation_notify_events_for_track(owner, t))]
+            if len(matches) != 1:
+                raise RuntimeError('RELOAD_TIMING_TRACK_IDENTITY')
+            track = matches[0]
+            start, end = row['nativeTriggerTime'], row['nativeEndTriggerTime']
+            new_start, new_end = start, end
+            if role == 'character' and name == 'BBBCharacterOldMagazineDisplayAnimNotifyState':
+                new_start = out_time
+            elif role == 'character' and name == 'BBBCharacterNewMagazineDisplayAnimNotifyState':
+                new_end = in_time
+            elif role == 'weapon' and name == 'BBBEquipmentBoneVisibilityDisplayAnimNotifyState':
+                new_start, new_end = out_time, in_time
+            elif role == 'weapon' and name in ('BBBRifleLoadMagazineLogicAnimNotifyState', 'BBBEquipmentLoadAmmoLogicAnimNotifyState'):
+                new_start, new_end = in_time, in_time + (end - start)
+            elif track == 'BBB_MagazineOutAudio':
+                new_start = new_end = out_time
+            elif track == 'BBB_MagazineInAudio':
+                new_start = new_end = in_time
+            if new_end < new_start or new_end > owner.get_play_length() + 1e-5:
+                raise RuntimeError('RELOAD_TIMING_NOTIFY_RANGE')
+            plans.append((event, notify, state is not None, track, new_start, new_end,
+                          abs(new_start-start)>1e-5 or abs(new_end-end)>1e-5))
+        kinds = [p[1].get_class().get_name() for p in plans if p[1] is not None]
+        required_kinds = (('BBBCharacterOldMagazineDisplayAnimNotifyState', 'BBBCharacterNewMagazineDisplayAnimNotifyState')
+                          if role == 'character' else ('BBBEquipmentBoneVisibilityDisplayAnimNotifyState',))
+        if any(kinds.count(kind) != 1 for kind in required_kinds):
+            raise RuntimeError('RELOAD_TIMING_REQUIRES_MAGAZINE_RELOAD')
+        if role == 'weapon' and sum(kinds.count(kind) for kind in
+                ('BBBRifleLoadMagazineLogicAnimNotifyState', 'BBBEquipmentLoadAmmoLogicAnimNotifyState')) != 1:
+            raise RuntimeError('RELOAD_TIMING_LOAD_EVENT_REQUIRED')
+        changed_tracks = {p[3] for p in plans if p[6]}
+        require_asset_write([owner])
+        if changed_tracks:
+            owner.modify()
+            for track in changed_tracks:
+                library.remove_animation_notify_events_by_track(owner, track)
+                for event, notify, is_state, event_track, start, end, changed in plans:
+                    if event_track != track:
+                        continue
+                    if is_state:
+                        library.add_animation_notify_state_event_object(owner, start, end-start, notify, track)
+                    else:
+                        library.add_animation_notify_event_object(owner, start, notify, track)
+            actual = list(library.get_animation_notify_events(owner))
+            for event, notify, is_state, track, start, end, changed in plans:
+                matches = [e for e in actual if (e.get_editor_property('notify_state_class') or e.get_editor_property('notify')) == notify]
+                if len(matches) != 1:
+                    raise RuntimeError('RELOAD_TIMING_INSTANCE_IDENTITY')
+                if track in changed_tracks:
+                    for prop in metadata:
+                        if matches[0].get_editor_property(prop) != event.get_editor_property(prop):
+                            raise RuntimeError('RELOAD_TIMING_METADATA_CHANGED: ' + prop)
+            if not unreal.EditorAssetLibrary.save_loaded_asset(owner, False):
+                raise RuntimeError('RELOAD_TIMING_SAVE')
+        after = json.loads(unreal.BBBHandPoseLayerEditorLibrary.inspect_animation_notify_timing(owner))['events']
+        if len(after) != len(plans):
+            raise RuntimeError('RELOAD_TIMING_EVENT_COUNT')
+        for event, notify, is_state, track, start, end, changed in plans:
+            rows = [r for r in after if r['notifyInstance'] == notify.get_path_name()]
+            if len(rows) != 1 or abs(rows[0]['nativeTriggerTime']-start)>1e-5 or abs(rows[0]['nativeEndTriggerTime']-end)>1e-5:
+                raise RuntimeError('RELOAD_TIMING_READBACK')
+        reports.append({'montage': owner.get_path_name(), 'changed_tracks': sorted(changed_tracks),
+                        'notify_instances_preserved': True, 'events': after})
+    data.pop('reload_timing_request', None)
+    data['reload_timing_applied'] = {'out_frame': timing['magazine_out_frame'], 'in_frame': timing['magazine_in_frame'], 'fps': fps}
+    _save(path, data)
+    return {'timing': data['reload_timing_applied'], 'montages': reports, 'manual_keys_modified': False}
+
+
 def configure_visible_controls(data, sequence):
     """/** @param data\t显式可见控制器列表 @param sequence\t当前制作序列 @return\t保留全部关键帧的控制器显示过滤 */"""
     if 'visible_controls' not in data:

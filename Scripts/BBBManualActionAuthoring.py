@@ -669,6 +669,11 @@ def prepare(recipe_path, write_paths):
     if unreal.EditorLevelLibrary.get_pie_worlds(False):
         raise RuntimeError('ACTION_PREPARE_PIE_FORBIDDEN')
     path, data = _source(recipe_path)
+    if data.get('reload_timing_request'):
+        import importlib
+        import BBBManualActionNative
+        importlib.reload(BBBManualActionNative)
+        return BBBManualActionNative.sync_reload_timing(path, data, write_paths)
     required = {data['sequence'], data['rig']}
     if data.get('preview_animation'):
         required.add(data['preview_animation'])
