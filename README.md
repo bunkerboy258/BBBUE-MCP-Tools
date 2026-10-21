@@ -356,3 +356,12 @@ python -B Tests/benchmark_mcp_workflows.py --catalog '<当前目录缓存>' --su
 ### 2026-10-21 公共离散动作输入与型号输出分离
 
 新增BBBCommonActionSources，公共目录制作源通过既有双臂入口capture/inspect/finalize管理。ManualAction统一schema=2，分开公共身体animation、本枪finger_animation、output_animation与显式source_time_scale；去除旧schema和left_reference分支。原LS实际引用公共AS，先瞬态验证再刷新身体Absolute，保留原生Additive、手指和附件键。18个公共底稿、14把武器映射、27份制作要求原生检查通过；Rifle01/02四条LS接入完成，Rifle02装备官方烘焙回读差0，Rifle03装备从空要求准备完成。当前继续编辑Rifle02换弹，未跑PIE；详细契约见Docs/BBBManualActionAuthoringMCP.md。
+
+
+## 2026-10-21 干净Manny重定向公共动作
+
+新增 Scripts/BBBActionRetargetTools.py，通过 control_rig.process_dual_arm_body_pose 的 *_RetargetActions.json.source 分派 capture/finalize/inspect。BBBNativeRetargetActions/schema1明确原始动作、原生RTG、网格、参考、输出和首尾帧窗口；write_paths必须等于全部输出。capture调用UE原生IKRetargetBatchOperation，校验非空op stack、精确目标和源摘要，拒绝覆盖未采纳输出。finalize只平滑明确首尾窗口并回读中段/首尾、保存摘要，inspect核对保存及轨迹。不解释人工Offset键，不产生备份或兼容跳转。
+
+公共目录改按各baseline的finger_policy核验；新rifle装备/换弹保留源动画手指。ManualAction/schema2允许公共AS同时作为身体与手指来源，显式source_time_scale；准备时正确导入is_finger，并按本枪正式蒙太奇源验证弹匣预览，避免公共手指输入误当成本枪蒙太奇源。
+
+实机静态验证：指定RTG生成两条新公共动作；原始输入不变，首尾最大位置误差0.00003305835cm，中段最大写入误差0.00009338207cm。目录18底稿/14武器/27制作要求通过；Rifle01/02四LS原生Additive空键、四成品与实际Sequencer导出误差0、正式蒙太奇读回正确、无PIE。入口prepare_action再次打开Rifle01装备第0帧。通用CurveSnapshot备份分支本轮未调用。

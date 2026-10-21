@@ -522,6 +522,17 @@ def _finalize(path, recipe, write_paths):
 
 
 def process(recipe_path, action, write_paths, job_index):
+    if recipe_path.endswith('_RetargetActions.json.source'):
+        import importlib
+        import BBBActionRetargetTools
+        importlib.reload(BBBActionRetargetTools)
+        if action == 'capture':
+            return BBBActionRetargetTools.capture(recipe_path, write_paths)
+        if action == 'finalize':
+            return BBBActionRetargetTools.finalize(recipe_path, write_paths)
+        if action == 'inspect':
+            return BBBActionRetargetTools.inspect(recipe_path, write_paths)
+        raise RuntimeError('RETARGET_ACTION_REQUIRED')
     if recipe_path.endswith('CommonActionBaselines.json.source'):
         import importlib
         import BBBCommonActionSources

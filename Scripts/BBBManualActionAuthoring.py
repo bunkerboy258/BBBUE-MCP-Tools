@@ -46,9 +46,11 @@ def _source(recipe_path):
         raise RuntimeError('ACTION_APPROVED_KIND_REQUIRED')
     if data.get('status') not in ('prepare_approved', 'track_created', 'keys_written', 'previews_created', 'manual_edit_ready'):
         raise RuntimeError('ACTION_SOURCE_STATUS')
-    for field, folder in [('sequence', 'work'), ('rig', 'work'), ('finger_animation', 'Sequence'), ('output_animation', 'Sequence')]:
+    for field, folder in [('sequence', 'work'), ('rig', 'work'), ('output_animation', 'Sequence')]:
         if data[field].rsplit('/', 1)[0] != root + '/Animation/' + folder:
             raise RuntimeError('ACTION_ASSET_SCOPE: ' + field)
+    if data['finger_animation'] != data['animation'] and data['finger_animation'].rsplit('/', 1)[0] != root + '/Animation/Sequence':
+        raise RuntimeError('ACTION_FINGER_SOURCE_SCOPE')
     import BBBCommonActionSources
     row = BBBCommonActionSources.source_for(data)
     if _digest(_asset(data['animation'], unreal.AnimSequence)) != row['validation']['animation_digest']:
@@ -546,7 +548,8 @@ def _previews(data, sequence, animation, count):
     if data['action'] == 'reload':
         character_montage = definition.get_editor_property('character_reload_montage')
         character_segment = _single_segment(character_montage)
-        if character_segment.get_editor_property('anim_reference') != _asset(data['finger_animation'], unreal.AnimSequence):
+        character_source = character_segment.get_editor_property('anim_reference')
+        if character_source is None or not character_source.get_path_name().startswith(data['weapon_root'] + '/Animation/Sequence/'):
             raise RuntimeError('ACTION_RELOAD_REFERENCE_CHANGED')
         character_rate = character_segment.get_editor_property('anim_play_rate')
         weapon_montage = definition.get_editor_property('equipment_reload_montage')
@@ -662,6 +665,7 @@ def prepare(recipe_path, write_paths):
      * @return	可手调动作及起始一致性结果
      */
     """
+    from BBBCommonActionSources import is_finger
     if unreal.EditorLevelLibrary.get_pie_worlds(False):
         raise RuntimeError('ACTION_PREPARE_PIE_FORBIDDEN')
     path, data = _source(recipe_path)

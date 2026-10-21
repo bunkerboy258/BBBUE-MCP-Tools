@@ -46,8 +46,10 @@ def inspect_catalog(recipe_path, write_paths):
         raise RuntimeError('COMMON_CATALOG_INSPECT_SCOPE')
     for row in data['baselines'].values():
         animation = _asset(row['animation'], unreal.AnimSequence)
-        if _digest(animation) != row['validation']['animation_digest'] or any(is_finger(n) for n in animation.data_model_interface.get_bone_track_names()):
+        if _digest(animation) != row['validation']['animation_digest']:
             raise RuntimeError('COMMON_CATALOG_BASELINE_INVALID')
+        if row['finger_policy'] == 'exclude' and any(is_finger(n) for n in animation.data_model_interface.get_bone_track_names()):
+            raise RuntimeError('COMMON_CATALOG_EXCLUDED_FINGER_TRACKS')
         if unreal.AnimationLibrary.get_animation_notify_events(animation):
             raise RuntimeError('COMMON_CATALOG_BASELINE_HAS_NOTIFIES')
     count = 0
@@ -64,7 +66,7 @@ def inspect_catalog(recipe_path, write_paths):
                 raise RuntimeError('COMMON_CATALOG_TIME_SCALE: ' + root)
             count += 1
     return {'baselines': len(data['baselines']), 'weapons': len(data['weapons']), 'manual_recipes': count,
-            'finger_tracks': 0, 'baseline_notifies': 0, 'explicit_timing_verified': True, 'assetModified': False}
+            'finger_policy': 'per_baseline', 'baseline_notifies': 0, 'explicit_timing_verified': True, 'assetModified': False}
 
 
 def adopt_saved(recipe_path, write_paths):
@@ -79,9 +81,14 @@ def adopt_saved(recipe_path, write_paths):
         source = _asset(row['source'], unreal.AnimSequence)
         if abs(animation.get_play_length() - row['validation']['seconds']) > 0.0001:
             raise RuntimeError('COMMON_ADOPT_LENGTH_REQUIRES_EXPLICIT_MAPPING')
-        if animation.get_editor_property('skeleton') != source.get_editor_property('skeleton'):
+        expected_skeleton = source.get_editor_property('skeleton')
+        if row.get('retargeter'):
+            expected_skeleton = _asset(row['target_mesh'], unreal.SkeletalMesh).get_editor_property('skeleton')
+        if animation.get_editor_property('skeleton') != expected_skeleton:
             raise RuntimeError('COMMON_ADOPT_SKELETON')
-        if any(is_finger(n) for n in animation.data_model_interface.get_bone_track_names()) or unreal.AnimationLibrary.get_animation_notify_events(animation):
+        if row['finger_policy'] == 'exclude' and any(is_finger(n) for n in animation.data_model_interface.get_bone_track_names()):
+            raise RuntimeError('COMMON_ADOPT_FINGER_POLICY')
+        if unreal.AnimationLibrary.get_animation_notify_events(animation):
             raise RuntimeError('COMMON_ADOPT_FINGER_OR_NOTIFY')
         signature = _digest(animation)
         if signature != row['validation']['animation_digest']:
