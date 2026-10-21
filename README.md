@@ -342,3 +342,6 @@ python -B Tests/benchmark_mcp_workflows.py --catalog '<当前目录缓存>' --su
 2026-10-21 人工动作 inspect 增加正式源摘要、实际改键范围和小数帧原生曲线加Rig求值诊断，分开报告整数帧烘焙一致性与手调小数帧保留。Rifle01 四个左手子帧键在30 FPS成品中相差12.34至3.35厘米，而相邻整数帧误差小于0.000061厘米；原生回读通过，没有修改用户资产，不宣称穿模已修复。入口与结果见 [BBBManualActionAuthoringMCP.md](Docs/BBBManualActionAuthoringMCP.md)。
 
 2026-10-21 人工动作 bake 新增现有左手子帧修正的连续审核烘焙：纯瞬态移除窄峰基线、右手空间人工差值、保留起止姿态的平滑连接与120 FPS骨轨输出。Rifle01 201个采样全部原始骨轨回读通过，四处原人工点最大实际预览误差3.70毫米，原LS/Rig的SHA不变；成品已打开供用户审核，运行引用未变，不宣称穿模视觉验收通过。详见 [BBBManualActionAuthoringMCP.md](Docs/BBBManualActionAuthoringMCP.md)。
+
+
+2026-10-21：人工武器动作prepare_action自动准备原生Additive偏移段并锁定原段，bake直接官方导出实际序列，移除自定义阶段插值；Rifle01中性输出零差、左手1厘米偏移与右手稳定验证通过，Rifle02自动准备通过。详见Docs/BBBManualActionAuthoringMCP.md。

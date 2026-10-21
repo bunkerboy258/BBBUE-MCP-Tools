@@ -526,14 +526,16 @@ def process(recipe_path, action, write_paths, job_index):
         import importlib
         import BBBManualActionAuthoring
         importlib.reload(BBBManualActionAuthoring)
-        import BBBManualActionBake
-        importlib.reload(BBBManualActionBake)
-        return BBBManualActionBake.bake_review(recipe_path, write_paths)
+        import BBBManualActionNative
+        importlib.reload(BBBManualActionNative)
+        return BBBManualActionNative.bake_review(recipe_path, write_paths)
     if action == 'inspect' and recipe_path.endswith('_ManualAction.json.source'):
         import importlib
         import BBBManualActionAuthoring
         importlib.reload(BBBManualActionAuthoring)
-        return BBBManualActionAuthoring.inspect_manual(recipe_path, write_paths)
+        import BBBManualActionNative
+        importlib.reload(BBBManualActionNative)
+        return BBBManualActionNative.inspect_manual(recipe_path, write_paths)
     if action == 'prepare_action':
         import importlib
         import BBBManualActionAuthoring
