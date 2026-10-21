@@ -345,3 +345,6 @@ python -B Tests/benchmark_mcp_workflows.py --catalog '<当前目录缓存>' --su
 
 
 2026-10-21：人工武器动作prepare_action自动准备原生Additive偏移段并锁定原段，bake直接官方导出实际序列，移除自定义阶段插值；Rifle01中性输出零差、左手1厘米偏移与右手稳定验证通过，Rifle02自动准备通过。详见Docs/BBBManualActionAuthoringMCP.md。
+
+
+2026-10-21：人工装备换弹制作入口自动使用完整手臂预览，原位保留角色绑定及所有手调通道；Rifle01换弹关键帧摘要一致、网格替换前后原生骨轨零差，肘部控制保持。详见Docs/BBBManualActionAuthoringMCP.md。

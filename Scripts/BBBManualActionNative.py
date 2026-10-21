@@ -1,10 +1,71 @@
 import uuid
+import hashlib
+import json
 
 import unreal
 
 from BBBAssetWritePolicy import require_asset_write
 from BBBControlRigAuthoringToolset import _asset, _mesh_binding
 from BBBManualActionAuthoring import _source, _save, _digest
+
+
+def _channel_digest(sequence):
+    """/** @param sequence\t现有制作序列 @return\t全部通道时间值及默认值摘要 */"""
+    rows = []
+    for binding in sequence.get_bindings():
+        for track in binding.get_tracks():
+            for section in track.get_sections():
+                channels = []
+                for channel in section.get_all_channels():
+                    keys = []
+                    for key in channel.get_keys():
+                        stamp = key.get_time(unreal.MovieSceneTimeUnit.DISPLAY_RATE)
+                        keys.append([stamp.frame_number.value, stamp.sub_frame, str(key.get_value())])
+                    default = None
+                    if hasattr(channel, 'get_default'):
+                        default = str(channel.get_default())
+                    channels.append([str(channel.channel_name), default, keys])
+                rows.append([binding.get_id().export_text(), section.get_path_name(), channels])
+    return hashlib.sha256(json.dumps(rows, ensure_ascii=False).encode()).hexdigest()
+
+
+def prepare_preview_mesh(data, sequence):
+    """/** @param data\t正式制作源 @param sequence\t保留手调的序列 @return\t同骨架完整手臂预览更新证据 */"""
+    destination = data.get('preview_mesh', '/Game/_ThirdParty/Characters/UkraineSoldier/Meshes/Arms/SK_arms')
+    original = _asset(data['mesh'], unreal.SkeletalMesh)
+    target = _asset(destination, unreal.SkeletalMesh)
+    if original == target:
+        return
+    if original.get_editor_property('skeleton') != target.get_editor_property('skeleton'):
+        raise RuntimeError('ACTION_PREVIEW_SKELETON_MISMATCH')
+    require_asset_write([sequence])
+    binding = _mesh_binding(sequence, original)
+    component = binding.get_object_template().skeletal_mesh_component
+    signature = _channel_digest(sequence)
+    source = _asset(data['animation'], unreal.AnimSequence)
+    scope = unreal.new_object(unreal.LevelSequence, name='BBBPreviewMesh_' + uuid.uuid4().hex)
+    try:
+        before = _export(sequence, source, original, scope, 'Before')
+        sequence.modify()
+        component.modify()
+        component.set_skeletal_mesh_asset(target)
+        after = _export(sequence, source, target, scope, 'After')
+        error = _compare(before, after)
+        if _channel_digest(sequence) != signature or _mesh_binding(sequence, target).get_id().export_text() != binding.get_id().export_text():
+            raise RuntimeError('ACTION_PREVIEW_KEYS_OR_BINDING_CHANGED')
+        if not unreal.EditorAssetLibrary.save_loaded_asset(sequence, False):
+            raise RuntimeError('ACTION_PREVIEW_MESH_SAVE')
+        data['mesh'] = destination
+        data['preview_mesh'] = destination
+        data['preview_mesh_update'] = {'channel_digest': signature, 'keys_preserved': True,
+                                       'binding_preserved': True, 'native_bone_track_error_cm': error}
+        unreal.LevelSequenceEditorBlueprintLibrary.close_level_sequence()
+        unreal.LevelSequenceEditorBlueprintLibrary.open_level_sequence(sequence)
+    except Exception:
+        component.set_skeletal_mesh_asset(original)
+        raise
+    finally:
+        unreal.purge_object_references(scope, True)
 
 
 def _export(sequence, source, mesh, scope, name, duplicate=True):
