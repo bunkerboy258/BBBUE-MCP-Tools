@@ -634,6 +634,146 @@ def _verify_previews(sequence, preview):
     return maximum
 
 
+def _inspect_subframe_samples(sequence, baked, mesh, asset, frames):
+    """
+    /**
+     * @param sequence	实际手调序列
+     * @param baked	整数帧烘焙成品
+     * @param mesh	明确角色网格
+     * @param asset	当前动作Rig
+     * @param frames	小数帧及相邻整数帧
+     * @return	原生曲线和Rig求值与成品的手部差异 不依赖视口缓存
+     */
+    """
+    from BBBControlRigAuthoringToolset import _mesh_binding
+    binding = _mesh_binding(sequence, mesh)
+    tracks = binding.find_tracks_by_type(unreal.MovieSceneControlRigParameterTrack)
+    channels = {str(channel.channel_name): channel for section in tracks[0].get_sections() for channel in section.get_all_channels()}
+    instance = asset.create_control_rig()
+    instance.request_init()
+    instance.execute_event('Forwards Solve')
+    hierarchy = instance.get_hierarchy()
+    rate = sequence.get_display_rate()
+    tick_rate = sequence.get_tick_resolution()
+    suffixes = ('Location.X', 'Location.Y', 'Location.Z', 'Rotation.X', 'Rotation.Y', 'Rotation.Z', 'Scale.X', 'Scale.Y', 'Scale.Z')
+    result = []
+    for frame in sorted(frames):
+        time = frame * rate.denominator / rate.numerator
+        tick = round(time * tick_rate.numerator / tick_rate.denominator)
+        span = next(iter(channels.values())).compute_effective_range()
+        span.set_editor_property('has_start_value', True)
+        span.set_editor_property('has_end_value', True)
+        span.set_editor_property('inclusive_start', tick)
+        span.set_editor_property('exclusive_end', tick + 1)
+        if abs(unreal.SequencerScriptingRangeExtensions.get_start_seconds(span) - time) > tick_rate.denominator / tick_rate.numerator:
+            raise RuntimeError('ACTION_INSPECT_NATIVE_CURVE_RANGE')
+        for control in hierarchy.get_controls():
+            name = str(control.name)
+            values = []
+            for suffix in suffixes:
+                samples = channels[name + '.' + suffix].evaluate_keys(span, tick_rate)
+                if len(samples) != 1:
+                    raise RuntimeError('ACTION_INSPECT_NATIVE_CURVE_SAMPLE')
+                values.append(samples[0])
+            value = unreal.EulerTransform(location=unreal.Vector(*values[:3]), rotation=unreal.Rotator(roll=values[3], pitch=values[4], yaw=values[5]), scale=unreal.Vector(*values[6:9]))
+            hierarchy.set_control_value(control, unreal.RigHierarchy.make_control_value_from_euler_transform(value))
+        if not instance.execute_event('Forwards Solve'):
+            raise RuntimeError('ACTION_INSPECT_NATIVE_RIG_SAMPLE')
+        pose = _pose(baked, mesh, min(time, baked.get_play_length()))
+        errors = {}
+        for bone in ('hand_l', 'hand_r'):
+            actual = hierarchy.get_global_transform(_key(bone))
+            exported = unreal.AnimPoseExtensions.get_bone_pose(pose, bone, unreal.AnimPoseSpaces.WORLD)
+            dot = abs(sum(a * b for a, b in zip(actual.rotation.to_tuple(), exported.rotation.to_tuple())))
+            errors[bone] = {'cm': (actual.translation - exported.translation).length(), 'degrees': math.degrees(2 * math.acos(min(1.0, dot)))}
+        result.append({'frame': frame, 'hands': errors})
+    return result
+
+
+def inspect_manual(recipe_path, write_paths):
+    """
+    /**
+     * @param recipe_path	人工动作制作源
+     * @param write_paths	明确占用的制作LS与Rig 检查本身不写入
+     * @return	控制器实际改键范围及保存序列与成品的原生求值一致性
+     */
+    """
+    path, data = _source(recipe_path)
+    if set(write_paths) != {data['sequence'], data['rig']}:
+        raise RuntimeError('ACTION_INSPECT_SCOPE')
+    sequence = _asset(data['sequence'], unreal.LevelSequence)
+    source = _asset(data['animation'], unreal.AnimSequence)
+    mesh = _asset(data['mesh'], unreal.SkeletalMesh)
+    asset = _asset(data['rig'], unreal.ControlRigBlueprint)
+    from BBBControlRigAuthoringToolset import _mesh_binding
+    binding = _mesh_binding(sequence, mesh)
+    tracks = binding.find_tracks_by_type(unreal.MovieSceneControlRigParameterTrack)
+    if len(tracks) != 1:
+        raise RuntimeError('ACTION_INSPECT_UNIQUE_TRACK')
+    channels = {str(channel.channel_name): channel for section in tracks[0].get_sections() for channel in section.get_all_channels()}
+    instance = asset.create_control_rig()
+    instance.request_init()
+    instance.execute_event('Forwards Solve')
+    hierarchy = instance.get_hierarchy()
+    suffixes = ('Location.X', 'Location.Y', 'Location.Z', 'Rotation.X', 'Rotation.Y', 'Rotation.Z', 'Scale.X', 'Scale.Y', 'Scale.Z')
+    rate = source.data_model_interface.get_frame_rate()
+    edited = []
+    poses = {}
+    for name in data['controls']:
+        if name.startswith('fk_'):
+            bone = name.removeprefix('fk_')
+        else:
+            side = name.split('_')[1]
+            bone = {'hand': 'hand', 'elbow': 'lowerarm', 'clavicle': 'clavicle'}[name.split('_')[0]] + '_' + side
+        times = {}
+        for axis, suffix in enumerate(suffixes):
+            channel = channels[name + '.' + suffix]
+            for key in channel.get_keys():
+                stamp = key.get_time(unreal.MovieSceneTimeUnit.DISPLAY_RATE)
+                frame = stamp.frame_number.value + stamp.sub_frame
+                time = frame * rate.denominator / rate.numerator
+                if time < 0 or time > source.get_play_length() + 0.00001:
+                    continue
+                sample_time = min(source.get_play_length(), time)
+                if sample_time not in poses:
+                    poses[sample_time] = _pose(source, mesh, sample_time)
+                pose = poses[sample_time]
+                space = unreal.AnimPoseSpaces.LOCAL if name.startswith('fk_') else unreal.AnimPoseSpaces.WORLD
+                expected = unreal.AnimPoseExtensions.get_bone_pose(pose, bone, space)
+                if not name.startswith('fk_'):
+                    expected = expected.make_relative(hierarchy.get_global_control_offset_transform(_key(name, 'CONTROL'), True))
+                rotation = expected.rotation.rotator()
+                numbers = list(expected.translation.to_tuple()) + [rotation.roll, rotation.pitch, rotation.yaw] + list(expected.scale3d.to_tuple())
+                delta = key.get_value() - numbers[axis]
+                if 3 <= axis < 6:
+                    delta = (delta + 180) % 360 - 180
+                if abs(delta) > 0.002:
+                    times.setdefault(round(frame, 5), {})[suffix] = round(delta, 5)
+        if times:
+            ordered = sorted(times)
+            subframes = [{'frame': frame, 'delta': times[frame]} for frame in ordered if abs(frame - round(frame)) > 0.0001]
+            edited.append({'control': name, 'changed_key_count': len(times), 'first_changed_frame': ordered[0], 'last_changed_frame': ordered[-1], 'subframe_keys': subframes})
+    result = {'sequence': data['sequence'], 'source': data['animation'], 'source_matches_preparation': _digest(source) == data['source_track_digest'], 'frame_rate': [rate.numerator, rate.denominator], 'modified_controls': edited, 'assetModified': False}
+    review = data.get('review_bake')
+    if review:
+        baked = _asset(review['animation'], unreal.AnimSequence)
+        try:
+            error = _verify_sequence(data, sequence, baked, mesh, baked.data_model_interface.get_number_of_keys())
+            result['bake_matches_saved_integer_frames'] = True
+            result['export_position_error_cm'] = error
+        except RuntimeError as error:
+            result['bake_matches_saved_integer_frames'] = False
+            result['export_mismatch'] = str(error)
+        subframes = {row['frame'] for control in edited for row in control['subframe_keys']}
+        if subframes:
+            samples = subframes | {math.floor(frame) for frame in subframes} | {math.ceil(frame) for frame in subframes}
+            result['subframe_preview_comparison'] = _inspect_subframe_samples(sequence, baked, mesh, asset, samples)
+            result['subframe_peak_hand_error_cm'] = max(row['hands']['hand_l']['cm'] for row in result['subframe_preview_comparison'] if row['frame'] in subframes)
+            result['integer_hand_error_cm'] = max(row['hands']['hand_l']['cm'] for row in result['subframe_preview_comparison'] if row['frame'] not in subframes)
+            result['manual_subframe_positions_preserved'] = result['subframe_peak_hand_error_cm'] < 0.1
+    return result
+
+
 def prepare(recipe_path, write_paths):
     """
     /**
