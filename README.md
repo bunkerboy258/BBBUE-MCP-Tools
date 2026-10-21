@@ -384,3 +384,10 @@ ManualAction正式源可用visible_controls显式限定视口控制器。prepare
 finger_repair现归属RetargetActions每个jobs项，mode统一为bridge_hyperextended_finger_yaw，bones显式限定可修改骨轨；finalize逐动作核验或修复，sync按ManualAction.action匹配。正式源已迁移至唯一当前结构，不保留旧结构分支。inspect同时报告装备与换弹指节命名旋转及全轨迹最大Yaw。
 
 实机检测换弹index_02_r在3–9、25–56帧反向上翘，峰值8.29799度；仅修这条骨轨39采样，修后最大Yaw为-0.33319度。其他骨轨、位置和缩放保持。Rifle01/02已准备换弹LS同步39个Rotation.Z源键，摘要验证其余控制键和Offset保留，Rifle01仍仅显示左侧控制器。无重新重定向、无PIE；当前左手编辑尚在进行，正式成品待用户完成后按既定流程统一烘焙，未将未完成左手编辑提前应用。
+
+
+## 2026-10-21 复制Rifle01原生Offset关键帧
+
+ManualAction正式源的offset_source_recipe显式指定同动作、同公共输入的源制作要求。prepare_action在目标已准备后，只复制唯一原生Additive层的通道默认值与关键帧，包括帧/子帧、值、插值模式、切线模式、切线权重模式及两侧切线/权重。源目标显示帧率与tick按有理数比较，段范围和通道集合必须一致。复制后完整回读对比，摘要证明其他层及武器/弹匣挂接轨道不变。结果记入offset_copy，后续打开直接保留用户继续修改，不自动重复覆盖。
+
+用户明确只要求应用编辑键，禁止直接烘焙。已在当前上线步枪范围Rifle02、Rifle03的装备及换弹LS应用Rifle01的原生Offset；装备各73键/18带键通道，换弹各1950键/936带键通道（含源序列已有中性键）。Rifle03换弹先完成制作底稿准备。四条回读键值、时间、默认值和切线一致，底层与挂接不变，无正式AS烘焙、无运行引用修改、无PIE、无备份。窗口回到Rifle02装备供人工微调。

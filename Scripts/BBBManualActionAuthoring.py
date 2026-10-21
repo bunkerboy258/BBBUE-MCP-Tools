@@ -691,6 +691,7 @@ def prepare(recipe_path, write_paths):
         import BBBCommonActionSources
         importlib.reload(BBBCommonActionSources)
         BBBCommonActionSources.prepare_base(data, sequence)
+        offset_copy = BBBManualActionNative.copy_offset_keys(path, data, sequence)
         if 'preview_attachment_error_cm' not in data['validation']:
             data['validation']['preview_attachment_error_cm'] = _verify_previews(sequence, data['weapon_preview'])
         data['status'] = 'manual_edit_ready'
@@ -701,7 +702,7 @@ def prepare(recipe_path, write_paths):
             proxy.control_rig.clear_control_selection(False)
             proxy.control_rig.select_control('hand_l_ik_ctrl', True, False)
         return {'status': data['status'], 'sequence': data['sequence'], 'resumed': True, 'runtimeModified': False,
-            'native_edit': native_edit, 'control_visibility': control_visibility, 'common_source': data['animation'], 'common_base': data['common_base']}
+            'native_edit': native_edit, 'control_visibility': control_visibility, 'offset_copy': offset_copy, 'common_source': data['animation'], 'common_base': data['common_base']}
     animation = _asset(data['animation'], unreal.AnimSequence)
     finger_animation = _asset(data['finger_animation'], unreal.AnimSequence)
     if abs(finger_animation.get_play_length() * data['source_time_scale'] - animation.get_play_length()) > 0.0001:

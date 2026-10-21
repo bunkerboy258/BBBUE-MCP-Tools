@@ -37,12 +37,14 @@ def configure_visible_controls(data, sequence):
     return {'visible_controls': sorted(allowed), 'all_keys_preserved': True, 'controls_deleted': False}
 
 
-def _channel_digest(sequence):
+def _channel_digest(sequence, excluded_sections=()):
     """/** @param sequence\t现有制作序列 @return\t全部通道时间值及默认值摘要 */"""
     rows = []
     for binding in sequence.get_bindings():
         for track in binding.get_tracks():
             for section in track.get_sections():
+                if section in excluded_sections:
+                    continue
                 channels = []
                 for channel in section.get_all_channels():
                     keys = []
@@ -55,6 +57,74 @@ def _channel_digest(sequence):
                     channels.append([str(channel.channel_name), default, keys])
                 rows.append([binding.get_id().export_text(), section.get_path_name(), channels])
     return hashlib.sha256(json.dumps(rows, ensure_ascii=False).encode()).hexdigest()
+
+
+def copy_offset_keys(path, data, sequence):
+    """/** @param path\t目标制作源 @param data\t显式Offset输入 @param sequence\t目标LS @return\t只复制原生叠加键及切线 不烘焙 */"""
+    if not data.get('offset_source_recipe'):
+        return None
+    if data.get('offset_copy'):
+        return data['offset_copy']
+    _, source_data = _source(data['offset_source_recipe'])
+    if source_data['action'] != data['action'] or source_data['animation'] != data['animation'] or source_data['sequence'] == data['sequence']:
+        raise RuntimeError('OFFSET_COPY_ACTION_SOURCE')
+    source = _asset(source_data['sequence'], unreal.LevelSequence)
+    for getter in ('get_display_rate', 'get_tick_resolution'):
+        left, right = getattr(source, getter)(), getattr(sequence, getter)()
+        if left.numerator * right.denominator != right.numerator * left.denominator:
+            raise RuntimeError('OFFSET_COPY_FRAME_RATE: ' + getter)
+    def layer(target):
+        sections = [s for b in target.get_bindings() for t in b.get_tracks()
+                    if isinstance(t, unreal.MovieSceneControlRigParameterTrack) for s in t.get_sections()
+                    if s.get_blend_type().blend_type == unreal.MovieSceneBlendType.ADDITIVE]
+        if len(sections) != 1:
+            raise RuntimeError('OFFSET_COPY_SINGLE_LAYER')
+        return sections[0]
+    fields = ('interpolation_mode', 'tangent_mode', 'tangent_weight_mode', 'arrive_tangent', 'leave_tangent', 'arrive_tangent_weight', 'leave_tangent_weight')
+    def snapshot(section):
+        values = {}
+        for channel in section.get_all_channels():
+            keys = []
+            for key in channel.get_keys():
+                time = key.get_time(unreal.MovieSceneTimeUnit.DISPLAY_RATE)
+                keys.append({'frame': time.frame_number.value, 'sub': time.sub_frame, 'value': key.get_value(),
+                             **{f: getattr(key, 'get_' + f)() for f in fields}})
+            values[str(channel.channel_name)] = {'default': channel.get_default() if channel.has_default() else None, 'keys': keys}
+        return values
+    source_layer, target_layer = layer(source), layer(sequence)
+    values = snapshot(source_layer)
+    signature = hashlib.sha256(json.dumps(values, default=str, sort_keys=True).encode()).hexdigest()
+    channels = {str(c.channel_name): c for c in target_layer.get_all_channels()}
+    if set(values) != set(channels) or source_layer.get_start_frame() != target_layer.get_start_frame() or source_layer.get_end_frame() != target_layer.get_end_frame():
+        raise RuntimeError('OFFSET_COPY_CHANNELS_OR_RANGE')
+    preserved = _channel_digest(sequence, [target_layer])
+    require_asset_write([sequence])
+    target_layer.set_is_locked(False)
+    for name, row in values.items():
+        channel = channels[name]
+        for key in list(channel.get_keys()):
+            channel.remove_key(key)
+        if row['default'] is None:
+            channel.remove_default()
+        else:
+            channel.set_default(row['default'])
+        for row_key in row['keys']:
+            key = channel.add_key(unreal.FrameNumber(value=row_key['frame']), row_key['value'], row_key['sub'], unreal.MovieSceneTimeUnit.DISPLAY_RATE)
+            for field in fields:
+                getattr(key, 'set_' + field)(row_key[field])
+    if snapshot(target_layer) != values or _channel_digest(sequence, [target_layer]) != preserved:
+        raise RuntimeError('OFFSET_COPY_READBACK_OR_BASE_CHANGED')
+    if not unreal.EditorAssetLibrary.save_loaded_asset(sequence, False):
+        raise RuntimeError('OFFSET_COPY_SAVE')
+    result = {'source_sequence': source_data['sequence'], 'source_digest': signature,
+              'key_count': sum(len(r['keys']) for r in values.values()),
+              'keyed_channels': sum(bool(r['keys']) for r in values.values()),
+              'tangents_preserved': True, 'base_and_attachments_preserved': True, 'baked': False}
+    data['offset_copy'] = result
+    data['runtime_applied'] = False
+    _save(path, data)
+    unreal.LevelSequenceEditorBlueprintLibrary.refresh_current_level_sequence()
+    return result
 
 
 def prepare_preview_mesh(data, sequence):
