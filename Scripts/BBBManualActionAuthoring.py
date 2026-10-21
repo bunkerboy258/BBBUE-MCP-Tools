@@ -675,6 +675,15 @@ def prepare(recipe_path, write_paths):
     if set(write_paths) != required:
         raise RuntimeError('ACTION_WRITE_SCOPE')
     sequence = unreal.load_asset(data['sequence'])
+    if sequence is not None:
+        import importlib
+        import BBBManualActionNative
+        importlib.reload(BBBManualActionNative)
+        timeline = BBBManualActionNative.repair_timeline_range(sequence)
+        if data.pop('timeline_ui_request', False):
+            data['timeline_range_repair'] = timeline
+            _save(path, data)
+            return {'sequence': data['sequence'], 'timeline': timeline, 'runtimeModified': False}
     if data.get('status') in ('previews_created', 'manual_edit_ready'):
         unreal.LevelSequenceEditorBlueprintLibrary.open_level_sequence(sequence)
         if data.get('finger_repair_source'):

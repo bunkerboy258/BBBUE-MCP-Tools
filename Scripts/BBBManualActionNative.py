@@ -1,12 +1,52 @@
 import uuid
 import hashlib
 import json
+import math
 
 import unreal
 
 from BBBAssetWritePolicy import require_asset_write
 from BBBControlRigAuthoringToolset import _asset, _mesh_binding
 from BBBManualActionAuthoring import _source, _save, _digest
+
+
+def repair_timeline_range(sequence):
+    """Repair invalid editor ranges without altering animation channels or valid zoom."""
+    before = {'view': [sequence.get_view_range_start(), sequence.get_view_range_end()],
+              'work': [sequence.get_work_range_start(), sequence.get_work_range_end()]}
+    invalid = any(not all(math.isfinite(v) for v in bounds) or bounds[1] <= bounds[0]
+                  for bounds in before.values())
+    if not invalid:
+        return {'repaired': False, **before}
+    signature = _channel_digest(sequence)
+    playback = [sequence.get_playback_start(), sequence.get_playback_end()]
+    rate = sequence.get_display_rate()
+    start, end = [frame * rate.denominator / rate.numerator for frame in playback]
+    if end <= start:
+        raise RuntimeError('TIMELINE_INVALID_PLAYBACK_RANGE')
+    margin = max((end - start) * 0.05, rate.denominator / rate.numerator)
+    bounds = [start - margin, end + margin]
+    require_asset_write([sequence])
+    unreal.LevelSequenceEditorBlueprintLibrary.close_level_sequence()
+    sequence.set_work_range_start(bounds[0])
+    sequence.set_work_range_end(bounds[1])
+    sequence.set_view_range_start(bounds[0])
+    sequence.set_view_range_end(bounds[1])
+    if not unreal.EditorAssetLibrary.save_loaded_asset(sequence, False):
+        raise RuntimeError('TIMELINE_RANGE_SAVE')
+    unreal.LevelSequenceEditorBlueprintLibrary.open_level_sequence(sequence)
+    unreal.LevelSequenceEditorBlueprintLibrary.set_current_time(playback[0])
+    unreal.LevelSequenceEditorBlueprintLibrary.refresh_current_level_sequence()
+    unreal.LevelSequenceEditorBlueprintLibrary.force_update()
+    after = {'view': [sequence.get_view_range_start(), sequence.get_view_range_end()],
+             'work': [sequence.get_work_range_start(), sequence.get_work_range_end()]}
+    if any(not all(math.isfinite(v) for v in values) or values[1] <= values[0] for values in after.values()):
+        raise RuntimeError('TIMELINE_RANGE_READBACK')
+    if _channel_digest(sequence) != signature or playback != [sequence.get_playback_start(), sequence.get_playback_end()]:
+        raise RuntimeError('TIMELINE_CHANNELS_CHANGED')
+    return {'repaired': True, 'before': {key: [v if math.isfinite(v) else str(v) for v in values]
+                                        for key, values in before.items()},
+            **after, 'channels_preserved': True, 'playback_preserved': True}
 
 
 def configure_visible_controls(data, sequence):
