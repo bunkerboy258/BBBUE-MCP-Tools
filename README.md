@@ -372,3 +372,8 @@ python -B Tests/benchmark_mcp_workflows.py --catalog '<当前目录缓存>' --su
 BBBActionRetargetTools在inspect中输出手指前段逐帧命名旋转、参考及骨架中性姿势；finalize支持正式源显式finger_repair.mode=bridge_hyperextended_distal_yaw和approval。该分支只原位修复装备非拇指02/03节超允许上限5度的连续Yaw异常段，用两侧现有安全帧连接，保持其他骨轨和关节Pitch/Roll、位置/缩放，不调用重定向。记录区间和摘要，重复调用核验当前摘要。
 
 ManualAction的finger_repair_source通过prepare_action同步受影响源指节Absolute Rotation.Z键。写入前逐键与旧源比对，存在人工冲突即拒绝；回读并验证其他控制键及原生Offset摘要不变，再正常官方烘焙。实机：16轨266异常采样修复，Rifle01/02/03制作序列同步，Rifle01现有9个Offset通道保留，Rifle01/02成品与LS导出误差0、正式引用读回正确，换弹不变；未跑PIE、未重新重定向、未产生备份。
+
+
+## 2026-10-21 动作制作控制器显示筛选
+
+ManualAction正式源可用visible_controls显式限定视口控制器。prepare_action在原生Offset准备后同步Rig资产及当前Sequencer实例的shape_visible，核对精确可见集合，比较全部序列通道摘要以保证关键帧不变；不删除控制器、不改求解。Rifle01换弹实机回读只显示左手IK、左肘方向、左锁骨及15节左手指FK，共18个控制器；全部关键帧保存不变。无PIE、无备份、无临时资产。

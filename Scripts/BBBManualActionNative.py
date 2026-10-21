@@ -9,6 +9,34 @@ from BBBControlRigAuthoringToolset import _asset, _mesh_binding
 from BBBManualActionAuthoring import _source, _save, _digest
 
 
+def configure_visible_controls(data, sequence):
+    """/** @param data\t显式可见控制器列表 @param sequence\t当前制作序列 @return\t保留全部关键帧的控制器显示过滤 */"""
+    if 'visible_controls' not in data:
+        return None
+    asset = _asset(data['rig'], unreal.ControlRigBlueprint)
+    allowed = set(data['visible_controls'])
+    keys = asset.hierarchy.get_controls()
+    names = {str(key.name) for key in keys}
+    if not allowed or not allowed <= names or any(name.startswith('source_') for name in allowed):
+        raise RuntimeError('ACTION_VISIBLE_CONTROLS_SCOPE')
+    signature = _channel_digest(sequence)
+    require_asset_write([asset])
+    hierarchies = [asset.hierarchy] + [p.control_rig.get_hierarchy() for p in unreal.ControlRigSequencerLibrary.get_control_rigs(sequence)]
+    for hierarchy in hierarchies:
+        for key in keys:
+            settings = hierarchy.get_control_settings(key)
+            settings.shape_visible = str(key.name) in allowed
+            hierarchy.set_control_settings(key, settings, False, True, False)
+        actual = {str(key.name) for key in keys if hierarchy.get_control_settings(key).shape_visible}
+        if actual != allowed:
+            raise RuntimeError('ACTION_VISIBLE_CONTROLS_READBACK')
+    if _channel_digest(sequence) != signature:
+        raise RuntimeError('ACTION_VISIBLE_CONTROLS_CHANGED_KEYS')
+    if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
+        raise RuntimeError('ACTION_VISIBLE_CONTROLS_SAVE')
+    return {'visible_controls': sorted(allowed), 'all_keys_preserved': True, 'controls_deleted': False}
+
+
 def _channel_digest(sequence):
     """/** @param sequence\t现有制作序列 @return\t全部通道时间值及默认值摘要 */"""
     rows = []

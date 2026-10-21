@@ -687,6 +687,7 @@ def prepare(recipe_path, write_paths):
         importlib.reload(BBBManualActionNative)
         BBBManualActionNative.prepare_preview_mesh(data, sequence)
         native_edit = BBBManualActionNative.prepare_offset(data, sequence)
+        control_visibility = BBBManualActionNative.configure_visible_controls(data, sequence)
         import BBBCommonActionSources
         importlib.reload(BBBCommonActionSources)
         BBBCommonActionSources.prepare_base(data, sequence)
@@ -700,7 +701,7 @@ def prepare(recipe_path, write_paths):
             proxy.control_rig.clear_control_selection(False)
             proxy.control_rig.select_control('hand_l_ik_ctrl', True, False)
         return {'status': data['status'], 'sequence': data['sequence'], 'resumed': True, 'runtimeModified': False,
-            'native_edit': native_edit, 'common_source': data['animation'], 'common_base': data['common_base']}
+            'native_edit': native_edit, 'control_visibility': control_visibility, 'common_source': data['animation'], 'common_base': data['common_base']}
     animation = _asset(data['animation'], unreal.AnimSequence)
     finger_animation = _asset(data['finger_animation'], unreal.AnimSequence)
     if abs(finger_animation.get_play_length() * data['source_time_scale'] - animation.get_play_length()) > 0.0001:
