@@ -677,6 +677,11 @@ def prepare(recipe_path, write_paths):
     sequence = unreal.load_asset(data['sequence'])
     if data.get('status') in ('previews_created', 'manual_edit_ready'):
         unreal.LevelSequenceEditorBlueprintLibrary.open_level_sequence(sequence)
+        if data.get('finger_repair_source'):
+            import importlib
+            import BBBActionRetargetTools
+            importlib.reload(BBBActionRetargetTools)
+            BBBActionRetargetTools.sync_finger_repair(path, data, sequence)
         import importlib
         import BBBManualActionNative
         importlib.reload(BBBManualActionNative)

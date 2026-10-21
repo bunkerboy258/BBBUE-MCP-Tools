@@ -125,6 +125,8 @@ def finalize(recipe_path, write_paths):
     from BBBManualActionAuthoring import _digest
     from BBBGenericEditorToolset import _set_flat_cubic_curve
     path, data = _read(recipe_path, write_paths)
+    if data.get('finger_repair'):
+        return _repair_fingers(path, data)
     reference = _asset(data['reference_animation'], unreal.AnimSequence)
     mesh = _asset(data['target_mesh'], unreal.SkeletalMesh)
     options = unreal.AnimPoseEvaluationOptions()
@@ -222,5 +224,179 @@ def inspect(recipe_path, write_paths):
     return {'state': data['state'], 'jobs': [{'animation': job['animation'],
              'saved_digest_matches': _digest(_asset(job['animation'], unreal.AnimSequence)) == job.get('aligned_digest', job['retarget_digest']),
              'validation': job.get('validation'),
+             'finger_entry': _finger_entry(_asset(job['animation'], unreal.AnimSequence), reference) if job['kind'] == 'equip' else None,
              'trajectory': _metrics(_asset(job['animation'], unreal.AnimSequence), reference, mesh,
                                     [0, job['exit_frames'][1] / 30, job['length']])} for job in data['jobs']]}
+
+
+def _finger_entry(animation, reference):
+    """/** @param animation\t现有装备动作 @param reference\t握持参考 @return\t手指前段逐帧局部旋转 */"""
+    from BBBCommonActionSources import is_finger
+    result = []
+    neutral = unreal.AnimPoseExtensions.get_reference_pose(animation.get_editor_property('skeleton'))
+    for bone in animation.data_model_interface.get_bone_track_names():
+        if not is_finger(bone):
+            continue
+        keys = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, bone)
+        ref = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(reference, bone)[0]
+        samples = []
+        for frame in (0, 2, 4, 6, 8, 10, 12, 15, 20, 30, len(keys) - 1):
+            value = keys[frame]
+            dot = min(1.0, abs(sum(x*y for x,y in zip(value.rotation.to_tuple(), ref.rotation.to_tuple()))))
+            samples.append({'frame': frame, 'degrees_from_reference': math.degrees(2*math.acos(dot)),
+                            'rotation': value.rotation.rotator().to_tuple(),
+                            'named_rotation': {axis: getattr(value.rotation.rotator(), axis) for axis in ('roll', 'pitch', 'yaw')}})
+        rest = unreal.AnimPoseExtensions.get_bone_pose(neutral, bone, unreal.AnimPoseSpaces.LOCAL)
+        result.append({'bone': str(bone), 'neutral': rest.rotation.rotator().to_tuple(), 'reference': ref.rotation.rotator().to_tuple(), 'samples': samples})
+    return result
+
+
+def _repair_fingers(path, data):
+    """/** @param path\t正式源 @param data\t批准的现有装备指节修正 @return\t异常区间及未变骨轨核验 */"""
+    from BBBManualActionAuthoring import _digest
+    policy = data['finger_repair']
+    if not policy.get('approval') or policy.get('mode') != 'bridge_hyperextended_distal_yaw':
+        raise RuntimeError('FINGER_REPAIR_APPROVAL')
+    job = next(j for j in data['jobs'] if j['kind'] == 'equip')
+    animation = _asset(job['animation'], unreal.AnimSequence)
+    if policy.get('applied'):
+        if _digest(animation) != job['aligned_digest']:
+            raise RuntimeError('FINGER_REPAIR_ASSET_CHANGED')
+        return policy
+    if _digest(animation) != job['aligned_digest']:
+        raise RuntimeError('FINGER_REPAIR_SOURCE_CHANGED')
+    if unreal.EditorLevelLibrary.get_pie_worlds(False):
+        raise RuntimeError('FINGER_REPAIR_PIE_FORBIDDEN')
+    reference = _asset(data['reference_animation'], unreal.AnimSequence)
+    neutral = unreal.AnimPoseExtensions.get_reference_pose(animation.get_editor_property('skeleton'))
+    original = {str(n): list(unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, n))
+                for n in animation.data_model_interface.get_bone_track_names()}
+    replacements = {}
+    reports = []
+    for name, keys in original.items():
+        parts = name.lower().split('_')
+        if len(parts) != 3 or parts[0] not in ('index', 'middle', 'ring', 'pinky') or parts[1] not in ('02', '03'):
+            continue
+        ref = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(reference, name)[0]
+        rest = unreal.AnimPoseExtensions.get_bone_pose(neutral, name, unreal.AnimPoseSpaces.LOCAL)
+        limit = max(0.0, rest.rotation.rotator().yaw, ref.rotation.rotator().yaw)
+        flexions = [key.rotation.rotator().yaw for key in keys]
+        frame = 1
+        changed = []
+        ranges = []
+        updates = list(keys)
+        while frame < job['exit_frames'][1]:
+            if flexions[frame] <= limit:
+                frame += 1
+                continue
+            start = frame
+            while frame < job['exit_frames'][1] and flexions[frame] > limit:
+                frame += 1
+            end = frame - 1
+            if max(flexions[start:end + 1]) <= limit + 5:
+                continue
+            left, right = start - 1, frame
+            if flexions[right] > limit + 0.01:
+                raise RuntimeError('FINGER_REPAIR_NO_SAFE_BOUNDARY: ' + name)
+            ranges.append([start, end])
+            for f in range(start, end + 1):
+                progress = (f - left) / (right - left)
+                weight = progress * progress * (3 - 2 * progress)
+                flexion = flexions[left] + (flexions[right] - flexions[left]) * weight
+                rotation = keys[f].rotation.rotator()
+                value = unreal.Transform(location=keys[f].translation, scale=keys[f].scale3d)
+                value.rotation = unreal.Rotator(pitch=rotation.pitch, yaw=flexion, roll=rotation.roll).quaternion()
+                updates[f] = value
+                changed.append({'frame': f, 'before_yaw': flexions[f], 'after_yaw': flexion})
+        if changed:
+            replacements[name] = updates
+            reports.append({'bone': name, 'limit_degrees': limit, 'ranges': ranges, 'keys': changed})
+    if not reports:
+        raise RuntimeError('FINGER_REPAIR_NO_ANOMALY')
+    require_asset_write([animation])
+    controller = animation.controller
+    controller.open_bracket('修复现有装备动画反向伸展指节', False)
+    try:
+        for name, keys in replacements.items():
+            if not controller.set_bone_track_keys(name, [k.translation for k in keys], [k.rotation for k in keys], [k.scale3d for k in keys], False):
+                raise RuntimeError('FINGER_REPAIR_WRITE: ' + name)
+    finally:
+        controller.close_bracket(False)
+    for name, before in original.items():
+        after = list(unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, name))
+        expected = replacements.get(name, before)
+        for f, (a, b) in enumerate(zip(after, expected)):
+            if (a.translation - b.translation).length() > 0.0001 or (a.scale3d-b.scale3d).length() > 0.0001 or abs(sum(x*y for x,y in zip(a.rotation.to_tuple(), b.rotation.to_tuple()))) < 0.999999:
+                raise RuntimeError('FINGER_REPAIR_READBACK: %s:%d' % (name, f))
+    if not unreal.EditorAssetLibrary.save_loaded_asset(animation, False):
+        raise RuntimeError('FINGER_REPAIR_SAVE')
+    policy.update({'applied': True, 'previous_digest': job['aligned_digest'], 'tracks': reports,
+                   'other_tracks_unchanged': True, 'translation_scale_unchanged': True})
+    job['aligned_digest'] = _digest(animation)
+    job['validation']['finger_entry_repaired'] = True
+    _save(path, data)
+    return policy
+
+
+def sync_finger_repair(path, data, sequence):
+    """/** @param path\t型号正式源 @param data\t制作要求 @param sequence\t保留人工Offset的序列 @return\t仅同步异常源指节 */"""
+    import hashlib
+    from BBBManualActionAuthoring import _save as save_manual
+    repair_path = Path(unreal.Paths.project_dir()) / data['finger_repair_source']
+    source = json.loads(repair_path.read_text(encoding='utf-8-sig'))
+    policy = source['finger_repair']
+    job = next(j for j in source['jobs'] if j['kind'] == 'equip')
+    if not policy.get('applied') or data['action'] != 'equip' or data['finger_animation'] != job['animation']:
+        raise RuntimeError('FINGER_SYNC_SOURCE')
+    if data.get('finger_repair_applied') == job['aligned_digest']:
+        return
+    if data['source_track_digest'] != policy['previous_digest']:
+        raise RuntimeError('FINGER_SYNC_PREVIOUS_SOURCE')
+    edits = {('fk_' + row['bone'] + '.Rotation.Z', key['frame']): key
+             for row in policy['tracks'] for key in row['keys']}
+    sections = [s for b in sequence.get_bindings() for t in b.get_tracks()
+                if isinstance(t, unreal.MovieSceneControlRigParameterTrack) for s in t.get_sections()]
+    bases = [s for s in sections if s.get_blend_type().blend_type == unreal.MovieSceneBlendType.ABSOLUTE]
+    if len(bases) != 1:
+        raise RuntimeError('FINGER_SYNC_ABSOLUTE_LAYER')
+    def digest():
+        rows = []
+        for section in sections:
+            for channel in section.get_all_channels():
+                for key in channel.get_keys():
+                    time = key.get_time(unreal.MovieSceneTimeUnit.DISPLAY_RATE)
+                    identity = (str(channel.channel_name), time.frame_number.value)
+                    if section == bases[0] and identity in edits:
+                        continue
+                    rows.append([section.get_path_name(), str(channel.channel_name), time.frame_number.value, time.sub_frame, str(key.get_value())])
+        return hashlib.sha256(json.dumps(rows).encode()).hexdigest()
+    found = {}
+    for channel in bases[0].get_all_channels():
+        for key in channel.get_keys():
+            time = key.get_time(unreal.MovieSceneTimeUnit.DISPLAY_RATE)
+            identity = (str(channel.channel_name), time.frame_number.value)
+            if identity in edits:
+                expected = edits[identity]['before_yaw']
+                if time.sub_frame != 0 or abs((key.get_value() - expected + 180) % 360 - 180) > 0.05:
+                    raise RuntimeError('FINGER_SYNC_HAND_EDIT_CONFLICT: ' + str(identity))
+                found[identity] = key
+    if set(found) != set(edits):
+        raise RuntimeError('FINGER_SYNC_KEYS_MISSING')
+    preserved = digest()
+    require_asset_write([sequence])
+    bases[0].set_is_locked(False)
+    try:
+        for identity, key in found.items():
+            key.set_value(edits[identity]['after_yaw'])
+        for identity, key in found.items():
+            if abs(key.get_value() - edits[identity]['after_yaw']) > 0.001:
+                raise RuntimeError('FINGER_SYNC_KEY_READBACK')
+    finally:
+        bases[0].set_is_locked(True)
+    if digest() != preserved:
+        raise RuntimeError('FINGER_SYNC_OTHER_KEYS_CHANGED')
+    if not unreal.EditorAssetLibrary.save_loaded_asset(sequence, False):
+        raise RuntimeError('FINGER_SYNC_SAVE')
+    data['finger_repair_applied'] = job['aligned_digest']
+    data['finger_repair_validation'] = {'changed_keys': len(found), 'other_control_keys_preserved': True, 'offset_keys_preserved': True}
+    save_manual(path, data)
