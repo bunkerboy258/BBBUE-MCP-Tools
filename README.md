@@ -352,3 +352,7 @@ python -B Tests/benchmark_mcp_workflows.py --catalog '<当前目录缓存>' --su
 ### 2026-10-21 换弹左侧原通用动作恢复
 
 人工动作prepare_action支持制作源显式left_reference，原生瞬态副本核验后只恢复左臂、手腕与手指通道，清除左侧叠加偏移，保留右侧及附件。applied标志使重复打开不覆盖新手调。Rifle02全67帧官方导出核对最大位置差0.000174厘米，其他通道摘要和非左侧骨轨不变，重复调用通过；未跑PIE。详见Docs/BBBManualActionAuthoringMCP.md。
+
+### 2026-10-21 公共离散动作输入与型号输出分离
+
+新增BBBCommonActionSources，公共目录制作源通过既有双臂入口capture/inspect/finalize管理。ManualAction统一schema=2，分开公共身体animation、本枪finger_animation、output_animation与显式source_time_scale；去除旧schema和left_reference分支。原LS实际引用公共AS，先瞬态验证再刷新身体Absolute，保留原生Additive、手指和附件键。18个公共底稿、14把武器映射、27份制作要求原生检查通过；Rifle01/02四条LS接入完成，Rifle02装备官方烘焙回读差0，Rifle03装备从空要求准备完成。当前继续编辑Rifle02换弹，未跑PIE；详细契约见Docs/BBBManualActionAuthoringMCP.md。

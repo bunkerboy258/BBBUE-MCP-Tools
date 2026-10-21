@@ -40,15 +40,19 @@ def _source(recipe_path):
     expected = project / 'Content' / root.removeprefix('/Game/') / 'Source/Animation'
     if not root.startswith('/Game/_Project/') or path.parent != expected.resolve() or not path.name.endswith('_ManualAction.json.source'):
         raise RuntimeError('ACTION_SOURCE_SCOPE')
-    if data.get('format') != 'BBBManualWeaponAction' or data.get('schema') != 1:
+    if data.get('format') != 'BBBManualWeaponAction' or data.get('schema') != 2:
         raise RuntimeError('ACTION_SOURCE_FORMAT')
     if data.get('action') not in ('equip', 'reload') or not data.get('approval'):
         raise RuntimeError('ACTION_APPROVED_KIND_REQUIRED')
     if data.get('status') not in ('prepare_approved', 'track_created', 'keys_written', 'previews_created', 'manual_edit_ready'):
         raise RuntimeError('ACTION_SOURCE_STATUS')
-    for field, folder in [('sequence', 'work'), ('rig', 'work'), ('animation', 'Sequence')]:
+    for field, folder in [('sequence', 'work'), ('rig', 'work'), ('finger_animation', 'Sequence'), ('output_animation', 'Sequence')]:
         if data[field].rsplit('/', 1)[0] != root + '/Animation/' + folder:
             raise RuntimeError('ACTION_ASSET_SCOPE: ' + field)
+    import BBBCommonActionSources
+    row = BBBCommonActionSources.source_for(data)
+    if _digest(_asset(data['animation'], unreal.AnimSequence)) != row['validation']['animation_digest']:
+        raise RuntimeError('ACTION_COMMON_SOURCE_CHANGED')
     return path, data
 
 
@@ -179,7 +183,13 @@ def _prepare_sequence(data, animation, count):
      * @return	原位更新的制作序列
      */
     """
-    sequence = _asset(data['sequence'], unreal.LevelSequence)
+    sequence = unreal.load_asset(data['sequence'])
+    if sequence is None:
+        if data['status'] != 'prepare_approved':
+            raise RuntimeError('ACTION_EXISTING_SEQUENCE_REQUIRED')
+        require_asset_write([], destinations=[data['sequence']])
+        package, name = data['sequence'].rsplit('/', 1)
+        sequence = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, package, unreal.LevelSequence, unreal.LevelSequenceFactoryNew())
     require_asset_write([sequence])
     unreal.LevelSequenceEditorBlueprintLibrary.close_level_sequence()
     for binding in list(sequence.get_bindings()):
@@ -207,6 +217,7 @@ def _prepare_sequence(data, animation, count):
     section = binding.add_track(unreal.MovieSceneSkeletalAnimationTrack).add_section()
     parameters = section.get_editor_property('params')
     parameters.animation = animation
+    parameters.play_rate = unreal.MovieSceneTimeWarpExtensions.make_time_warp(data['source_time_scale'])
     section.set_editor_property('params', parameters)
     section.set_range(0, count)
     unreal.EditorAssetLibrary.save_loaded_asset(sequence, False)
@@ -307,6 +318,8 @@ def _verify_sequence(data, sequence, animation, mesh, count):
      */
     """
     from BBBControlRigAuthoringToolset import _mesh_binding
+    from BBBCommonActionSources import is_finger
+    finger_animation = _asset(data['finger_animation'], unreal.AnimSequence)
     world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
     scope = unreal.new_object(unreal.LevelSequence, name='BBBManualActionAudit_' + uuid.uuid4().hex)
     copied = unreal.SystemLibrary.duplicate_object(sequence, scope, 'Sequence')
@@ -329,13 +342,19 @@ def _verify_sequence(data, sequence, animation, mesh, count):
             raise RuntimeError('ACTION_TRANSIENT_EXPORT_LENGTH')
         for frame in range(count):
             time = frame * rate.denominator / rate.numerator
-            pose = _pose(animation, mesh, time)
+            pose = _pose(animation, mesh, time * data['source_time_scale'])
+            finger_pose = _pose(finger_animation, mesh, time)
             result = _pose(baked, mesh, time)
             for bone in unreal.AnimPoseExtensions.get_bone_names(pose):
-                if str(bone).startswith('ik_hand_'):
+                expected_pose = pose
+                space = unreal.AnimPoseSpaces.WORLD
+                if is_finger(bone):
+                    expected_pose = finger_pose
+                    space = unreal.AnimPoseSpaces.LOCAL
+                if str(bone).lower().startswith('ik_hand_'):
                     continue
-                expected = unreal.AnimPoseExtensions.get_bone_pose(pose, bone, unreal.AnimPoseSpaces.WORLD)
-                actual = unreal.AnimPoseExtensions.get_bone_pose(result, bone, unreal.AnimPoseSpaces.WORLD)
+                expected = unreal.AnimPoseExtensions.get_bone_pose(expected_pose, bone, space)
+                actual = unreal.AnimPoseExtensions.get_bone_pose(result, bone, space)
                 error = (actual.translation - expected.translation).length()
                 maximum = max(maximum, error)
                 cosine = abs(sum(a * b for a, b in zip(actual.rotation.to_tuple(), expected.rotation.to_tuple())))
@@ -527,7 +546,7 @@ def _previews(data, sequence, animation, count):
     if data['action'] == 'reload':
         character_montage = definition.get_editor_property('character_reload_montage')
         character_segment = _single_segment(character_montage)
-        if character_segment.get_editor_property('anim_reference') != animation:
+        if character_segment.get_editor_property('anim_reference') != _asset(data['finger_animation'], unreal.AnimSequence):
             raise RuntimeError('ACTION_RELOAD_REFERENCE_CHANGED')
         character_rate = character_segment.get_editor_property('anim_play_rate')
         weapon_montage = definition.get_editor_property('equipment_reload_montage')
@@ -537,7 +556,7 @@ def _previews(data, sequence, animation, count):
         speed = weapon_rate / character_rate
         weapon_animation, visibility = _weapon_preview_animation(data, weapon_animation, weapon_montage, weapon_rate)
         rate = sequence.get_display_rate().numerator / sequence.get_display_rate().denominator
-        for owner, multiplier in ((animation, 1.0), (character_montage, character_rate)):
+        for owner, multiplier in ((_asset(data['finger_animation'], unreal.AnimSequence), 1.0), (character_montage, character_rate)):
             for state, start, end in _notify_events(owner):
                 if state is None:
                     continue
@@ -575,6 +594,7 @@ def _verify_finger_edit(instance):
      */
     """
     hierarchy = instance.get_hierarchy()
+    from BBBCommonActionSources import is_finger
     result = {}
     for side in ('l', 'r'):
         name = 'fk_index_01_' + side
@@ -650,17 +670,17 @@ def prepare(recipe_path, write_paths):
         required.add(data['preview_animation'])
     if set(write_paths) != required:
         raise RuntimeError('ACTION_WRITE_SCOPE')
-    sequence = _asset(data['sequence'], unreal.LevelSequence)
+    sequence = unreal.load_asset(data['sequence'])
     if data.get('status') in ('previews_created', 'manual_edit_ready'):
-        if _digest(_asset(data['animation'], unreal.AnimSequence)) != data['source_track_digest']:
-            raise RuntimeError('ACTION_RUNTIME_SOURCE_CHANGED_KEEP_MANUAL_SEQUENCE')
         unreal.LevelSequenceEditorBlueprintLibrary.open_level_sequence(sequence)
         import importlib
         import BBBManualActionNative
         importlib.reload(BBBManualActionNative)
         BBBManualActionNative.prepare_preview_mesh(data, sequence)
         native_edit = BBBManualActionNative.prepare_offset(data, sequence)
-        BBBManualActionNative.restore_left_reference(data, sequence)
+        import BBBCommonActionSources
+        importlib.reload(BBBCommonActionSources)
+        BBBCommonActionSources.prepare_base(data, sequence)
         if 'preview_attachment_error_cm' not in data['validation']:
             data['validation']['preview_attachment_error_cm'] = _verify_previews(sequence, data['weapon_preview'])
         data['status'] = 'manual_edit_ready'
@@ -671,13 +691,16 @@ def prepare(recipe_path, write_paths):
             proxy.control_rig.clear_control_selection(False)
             proxy.control_rig.select_control('hand_l_ik_ctrl', True, False)
         return {'status': data['status'], 'sequence': data['sequence'], 'resumed': True, 'runtimeModified': False,
-                'native_edit': native_edit}
+            'native_edit': native_edit, 'common_source': data['animation'], 'common_base': data['common_base']}
     animation = _asset(data['animation'], unreal.AnimSequence)
+    finger_animation = _asset(data['finger_animation'], unreal.AnimSequence)
+    if abs(finger_animation.get_play_length() * data['source_time_scale'] - animation.get_play_length()) > 0.0001:
+        raise RuntimeError('ACTION_EXPLICIT_SOURCE_TIME_SCALE')
     mesh = _asset(data['mesh'], unreal.SkeletalMesh)
-    count = animation.data_model_interface.get_number_of_keys()
+    count = finger_animation.data_model_interface.get_number_of_keys()
     if count < 2 or count > 600:
         raise RuntimeError('ACTION_FRAME_RANGE')
-    rate = animation.data_model_interface.get_frame_rate()
+    rate = finger_animation.data_model_interface.get_frame_rate()
     first = _pose(animation, mesh, 0)
     names = [str(n) for n in unreal.AnimPoseExtensions.get_bone_names(first)]
     fingers = [f'{finger}_{joint:02}_{side}' for side in ('l', 'r') for finger in ('thumb', 'index', 'middle', 'ring', 'pinky') for joint in (1, 2, 3)]
@@ -694,24 +717,31 @@ def prepare(recipe_path, write_paths):
     instance.execute_event('Forwards Solve')
     hierarchy = instance.get_hierarchy()
     for frame in range(count):
-        pose = _pose(animation, mesh, frame * rate.denominator / rate.numerator)
+        pose = _pose(animation, mesh, frame * rate.denominator / rate.numerator * data['source_time_scale'])
+        finger_pose = _pose(finger_animation, mesh, frame * rate.denominator / rate.numerator)
         values = {'source_' + n: unreal.AnimPoseExtensions.get_bone_pose(pose, n, unreal.AnimPoseSpaces.WORLD) for n in names}
         values.update({c: unreal.AnimPoseExtensions.get_bone_pose(pose, b, unreal.AnimPoseSpaces.WORLD) for c, b in control_map.items()})
         for name, value in values.items():
             hierarchy.set_global_transform(_key(name, 'CONTROL'), value)
             keys.append({'frame': frame, 'control': name, 'value': _read_transform(value)})
         for name in fingers:
-            local = unreal.AnimPoseExtensions.get_bone_pose(pose, name, unreal.AnimPoseSpaces.LOCAL)
+            local = unreal.AnimPoseExtensions.get_bone_pose(finger_pose, name, unreal.AnimPoseSpaces.LOCAL)
             value = unreal.EulerTransform(location=local.translation, rotation=local.rotation.rotator(), scale=local.scale3d)
             hierarchy.set_control_value(_key('fk_' + name, 'CONTROL'), unreal.RigHierarchy.make_control_value_from_euler_transform(value))
             finger_keys[name].append(value)
         if not instance.execute_event('Forwards Solve'):
             raise RuntimeError('ACTION_RIG_SOLVE')
         for name in names:
-            if name.startswith('ik_hand_'):
-                continue
+            original_pose = pose
+            space = unreal.AnimPoseSpaces.WORLD
             actual = hierarchy.get_global_transform(_key(name))
-            original = unreal.AnimPoseExtensions.get_bone_pose(pose, name, unreal.AnimPoseSpaces.WORLD)
+            if is_finger(name):
+                original_pose = finger_pose
+                space = unreal.AnimPoseSpaces.LOCAL
+                actual = hierarchy.get_local_transform(_key(name))
+            if name.lower().startswith('ik_hand_'):
+                continue
+            original = unreal.AnimPoseExtensions.get_bone_pose(original_pose, name, space)
             error = (actual.translation - original.translation).length()
             maximum_error = max(maximum_error, error)
             cosine = abs(sum(a * b for a, b in zip(actual.rotation.to_tuple(), original.rotation.to_tuple())))

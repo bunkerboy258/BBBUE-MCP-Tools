@@ -522,13 +522,24 @@ def _finalize(path, recipe, write_paths):
 
 
 def process(recipe_path, action, write_paths, job_index):
+    if recipe_path.endswith('CommonActionBaselines.json.source'):
+        import importlib
+        import BBBCommonActionSources
+        importlib.reload(BBBCommonActionSources)
+        if action == 'capture':
+            return BBBCommonActionSources.build(recipe_path, write_paths)
+        if action == 'inspect':
+            return BBBCommonActionSources.inspect_catalog(recipe_path, write_paths)
+        if action == 'finalize':
+            return BBBCommonActionSources.adopt_saved(recipe_path, write_paths)
+        raise RuntimeError('COMMON_ACTION_CAPTURE_REQUIRED')
     if action == 'bake' and recipe_path.endswith('_ManualAction.json.source'):
         import importlib
         import BBBManualActionAuthoring
         importlib.reload(BBBManualActionAuthoring)
         import BBBManualActionNative
         importlib.reload(BBBManualActionNative)
-        return BBBManualActionNative.bake_review(recipe_path, write_paths)
+        return BBBManualActionNative.bake_animation(recipe_path, write_paths)
     if action == 'inspect' and recipe_path.endswith('_ManualAction.json.source'):
         import importlib
         import BBBManualActionAuthoring
