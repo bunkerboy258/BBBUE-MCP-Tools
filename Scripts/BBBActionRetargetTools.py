@@ -125,8 +125,8 @@ def finalize(recipe_path, write_paths):
     from BBBManualActionAuthoring import _digest
     from BBBGenericEditorToolset import _set_flat_cubic_curve
     path, data = _read(recipe_path, write_paths)
-    if data.get('finger_repair'):
-        return _repair_fingers(path, data)
+    if any(job.get('finger_repair') for job in data['jobs']):
+        return {'finger_repairs': [_repair_fingers(path, data, job) for job in data['jobs'] if job.get('finger_repair')]}
     reference = _asset(data['reference_animation'], unreal.AnimSequence)
     mesh = _asset(data['target_mesh'], unreal.SkeletalMesh)
     options = unreal.AnimPoseEvaluationOptions()
@@ -224,7 +224,7 @@ def inspect(recipe_path, write_paths):
     return {'state': data['state'], 'jobs': [{'animation': job['animation'],
              'saved_digest_matches': _digest(_asset(job['animation'], unreal.AnimSequence)) == job.get('aligned_digest', job['retarget_digest']),
              'validation': job.get('validation'),
-             'finger_entry': _finger_entry(_asset(job['animation'], unreal.AnimSequence), reference) if job['kind'] == 'equip' else None,
+             'finger_entry': _finger_entry(_asset(job['animation'], unreal.AnimSequence), reference),
              'trajectory': _metrics(_asset(job['animation'], unreal.AnimSequence), reference, mesh,
                                     [0, job['exit_frames'][1] / 30, job['length']])} for job in data['jobs']]}
 
@@ -247,17 +247,16 @@ def _finger_entry(animation, reference):
                             'rotation': value.rotation.rotator().to_tuple(),
                             'named_rotation': {axis: getattr(value.rotation.rotator(), axis) for axis in ('roll', 'pitch', 'yaw')}})
         rest = unreal.AnimPoseExtensions.get_bone_pose(neutral, bone, unreal.AnimPoseSpaces.LOCAL)
-        result.append({'bone': str(bone), 'neutral': rest.rotation.rotator().to_tuple(), 'reference': ref.rotation.rotator().to_tuple(), 'samples': samples})
+        result.append({'bone': str(bone), 'neutral': rest.rotation.rotator().to_tuple(), 'reference': ref.rotation.rotator().to_tuple(), 'max_yaw': max((k.rotation.rotator().yaw, f) for f,k in enumerate(keys)), 'samples': samples})
     return result
 
 
-def _repair_fingers(path, data):
+def _repair_fingers(path, data, job):
     """/** @param path\t正式源 @param data\t批准的现有装备指节修正 @return\t异常区间及未变骨轨核验 */"""
     from BBBManualActionAuthoring import _digest
-    policy = data['finger_repair']
-    if not policy.get('approval') or policy.get('mode') != 'bridge_hyperextended_distal_yaw':
+    policy = job['finger_repair']
+    if not policy.get('approval') or policy.get('mode') != 'bridge_hyperextended_finger_yaw':
         raise RuntimeError('FINGER_REPAIR_APPROVAL')
-    job = next(j for j in data['jobs'] if j['kind'] == 'equip')
     animation = _asset(job['animation'], unreal.AnimSequence)
     if policy.get('applied'):
         if _digest(animation) != job['aligned_digest']:
@@ -274,8 +273,7 @@ def _repair_fingers(path, data):
     replacements = {}
     reports = []
     for name, keys in original.items():
-        parts = name.lower().split('_')
-        if len(parts) != 3 or parts[0] not in ('index', 'middle', 'ring', 'pinky') or parts[1] not in ('02', '03'):
+        if name not in policy['bones']:
             continue
         ref = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(reference, name)[0]
         rest = unreal.AnimPoseExtensions.get_bone_pose(neutral, name, unreal.AnimPoseSpaces.LOCAL)
@@ -344,9 +342,9 @@ def sync_finger_repair(path, data, sequence):
     from BBBManualActionAuthoring import _save as save_manual
     repair_path = Path(unreal.Paths.project_dir()) / data['finger_repair_source']
     source = json.loads(repair_path.read_text(encoding='utf-8-sig'))
-    policy = source['finger_repair']
-    job = next(j for j in source['jobs'] if j['kind'] == 'equip')
-    if not policy.get('applied') or data['action'] != 'equip' or data['finger_animation'] != job['animation']:
+    job = next(j for j in source['jobs'] if j['kind'] == data['action'])
+    policy = job['finger_repair']
+    if not policy.get('applied') or data['finger_animation'] != job['animation']:
         raise RuntimeError('FINGER_SYNC_SOURCE')
     if data.get('finger_repair_applied') == job['aligned_digest']:
         return
