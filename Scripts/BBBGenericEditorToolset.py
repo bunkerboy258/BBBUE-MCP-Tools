@@ -4536,8 +4536,8 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
     def create_monster_director_assets(asset_paths: list[str]) -> str:
         """
         /**
-         * 创建项目副本小怪导演的九个基础蓝图与规则资产 拒绝覆盖
-         * @param asset_paths	明确的新目标包路径数组 必须完整包含原生库约定的九项
+         * 创建或更新统一小怪生成资产并保存导演阶段引用
+         * @param asset_paths	明确目标包数组 必须完整包含原生库约定的十六项 不包含地图
          * @return 原生创建 编译 保存与结构校验结果
          */
         """
@@ -4552,7 +4552,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         """
         /**
          * 只读校验已保存的副本小怪导演基础资产
-         * @return 蓝图父类 默认配置 小怪组合 导演 Trait 与出生查询校验结果
+         * @return 统一生成蓝图 出生规则与导演阶段引用校验结果
          */
         """
         return unreal.BBBMonsterDirectorEditorLibrary.validate_basic_assets()

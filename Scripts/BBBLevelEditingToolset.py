@@ -90,93 +90,58 @@ class BBBLevelEditingToolset(unreal.ToolsetDefinition):
         spacing: float,
         radius: float,
     ) -> str:
-        """在已签出关卡中保存十种配置各一只的 Mass 展示生成器。"""
+        """
+        /**
+         * 在 BBBTest 保存十种出生配置各一只的统一生成入口
+         * @param expected_level\t明确的 BBBTest 包路径
+         * @param source_spawner_path\t当前关卡的统一生成入口
+         * @param config_paths\t十个独立 BBBMonsterSpawnDefinition 资产
+         * @param center\t展示中心的有限坐标
+         * @param spacing\t展示间距厘米
+         * @param radius\t每个入口的候选圆盘半径
+         * @return 已保存入口路径 不修改出生规则资产
+         */
+        """
+        from BBBAssetWritePolicy import require_write_access
+        require_write_access()
         if expected_level != "/Game/_Project/Maps/BBBTest":
-            raise RuntimeError("仅允许配置 BBBTest 展示关卡")
+            raise RuntimeError("仅允许配置 BBBTest")
         if len(config_paths) != 10 or len(set(config_paths)) != 10:
-            raise RuntimeError("必须提供十个互不重复的实体配置")
-        if len(center) != 3 or not all(isinstance(value, (int, float)) for value in center):
-            raise RuntimeError("展示中心必须为三个坐标值")
+            raise RuntimeError("必须提供十个互不重复的出生配置")
+        if len(center) != 3 or any(not math.isfinite(value) for value in center):
+            raise RuntimeError("展示中心无效")
         if not 100 <= spacing <= 500 or not 0 <= radius <= 100:
-            raise RuntimeError("展示间距或随机半径超出允许范围")
+            raise RuntimeError("展示间距或半径超出范围")
         if unreal.EditorLevelLibrary.get_pie_worlds(False):
-            raise RuntimeError("配置持久关卡前必须停止 PIE")
-
+            raise RuntimeError("持久关卡编辑必须停止 PIE")
         world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
-        if world is None or world.get_path_name().split(".", 1)[0] != expected_level:
-            raise RuntimeError("当前编辑器关卡与预期关卡不符")
         source = unreal.find_object(None, source_spawner_path)
-        if not isinstance(source, unreal.MassSpawner) or source.get_world() != world:
-            raise RuntimeError("源 MassSpawner 不属于当前编辑器关卡")
-        existing_labels = {actor.get_actor_label() for actor in
-                           unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors()}
-        names = [path.rsplit("/", 1)[-1].removeprefix("MEC_BBBZombie") for path in config_paths]
-        labels = ["BBB_Showcase_Zombie_" + name for name in names]
-        if any(label in existing_labels for label in labels):
-            raise RuntimeError("展示生成器标签已存在，拒绝重复创建")
-
+        if world is None or world.get_path_name().split(".", 1)[0] != expected_level:
+            raise RuntimeError("当前地图不匹配")
+        if not isinstance(source, unreal.BBBMonsterSpawnerPresentationActor) or source.get_world() != world:
+            raise RuntimeError("源对象不是当前地图的统一生成入口")
         assets = [unreal.load_asset(path) for path in config_paths]
-        if any(not isinstance(asset, unreal.MassEntityConfigAsset) for asset in assets):
-            raise RuntimeError("输入包含无效 MassEntityConfigAsset")
-        source_generators = source.get_editor_property("spawn_data_generators")
-        if len(source_generators) != 1:
-            raise RuntimeError("源生成器必须恰好包含一个出生数据生成器")
-        source_generator = source_generators[0].get_editor_property("generator_instance")
-        if not isinstance(source_generator, unreal.BBBMonsterSpawnGenerator):
-            raise RuntimeError("源生成器必须使用 BBBMonsterSpawnGenerator")
-
+        if any(not isinstance(asset, unreal.BBBMonsterSpawnDefinition) for asset in assets):
+            raise RuntimeError("必须使用统一出生配置资产")
         subsystem = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
-        original_types = list(source.get_editor_property("entity_types"))
-        original_count = source.get_editor_property("count")
-        original_radius = source_generator.get_editor_property("spawn_radius")
-        original_location = source.get_actor_location()
-        original_label = source.get_actor_label()
         created = []
-        try:
-            for _ in range(9):
-                duplicated = subsystem.duplicate_actors([source], world, unreal.Vector(0.0, 0.0, 0.0))
-                if len(duplicated) != 1 or not isinstance(duplicated[0], unreal.MassSpawner):
-                    raise RuntimeError("复制 MassSpawner 失败")
-                created.append(duplicated[0])
-
-            spawners = [source] + created
-            generators = []
-            for spawner in spawners:
-                entries = spawner.get_editor_property("spawn_data_generators")
-                if len(entries) != 1:
-                    raise RuntimeError("复制后的出生生成器数量不符")
-                generator = entries[0].get_editor_property("generator_instance")
-                if not isinstance(generator, unreal.BBBMonsterSpawnGenerator):
-                    raise RuntimeError("复制后的出生生成器类型不符")
-                generators.append(generator)
-            if len({generator.get_path_name() for generator in generators}) != 10:
-                raise RuntimeError("出生生成器实例没有独立复制")
-
-            for index, (spawner, generator, asset, label) in enumerate(zip(spawners, generators, assets, labels)):
-                y = center[1] + (index - 4.5) * spacing
-                spawner.set_editor_property("entity_types", [unreal.MassSpawnedEntityType(entity_config=asset, proportion=1.0)])
-                spawner.set_editor_property("count", 1)
-                generator.set_editor_property("spawn_radius", radius)
-                spawner.set_actor_location(unreal.Vector(center[0], y, center[2]), False, True)
-                spawner.set_actor_label(label)
-
-            if not unreal.EditorLevelLibrary.save_current_level():
-                raise RuntimeError("保存 BBBTest 关卡失败")
-        except Exception:
-            source.set_editor_property("entity_types", original_types)
-            source.set_editor_property("count", original_count)
-            source_generator.set_editor_property("spawn_radius", original_radius)
-            source.set_actor_location(original_location, False, True)
-            source.set_actor_label(original_label)
-            for actor in created:
-                subsystem.destroy_actor(actor)
-            raise
-
-        return json.dumps({"level": expected_level, "count": len(spawners),
-                           "spawners": [{"actor": actor.get_path_name(), "label": label,
-                                         "config": path, "location": [center[0], center[1] + (index - 4.5) * spacing, center[2]]}
-                                        for index, (actor, label, path) in enumerate(zip(spawners, labels, config_paths))],
-                           "saved": True}, ensure_ascii=False)
+        for index, asset in enumerate(assets):
+            duplicates = subsystem.duplicate_actors([source], world, unreal.Vector(0.0, 0.0, 0.0))
+            if len(duplicates) != 1:
+                raise RuntimeError("创建统一生成入口失败")
+            actor = duplicates[0]
+            created.append(actor)
+            actor.set_editor_property("Definition", asset)
+            actor.set_editor_property("Count", 1)
+            region = actor.get_editor_property("Region")
+            region.set_editor_property("Shape", unreal.BBBMonsterSpawnRegionShape.DISK)
+            region.set_editor_property("Extent", unreal.Vector(max(1.0, radius), max(1.0, radius), 600.0))
+            actor.set_editor_property("Region", region)
+            actor.set_actor_location(unreal.Vector(center[0], center[1] + (index - 4.5) * spacing, center[2]), False, True)
+            actor.set_actor_label("BBB_Showcase_Zombie_" + asset.get_name().removeprefix("DA_BBBMonsterSpawn_"))
+        if not unreal.EditorLevelLibrary.save_current_level():
+            raise RuntimeError("保存展示入口失败 已建立对象保持可检查")
+        return json.dumps({"level": expected_level, "spawners": [actor.get_path_name() for actor in created], "saved": True}, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod
@@ -186,52 +151,68 @@ class BBBLevelEditingToolset(unreal.ToolsetDefinition):
         center: list[float],
         radius: float,
     ) -> str:
-        """仅在 PIE 中用指定 Mass 配置各生成一只展示实体，不保存关卡。"""
-        if len(config_paths) < 1 or len(config_paths) > 20 or len(set(config_paths)) != len(config_paths):
-            raise RuntimeError("配置数量须为一至二十且不可重复")
-        if len(center) != 3 or not all(isinstance(value, (int, float)) for value in center):
-            raise RuntimeError("出生中心必须为三个坐标值")
-        if not 0 <= radius <= 2000:
-            raise RuntimeError("生成半径须在零至二千厘米之间")
-
-        spawner = unreal.find_object(None, spawner_path)
-        pie_worlds = unreal.EditorLevelLibrary.get_pie_worlds(False)
-        if not isinstance(spawner, unreal.MassSpawner) or spawner.get_world() not in pie_worlds:
-            raise RuntimeError("目标必须是当前 PIE 世界中的 MassSpawner")
-        generators = spawner.get_editor_property("spawn_data_generators")
-        if len(generators) != 1:
-            raise RuntimeError("展示生成器必须恰好一个")
-        generator = generators[0].get_editor_property("generator_instance")
-        if not isinstance(generator, unreal.BBBMonsterSpawnGenerator):
-            raise RuntimeError("展示生成器不是 BBBMonsterSpawnGenerator")
-
+        """
+        /**
+         * 在房主 PIE 通过统一出生处理各提交一只临时展示小怪
+         * @param spawner_path\t当前 PIE 的统一生成入口 用于确定世界与请求模板
+         * @param config_paths\t一至二十个独立 BBBMonsterSpawnDefinition 资产
+         * @param center\t展示圆周的有限世界中心
+         * @param radius\t圆周半径 多只展示至少一百厘米
+         * @return 已提交请求入口 实际数量须读取 ReadCreatedCount 不保存资产
+         */
+        """
+        if not 1 <= len(config_paths) <= 20 or len(set(config_paths)) != len(config_paths):
+            raise RuntimeError("必须提供一至二十个互不重复的出生配置")
+        if len(center) != 3 or any(not math.isfinite(value) for value in center):
+            raise RuntimeError("展示中心无效")
+        if not math.isfinite(radius) or not 0 <= radius <= 2000 or (len(config_paths) > 1 and radius < 100):
+            raise RuntimeError("展示圆周半径无效")
+        source = unreal.find_object(None, spawner_path)
+        if not isinstance(source, unreal.BBBMonsterSpawnerPresentationActor) or source.get_world() not in unreal.EditorLevelLibrary.get_pie_worlds(False):
+            raise RuntimeError("目标必须是当前 PIE 的统一生成入口")
+        if not source.has_authority():
+            raise RuntimeError("展示请求必须投给房主")
         assets = [unreal.load_asset(path) for path in config_paths]
-        invalid_paths = [path for path, asset in zip(config_paths, assets)
-                         if not isinstance(asset, unreal.MassEntityConfigAsset)]
-        if invalid_paths:
-            raise RuntimeError("以下路径不是 MassEntityConfigAsset: " + ", ".join(invalid_paths))
-        entity_types = [unreal.MassSpawnedEntityType(entity_config=asset, proportion=1.0) for asset in assets]
-
-        original_types = list(spawner.get_editor_property("entity_types"))
-        original_count = spawner.get_editor_property("count")
-        original_radius = generator.get_editor_property("spawn_radius")
-        original_location = spawner.get_actor_location()
+        if any(not isinstance(asset, unreal.BBBMonsterSpawnDefinition) for asset in assets):
+            raise RuntimeError("必须使用统一出生配置资产")
+        world = source.get_world()
+        created = []
+        fields = ("Pool", "CandidateCount", "CandidatesPerFrame", "CreatesPerFrame", "MaxObservers",
+                  "MinPlayerDistance", "MinSpacing", "GroundTraceDistance", "bRequirePath", "bAvoidVisible",
+                  "Seed", "bRandomYaw", "FixedYaw")
         try:
-            spawner.set_editor_property("entity_types", entity_types)
-            spawner.set_editor_property("count", len(entity_types))
-            generator.set_editor_property("spawn_radius", radius)
-            spawner.set_actor_location(unreal.Vector(*center), False, True)
-            spawner.do_spawning()
+            for index, asset in enumerate(assets):
+                angle = index * math.tau / len(assets)
+                location = unreal.Vector(center[0] + math.cos(angle) * radius, center[1] + math.sin(angle) * radius, center[2])
+                transform = unreal.Transform(location=location)
+                actor = unreal.BBBBlueprintEditorLibrary.begin_transient_pie_actor(world, unreal.BBBMonsterSpawnerPresentationActor.static_class(), transform)
+                if actor is None:
+                    raise RuntimeError("临时展示入口创建失败")
+                created.append(actor)
+                settings = unreal.new_object(unreal.BBBMonsterSpawnDefinition, outer=actor)
+                for name in fields:
+                    settings.set_editor_property(name, asset.get_editor_property(name))
+                settings.set_editor_property("bAvoidVisible", False)
+                settings.set_editor_property("MinPlayerDistance", 0.0)
+                settings.set_editor_property("Seed", 12345 + index)
+                actor.set_editor_property("Definition", settings)
+                actor.set_editor_property("EntityConfig", source.get_editor_property("EntityConfig"))
+                actor.set_editor_property("Count", 1)
+                actor.set_editor_property("bAutoStart", False)
+                region = actor.get_editor_property("Region")
+                region.set_editor_property("Shape", unreal.BBBMonsterSpawnRegionShape.DISK)
+                region.set_editor_property("Extent", unreal.Vector(20.0, 20.0, 600.0))
+                actor.set_editor_property("Region", region)
+                unreal.BBBBlueprintEditorLibrary.finish_transient_pie_actor(actor, transform)
+                if not actor.start_spawning():
+                    raise RuntimeError("临时展示请求未提交")
         except Exception:
-            spawner.do_despawning()
-            spawner.set_editor_property("entity_types", original_types)
-            spawner.set_editor_property("count", original_count)
-            generator.set_editor_property("spawn_radius", original_radius)
-            spawner.set_actor_location(original_location, False, True)
+            for actor in created:
+                actor.destroy_actor()
             raise
-        return json.dumps({"world": spawner.get_world().get_path_name(),
-                           "spawner": spawner_path, "requested": len(entity_types),
-                           "configs": list(config_paths), "center": list(center), "radius": radius}, ensure_ascii=False)
+        return json.dumps({"world": world.get_path_name(), "requested": len(assets),
+                           "spawners": [actor.get_path_name() for actor in created],
+                           "note": "仅临时展示规则关闭可见性和安全距离 仍检查导航 地面 空间 间距与路径 不修改正式资产"}, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod
