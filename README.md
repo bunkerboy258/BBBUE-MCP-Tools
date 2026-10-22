@@ -1,5 +1,7 @@
 # BBBUE MCP Tools
 
+2026-10-22 `grip.author_weapon` 增加 `manual_prepare_fire` 与 `manual_apply_fire`，按每把未开火先编辑并应用、开火从已应用结果起步的顺序制作。开火仅写手指姿势引用，共用未开火挂接、右腕与左手 IK；不符合该边界或基准已变更时拒绝应用。人工静态烘焙改为官方瞬态导出并原位写骨轨，保留正式 AS 的曲线、通知和采样设置。Base 手部层接入两套静态握姿和已有开火意图，主图仍只调用一次手部 Layer。当前验证边界及人工操作见 [BBBGripAuthoringMCP.md](Docs/BBBGripAuthoringMCP.md)，不将制作工具准备完成标为人体自然度或运行验收。
+
 2026-10-20 新增 `control_rig.process_dual_arm_body_pose`：人工六控制器样板采纳、实际公共层清单、逐帧生产Rig烘焙、加法重基准及正式配置/握姿底稿同步。141项原生保存回读和四项离线边界/契约检查通过，装备换弹末帧位置误差低于0.00004厘米；后台NullRHI低功耗执行，未运行PIE。见 Docs/BBBDualArmBodyPoseMCP.md。
 
 2026-10-19 新增 `hit.rebuild_zombie_debug_gore_cuts` 以实际湿血材质参数原位重建调试靶九组无骨头断面 皮肤接缝不移动 内部生成非对称两层褶皱 保留物理与既有图集 不创建烘焙中间资产。八项工具边界检查与 32 项受击公共入口基线匹配通过。用户停止测试后仅继续静态编辑和保存 最终资源不标记为经过运行或画面验收。见 Docs/BBBHitReactionMCP.md。

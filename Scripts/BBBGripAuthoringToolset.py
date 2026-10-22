@@ -197,7 +197,8 @@ def _fingerprint(recipe, project):
             return None
         files[field] = hashlib.sha256(path.read_bytes()).hexdigest()
     definition, values = _definition(recipe)
-    grip = definition.get_editor_property('character_grip_pose')
+    property_name = 'character_fire_grip_pose' if recipe.get('grip_role') == 'fire' else 'character_grip_pose'
+    grip = definition.get_editor_property(property_name)
     values['animation'] = grip.get_path_name().split('.')[0] if grip else None
     return _digest({'files': files, 'definition': values})
 
@@ -624,7 +625,7 @@ class BBBGripAuthoringToolset(unreal.ToolsetDefinition):
          * @return 当前结果 唯一下一步及实际验收边界
          */
         """
-        if action not in ('initialize', 'inspect', 'solve', 'save', 'audit', 'review', 'accept', 'adopt', 'manual_prepare', 'manual_apply'):
+        if action not in ('initialize', 'inspect', 'solve', 'save', 'audit', 'review', 'accept', 'adopt', 'manual_prepare', 'manual_apply', 'manual_prepare_fire', 'manual_apply_fire'):
             raise RuntimeError('GRIP_ACTION_INVALID')
         if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
             raise RuntimeError('PIE_ACTIVE: 握姿制作须在PIE退出后执行')
@@ -635,6 +636,13 @@ class BBBGripAuthoringToolset(unreal.ToolsetDefinition):
         if not path.is_file():
             return json.dumps({'status': 'needs_recipe', 'next': {'action': 'configure_recipe', 'documentation': 'Docs/BBBGripAuthoringMCP.md'}, 'recipe': str(path)})
         recipe = _recipe(path, weapon_root)
+        if action in ('manual_prepare_fire', 'manual_apply_fire'):
+            import importlib
+            import BBBGripFireAuthoring as fire
+
+            importlib.reload(fire)
+            function = {'manual_prepare_fire': fire.prepare, 'manual_apply_fire': fire.apply}[action]
+            return json.dumps(function(recipe, path, project), ensure_ascii=False)
         if action in ('manual_prepare', 'manual_apply'):
             import importlib
             import BBBGripManualAuthoring as manual

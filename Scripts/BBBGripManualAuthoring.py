@@ -1,4 +1,5 @@
 import json
+import uuid
 
 import unreal
 
@@ -36,6 +37,49 @@ def _instance(sequence):
     if len(proxies) != 1:
         raise RuntimeError('MANUAL_RIG_NOT_UNIQUE')
     return proxies[0].control_rig
+
+
+def _bake_static(sequence, animation, mesh):
+    """/** @param sequence 人工静态序列 @param animation 正式握姿 @param mesh 实际网格 @return 官方瞬态导出及原位骨轨保存 不创建备份资产 */"""
+    from BBBControlRigAuthoringToolset import _mesh_binding
+    from BBBAnimationTrajectoryTools import _track_metadata
+
+    metadata = _track_metadata(animation)
+    scope = unreal.new_object(unreal.LevelSequence, name='BBBStaticGripBake_' + uuid.uuid4().hex)
+    output = unreal.SystemLibrary.duplicate_object(animation, scope, 'EvaluatedGrip')
+    options = unreal.AnimSeqExportOption()
+    options.export_transforms = True
+    options.export_morph_targets = False
+    options.export_attribute_curves = False
+    options.export_material_curves = False
+    options.use_custom_frame_rate = True
+    options.custom_frame_rate = animation.data_model_interface.get_frame_rate()
+    world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+    if not unreal.SequencerTools.export_anim_sequence(world, sequence, output, options, _mesh_binding(sequence, mesh), False):
+        raise RuntimeError('STATIC_GRIP_BAKE_FAILED')
+    if abs(output.get_play_length() - animation.get_play_length()) > 0.0001:
+        raise RuntimeError('STATIC_GRIP_BAKE_LENGTH_CHANGED')
+    if output.data_model_interface.get_number_of_keys() != metadata['frames']:
+        raise RuntimeError('STATIC_GRIP_BAKE_KEY_COUNT_CHANGED')
+    expected = {str(name) for name in animation.data_model_interface.get_bone_track_names()}
+    tracks = {str(name): unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(output, name)
+              for name in output.data_model_interface.get_bone_track_names()}
+    if not expected.issubset(tracks) or any(len(values) != metadata['frames'] for values in tracks.values()):
+        raise RuntimeError('STATIC_GRIP_BAKE_TRACKS_CHANGED')
+    controller = animation.controller
+    controller.open_bracket('应用人工静态握姿骨轨', False)
+    try:
+        for name, values in tracks.items():
+            if name not in expected and not controller.add_bone_curve(name, False):
+                raise RuntimeError('STATIC_GRIP_ADD_TRACK_FAILED: ' + name)
+            if not controller.set_bone_track_keys(name, [v.translation for v in values], [v.rotation for v in values], [v.scale3d for v in values], False):
+                raise RuntimeError('STATIC_GRIP_TRACK_FAILED: ' + str(name))
+    finally:
+        controller.close_bracket(False)
+    if _track_metadata(animation) != metadata:
+        raise RuntimeError('STATIC_GRIP_METADATA_CHANGED')
+    if not unreal.EditorAssetLibrary.save_loaded_asset(animation, False):
+        raise RuntimeError('STATIC_GRIP_SAVE_FAILED')
 
 
 def _nodes(asset, nodes, links):
@@ -232,6 +276,26 @@ def apply(recipe, path, project):
     calibration['right_wrist_delta'] = list((local['hand_r'].rotation * reference.rotation.inversed()).normalized().to_tuple())
     control_values = {name: unreal.RigHierarchy.get_euler_transform_from_control_value(hierarchy.get_control_value(_key(name, 'CONTROL')))
                       for name in manual['controls']}
+    is_fire = recipe.get('grip_role') == 'fire'
+    if is_fire:
+        from BBBGripAuthoringToolset import _definition, _recipe
+        from BBBGripFireAuthoring import hold_signature
+
+        hold_path = project / recipe['hold_recipe']
+        hold = _recipe(hold_path, recipe['weapon_root'])
+        if recipe['hold_signature'] != hold_signature(hold, project):
+            raise RuntimeError('FIRE_GRIP_BASE_CHANGED')
+        baseline = _pose(_asset(hold['animation'], unreal.AnimSequence), names, character_mesh)
+        for name in names:
+            if name in _FINGERS:
+                continue
+            if (local[name].translation - baseline[name]['local'].translation).length() > 0.02 or abs((local[name].rotation * baseline[name]['local'].rotation.inversed()).w) < 0.99999:
+                raise RuntimeError('FIRE_GRIP_ONLY_FINGERS: 开火握姿只允许编辑指骨 ' + name)
+        definition, current = _definition(hold)
+        expected_spawn = _transform(current['spawn_offset'])
+        if (spawn.translation - expected_spawn.translation).length() > 0.01 or abs((spawn.rotation * expected_spawn.rotation.inversed()).w) < 0.99999:
+            raise RuntimeError('FIRE_GRIP_SHARED_ATTACHMENT: 请在未开火阶段调整武器位置')
+        calibration = hold['solution']['calibration']
     for name, value in control_values.items():
         for frame in (0, 1):
             unreal.ControlRigSequencerLibrary.set_local_control_rig_euler_transform(sequence, rig, name, unreal.FrameNumber(value=frame), value, set_key=True)
@@ -243,7 +307,7 @@ def apply(recipe, path, project):
             channel.remove_key(key)
     authoring.set_sequence_attachment_transform(recipe['sequence'], bindings[0].get_name(), json.dumps({'position': _values(spawn)[:3], 'rotation': _values(spawn)[3:7], 'scale': _values(spawn)[7:10]}))
     unreal.EditorAssetLibrary.save_loaded_asset(sequence, False)
-    authoring.bake_control_rig_animation(recipe['sequence'], recipe['animation'], recipe['character_mesh'])
+    _bake_static(sequence, _asset(recipe['animation'], unreal.AnimSequence), character_mesh)
     baked = _pose(_asset(recipe['animation'], unreal.AnimSequence), names, character_mesh)
     for name in list(_FINGERS) + ['hand_r', 'hand_l', 'upperarm_r', 'lowerarm_r']:
         actual = baked[name]['local']
@@ -257,10 +321,16 @@ def apply(recipe, path, project):
                           'local_pose': {name: _values(baked[name]['local']) for name in names},
                           'component_pose': {name: _values(baked[name]['component']) for name in names},
                           'finger_rotations': recipe['pose']['local_rotations'], 'passed': True, 'origin': 'human_manual_edit'}
-    _apply_definition(recipe)
+    if is_fire:
+        definition.set_editor_property('character_fire_grip_pose', _asset(recipe['animation'], unreal.AnimSequence))
+        if not unreal.EditorAssetLibrary.save_loaded_asset(definition, False):
+            raise RuntimeError('FIRE_GRIP_DEFINITION_SAVE_FAILED')
+    if not is_fire:
+        _apply_definition(recipe)
     recipe['manual_edit']['definitionApplied'] = True
     recipe['validation'] = {'passed': True, 'fingerprint': _fingerprint(recipe, project), 'scope': 'manual_bake_readback_and_offsets', 'geometryProven': False}
     recipe.pop('review', None)
     _write_recipe(path, recipe, project)
     return {'status': 'manual_applied', 'animation': recipe['animation'], 'definition': recipe['definition'],
-            'calibration': calibration, 'rightArmPreserved': True, 'runtimeAcceptance': 'pending'}
+            'calibration': calibration, 'rightArmPreserved': True, 'runtimeAcceptance': 'pending',
+            'gripRole': 'fire' if is_fire else 'hold', 'next': 'next_weapon_hold' if is_fire else 'manual_prepare_fire'}

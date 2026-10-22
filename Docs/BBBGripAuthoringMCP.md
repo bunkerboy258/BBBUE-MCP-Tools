@@ -1,5 +1,36 @@
 # 武器双手握姿正式制作流程
 
+## 2026-10-22 未开火与开火双握姿人工制作
+
+每把武器按下列顺序进行，四个动作都使用该型号的原始 `HandGrip_Authoring.json.source` 作为 `recipe_path`。
+
+| 次序 | `action` | 编辑和应用范围 |
+| --- | --- | --- |
+| 1 | `manual_prepare` | 打开未开火 LS，从当前正式未开火握姿继续编辑；允许手指、右腕、武器挂接和左手 IK |
+| 2 | `manual_apply` | 读取第 0 帧，烘焙并应用 `CharacterGripPose`、挂接、右腕和左手 IK 标定 |
+| 3 | `manual_prepare_fire` | 以刚应用的未开火 AS 建立本型号 FireGrip 的 Rig、LS、AS 和唯一制作源；已有同基准底稿继续编辑 |
+| 4 | `manual_apply_fire` | 读取第 0 帧，烘焙开火手指姿势，仅应用 `CharacterFireGripPose`，之后再打开下一把的未开火 LS |
+
+人工仍需对修改的控制器打关键帧并保存。应用时将第 0 帧求值统一写入第 0、1 帧。开火底稿隐藏右腕、左手 IK 和肘部形状；应用时同时核对全部非指骨局部姿势及武器挂接，越界修改明确拒绝。右上臂和前臂保留冻结检查。不会因开火手指修改重写挂接或左手 IK。
+
+例如 Rifle01：
+
+```json
+{
+  "weapon_root": "/Game/_Project/Characters/BBBC_UA/Items/Equipment/Rifle/Rifle_01",
+  "recipe_path": "Content/_Project/Characters/BBBC_UA/Items/Equipment/Rifle/Rifle_01/Source/Animation/Rifle01_HandGrip_Authoring.json.source",
+  "action": "manual_prepare"
+}
+```
+
+后续三步仅更换 `action`。首次开火准备会生成 `Rifle01_FireGrip_Authoring.json.source`，资产命名使用对应 `_FireGrip`，留在本型号 `Animation/work` 与 `Animation/Sequence`。这些是正式开火姿势的制作资产。必须先应用当前未开火握姿；未开火 AS 或标定改变后，旧开火底稿返回 `FIRE_GRIP_BASE_CHANGED` 并保留已有手工内容，须明确安排重新制作。
+
+实现为 `Scripts/BBBGripFireAuthoring.py`，由现有唯一入口分派。静态人工烘焙先官方导出至瞬态对象，按目标采样率核对时长、采样数与骨轨，再原位写入正式 AS 的骨轨；曲线、通知、同步标记及其他元数据保持。不创建 Content 下的曲线快照资产。
+
+运行 Base 的 `HandPose_OverrideState` 内读取 `GetCharacterGripPose`、`GetCharacterFireGripPose` 和 `HasFireIntent`。开火进入 0.10 秒，松开返回 0.15 秒，左右手仍分别受 `DisableLeftHandPoseOverride`、`DisableRightHandPoseOverride` 控制，只覆盖十个指根分支。未制作开火姿势的装备使用自身未开火握姿。主图只保留一次手部 Layer 调用。
+
+当前实现编译与图表回读记录见项目 `Docs/FireGrip_Workflow_20261022.md`。新开火底稿的首次人工编辑和应用需按上述步骤进行；工具入口准备完成不代表新姿势已经过人体自然度或运行验收。
+
 ## 2026-10-19 人工逐把制作
 
 同一 `grip.author_weapon` 入口新增 `manual_prepare` 和 `manual_apply`。实现为 `Scripts/BBBGripManualAuthoring.py`，复用型号正式 LS、Rig、AS，不创建副本。
