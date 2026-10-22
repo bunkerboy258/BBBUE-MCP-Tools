@@ -49,6 +49,8 @@ def capture(recipe_path, write_paths):
     if unreal.EditorLevelLibrary.get_pie_worlds(False):
         raise RuntimeError('RETARGET_ACTION_PIE_FORBIDDEN')
     path, data = _read(recipe_path, write_paths)
+    if any('source_frame_ranges' in job for job in data['jobs']):
+        return _capture_frame_ranges(path, data, write_paths)
     retargeter = _asset(data['retargeter'], unreal.IKRetargeter)
     if unreal.IKRetargeterController.get_controller(retargeter).get_num_retarget_ops() == 0:
         raise RuntimeError('RETARGET_ACTION_EMPTY_OP_STACK')
@@ -95,6 +97,87 @@ def capture(recipe_path, write_paths):
         data['state'] = 'retargeted'
         _save(path, data)
     return {'state': data['state'], 'retargeter': data['retargeter'], 'jobs': reports}
+
+
+def _capture_frame_ranges(path, data, write_paths):
+    """Create a native sequence from explicit inclusive source ranges; reject discontinuous seams."""
+    from BBBManualActionAuthoring import _digest
+    mesh = _asset(data['target_mesh'], unreal.SkeletalMesh)
+    reports = []
+    for job in data['jobs']:
+        source = _asset(job['source'], unreal.AnimSequence)
+        signature = _digest(source)
+        if job.get('retarget_digest'):
+            output = _asset(job['animation'], unreal.AnimSequence)
+            if signature != job['source_digest'] or _digest(output) != job.get('aligned_digest', job['retarget_digest']):
+                raise RuntimeError('FRAME_RANGES_SAVED_ASSET_CHANGED')
+            reports.append(job)
+            continue
+        ranges = job['source_frame_ranges']
+        count = source.data_model_interface.get_number_of_keys()
+        if not ranges or any(len(r) != 2 or any(type(n) is not int for n in r) or not 0 <= r[0] < r[1] < count for r in ranges):
+            raise RuntimeError('FRAME_RANGES_INVALID')
+        if any(a[1] >= b[0] for a, b in zip(ranges, ranges[1:])):
+            raise RuntimeError('FRAME_RANGES_ORDER')
+        if job['animation'] == job['source'] or unreal.EditorAssetLibrary.does_asset_exist(job['animation']):
+            raise RuntimeError('FRAME_RANGES_NEW_OUTPUT_REQUIRED')
+        rate = source.data_model_interface.get_frame_rate()
+        seam_cm, seam_degrees = 0.0, 0.0
+        for first, second in zip(ranges, ranges[1:]):
+            a = _pose(source, mesh, first[1] * rate.denominator / rate.numerator)
+            b = _pose(source, mesh, second[0] * rate.denominator / rate.numerator)
+            for bone in source.data_model_interface.get_bone_track_names():
+                left = unreal.AnimPoseExtensions.get_bone_pose(a, bone, unreal.AnimPoseSpaces.WORLD)
+                right = unreal.AnimPoseExtensions.get_bone_pose(b, bone, unreal.AnimPoseSpaces.WORLD)
+                error = (left.translation - right.translation).length()
+                cosine = abs(sum(x*y for x, y in zip(left.rotation.to_tuple(), right.rotation.to_tuple())))
+                degrees = math.degrees(2 * math.acos(min(1.0, cosine)))
+                seam_cm, seam_degrees = max(seam_cm, error), max(seam_degrees, degrees)
+                if error > 0.05 or degrees > 0.2:
+                    raise RuntimeError('FRAME_RANGES_SEAM: %s cm=%f degrees=%f' % (bone, error, degrees))
+        frames = [f for start, end in ranges for f in range(start, end + 1)]
+        tracks = {str(n): list(unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(source, n))
+                  for n in source.data_model_interface.get_bone_track_names()}
+        require_asset_write([], destinations=[job['animation']])
+        output = unreal.EditorAssetLibrary.duplicate_asset(job['source'], job['animation'])
+        if output is None:
+            raise RuntimeError('FRAME_RANGES_CREATE')
+        require_asset_write([output])
+        controller = output.controller
+        controller.open_bracket('按明确源帧拼接单次动作', False)
+        try:
+            controller.remove_all_curves_of_type(unreal.RawCurveTrackTypes.RCT_FLOAT, False)
+            controller.remove_all_curves_of_type(unreal.RawCurveTrackTypes.RCT_TRANSFORM, False)
+            controller.set_number_of_frames(unreal.FrameNumber(value=len(frames)-1), False)
+            for bone, original in tracks.items():
+                values = [original[f] for f in frames]
+                if not controller.set_bone_track_keys(bone, [v.translation for v in values],
+                        [v.rotation for v in values], [v.scale3d for v in values], False):
+                    raise RuntimeError('FRAME_RANGES_TRACK: ' + bone)
+        finally:
+            controller.close_bracket(False)
+        unreal.AnimationLibrary.remove_all_animation_notify_tracks(output)
+        maximum = 0.0
+        for bone, original in tracks.items():
+            actual = list(unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(output, bone))
+            if len(actual) != len(frames):
+                raise RuntimeError('FRAME_RANGES_SAMPLE_COUNT')
+            for value, frame in zip(actual, frames):
+                expected = original[frame]
+                maximum = max(maximum, (value.translation - expected.translation).length())
+                cosine = abs(sum(x*y for x, y in zip(value.rotation.to_tuple(), expected.rotation.to_tuple())))
+                if maximum > 0.0001 or cosine < 0.999999 or (value.scale3d - expected.scale3d).length() > 0.00001:
+                    raise RuntimeError('FRAME_RANGES_TRACK_READBACK')
+        if _digest(source) != signature or not unreal.EditorAssetLibrary.save_loaded_asset(output, False):
+            raise RuntimeError('FRAME_RANGES_SAVE_OR_SOURCE_CHANGED')
+        job.update(source_digest=signature, retarget_digest=_digest(output), frames=len(frames),
+                   length=output.get_play_length(), splice_validation={'seam_position_cm': seam_cm,
+                   'seam_rotation_degrees': seam_degrees, 'track_position_error_cm': maximum,
+                   'source_preserved': True, 'source_frames': frames})
+        reports.append(job)
+        data['state'] = 'captured'
+        _save(path, data)
+    return {'state': data['state'], 'jobs': reports}
 
 
 def _blend(a, b, weight):
