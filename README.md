@@ -487,3 +487,11 @@ reload_insert 的正式ManualAction可显式指定 reload_start_recipe，要求�
 先在纯瞬态副本上试写并通过官方120 FPS导出，核对双肩、肘、腕和30指节的循环首尾与Start末帧，再写正式LS；比较源完整通道摘要及目标非Offset摘要，保证Start用户键、底层和附件保持。未提前应用循环成品。瞬态副本统一通过_copy_sequence保留BBB_RuntimeRightWristPreview标签，防止公共底轨验证和探针遗漏右腕逆补偿；副本使用不与导出目标冲突的名称。原生Offset段已保存但制作源尚未保存的中断恢复会补齐阶段事实，再执行实际偏移探针，不重建段或覆盖关键帧。导出缺少唯一角色绑定时明确报告序列与网格路径。
 
 Shotgun01人工Start官方烘焙101采样、0.833333秒、全轨误差0，原角色开始蒙太奇引用已保存。Insert接收13个末帧非中性通道：左手IK位置/旋转和左拇指逐节旋转；真实循环两端对Start末帧最大位置差0.000054994cm、旋转差0.037144度，底层和附件摘要保持，Start通道摘要f08453c826632bc79a63c9c24908c94fe6dd7155374e8dd1c21fa22ddff2ee8c保持。LS_Shotgun01_CharacterReloadInsert已打开第0帧及原生Offset层供用户审核，runtime_applied=false；未改通知时间、未跑PIE，无备份或临时Content资产。
+
+
+
+## 2026-10-22 循环装填应用与结束段原生衔接
+
+phase_handoff_recipe及phase_handoff统一表达分段换弹的相邻制作源和成功事实，仅接受同武器Start→Insert、Insert→End。既有Insert源已原位迁移字段，不保留旧字段兼容。Insert继承整段常量；End显式handoff_release_frames=[3,13]，原生线性键在0/3帧保持继承值，13/末帧归零。用户可直接在Sequencer编辑，未添加自定义插值算法。成功记录存在时不重复覆盖；非中性人工目标编辑仍拒绝覆盖。
+
+结束段先在瞬态副本核验入口与Insert末帧一致、出口与中性Offset目标末帧一致，再写正式LS，保持源键、非Offset底层和附件摘要。中性与实际输出统一120 FPS官方导出比较，避免以初始化导出最后一帧作为正式末帧。Shotgun01 Insert已按用户批准烘焙45采样/0.366666675秒，全轨误差0，角色ReloadInsert蒙太奇引用保存且原混合设置保留。End继承13通道，入口/出口最大位置差0.000041657cm、角差0.040551度，原生Offset探针左手0.999999cm、右手0；正式LS已打开供手调，结束段尚未应用运行成品。未改通知、配置或运行IK；未跑PIE，无备份和兼容资产。

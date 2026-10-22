@@ -472,12 +472,12 @@ def copy_offset_keys(path, data, sequence):
     return result
 
 
-def match_reload_insert_offset(data, sequence):
-    """/** @param data\t循环装填制作源 @param sequence\t原生目标序列 @return\t继承开始末帧修正及真实循环接缝核验 */"""
-    if not data.get('reload_start_recipe') or data.get('reload_insert_handoff'):
+def match_reload_phase_offset(data, sequence):
+    """/** @param data\t分段换弹制作源 @param sequence\t原生目标序列 @return\t继承开始末帧修正及真实循环接缝核验 */"""
+    if not data.get('phase_handoff_recipe') or data.get('phase_handoff'):
         return
-    _, start_data = _source(data['reload_start_recipe'])
-    if data['action'] != 'reload_insert' or start_data['action'] != 'reload_start' or start_data['weapon_root'] != data['weapon_root']:
+    _, start_data = _source(data['phase_handoff_recipe'])
+    if (data['action'], start_data['action']) not in (('reload_insert', 'reload_start'), ('reload_end', 'reload_insert')) or start_data['weapon_root'] != data['weapon_root']:
         raise RuntimeError('RELOAD_HANDOFF_SOURCE_SCOPE')
     from BBBControlRigAuthoringToolset import _pose
     start = _asset(start_data['sequence'], unreal.LevelSequence)
@@ -523,6 +523,12 @@ def match_reload_insert_offset(data, sequence):
     preserved = _channel_digest(sequence, [target_layer])
     changed = {n: v for n, v in values.items() if abs(v - (1.0 if n == 'Weight' else 0.0)) > 0.00001}
     last = sequence.get_playback_end() - 1
+    release = data.get('handoff_release_frames')
+    if data['action'] == 'reload_end':
+        if not isinstance(release, list) or len(release) != 2 or not 0 < release[0] < release[1] < last:
+            raise RuntimeError('RELOAD_HANDOFF_RELEASE_FRAMES')
+    elif release is not None:
+        raise RuntimeError('RELOAD_HANDOFF_UNEXPECTED_RELEASE')
     def write(target):
         target_layer = layer(target)
         target_layer.set_is_locked(False)
@@ -532,8 +538,11 @@ def match_reload_insert_offset(data, sequence):
             for key in list(channel.get_keys()):
                 channel.remove_key(key)
             channel.set_default(value)
-            for frame in (0, last):
-                channel.add_key(unreal.FrameNumber(value=frame), value, 0.0,
+            points = [(0, value), (last, value)]
+            if release:
+                points = [(0, value), (release[0], value), (release[1], 0.0), (last, 0.0)]
+            for frame, keyed_value in points:
+                channel.add_key(unreal.FrameNumber(value=frame), keyed_value, 0.0,
                                 unreal.MovieSceneTimeUnit.DISPLAY_RATE, unreal.MovieSceneKeyInterpolation.LINEAR)
     mesh = _asset(data['mesh'], unreal.SkeletalMesh)
     source = _asset(data['finger_animation'], unreal.AnimSequence)
@@ -543,6 +552,8 @@ def match_reload_insert_offset(data, sequence):
         expected = _pose(expected_animation, mesh, expected_animation.get_play_length())
         copied = _copy_sequence(sequence, scope, 'InsertDraft')
         _export(copied, source, mesh, scope, 'Initialize', False)
+        original_animation = _export(copied, source, mesh, scope, 'Neutral')
+        final_expected = _pose(original_animation, mesh, original_animation.get_play_length())
         write(copied)
         actual_animation = _export(copied, source, mesh, scope, 'Insert')
         maximum = 0.0
@@ -552,8 +563,9 @@ def match_reload_insert_offset(data, sequence):
         names += [f'{b}_{j:02}_{s}' for s in ('l', 'r') for b in ('thumb', 'index', 'middle', 'ring', 'pinky') for j in (1, 2, 3)]
         for time in (0.0, actual_animation.get_play_length()):
             actual = _pose(actual_animation, mesh, time)
+            endpoint_expected = final_expected if release and time > 0 else expected
             for name in names:
-                a = unreal.AnimPoseExtensions.get_bone_pose(expected, name, unreal.AnimPoseSpaces.WORLD)
+                a = unreal.AnimPoseExtensions.get_bone_pose(endpoint_expected, name, unreal.AnimPoseSpaces.WORLD)
                 b = unreal.AnimPoseExtensions.get_bone_pose(actual, name, unreal.AnimPoseSpaces.WORLD)
                 error = (a.translation - b.translation).length()
                 cosine = abs(sum(x * y for x, y in zip(a.rotation.to_tuple(), b.rotation.to_tuple())))
@@ -561,15 +573,15 @@ def match_reload_insert_offset(data, sequence):
                 maximum = max(maximum, error)
                 angle = max(angle, degrees)
                 if error > 0.03 or degrees > 0.05:
-                    raise RuntimeError('RELOAD_HANDOFF_ENDPOINT: %s cm=%f degrees=%f' % (name, error, degrees))
+                    raise RuntimeError('RELOAD_HANDOFF_ENDPOINT: %s time=%f cm=%f degrees=%f' % (name, time, error, degrees))
         require_asset_write([sequence])
         write(sequence)
         if _channel_digest(sequence, [target_layer]) != preserved or _channel_digest(start) != source_signature:
             raise RuntimeError('RELOAD_HANDOFF_UNRELATED_KEYS_CHANGED')
         if not unreal.EditorAssetLibrary.save_loaded_asset(sequence, False):
             raise RuntimeError('RELOAD_HANDOFF_SAVE')
-        data['reload_insert_handoff'] = {'source_sequence': start_data['sequence'], 'source_channel_digest': source_signature,
-                                        'constant_offset_channels': changed, 'endpoint_position_error_cm': maximum,
+        data['phase_handoff'] = {'source_sequence': start_data['sequence'], 'source_channel_digest': source_signature,
+                                        'inherited_offset_channels': changed, 'release_frames': release, 'endpoint_position_error_cm': maximum,
                                         'endpoint_rotation_error_degrees': angle, 'base_and_attachments_preserved': True,
                                         'source_keys_preserved': True, 'runtime_applied': False}
     finally:
