@@ -421,3 +421,9 @@ reload_timing_request使用time_space=common_source时，通知秒数按source_t
 正式Source/Animation/Shotgun_Reload_Alignment_RetargetActions.json.source记录原位首尾对齐（不重新重定向）：以MM_Rifle_Idle_Hipfire第0秒为基准，入口0–6帧、出口71–81帧，末尾4帧稳定。完整2.833333秒/86采样保持；6–71帧全部原骨轨位置和旋转验证保留，中段写入误差0.00001077cm，首尾最大误差0.00003306cm。检查结果original_source_unchanged=false是因为source与animation明确为同一个原位修改资产，不代表中段改变。四条IK/握姿抑制曲线按正式首尾窗口重建。
 
 CommonActionBaselines中的shotgun.reload_full唯一引用上述MM资产（身体及手指），仅LMG01.reload映射改用该条目。LMG01制作源animation=finger_animation=上述Used/MM资产，source_time_scale=1；旧Rifle通知约定已移除，恢复原LMG01拔出0.3秒/第9帧、插入1.5秒/第45帧，原通知实例、配置及其它时序保持。修正前只读检查原生Additive层无人工关键帧，故清除错误底稿并原位重建LS；已重新打开LS_LMG01_CharacterReload第0帧及原生Offset层。新底稿全帧原姿势回读误差0.000106cm；正式运行换弹仍待用户编辑完成后烘焙应用。装备已应用不变。未跑PIE，无备份，无临时文件遗留。
+
+## 2026-10-22 Shotgun换弹末节上翻修复
+
+用户要求原位修复当前UsedAnimation/shotgun/MM_Shotgun_Reload。全轨检测30指节后，按既有中性伸展上限及超过5度规则，限定pinky_03_l、ring_03_l。小指异常区间4–7/21–26/42–45/66–69共18采样；无名指6–11/17–29/42–47/65–70共31采样，峰值43.64793度。仅用两侧安全采样平滑连接异常局部Yaw，位置、缩放、Pitch/Roll及其余骨轨回读保持；未重定向。
+
+修后全轨最大Yaw小指-0.11819度，无名指11.27020度，分别不超过0/12.89972度上限。首尾腕/前臂与参考误差保持原值。正式Alignment源记录修复前后摘要及49个修改采样，catalog更新正式摘要；LMG01通过sync_finger_repair仅同步Absolute层49个Rotation.Z键，逐键旧值核验并摘要确认其他控制键与人工Offset不变。当前序列已保存并刷新至第0帧；未烘焙未完成的人工作品、未改正式运行引用、无PIE、无备份或临时资产。
