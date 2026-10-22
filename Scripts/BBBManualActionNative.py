@@ -56,6 +56,10 @@ def sync_reload_timing(path, data, write_paths):
     timing = data['rifle_reload_timing']
     fps = float(timing['display_fps'])
     out_time, in_time = timing['magazine_out_frame'] / fps, timing['magazine_in_frame'] / fps
+    scale = float(data['source_time_scale']) if timing.get('time_space') == 'common_source' else 1.0
+    if not math.isfinite(scale) or scale <= 0:
+        raise RuntimeError('RELOAD_TIMING_SOURCE_SCALE')
+    out_time, in_time = out_time / scale, in_time / scale
     if not 0 < out_time < in_time or not all(math.isfinite(v) for v in (out_time, in_time)):
         raise RuntimeError('RELOAD_TIMING_FRAME_RANGE')
     definition = _asset(data['definition'], unreal.DataAsset)
