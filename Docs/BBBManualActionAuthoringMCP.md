@@ -206,3 +206,12 @@ ManualAction源可显式reset_unkeyed_finger_offsets_request=true，通过普通
 基础动画另以既有bridge_hyperextended_finger_yaw规则扩查双手24个非拇指指节。显式extension_limit_basis=reference_pose时上限采用max(0,正确参考Yaw)，minimum_excess_degrees=0.1，不再将骨架中性姿势的过伸容差当作最终可接受范围。新增修复左食指末节17采样、左中指末节19、左无名指末节40、右食指末节56，共132。只修Yaw，保持其余骨轨、位置/缩放和首尾参考。拇指全部检查，保留正常对掌角度，不把其旋转正号等同于异常。
 
 源修复后通过原生finger同步仅写上述Absolute Rotation.Z键，其他键与人工Offset摘要不变。最终120 FPS官方瞬态导出341采样：42个无键默认偏移已清零，左侧四指全部指节最大Yaw均小于0，右食指末节最大1.574482度与正式参考一致；源与序列手指位置差0，旋转四元数点积最小0.999999938。当前LS_LMG01_CharacterReload已保存并刷新，未提前烘焙用户尚未完成的正式动画、未运行PIE、无备份或临时资产。
+
+
+## 2026-10-22 LMG03也使用正式Shotgun完整换弹
+
+用户明确指定LMG03换弹同样使用已迁移/基准对齐/完整指节修复的UsedAnimation/shotgun/MM_Shotgun_Reload。修改前只读确认当前LMG03换弹Additive无人工关键帧且没有非零手指默认偏移，故原位重建错误Rifle底稿。catalog中仅LMG03.reload改为shotgun.reload_full，身体与手指均引用唯一MM_Shotgun_Reload，原速2.833333秒/86采样。没有新增或复制公共资产。LS已保存、打开第0帧，原生Offset已选中。
+
+LMG03原枪体片段2.2秒，通过现有retime_single_action_montage将枪体蒙太奇调整至2.833333秒、DefaultSlot保持、片段速度0.7764706，制作枪体预览据此同步。普通Rifle的11/33约定已从本枪制作源移除；两侧弹匣通知使用Shotgun9/45帧及原实例，预览已同步。手调完成后须使用正式配置蒙太奇入口把角色片段改为新2.833333秒（当前运行片段仍为旧2.2秒，不能使用只允许等长的替换接口），并同步换弹生命周期、阻火结束、允许开火至2.8秒。此待办已明确记录本枪源runtime_apply_requirement，未提前应用未完成的角色手调。
+
+真实prepare全帧源姿势位置误差0.000106cm，源摘要为5be6e85aacbb8cbbb72cffb513a956e0bdc204376f4ca9bd800e791ebe881f77；指节继承同一个已修复Shotgun输入。无PIE、无备份和临时资产。
