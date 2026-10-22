@@ -155,6 +155,46 @@ def sync_reload_timing(path, data, write_paths):
     return {'timing': data['reload_timing_applied'], 'montages': reports, 'manual_keys_modified': False}
 
 
+def reset_unkeyed_finger_offsets(data, sequence):
+    """Reset explicitly requested unkeyed finger rotation offsets, retaining every key."""
+    if not data.pop('reset_unkeyed_finger_offsets_request', False):
+        return
+    require_asset_write([sequence])
+    sections = [s for b in sequence.get_bindings() for t in b.get_tracks() for s in t.get_sections()]
+    def capture():
+        result = {}
+        for section in sections:
+            for channel in section.get_all_channels():
+                keys = []
+                for key in channel.get_keys():
+                    time = key.get_time(unreal.MovieSceneTimeUnit.DISPLAY_RATE)
+                    keys.append([time.frame_number.value, time.sub_frame, str(key.get_value())])
+                result[section.get_path_name() + ':' + str(channel.channel_name)] = {
+                    'default': str(channel.get_default()) if hasattr(channel, 'has_default') and channel.has_default() else None,
+                    'keys': keys}
+        return result
+    expected = capture()
+    changed = []
+    for section in sections:
+        if section.get_blend_type().blend_type != unreal.MovieSceneBlendType.ADDITIVE:
+            continue
+        for channel in section.get_all_channels():
+            name = str(channel.channel_name)
+            if name.startswith('fk_') and '.Rotation.' in name and not channel.get_keys() and channel.has_default():
+                value = channel.get_default()
+                if abs(float(value)) > 0.0001:
+                    changed.append({'channel': name, 'before': value, 'after': 0.0})
+                    channel.set_default(0.0)
+                    expected[section.get_path_name() + ':' + name]['default'] = str(channel.get_default())
+    if capture() != expected:
+        raise RuntimeError('FINGER_OFFSET_UNRELATED_CHANNEL_CHANGED')
+    if not unreal.EditorAssetLibrary.save_loaded_asset(sequence, False):
+        raise RuntimeError('FINGER_OFFSET_SAVE')
+    unreal.LevelSequenceEditorBlueprintLibrary.refresh_current_level_sequence()
+    unreal.LevelSequenceEditorBlueprintLibrary.force_update()
+    data['finger_offset_repair'] = {'defaults_reset': changed, 'all_keys_and_other_defaults_preserved': True}
+
+
 def configure_visible_controls(data, sequence):
     """/** @param data\t显式可见控制器列表 @param sequence\t当前制作序列 @return\t保留全部关键帧的控制器显示过滤 */"""
     if 'visible_controls' not in data:
@@ -469,6 +509,22 @@ def inspect_manual(recipe_path, write_paths):
                 b = unreal.AnimPoseExtensions.get_bone_pose(actual, name, unreal.AnimPoseSpaces.LOCAL)
                 maximum = max(maximum, (a.translation - b.translation).length())
                 minimum_cosine = min(minimum_cosine, abs(sum(x * y for x, y in zip(a.rotation.to_tuple(), b.rotation.to_tuple()))))
+        evidence['finger_nonzero_additive_defaults'] = []
+        for section in tracks[0].get_sections():
+            if section.get_blend_type().blend_type != unreal.MovieSceneBlendType.ADDITIVE:
+                continue
+            for channel in section.get_all_channels():
+                if str(channel.channel_name).startswith('fk_') and channel.has_default():
+                    value = channel.get_default()
+                    if abs(float(value)) > 0.0001:
+                        evidence['finger_nonzero_additive_defaults'].append({'channel': str(channel.channel_name), 'default': value, 'keys': len(channel.get_keys())})
+        evidence['finger_track_ranges'] = []
+        for name in names:
+            source_keys = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(source, name)
+            actual_keys = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(baked, name)
+            evidence['finger_track_ranges'].append({'bone': str(name),
+                'source_max_yaw': max(k.rotation.rotator().yaw for k in source_keys),
+                'sequence_max_yaw': max(k.rotation.rotator().yaw for k in actual_keys)})
         evidence['finger_source_position_error_cm'] = maximum
         evidence['finger_source_rotation_cosine_min'] = minimum_cosine
         output = unreal.load_asset(data['output_animation'])

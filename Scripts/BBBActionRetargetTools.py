@@ -278,6 +278,8 @@ def _repair_fingers(path, data, job):
         ref = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(reference, name)[0]
         rest = unreal.AnimPoseExtensions.get_bone_pose(neutral, name, unreal.AnimPoseSpaces.LOCAL)
         limit = max(0.0, rest.rotation.rotator().yaw, ref.rotation.rotator().yaw)
+        if policy.get('extension_limit_basis') == 'reference_pose':
+            limit = max(0.0, ref.rotation.rotator().yaw)
         flexions = [key.rotation.rotator().yaw for key in keys]
         frame = 1
         changed = []
@@ -291,7 +293,7 @@ def _repair_fingers(path, data, job):
             while frame < job['exit_frames'][1] and flexions[frame] > limit:
                 frame += 1
             end = frame - 1
-            if max(flexions[start:end + 1]) <= limit + 5:
+            if max(flexions[start:end + 1]) <= limit + float(policy.get('minimum_excess_degrees', 5.0)):
                 continue
             left, right = start - 1, frame
             if flexions[right] > limit + 0.01:

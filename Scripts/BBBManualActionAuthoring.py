@@ -699,6 +699,7 @@ def prepare(recipe_path, write_paths):
         import importlib
         import BBBManualActionNative
         importlib.reload(BBBManualActionNative)
+        BBBManualActionNative.reset_unkeyed_finger_offsets(data, sequence)
         BBBManualActionNative.prepare_preview_mesh(data, sequence)
         native_edit = BBBManualActionNative.prepare_offset(data, sequence)
         control_visibility = BBBManualActionNative.configure_visible_controls(data, sequence)
