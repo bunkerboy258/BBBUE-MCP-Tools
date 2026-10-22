@@ -445,3 +445,11 @@ ManualAction源可显式reset_unkeyed_finger_offsets_request=true，通过普通
 LMG03原枪体片段2.2秒，通过现有retime_single_action_montage将枪体蒙太奇调整至2.833333秒、DefaultSlot保持、片段速度0.7764706，制作枪体预览据此同步。普通Rifle的11/33约定已从本枪制作源移除；两侧弹匣通知使用Shotgun9/45帧及原实例，预览已同步。手调完成后须使用正式配置蒙太奇入口把角色片段改为新2.833333秒（当前运行片段仍为旧2.2秒，不能使用只允许等长的替换接口），并同步换弹生命周期、阻火结束、允许开火至2.8秒。此待办已明确记录本枪源runtime_apply_requirement，未提前应用未完成的角色手调。
 
 真实prepare全帧源姿势位置误差0.000106cm，源摘要为5be6e85aacbb8cbbb72cffb513a956e0bdc204376f4ca9bd800e791ebe881f77；指节继承同一个已修复Shotgun输入。无PIE、无备份和临时资产。
+
+## 2026-10-22 LMG03装入弹匣改为第47帧并完成应用
+
+用户确认手调完成，明确本枪插入改为47帧。LMG03普通弹匣通知范围本轮为9/47帧（30 FPS）；角色新弹匣结束、武器显隐结束、装弹逻辑开始和插入音效均原实例同步到1.5666667秒，出弹0.3秒保持。继承Shotgun完整2.833333秒而非旧2.2秒，生命周期与阻火结束、允许开火统一2.8秒/84帧。手指使用已修复的唯一公共Shotgun基准。
+
+新增显式ManualAction apply_baked_request：prepare_action以唯一角色蒙太奇write_paths应用已有成功bake_result，只改当前单片段的动画引用、源起止与1倍速度，按烘焙输出更新时长，不重建蒙太奇或重设混合/通知。实际LMG03从旧2.2秒改为新2.833333秒，UpperBody保持，原blend_in0.25和blend_out0.4回读保持。正式动画341采样、官方直接烘焙全轨位置差0，蒙太奇保存与片段引用回读正确。普通同步入口支持显式reload_end_seconds联动生命周期/阻火/允许开火尾点，其余通知和实例参数保持。
+
+新增preview_timing_request：以通常LS/Rig/Preview范围prepare_action，只更新现有OldMagazine/NewMagazine生命周期及枪体显隐预览，保留绑定和全部人工控制/附件Transform键。LMG03旧弹匣[9,17)、新弹匣[25,47)显示帧；全部控制及Transform通道摘要保持，最终当前LS与已应用AS再次官方导出比对误差0，existing_output_matches_preview=true。制作源runtime_applied=true，时长交接待办标为完成。源保留magazine_timing=9/47，不扩大修改其他型号。未运行PIE，无备份、无兼容跳转或临时资产。

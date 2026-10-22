@@ -669,6 +669,11 @@ def prepare(recipe_path, write_paths):
     if unreal.EditorLevelLibrary.get_pie_worlds(False):
         raise RuntimeError('ACTION_PREPARE_PIE_FORBIDDEN')
     path, data = _source(recipe_path)
+    if data.get('apply_baked_request'):
+        import importlib
+        import BBBManualActionNative
+        importlib.reload(BBBManualActionNative)
+        return BBBManualActionNative.apply_baked_animation(path, data, write_paths)
     if data.get('reload_timing_request'):
         import importlib
         import BBBManualActionNative
@@ -699,6 +704,7 @@ def prepare(recipe_path, write_paths):
         import importlib
         import BBBManualActionNative
         importlib.reload(BBBManualActionNative)
+        BBBManualActionNative.refresh_magazine_preview_timing(data, sequence)
         BBBManualActionNative.reset_unkeyed_finger_offsets(data, sequence)
         BBBManualActionNative.prepare_preview_mesh(data, sequence)
         native_edit = BBBManualActionNative.prepare_offset(data, sequence)

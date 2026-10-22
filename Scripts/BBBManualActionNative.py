@@ -100,6 +100,12 @@ def sync_reload_timing(path, data, write_paths):
                 new_start, new_end = out_time, in_time
             elif role == 'weapon' and name in ('BBBRifleLoadMagazineLogicAnimNotifyState', 'BBBEquipmentLoadAmmoLogicAnimNotifyState'):
                 new_start, new_end = in_time, in_time + (end - start)
+            elif role == 'weapon' and 'reload_end_seconds' in timing and name in (
+                    'BBBRifleReloadLifecycleLogicAnimNotifyState', 'BBBEquipmentReloadLifecycleLogicAnimNotifyState',
+                    'BBBEquipmentBlockFireLogicAnimNotifyState'):
+                new_end = float(timing['reload_end_seconds'])
+            elif role == 'weapon' and 'reload_end_seconds' in timing and name == 'BBBEquipmentAllowFireLogicAnimNotify':
+                new_start = new_end = float(timing['reload_end_seconds'])
             elif track == 'BBB_MagazineOutAudio':
                 new_start = new_end = out_time
             elif track == 'BBB_MagazineInAudio':
@@ -153,6 +159,96 @@ def sync_reload_timing(path, data, write_paths):
     data['reload_timing_applied'] = {'out_frame': timing['magazine_out_frame'], 'in_frame': timing['magazine_in_frame'], 'fps': fps}
     _save(path, data)
     return {'timing': data['reload_timing_applied'], 'montages': reports, 'manual_keys_modified': False}
+
+
+def refresh_magazine_preview_timing(data, sequence):
+    """Refresh existing magazine lifetime ranges without rebuilding bindings or authored transforms."""
+    if not data.pop('preview_timing_request', False):
+        return
+    from BBBManualActionAuthoring import _notify_events, _single_segment, _weapon_preview_animation
+    definition = _asset(data['definition'], unreal.DataAsset)
+    character = definition.get_editor_property('character_reload_montage')
+    weapon = definition.get_editor_property('equipment_reload_montage')
+    segment = _single_segment(weapon)
+    signature = _channel_digest(sequence)
+    require_asset_write([sequence])
+    rate = sequence.get_display_rate()
+    fps = rate.numerator / rate.denominator
+    updated = []
+    for state, start, end in _notify_events(character):
+        if state is None:
+            continue
+        kind = state.get_class().get_name()
+        label = {'BBBCharacterOldMagazineDisplayAnimNotifyState': 'OldMagazine',
+                 'BBBCharacterNewMagazineDisplayAnimNotifyState': 'NewMagazine'}.get(kind)
+        if label is None:
+            continue
+        bindings = [b for b in sequence.get_bindings() if b.get_name() == label]
+        if len(bindings) != 1:
+            raise RuntimeError('PREVIEW_MAGAZINE_BINDING')
+        sections = [s for t in bindings[0].find_tracks_by_type(unreal.MovieSceneBindingLifetimeTrack) for s in t.get_sections()]
+        if len(sections) != 1:
+            raise RuntimeError('PREVIEW_MAGAZINE_LIFETIME')
+        bounds = [math.ceil(start*fps-0.0001), math.ceil(end*fps-0.0001)]
+        sections[0].set_range(*bounds)
+        for row in data['weapon_preview']['magazines']:
+            if row['label'] == label:
+                row['ranges'] = [bounds]
+        updated.append({'label': label, 'frames': bounds})
+    _, visibility = _weapon_preview_animation(data, segment.get_editor_property('anim_reference'), weapon,
+                                              segment.get_editor_property('anim_play_rate'))
+    data['weapon_preview']['bone_visibility'] = visibility
+    if _channel_digest(sequence) != signature:
+        raise RuntimeError('PREVIEW_MAGAZINE_KEYS_CHANGED')
+    if not unreal.EditorAssetLibrary.save_loaded_asset(sequence, False):
+        raise RuntimeError('PREVIEW_MAGAZINE_SAVE')
+    data['preview_timing_refresh'] = {'lifetimes': updated, 'all_control_and_transform_keys_preserved': True}
+
+
+def apply_baked_animation(path, data, write_paths):
+    """Apply a confirmed bake to the existing single montage segment without resetting blend/notify settings."""
+    if unreal.EditorLevelLibrary.get_pie_worlds(False):
+        raise RuntimeError('ACTION_APPLY_PIE_FORBIDDEN')
+    if data.get('bake_result', {}).get('animation') != data['output_animation']:
+        raise RuntimeError('ACTION_APPLY_REQUIRES_BAKE_RESULT')
+    definition = _asset(data['definition'], unreal.DataAsset)
+    montage = definition.get_editor_property('character_' + data['action'] + '_montage')
+    if set(write_paths) != {montage.get_path_name().split('.')[0]}:
+        raise RuntimeError('ACTION_APPLY_WRITE_SCOPE')
+    output = _asset(data['output_animation'], unreal.AnimSequence)
+    if output.get_editor_property('skeleton') != montage.get_editor_property('skeleton'):
+        raise RuntimeError('ACTION_APPLY_SKELETON')
+    from BBBManualActionAuthoring import _single_segment
+    _single_segment(montage)
+    require_asset_write([montage])
+    montage.modify()
+    slots = list(montage.get_editor_property('slot_anim_tracks'))
+    slot = slots[0]
+    track = slot.get_editor_property('anim_track')
+    segments = list(track.get_editor_property('anim_segments'))
+    segment = segments[0]
+    segment.set_editor_property('anim_reference', output)
+    segment.set_editor_property('anim_start_time', 0.0)
+    segment.set_editor_property('anim_end_time', output.get_play_length())
+    segment.set_editor_property('anim_play_rate', 1.0)
+    track.set_editor_property('anim_segments', segments)
+    slot.set_editor_property('anim_track', track)
+    montage.set_editor_property('slot_anim_tracks', slots)
+    rate = output.data_model_interface.get_frame_rate()
+    montage.controller.set_frame_rate(rate)
+    montage.controller.set_number_of_frames(unreal.FrameNumber(value=output.data_model_interface.get_number_of_keys()-1))
+    if abs(montage.get_play_length()-output.get_play_length()) > 1e-5:
+        raise RuntimeError('ACTION_APPLY_LENGTH')
+    if not unreal.EditorAssetLibrary.save_loaded_asset(montage, False):
+        raise RuntimeError('ACTION_APPLY_SAVE')
+    data.pop('apply_baked_request', None)
+    data['runtime_applied'] = True
+    data['runtime_montage'] = montage.get_path_name().split('.')[0]
+    data['bake_result']['visualAcceptance'] = 'user_confirmed'
+    data['bake_result']['runtimeReferenceChanged'] = True
+    _save(path, data)
+    return {'animation': output.get_path_name(), 'montage': montage.get_path_name(),
+            'length': montage.get_play_length(), 'existing_blend_settings_preserved': True}
 
 
 def reset_unkeyed_finger_offsets(data, sequence):
