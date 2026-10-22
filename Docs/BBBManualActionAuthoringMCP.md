@@ -233,3 +233,11 @@ LMG03原枪体片段2.2秒，通过现有retime_single_action_montage将枪体�
 ManualAction可显式runtime_right_wrist_preview=true。prepare在当前Rig已有IK求解及ik_hand_r拷贝之后、手指FK之前，读取hand_r局部变换，使用RigVM QuaternionMul按D*LocalRotation写回局部旋转，保持局部位置缩放及上臂/前臂求解。未改控制器键、DA、武器挂接或公共动作。LS保存BBB_RuntimeRightWristPreview四元数标签；原生_export在瞬态动画中逆乘D以还原raw hand_r旋转，正式运行再由既有右腕节点应用一次。该标签是明确的运行预览语义，不是旧资产兼容。当前Sniper02装备与后续换弹制作源均启用，其他型号未批量写入。
 
 初始准备阶段复用含该预览节点的Rig时暂时关闭其Weight；重建LS清除预览标签，在manual_edit_ready阶段恢复Weight1并写入当前实际DA角度。重复打开同一角度及Weight1时不累计添加节点或修正。当前装备实际生效，所有通道键摘要保持；前后官方120 FPS瞬态导出、扣除运行预览D后的全骨轨位置误差0.0000992cm，旋转/缩放通过原有比较；重复prepare再次通过。未运行PIE、未烘焙未完成的用户手调、未改正式运行引用，无备份与临时资产。
+
+## 2026-10-22 霰弹枪分段换弹只对齐外侧端点
+
+BBBNativeRetargetActions 的每项 entry_frames、exit_frames 可显式为 null；至少指定一侧。单侧入口复用原 finalize，仍校验原资产摘要、帧数和窗口，使用最短弧旋转平滑，只核对所指定端点与参考一致；另一端及窗口外全部骨轨位置、旋转、缩放回读保持。四条 IK/握姿抑制曲线在入口结束后保持禁用，在出口对齐完成时恢复，末尾稳定段保持零。已对齐资产重复调用只核验摘要，不重复累加。
+
+Shotgun01 公共 AS_Shotgun_ReloadStart_Base 仅入口0–6帧对齐 MM_Rifle_Idle_Hipfire，6–25帧保留；AS_Shotgun_ReloadEnd_Base 仅出口3–13帧对齐，0–3帧及装填接口保留，最后4帧稳定。正式源为角色 Source/Animation/Shotgun_PhasedReload_Alignment_RetargetActions.json.source，catalog 采纳两条新摘要并保存参考及制作源。单发 AS_Shotgun_ReloadInsert_Base 未写入，catalog 全部19基准/14武器/27制作要求通过。双臂外侧端点最大差0.00003494cm，开始→装填、循环、装填→结束最大差0.00005251cm，旋转最大0.000108度；源输出长度和骨轨数量保持。专属运行成品仍待各枪人工制作后烘焙应用，本轮未切换其运行引用。
+
+手枪保持自己的完整动画组，已打开 LS_Pistol_CloseHold_BodyPose 供用户修改第0帧双臂基准；当前挂接与 DA 一致。原生纯瞬态 Sequencer 导出与正式 AS_Pistol_01_HandGrip 第0帧比较无差异，未改控制键或 Rig。临时播放器直接读取曾返回未刷新骨骼缓存，不作为预览姿势错误或 IK 权重失效的证据；实际图使用直接双臂求解，不受该旧权重字段控制。用户确认新基准前不重烘整组手枪动作，不重跑已有 result 的旧任务。未运行PIE，无备份、兼容包或重新重定向。

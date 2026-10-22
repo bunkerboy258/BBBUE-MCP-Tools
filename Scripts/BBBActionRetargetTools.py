@@ -120,6 +120,23 @@ def _blend(a, b, weight):
     return result
 
 
+def _endpoint_windows(job, count):
+    """/** @param job\t明确单侧或双侧窗口 @param count\t采样数 @return\t合法窗口与不变区间 */"""
+    entry = job['entry_frames']
+    exit_window = job['exit_frames']
+    if entry is None and exit_window is None:
+        raise RuntimeError('RETARGET_ACTION_ENDPOINT_REQUIRED')
+    if entry is not None and (len(entry) != 2 or entry[0] != 0 or not 0 < entry[1] < count):
+        raise RuntimeError('RETARGET_ACTION_ENTRY_WINDOW')
+    if exit_window is not None and (len(exit_window) != 2 or not 0 <= exit_window[0] < exit_window[1] < count):
+        raise RuntimeError('RETARGET_ACTION_EXIT_WINDOW')
+    if entry is not None and exit_window is not None and entry[1] >= exit_window[0]:
+        raise RuntimeError('RETARGET_ACTION_ENDPOINT_OVERLAP')
+    first = entry[1] if entry is not None else 0
+    last = exit_window[0] if exit_window is not None else count - 1
+    return entry, exit_window, range(first, last + 1)
+
+
 def finalize(recipe_path, write_paths):
     """/** @param recipe_path\t明确首尾窗口的制作源 @param write_paths\t公共动作输出 @return\t首尾参考和中段保留核验 */"""
     from BBBManualActionAuthoring import _digest
@@ -145,11 +162,8 @@ def finalize(recipe_path, write_paths):
             continue
         if _digest(animation) != job['retarget_digest']:
             raise RuntimeError('RETARGET_ACTION_RAW_ASSET_CHANGED')
-        entry_start, entry_end = job['entry_frames']
-        exit_start, exit_end = job['exit_frames']
         count = animation.data_model_interface.get_number_of_keys()
-        if entry_start != 0 or not entry_start < entry_end < exit_start < exit_end <= count - 1:
-            raise RuntimeError('RETARGET_ACTION_ENDPOINT_WINDOWS')
+        entry, exit_window, unchanged_frames = _endpoint_windows(job, count)
         original = {str(n): list(unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, n))
                     for n in animation.data_model_interface.get_bone_track_names()}
         values = {}
@@ -158,11 +172,11 @@ def finalize(recipe_path, write_paths):
             keys = []
             for frame, transform in enumerate(transforms):
                 weight = 0.0
-                if frame < entry_end:
-                    progress = frame / entry_end
+                if entry is not None and frame < entry[1]:
+                    progress = frame / entry[1]
                     weight = 1 - progress * progress * (3 - 2 * progress)
-                if frame > exit_start:
-                    progress = min(1.0, (frame - exit_start) / (exit_end - exit_start))
+                if exit_window is not None and frame > exit_window[0]:
+                    progress = min(1.0, (frame - exit_window[0]) / (exit_window[1] - exit_window[0]))
                     weight = progress * progress * (3 - 2 * progress)
                 keys.append(_blend(transform, target, weight))
             values[name] = keys
@@ -176,23 +190,34 @@ def finalize(recipe_path, write_paths):
             controller.close_bracket(False)
         rate = animation.data_model_interface.get_frame_rate()
         duration = animation.get_play_length()
+        curve_keys = [{'time': 0.0, 'value': 1.0}]
+        if entry is not None:
+            curve_keys = [{'time': 0.0, 'value': 0.0},
+                          {'time': entry[1] * rate.denominator / rate.numerator, 'value': 1.0}]
+        if exit_window is not None:
+            curve_keys += [{'time': exit_window[0] * rate.denominator / rate.numerator, 'value': 1.0},
+                           {'time': exit_window[1] * rate.denominator / rate.numerator, 'value': 0.0}]
+        if curve_keys[-1]['time'] < duration:
+            curve_keys.append({'time': duration, 'value': curve_keys[-1]['value']})
         for curve in ('DisableLHandIK', 'DisableAimIK', 'DisableLeftHandPoseOverride', 'DisableRightHandPoseOverride'):
             if not unreal.AnimationLibrary.does_curve_exist(animation, curve, unreal.RawCurveTrackTypes.RCT_FLOAT):
                 unreal.AnimationLibrary.add_curve(animation, curve, unreal.RawCurveTrackTypes.RCT_FLOAT, False)
-            _set_flat_cubic_curve(animation, curve, [{'time': 0.0, 'value': 0.0},
-                                                   {'time': entry_end * rate.denominator / rate.numerator, 'value': 1.0},
-                                                   {'time': exit_end * rate.denominator / rate.numerator, 'value': 1.0},
-                                                   {'time': duration, 'value': 0.0}])
+            _set_flat_cubic_curve(animation, curve, curve_keys)
         maximum = 0.0
         for name, before in original.items():
             after = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, name)
-            for frame in range(entry_end, exit_start + 1):
+            for frame in unchanged_frames:
                 maximum = max(maximum, (before[frame].translation - after[frame].translation).length())
-                if maximum > 0.0001 or abs(sum(x * y for x, y in zip(before[frame].rotation.to_tuple(), after[frame].rotation.to_tuple()))) < 0.999999:
+                if maximum > 0.0001 or (before[frame].scale3d - after[frame].scale3d).length() > 0.00001 or abs(sum(x * y for x, y in zip(before[frame].rotation.to_tuple(), after[frame].rotation.to_tuple()))) < 0.999999:
                     raise RuntimeError('RETARGET_ACTION_MIDDLE_CHANGED')
         endpoint_error = 0.0
         expected = _pose(reference, mesh, 0)
-        for time in (0, duration):
+        endpoint_times = []
+        if entry is not None:
+            endpoint_times.append(0.0)
+        if exit_window is not None:
+            endpoint_times.append(duration)
+        for time in endpoint_times:
             actual = _pose(animation, mesh, time)
             for bone in original:
                 a = unreal.AnimPoseExtensions.get_bone_pose(actual, bone, unreal.AnimPoseSpaces.WORLD)
@@ -206,7 +231,9 @@ def finalize(recipe_path, write_paths):
         job['validation'] = {'animation': job['animation'], 'reference': data['reference_animation'],
                              'endpoint_position_error_cm': endpoint_error, 'middle_position_error_cm': maximum,
                              'entry_frames': job['entry_frames'], 'exit_frames': job['exit_frames'],
-                             'stable_tail_frames': count - 1 - exit_end, 'frames': count,
+                             'stable_tail_frames': count - 1 - exit_window[1] if exit_window is not None else 0,
+                             'preserved_frames': [unchanged_frames.start, unchanged_frames.stop - 1],
+                             'animation_digest': job['aligned_digest'], 'frames': count,
                              'original_source_unchanged': _digest(_asset(job['source'], unreal.AnimSequence)) == job['source_digest']}
         reports.append(job['validation'])
         _save(path, data)
@@ -226,7 +253,7 @@ def inspect(recipe_path, write_paths):
              'validation': job.get('validation'),
              'finger_entry': _finger_entry(_asset(job['animation'], unreal.AnimSequence), reference),
              'trajectory': _metrics(_asset(job['animation'], unreal.AnimSequence), reference, mesh,
-                                    [0, job['exit_frames'][1] / 30, job['length']])} for job in data['jobs']]}
+                                    sorted(set([0, job['length']] + ([job['exit_frames'][1] / 30] if job['exit_frames'] is not None else []))))} for job in data['jobs']]}
 
 
 def _finger_entry(animation, reference):
