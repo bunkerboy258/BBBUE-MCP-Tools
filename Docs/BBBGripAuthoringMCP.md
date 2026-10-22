@@ -286,3 +286,5 @@ Python 3.12.14 / NumPy 2.3.5
 当用户明确要求两套姿势共用开火底稿新挂接时，可在原HandGrip制作源设置share_fire_attachment_request，再由原manual_apply_fire入口分保存边界推进。读取FireGrip附件Transform通道第0帧实际值，不依赖切换序列后尚未刷新的Actor或骨骼缓存；保留开火所有通道摘要。将新平移写回未开火LS，保持已应用未开火AS和指骨不重烘，按真实WeaponGrip_R插槽旋转补偿LeftHandIKOffset以保持手位，写正式共用标定，更新基准签名后重新打开FireGrip。最后一次调用仍执行完整非指骨、冻结右臂、挂接和烘焙回读检查。请求消费后不会自动接纳后续编辑；此入口仅允许平移，挂接旋转/缩放变化明确要求回未开火阶段，不降低原默认检查。
 
 Shotgun01用户主动调整挂接后明确选择两者共用。正式SpawnOffset平移回读[-8.772383773,3.707190574,-3.933614135]cm；左手IK补偿为[7.207152215,-2.846411012,-9.833188199]cm，右腕和左手IK旋转保持。新挂接及开火指骨成品应用成功，rightArmPreserved=true；原FireGrip通道摘要在共享步骤保持。已打开Shotgun03未开火LS继续人工流程，未运行PIE，无备份或兼容资产。
+
+2026-10-22：set_sequence_spawn_range 在出现帧之前显式写入隐藏键，避免布尔通道将首个 True 反向延伸到序列开头；返回 spawnKeys 供核验。LMG01 换弹旧弹匣采用 0=false、11=true、20=false，新弹匣采用 0=false、30=true、40=false。

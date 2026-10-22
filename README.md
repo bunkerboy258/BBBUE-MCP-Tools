@@ -533,3 +533,5 @@ Rifle02运行枪体弹匣骨轨已清理，但LS仍使用旧AuthoringPreview，�
 ## 2026-10-22 弹匣预览显隐帧边界
 
 枪体AuthoringPreview的显隐窗口改为源采样帧闭开区间，以ceil(seconds*fps-0.0001)转换开始/结束，和附件生命周期采用相同的浮点帧对齐语义。避免通知11/30秒存储为0.3666666746而第11帧采样为0.3666666667时漏隐藏。保存制作源weapon_preview_frame_boundaries，来自输出骨轨实际缩放回读。Rifle02实测10帧scale=(1,1,1)、11与32帧=(0,0,0)、33帧=(1,1,1)，现有控制键和Transform摘要保持，正式通知时间未改。未运行PIE，无备份或兼容资产。
+
+2026-10-22：set_sequence_spawn_range 在出现帧之前显式写入隐藏键，避免布尔通道将首个 True 反向延伸到序列开头；返回 spawnKeys 供核验。LMG01 换弹旧弹匣采用 0=false、11=true、20=false，新弹匣采用 0=false、30=true、40=false。

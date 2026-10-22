@@ -795,10 +795,13 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
             channel.remove_key(key)
 
         channel.set_default(False)
+        channel.add_key(unreal.FrameNumber(value=min(sequence.get_playback_start(), first_frame - 1)), False)
         channel.add_key(unreal.FrameNumber(value=first_frame), True)
         channel.add_key(unreal.FrameNumber(value=last_frame), False)
         unreal.EditorAssetLibrary.save_loaded_asset(sequence)
-        return json.dumps({"binding": label, "range": [first_frame, last_frame]})
+        return json.dumps({"binding": label, "range": [first_frame, last_frame],
+                           "spawnKeys": [{"frame": key.get_time().frame_number.value, "visible": key.get_value()}
+                                         for key in channel.get_keys()]})
 
     @mcp_tool
     @staticmethod
