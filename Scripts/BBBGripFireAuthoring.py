@@ -85,6 +85,97 @@ def apply(hold, hold_path, project):
     if not fire_path.is_file():
         raise RuntimeError('FIRE_GRIP_PREPARE_REQUIRED')
     recipe = _recipe(fire_path, hold['weapon_root'])
+    if hold.get('share_fire_attachment_request'):
+        return _share_attachment(hold, hold_path, recipe, fire_path, project)
     if recipe.get('hold_signature') != hold_signature(hold, project):
         raise RuntimeError('FIRE_GRIP_BASE_CHANGED: 禁止应用基于旧未开火握姿的开火底稿')
     return manual.apply(recipe, fire_path, project)
+
+
+def _share_attachment(hold, hold_path, fire, fire_path, project):
+    """Explicitly promote the edited fire attachment to the shared hold calibration, retaining finger keys."""
+    import json
+    import BBBGripManualAuthoring as manual
+    from BBBGripAuthoringToolset import _asset, _write_recipe
+    from BBBControlRigAuthoringToolset import BBBControlRigAuthoringToolset as authoring
+    from BBBManualActionNative import _channel_digest
+
+    pending = hold.get('shared_fire_attachment')
+    sequence = _asset(fire['sequence'], unreal.LevelSequence)
+    if pending:
+        if _channel_digest(sequence) != pending['fire_channel_digest']:
+            raise RuntimeError('SHARED_FIRE_CONTENT_CHANGED')
+        from BBBGripAuthoringToolset import _definition, _transform, _values, _socket, _apply_definition, _fingerprint, _inputs
+        definition, current = _definition(hold)
+        old_spawn = _transform(current['spawn_offset'])
+        requested = pending['transform']
+        new_spawn = _transform(requested['position'] + requested['rotation'] + requested['scale'])
+        if abs((old_spawn.rotation * new_spawn.rotation.inversed()).w) < 0.999999 or (old_spawn.scale3d - new_spawn.scale3d).length() > 0.00001:
+            raise RuntimeError('SHARED_FIRE_TRANSLATION_ONLY: 旋转或缩放变更须回未开火阶段')
+        attachment = _transform(_socket(_asset(hold['character_mesh'], unreal.SkeletalMesh), hold['attachment_socket'])['local'])
+        displacement = attachment.rotation.rotate_vector(new_spawn.translation - old_spawn.translation)
+        calibration = copy.deepcopy(hold['solution']['calibration'])
+        calibration['spawn_offset'] = _values(new_spawn)
+        calibration['left_ik_offset'] = list((unreal.Vector(*current['left_ik_offset']) - displacement).to_tuple())
+        hold['calibration'] = calibration
+        hold['solution']['calibration'] = calibration
+        require_asset_write([definition])
+        _apply_definition(hold)
+        hold['solution']['inputs'] = _inputs(hold, project)
+        hold['solution']['input_digest'] = hold['solution']['inputs']['digest']
+        hold['validation']['fingerprint'] = _fingerprint(hold, project)
+        result = {'status': 'shared_attachment_applied_without_pose_rebake'}
+        fire['hold_signature'] = hold_signature(hold, project)
+        fire['shared_attachment_adopted'] = {'transform': pending['transform'],
+            'fire_keys_preserved': True, 'hold_applied': result['status']}
+        hold.pop('share_fire_attachment_request')
+        hold.pop('shared_fire_attachment')
+        _write_recipe(hold_path, hold, project)
+        _write_recipe(fire_path, fire, project)
+        manual.prepare(fire, fire_path, project)
+        return {'status': 'shared_attachment_hold_applied', 'next': 'manual_apply_fire',
+                'fire_keys_preserved': True, 'sequence': fire['sequence']}
+    if fire.get('hold_signature') != hold_signature(hold, project):
+        raise RuntimeError('FIRE_GRIP_BASE_CHANGED')
+    unreal.LevelSequenceEditorBlueprintLibrary.open_level_sequence(sequence)
+    unreal.LevelSequenceEditorBlueprintLibrary.set_current_time(0)
+    unreal.LevelSequenceEditorBlueprintLibrary.force_update()
+    preserved = _channel_digest(sequence)
+    bindings = [b for b in sequence.get_bindings() if isinstance(b.get_object_template(), unreal.SkeletalMeshActor)
+                and b.get_object_template().skeletal_mesh_component.skeletal_mesh_asset == _asset(fire['weapon_mesh'], unreal.SkeletalMesh)]
+    if len(bindings) != 1:
+        raise RuntimeError('SHARED_FIRE_ATTACHMENT_WEAPON_NOT_UNIQUE')
+    tracks = bindings[0].find_tracks_by_type(unreal.MovieScene3DTransformTrack)
+    if len(tracks) != 1 or len(tracks[0].get_sections()) != 1:
+        raise RuntimeError('SHARED_FIRE_ATTACHMENT_TRACK')
+    numbers = []
+    for channel in tracks[0].get_sections()[0].get_all_channels():
+        value = float(channel.get_default())
+        if channel.get_keys():
+            bounds = channel.compute_effective_range()
+            bounds.set_start_seconds(0)
+            rate = sequence.get_display_rate()
+            bounds.set_end_seconds(rate.denominator / rate.numerator)
+            samples = channel.evaluate_keys(bounds, rate)
+            if not samples:
+                raise RuntimeError('SHARED_FIRE_ATTACHMENT_EVALUATION')
+            value = float(samples[0])
+        numbers.append(value)
+    spawn = unreal.Transform(location=unreal.Vector(*numbers[:3]),
+        rotation=unreal.Rotator(roll=numbers[3], pitch=numbers[4], yaw=numbers[5]),
+        scale=unreal.Vector(*numbers[6:9]))
+    transform = {'position': list(spawn.translation.to_tuple()), 'rotation': list(spawn.rotation.to_tuple()),
+                 'scale': list(spawn.scale3d.to_tuple())}
+    manual.prepare(hold, hold_path, project)
+    hold_sequence = _asset(hold['sequence'], unreal.LevelSequence)
+    hold_bindings = [b for b in hold_sequence.get_bindings() if isinstance(b.get_object_template(), unreal.SkeletalMeshActor)
+                     and b.get_object_template().skeletal_mesh_component.skeletal_mesh_asset == _asset(hold['weapon_mesh'], unreal.SkeletalMesh)]
+    if len(hold_bindings) != 1:
+        raise RuntimeError('SHARED_FIRE_HOLD_WEAPON_NOT_UNIQUE')
+    authoring.set_sequence_attachment_transform(hold['sequence'], hold_bindings[0].get_name(), json.dumps(transform))
+    if _channel_digest(sequence) != preserved:
+        raise RuntimeError('SHARED_FIRE_FINGER_KEYS_CHANGED')
+    hold['shared_fire_attachment'] = {'transform': transform, 'fire_channel_digest': preserved}
+    _write_recipe(hold_path, hold, project)
+    return {'status': 'shared_attachment_hold_ready', 'next': 'manual_apply_fire',
+            'fire_keys_preserved': True, 'sequence': hold['sequence']}

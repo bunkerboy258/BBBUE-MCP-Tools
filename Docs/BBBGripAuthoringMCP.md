@@ -280,3 +280,9 @@ Python 3.12.14 / NumPy 2.3.5
 用户批准撤销位置 Two Bone IK 和腕部蒙版改造。正式手部层仅覆盖左右各五根手指起点，右腕在 AimIK 前应用父骨骼空间增量；左手 FABRIK 同时使用 hand_r 空间目标位置和旋转，手腕复制目标朝向。manual_apply从人工LS烘焙正式AS并写回SpawnOffset、LeftHandIKOffset、LeftHandIKRotation、RightHandGripRotationOffset与CharacterGripPose；不再执行额外腕部空间换算。
 
 位置IK专用BBBGripWristApplication及公开烘焙入口已删除，原configure_right_hand_grip_rotation和含右腕偏移的正式手部表面采样契约恢复。14份AS/DA与制作源已回读，28份LS/Rig未改；完整UE编译和六个正式动画蓝图编译保存通过。SMG01底稿恢复第0帧；未运行PIE或额外测试，人工应用恢复后的下一次实际运行仍需按真实结果确认。
+
+## 2026-10-22 经明确授权共享开火底稿挂接平移
+
+当用户明确要求两套姿势共用开火底稿新挂接时，可在原HandGrip制作源设置share_fire_attachment_request，再由原manual_apply_fire入口分保存边界推进。读取FireGrip附件Transform通道第0帧实际值，不依赖切换序列后尚未刷新的Actor或骨骼缓存；保留开火所有通道摘要。将新平移写回未开火LS，保持已应用未开火AS和指骨不重烘，按真实WeaponGrip_R插槽旋转补偿LeftHandIKOffset以保持手位，写正式共用标定，更新基准签名后重新打开FireGrip。最后一次调用仍执行完整非指骨、冻结右臂、挂接和烘焙回读检查。请求消费后不会自动接纳后续编辑；此入口仅允许平移，挂接旋转/缩放变化明确要求回未开火阶段，不降低原默认检查。
+
+Shotgun01用户主动调整挂接后明确选择两者共用。正式SpawnOffset平移回读[-8.772383773,3.707190574,-3.933614135]cm；左手IK补偿为[7.207152215,-2.846411012,-9.833188199]cm，右腕和左手IK旋转保持。新挂接及开火指骨成品应用成功，rightArmPreserved=true；原FireGrip通道摘要在共享步骤保持。已打开Shotgun03未开火LS继续人工流程，未运行PIE，无备份或兼容资产。
