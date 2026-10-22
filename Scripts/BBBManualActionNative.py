@@ -161,6 +161,68 @@ def sync_reload_timing(path, data, write_paths):
     return {'timing': data['reload_timing_applied'], 'montages': reports, 'manual_keys_modified': False}
 
 
+def prepare_right_wrist_preview(data, sequence):
+    """Show the runtime parent-bone wrist correction; export removes it to avoid double application."""
+    if not data.get('runtime_right_wrist_preview'):
+        return
+    definition = _asset(data['definition'], unreal.DataAsset)
+    delta = definition.get_editor_property('right_hand_grip_rotation_offset').quaternion().normalized()
+    tag = 'BBB_RuntimeRightWristPreview'
+    asset = _asset(data['rig'], unreal.ControlRigBlueprint)
+    graph = asset.get_controller()
+    names = ('RuntimeWristRead', 'RuntimeWristRotation', 'RuntimeWristApply')
+    existing = graph.get_graph().find_node_by_name(names[2])
+    encoded = json.dumps(list(delta.to_tuple()))
+    if (existing is not None and unreal.EditorAssetLibrary.get_metadata_tag(sequence, tag) == encoded
+            and float(graph.get_graph().find_pin('RuntimeWristApply.Weight').get_default_value()) == 1.0):
+        return
+    require_asset_write([asset, sequence])
+    signature = _channel_digest(sequence)
+    source = _asset(data['finger_animation'], unreal.AnimSequence)
+    mesh = _asset(data['mesh'], unreal.SkeletalMesh)
+    scope = unreal.new_object(unreal.LevelSequence, name='BBBWristPreview_' + uuid.uuid4().hex)
+    try:
+        before = _export(sequence, source, mesh, scope, 'BeforeWrist')
+        if existing is None:
+            specs = [(names[0], '/Script/ControlRig.RigUnit_GetTransform', {'Item': '(Type=Bone,Name="hand_r")', 'Space': 'LocalSpace'}),
+                     (names[1], '/Script/RigVM.RigVMFunction_MathQuaternionMul', {}),
+                     (names[2], '/Script/ControlRig.RigUnit_SetTransform', {'Item': '(Type=Bone,Name="hand_r")', 'Space': 'LocalSpace', 'bPropagateToChildren': 'True'})]
+            for name, struct, defaults in specs:
+                if graph.add_unit_node_from_struct_path(struct, 'Execute', unreal.Vector2D(1600, 1000), name, False, False) is None:
+                    raise RuntimeError('WRIST_PREVIEW_NODE: ' + name)
+                for prop, value in defaults.items():
+                    if not graph.set_pin_default_value(name + '.' + prop, value, True, False, False, False):
+                        raise RuntimeError('WRIST_PREVIEW_PIN: ' + prop)
+            graph.break_link('Apply_ik_hand_l.ExecutePin', 'FKApply_thumb_01_l.ExecutePin', False)
+            links = [('Apply_ik_hand_l.ExecutePin', names[2]+'.ExecutePin'),
+                     (names[2]+'.ExecutePin', 'FKApply_thumb_01_l.ExecutePin'),
+                     (names[0]+'.Transform.Rotation', names[1]+'.B'),
+                     (names[1]+'.Result', names[2]+'.Value.Rotation'),
+                     (names[0]+'.Transform.Translation', names[2]+'.Value.Translation'),
+                     (names[0]+'.Transform.Scale3D', names[2]+'.Value.Scale3D')]
+            for start, end in links:
+                if not graph.add_link(start, end, False, False):
+                    raise RuntimeError('WRIST_PREVIEW_LINK: ' + start + ' -> ' + end)
+        value = '(X=%s,Y=%s,Z=%s,W=%s)' % delta.to_tuple()
+        if not graph.set_pin_default_value(names[1]+'.A', value, True, False, False, False):
+            raise RuntimeError('WRIST_PREVIEW_DELTA')
+        graph.set_pin_default_value('RuntimeWristApply.Weight', '1.0', True, False, False, False)
+        asset.recompile_vm()
+        unreal.EditorAssetLibrary.set_metadata_tag(sequence, tag, encoded)
+        unreal.LevelSequenceEditorBlueprintLibrary.refresh_current_level_sequence()
+        after = _export(sequence, source, mesh, scope, 'AfterWrist')
+        error = _compare(before, after)
+        if _channel_digest(sequence) != signature:
+            raise RuntimeError('WRIST_PREVIEW_KEYS_CHANGED')
+        for item in (asset, sequence):
+            if not unreal.EditorAssetLibrary.save_loaded_asset(item, False):
+                raise RuntimeError('WRIST_PREVIEW_SAVE')
+        data['right_wrist_preview'] = {'runtime_delta': list(delta.to_tuple()), 'raw_bake_error_cm': error,
+                                      'all_channel_keys_preserved': True, 'export_compensation': 'inverse_parent_bone_delta'}
+    finally:
+        unreal.purge_object_references(scope, True)
+
+
 def refresh_magazine_preview_timing(data, sequence):
     """Refresh existing magazine lifetime ranges without rebuilding bindings or authored transforms."""
     if not data.pop('preview_timing_request', False):
@@ -466,6 +528,15 @@ def _export(sequence, source, mesh, scope, name, duplicate=True):
     world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
     if not unreal.SequencerTools.export_anim_sequence(world, copied, result, options, _mesh_binding(copied, mesh), False):
         raise RuntimeError('NATIVE_ACTION_EXPORT_FAILED')
+    encoded = unreal.EditorAssetLibrary.get_metadata_tag(sequence, 'BBB_RuntimeRightWristPreview')
+    if encoded:
+        inverse = unreal.Quat(*json.loads(encoded)).inversed()
+        values = list(unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(result, 'hand_r'))
+        if not values:
+            raise RuntimeError('WRIST_PREVIEW_EXPORT_TRACK')
+        if not result.controller.set_bone_track_keys('hand_r', [v.translation for v in values],
+                [(inverse * v.rotation).normalized() for v in values], [v.scale3d for v in values], False):
+            raise RuntimeError('WRIST_PREVIEW_EXPORT_COMPENSATION')
     if duplicate and abs(result.get_play_length() - source.get_play_length()) > 0.0001:
         raise RuntimeError('NATIVE_ACTION_EXPORT_LENGTH: ' + str(result.get_play_length()))
     return result

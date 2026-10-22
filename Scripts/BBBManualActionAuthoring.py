@@ -124,6 +124,13 @@ def _create_rig(data, names, fingers, first_pose):
     if unreal.EditorAssetLibrary.does_asset_exist(data['rig']):
         rig = _asset(data['rig'], unreal.ControlRigBlueprint)
         if data.get('reuse_rig'):
+            graph = rig.get_controller()
+            if graph.get_graph().find_node_by_name('RuntimeWristApply') is not None:
+                require_asset_write([rig])
+                graph.set_pin_default_value('RuntimeWristApply.Weight', '0.0', True, False, False, False)
+                rig.recompile_vm()
+                if not unreal.EditorAssetLibrary.save_loaded_asset(rig, False):
+                    raise RuntimeError('WRIST_PREVIEW_PREPARE_SAVE')
             return rig
         require_asset_write([rig])
         for control in list(rig.hierarchy.get_controls()):
@@ -193,6 +200,7 @@ def _prepare_sequence(data, animation, count):
         package, name = data['sequence'].rsplit('/', 1)
         sequence = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, package, unreal.LevelSequence, unreal.LevelSequenceFactoryNew())
     require_asset_write([sequence])
+    unreal.EditorAssetLibrary.remove_metadata_tag(sequence, 'BBB_RuntimeRightWristPreview')
     unreal.LevelSequenceEditorBlueprintLibrary.close_level_sequence()
     for binding in list(sequence.get_bindings()):
         binding.remove()
@@ -716,6 +724,7 @@ def prepare(recipe_path, write_paths):
         if 'preview_attachment_error_cm' not in data['validation']:
             data['validation']['preview_attachment_error_cm'] = _verify_previews(sequence, data['weapon_preview'])
         data['status'] = 'manual_edit_ready'
+        BBBManualActionNative.prepare_right_wrist_preview(data, sequence)
         _save(path, data)
         unreal.LevelSequenceEditorBlueprintLibrary.set_current_time(0)
         unreal.LevelSequenceEditorBlueprintLibrary.force_update()
