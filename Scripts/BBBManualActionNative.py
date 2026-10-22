@@ -354,6 +354,114 @@ def reset_unkeyed_finger_offsets(data, sequence):
     data['finger_offset_repair'] = {'defaults_reset': changed, 'all_keys_and_other_defaults_preserved': True}
 
 
+def freeze_right_wrist_rotation(data, sequence):
+    """Hold the displayed initial wrist orientation using native Offset rotation keys only."""
+    if not data.get('freeze_right_wrist_rotation_request'):
+        return
+    from BBBControlRigAuthoringToolset import _pose, _key
+    mesh = _asset(data['mesh'], unreal.SkeletalMesh)
+    source = _asset(data['finger_animation'], unreal.AnimSequence)
+    sections = [s for b in sequence.get_bindings() for t in b.get_tracks()
+                if isinstance(t, unreal.MovieSceneControlRigParameterTrack) for s in t.get_sections()]
+    bases = [s for s in sections if s.get_blend_type().blend_type == unreal.MovieSceneBlendType.ABSOLUTE]
+    layers = [s for s in sections if s.get_blend_type().blend_type == unreal.MovieSceneBlendType.ADDITIVE]
+    if len(bases) != 1 or len(layers) != 1:
+        raise RuntimeError('WRIST_HOLD_SINGLE_BASE_OFFSET')
+    channels = {str(c.channel_name): c for c in bases[0].get_all_channels()}
+    targets = ['hand_r_ik_ctrl.Rotation.' + axis for axis in ('X', 'Y', 'Z')]
+    rate = sequence.get_display_rate()
+    count = sequence.get_playback_end()
+    rig = _asset(data['rig'], unreal.ControlRigBlueprint)
+    offset = rig.hierarchy.get_global_control_offset_transform(_key('hand_r_ik_ctrl', 'CONTROL'), True)
+    encoded = unreal.EditorAssetLibrary.get_metadata_tag(sequence, 'BBB_RuntimeRightWristPreview')
+    delta = unreal.Quat(*json.loads(encoded)) if encoded else unreal.Quat()
+    scope = unreal.new_object(unreal.LevelSequence, name='BBBWristHold_' + uuid.uuid4().hex)
+    try:
+        before = _export(sequence, source, mesh, scope, 'Before')
+        first = _pose(before, mesh, 0.0)
+        parent = unreal.AnimPoseExtensions.get_bone_pose(first, 'lowerarm_r', unreal.AnimPoseSpaces.WORLD).rotation
+        hand = unreal.AnimPoseExtensions.get_bone_pose(first, 'hand_r', unreal.AnimPoseSpaces.WORLD).rotation
+        desired = (parent * delta * parent.inversed() * hand).normalized()
+        rows = []
+        for frame in range(count):
+            time = min(frame * rate.denominator / rate.numerator, source.get_play_length())
+            pose = _pose(before, mesh, time)
+            parent = unreal.AnimPoseExtensions.get_bone_pose(pose, 'lowerarm_r', unreal.AnimPoseSpaces.WORLD).rotation
+            raw = (parent * delta.inversed() * parent.inversed() * desired).normalized()
+            local = unreal.Transform(rotation=raw.rotator()).make_relative(offset).rotation.rotator()
+            values = [local.roll, local.pitch, local.yaw]
+            for i, name in enumerate(targets):
+                channel = channels[name]
+                bounds = channel.compute_effective_range()
+                bounds.set_start_seconds(time)
+                bounds.set_end_seconds(time + rate.denominator / rate.numerator)
+                sampled = channel.evaluate_keys(bounds, rate)
+                if not sampled:
+                    raise RuntimeError('WRIST_HOLD_BASE_EVALUATION')
+                values[i] -= float(sampled[0])
+                if rows:
+                    values[i] += 360 * round((rows[-1][i] - values[i]) / 360)
+            rows.append(values)
+        def unrelated(target):
+            values = []
+            for b in target.get_bindings():
+                for t in b.get_tracks():
+                    for s in t.get_sections():
+                        additive = isinstance(t, unreal.MovieSceneControlRigParameterTrack) and s.get_blend_type().blend_type == unreal.MovieSceneBlendType.ADDITIVE
+                        for c in s.get_all_channels():
+                            if additive and str(c.channel_name) in targets:
+                                continue
+                            values.append((str(c.channel_name), str(c.get_default()) if hasattr(c, 'get_default') else None,
+                                [(k.get_time(unreal.MovieSceneTimeUnit.DISPLAY_RATE).frame_number.value, k.get_time(unreal.MovieSceneTimeUnit.DISPLAY_RATE).sub_frame, str(k.get_value())) for k in c.get_keys()]))
+            return values
+        def write(target):
+            layer = [s for b in target.get_bindings() for t in b.get_tracks()
+                     if isinstance(t, unreal.MovieSceneControlRigParameterTrack) for s in t.get_sections()
+                     if s.get_blend_type().blend_type == unreal.MovieSceneBlendType.ADDITIVE][0]
+            layer.set_is_locked(False)
+            channels = {str(c.channel_name): c for c in layer.get_all_channels()}
+            for i, name in enumerate(targets):
+                channel = channels[name]
+                for key in list(channel.get_keys()):
+                    channel.remove_key(key)
+                channel.set_default(rows[0][i])
+                for frame, row in enumerate(rows):
+                    channel.add_key(unreal.FrameNumber(value=frame), row[i], 0.0,
+                                    unreal.MovieSceneTimeUnit.DISPLAY_RATE, unreal.MovieSceneKeyInterpolation.LINEAR)
+        candidate = _copy_sequence(sequence, scope, 'WristDraft')
+        _export(candidate, source, mesh, scope, 'Initialize', False)
+        write(candidate)
+        after = _export(candidate, source, mesh, scope, 'After')
+        maximum, position = 0.0, 0.0
+        for frame in range(count):
+            time = min(frame * rate.denominator / rate.numerator, source.get_play_length())
+            a, b = _pose(before, mesh, time), _pose(after, mesh, time)
+            parent = unreal.AnimPoseExtensions.get_bone_pose(b, 'lowerarm_r', unreal.AnimPoseSpaces.WORLD).rotation
+            hand = unreal.AnimPoseExtensions.get_bone_pose(b, 'hand_r', unreal.AnimPoseSpaces.WORLD).rotation
+            actual = (parent * delta * parent.inversed() * hand).normalized()
+            cosine = abs(sum(x*y for x, y in zip(actual.to_tuple(), desired.to_tuple())))
+            maximum = max(maximum, math.degrees(2*math.acos(min(1.0, cosine))))
+            for bone in ('hand_r', 'hand_l', 'lowerarm_l', 'upperarm_l'):
+                pa = unreal.AnimPoseExtensions.get_bone_pose(a, bone, unreal.AnimPoseSpaces.WORLD)
+                pb = unreal.AnimPoseExtensions.get_bone_pose(b, bone, unreal.AnimPoseSpaces.WORLD)
+                position = max(position, (pa.translation - pb.translation).length())
+            if maximum > 0.1 or position > 0.02:
+                raise RuntimeError('WRIST_HOLD_POSE: frame=%d degrees=%f cm=%f' % (frame, maximum, position))
+        preserved = unrelated(sequence)
+        require_asset_write([sequence])
+        write(sequence)
+        if unrelated(sequence) != preserved:
+            raise RuntimeError('WRIST_HOLD_UNRELATED_KEYS_CHANGED')
+        if not unreal.EditorAssetLibrary.save_loaded_asset(sequence, False):
+            raise RuntimeError('WRIST_HOLD_SAVE')
+        data.pop('freeze_right_wrist_rotation_request')
+        data['right_wrist_rotation_hold'] = {'reference_frame': 0, 'frames': count,
+            'display_rotation_error_degrees': maximum, 'preserved_position_error_cm': position,
+            'only_offset_rotation_changed': True, 'native_keys': True}
+    finally:
+        unreal.purge_object_references(scope, True)
+
+
 def configure_visible_controls(data, sequence):
     """/** @param data\t显式可见控制器列表 @param sequence\t当前制作序列 @return\t保留全部关键帧的控制器显示过滤 */"""
     if 'visible_controls' not in data:

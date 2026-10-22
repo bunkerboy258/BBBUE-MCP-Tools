@@ -755,6 +755,7 @@ def prepare(recipe_path, write_paths):
             data['validation']['preview_attachment_error_cm'] = _verify_previews(sequence, data['weapon_preview'])
         data['status'] = 'manual_edit_ready'
         BBBManualActionNative.prepare_right_wrist_preview(data, sequence)
+        BBBManualActionNative.freeze_right_wrist_rotation(data, sequence)
         BBBManualActionNative.match_reload_phase_offset(data, sequence)
         _save(path, data)
         unreal.LevelSequenceEditorBlueprintLibrary.set_current_time(0)

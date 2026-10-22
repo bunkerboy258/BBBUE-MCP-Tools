@@ -505,3 +505,9 @@ phase_handoff_recipe及phase_handoff统一表达分段换弹的相邻制作源�
 BBBNativeRetargetActions的capture可使用每个job的source_frame_ranges（闭区间）直接从同骨架原动作采样，不经过IK重定向；按源顺序拼接，新增明确输出，拒绝原位覆盖和非连续接缝。保存前逐骨核验接缝组件空间位置/角度、全部输出位置/旋转/缩放以及源摘要。输出去除原通知和曲线，之后由既有finalize建立明确首尾窗口及抑制曲线；已有成功输出只回读核验，不重复裁切或覆盖。
 
 用户明确纠正Shotgun03的原动作必须是Shotgun01来源BigLocomotionPack的anim_shotgun_aim_reload，而非Lyra MM_Shotgun_Reload。原完整73采样/2.4秒资产已原生迁入UsedAnimation/shotgun，旧路径和重定向器清零。新增AS_Shotgun_ReloadSingle_Base取原0–25及55–72帧，44采样/1.433333秒，接缝位置差0、最大旋转差0.042760度，全轨位置写入误差0，完整源保留。入口0–6及出口29–39对齐Rifle参考，最后4帧稳定，首尾最大位置误差0.000033059cm。Shotgun03制作源/catalog已切换，正式LS原位重建并打开原生Offset；公共身体预览误差0.000139cm以内。两发手持弹药的原网格和局部变换保留，角色通知显示区间调整到首次装入的0.4–0.8秒；角色运行动画尚待人工完成后烘焙引用，枪体装入/结束通知同步留待该次应用完成。未运行PIE，无临时Content资产、备份或兼容入口。
+
+## 2026-10-22 单把动作固定右腕显示角度
+
+ManualAction显式freeze_right_wrist_rotation_request通过prepare_action将当前第0帧显示右腕方向保持到整段。仅写hand_r_ik_ctrl的三个原生Offset旋转通道，保留底轨、位置缩放、左手和附件全部键。计算包含现有右腕预览旋转的父空间补偿，原生导出回读实际手骨角度和位置；在瞬态候选通过全帧检查后写正式LS。请求成功消费，不在每次准备时重新锁定用户编辑；输出仍是可直接编辑的原生键，无运行时代码链条和自定义时间插值。
+
+Shotgun03当前44帧换弹已执行，原生导出显示右腕方向固定检查通过（误差上限0.1度），左右腕及左臂原位置保持（上限0.02cm），非目标通道时间/值/默认值摘要保持；具体实际误差保存在正式制作源right_wrist_rotation_hold。没有改公共Single底稿或武器DA，尚未烘焙应用，未运行PIE。无备份、兼容资产或本次临时Content输出。
