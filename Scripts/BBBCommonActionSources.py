@@ -248,7 +248,7 @@ def prepare_base(data, sequence):
     preserved = preserved_rows(sequence)
     scope = unreal.new_object(unreal.LevelSequence, name='BBBCommonBase_' + uuid.uuid4().hex)
     try:
-        copied = unreal.SystemLibrary.duplicate_object(sequence, scope, 'Sequence')
+        copied = native._copy_sequence(sequence, scope, 'Sequence')
         native._export(copied, source, mesh, scope, 'Initialize', False)
         write_base(copied)
         for section in _mesh_binding(copied, mesh).find_tracks_by_type(unreal.MovieSceneControlRigParameterTrack)[0].get_sections():

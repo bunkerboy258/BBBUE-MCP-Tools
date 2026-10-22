@@ -472,6 +472,110 @@ def copy_offset_keys(path, data, sequence):
     return result
 
 
+def match_reload_insert_offset(data, sequence):
+    """/** @param data\t循环装填制作源 @param sequence\t原生目标序列 @return\t继承开始末帧修正及真实循环接缝核验 */"""
+    if not data.get('reload_start_recipe') or data.get('reload_insert_handoff'):
+        return
+    _, start_data = _source(data['reload_start_recipe'])
+    if data['action'] != 'reload_insert' or start_data['action'] != 'reload_start' or start_data['weapon_root'] != data['weapon_root']:
+        raise RuntimeError('RELOAD_HANDOFF_SOURCE_SCOPE')
+    from BBBControlRigAuthoringToolset import _pose
+    start = _asset(start_data['sequence'], unreal.LevelSequence)
+    def layer(target):
+        sections = [s for b in target.get_bindings() for t in b.get_tracks()
+                    if isinstance(t, unreal.MovieSceneControlRigParameterTrack) for s in t.get_sections()
+                    if s.get_blend_type().blend_type == unreal.MovieSceneBlendType.ADDITIVE]
+        if len(sections) != 1:
+            raise RuntimeError('RELOAD_HANDOFF_SINGLE_OFFSET_REQUIRED')
+        return sections[0]
+    source_layer = layer(start)
+    target_layer = layer(sequence)
+    source_channels = {str(c.channel_name): c for c in source_layer.get_all_channels()}
+    target_channels = {str(c.channel_name): c for c in target_layer.get_all_channels()}
+    if set(source_channels) != set(target_channels):
+        raise RuntimeError('RELOAD_HANDOFF_CHANNELS')
+    rate = start.get_display_rate()
+    duration = _asset(start_data['finger_animation'], unreal.AnimSequence).get_play_length()
+    values = {}
+    for name, channel in source_channels.items():
+        value = 1.0 if name == 'Weight' else 0.0
+        if channel.has_default():
+            value = float(channel.get_default())
+        if channel.get_keys():
+            bounds = channel.compute_effective_range()
+            bounds.set_start_seconds(duration)
+            bounds.set_end_seconds(duration + rate.denominator / rate.numerator)
+            samples = channel.evaluate_keys(bounds, rate)
+            if not samples:
+                raise RuntimeError('RELOAD_HANDOFF_CHANNEL_EVALUATION: ' + name)
+            value = float(samples[0])
+        if not math.isfinite(value):
+            raise RuntimeError('RELOAD_HANDOFF_NONFINITE_OFFSET')
+        values[name] = value
+    for name, channel in target_channels.items():
+        neutral = 1.0 if name == 'Weight' else 0.0
+        numbers = [float(k.get_value()) for k in channel.get_keys()]
+        if channel.has_default():
+            numbers.append(float(channel.get_default()))
+        if any(abs(v - neutral) > 0.00001 for v in numbers):
+            raise RuntimeError('RELOAD_HANDOFF_TARGET_ALREADY_EDITED: ' + name)
+    source_signature = _channel_digest(start)
+    preserved = _channel_digest(sequence, [target_layer])
+    changed = {n: v for n, v in values.items() if abs(v - (1.0 if n == 'Weight' else 0.0)) > 0.00001}
+    last = sequence.get_playback_end() - 1
+    def write(target):
+        target_layer = layer(target)
+        target_layer.set_is_locked(False)
+        channels = {str(c.channel_name): c for c in target_layer.get_all_channels()}
+        for name, value in changed.items():
+            channel = channels[name]
+            for key in list(channel.get_keys()):
+                channel.remove_key(key)
+            channel.set_default(value)
+            for frame in (0, last):
+                channel.add_key(unreal.FrameNumber(value=frame), value, 0.0,
+                                unreal.MovieSceneTimeUnit.DISPLAY_RATE, unreal.MovieSceneKeyInterpolation.LINEAR)
+    mesh = _asset(data['mesh'], unreal.SkeletalMesh)
+    source = _asset(data['finger_animation'], unreal.AnimSequence)
+    scope = unreal.new_object(unreal.LevelSequence, name='BBBReloadHandoff_' + uuid.uuid4().hex)
+    try:
+        expected_animation = _export(start, _asset(start_data['finger_animation'], unreal.AnimSequence), mesh, scope, 'Start')
+        expected = _pose(expected_animation, mesh, expected_animation.get_play_length())
+        copied = _copy_sequence(sequence, scope, 'InsertDraft')
+        _export(copied, source, mesh, scope, 'Initialize', False)
+        write(copied)
+        actual_animation = _export(copied, source, mesh, scope, 'Insert')
+        maximum = 0.0
+        angle = 0.0
+        names = ['clavicle_' + s for s in ('l', 'r')]
+        names += [b + '_' + s for s in ('l', 'r') for b in ('upperarm', 'lowerarm', 'hand')]
+        names += [f'{b}_{j:02}_{s}' for s in ('l', 'r') for b in ('thumb', 'index', 'middle', 'ring', 'pinky') for j in (1, 2, 3)]
+        for time in (0.0, actual_animation.get_play_length()):
+            actual = _pose(actual_animation, mesh, time)
+            for name in names:
+                a = unreal.AnimPoseExtensions.get_bone_pose(expected, name, unreal.AnimPoseSpaces.WORLD)
+                b = unreal.AnimPoseExtensions.get_bone_pose(actual, name, unreal.AnimPoseSpaces.WORLD)
+                error = (a.translation - b.translation).length()
+                cosine = abs(sum(x * y for x, y in zip(a.rotation.to_tuple(), b.rotation.to_tuple())))
+                degrees = math.degrees(2 * math.acos(min(1.0, cosine)))
+                maximum = max(maximum, error)
+                angle = max(angle, degrees)
+                if error > 0.03 or degrees > 0.05:
+                    raise RuntimeError('RELOAD_HANDOFF_ENDPOINT: %s cm=%f degrees=%f' % (name, error, degrees))
+        require_asset_write([sequence])
+        write(sequence)
+        if _channel_digest(sequence, [target_layer]) != preserved or _channel_digest(start) != source_signature:
+            raise RuntimeError('RELOAD_HANDOFF_UNRELATED_KEYS_CHANGED')
+        if not unreal.EditorAssetLibrary.save_loaded_asset(sequence, False):
+            raise RuntimeError('RELOAD_HANDOFF_SAVE')
+        data['reload_insert_handoff'] = {'source_sequence': start_data['sequence'], 'source_channel_digest': source_signature,
+                                        'constant_offset_channels': changed, 'endpoint_position_error_cm': maximum,
+                                        'endpoint_rotation_error_degrees': angle, 'base_and_attachments_preserved': True,
+                                        'source_keys_preserved': True, 'runtime_applied': False}
+    finally:
+        unreal.purge_object_references(scope, True)
+
+
 def prepare_preview_mesh(data, sequence):
     """/** @param data\t正式制作源 @param sequence\t保留手调的序列 @return\t同骨架完整手臂预览更新证据 */"""
     destination = data.get('preview_mesh', '/Game/_ThirdParty/Characters/UkraineSoldier/Meshes/Arms/SK_arms')
@@ -511,11 +615,21 @@ def prepare_preview_mesh(data, sequence):
         unreal.purge_object_references(scope, True)
 
 
+def _copy_sequence(sequence, scope, name):
+    """/** @param sequence\t正式序列 @param scope\t瞬态容器 @param name\t副本名 @return\t携带运行预览语义的瞬态副本 */"""
+    copied = unreal.SystemLibrary.duplicate_object(sequence, scope, name)
+    tag = 'BBB_RuntimeRightWristPreview'
+    encoded = unreal.EditorAssetLibrary.get_metadata_tag(sequence, tag)
+    if encoded:
+        unreal.EditorAssetLibrary.set_metadata_tag(copied, tag, encoded)
+    return copied
+
+
 def _export(sequence, source, mesh, scope, name, duplicate=True):
     """/** @param sequence\t制作序列 @param source\t源动画 @param mesh\t网格 @param scope\t瞬态作用域 @param name\t名称 @return\t官方直接导出结果 */"""
     copied = sequence
     if duplicate:
-        copied = unreal.SystemLibrary.duplicate_object(sequence, scope, name + 'Sequence')
+        copied = _copy_sequence(sequence, scope, name + 'Sequence')
     result = unreal.SystemLibrary.duplicate_object(source, scope, name + 'Animation')
     if duplicate:
         copied.set_display_rate(unreal.FrameRate(numerator=120, denominator=1))
@@ -527,7 +641,11 @@ def _export(sequence, source, mesh, scope, name, duplicate=True):
     options.export_attribute_curves = False
     options.export_material_curves = False
     world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
-    if not unreal.SequencerTools.export_anim_sequence(world, copied, result, options, _mesh_binding(copied, mesh), False):
+    try:
+        binding = _mesh_binding(copied, mesh)
+    except RuntimeError as error:
+        raise RuntimeError('NATIVE_ACTION_EXPORT_BINDING: ' + copied.get_path_name() + ' mesh=' + mesh.get_path_name()) from error
+    if not unreal.SequencerTools.export_anim_sequence(world, copied, result, options, binding, False):
         raise RuntimeError('NATIVE_ACTION_EXPORT_FAILED')
     encoded = unreal.EditorAssetLibrary.get_metadata_tag(sequence, 'BBB_RuntimeRightWristPreview')
     if encoded:
@@ -615,11 +733,14 @@ def prepare_offset(data, sequence):
         section.set_is_locked(section not in layers)
     if not unreal.EditorAssetLibrary.save_loaded_asset(sequence, False):
         raise RuntimeError('NATIVE_OFFSET_LOCK_SAVE')
+    if 'native_offset' not in data:
+        data['native_offset'] = {'mode': 'native_additive_section', 'resumed_existing_layer': True,
+                                 'custom_interpolation': False}
     if 'probe_left_delta_cm' not in data.get('native_offset', {}):
         scope = unreal.new_object(unreal.LevelSequence, name='BBBNativeProbe_' + uuid.uuid4().hex)
         try:
             neutral = _export(sequence, source, mesh, scope, 'Neutral')
-            probe = unreal.SystemLibrary.duplicate_object(sequence, scope, 'Probe')
+            probe = _copy_sequence(sequence, scope, 'Probe')
             _export(probe, source, mesh, scope, 'InitializeProbe', False)
             probe_track = _mesh_binding(probe, mesh).find_tracks_by_type(unreal.MovieSceneControlRigParameterTrack)[0]
             probe_layer = [item for item in probe_track.get_sections() if item.get_blend_type().blend_type == unreal.MovieSceneBlendType.ADDITIVE][0]
