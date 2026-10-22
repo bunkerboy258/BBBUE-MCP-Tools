@@ -523,3 +523,9 @@ Shotgun03用户确认成品已官方120 FPS烘焙173采样/1.433333278秒，全�
 当用户明确要求两套姿势共用开火底稿新挂接时，可在原HandGrip制作源设置share_fire_attachment_request，再由原manual_apply_fire入口分保存边界推进。读取FireGrip附件Transform通道第0帧实际值，不依赖切换序列后尚未刷新的Actor或骨骼缓存；保留开火所有通道摘要。将新平移写回未开火LS，保持已应用未开火AS和指骨不重烘，按真实WeaponGrip_R插槽旋转补偿LeftHandIKOffset以保持手位，写正式共用标定，更新基准签名后重新打开FireGrip。最后一次调用仍执行完整非指骨、冻结右臂、挂接和烘焙回读检查。请求消费后不会自动接纳后续编辑；此入口仅允许平移，挂接旋转/缩放变化明确要求回未开火阶段，不降低原默认检查。
 
 Shotgun01用户主动调整挂接后明确选择两者共用。正式SpawnOffset平移回读[-8.772383773,3.707190574,-3.933614135]cm；左手IK补偿为[7.207152215,-2.846411012,-9.833188199]cm，右腕和左手IK旋转保持。新挂接及开火指骨成品应用成功，rightArmPreserved=true；原FireGrip通道摘要在共享步骤保持。已打开Shotgun03未开火LS继续人工流程，未运行PIE，无备份或兼容资产。
+
+## 2026-10-22 原位刷新枪体预览动画
+
+ManualAction制作源可显式设置refresh_weapon_animation_request，由既有prepare_action读取当前DA的角色/枪体蒙太奇及实际播放速率，复用_weapon_preview_animation把最新枪体骨轨和实际显隐区间写入本型号正式AuthoringPreview，并替换唯一有内容的Weapon动画轨；空动画轨不参与唯一性计数。刷新前后全部控制与Transform通道摘要一致，不重建绑定、不清空人工Offset或附件位置。消费请求后继续原生Offset准备并打开第0帧。
+
+Rifle02运行枪体弹匣骨轨已清理，但LS仍使用旧AuthoringPreview，本轮已刷新。预览Magazine_joint全段位置保持安装姿势，11–33帧仅使用缩放隐藏，33帧恢复；骨轨长度和每帧显隐缩放由原生回读核对。LS刷新及后续准备成功、dirty为空，人工控制键/附件摘要保持。未重新烘焙角色成品、未运行PIE，无备份或兼容资产。

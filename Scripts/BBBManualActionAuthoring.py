@@ -734,6 +734,34 @@ def prepare(recipe_path, write_paths):
             return {'sequence': data['sequence'], 'timeline': timeline, 'runtimeModified': False}
     if data.get('status') in ('previews_created', 'manual_edit_ready'):
         unreal.LevelSequenceEditorBlueprintLibrary.open_level_sequence(sequence)
+        if data.get('refresh_weapon_animation_request'):
+            from BBBManualActionNative import _channel_digest
+            signature = _channel_digest(sequence)
+            definition = _asset(data['definition'], unreal.DataAsset)
+            character_field, weapon_field = ACTION_MONTAGE_FIELDS[data['action']]
+            character = _single_segment(definition.get_editor_property(character_field))
+            montage = definition.get_editor_property(weapon_field)
+            segment = _single_segment(montage)
+            rate = segment.get_editor_property('anim_play_rate')
+            output, windows = _weapon_preview_animation(data, segment.get_editor_property('anim_reference'), montage, rate)
+            weapons = [b for b in sequence.get_bindings() if b.get_name() == 'Weapon']
+            tracks = [t for t in weapons[0].find_tracks_by_type(unreal.MovieSceneSkeletalAnimationTrack) if t.get_sections()] if len(weapons) == 1 else []
+            if len(tracks) != 1 or len(tracks[0].get_sections()) != 1:
+                raise RuntimeError('ACTION_REFRESH_WEAPON_TRACK_REQUIRED')
+            section = tracks[0].get_sections()[0]
+            params = section.get_editor_property('params')
+            params.animation = output
+            speed = rate / character.get_editor_property('anim_play_rate')
+            params.play_rate = unreal.MovieSceneTimeWarpExtensions.make_time_warp(speed)
+            section.set_editor_property('params', params)
+            if _channel_digest(sequence) != signature:
+                raise RuntimeError('ACTION_REFRESH_WEAPON_CHANGED_KEYS')
+            if not unreal.EditorAssetLibrary.save_loaded_asset(sequence, False):
+                raise RuntimeError('ACTION_REFRESH_WEAPON_SAVE')
+            data['weapon_preview'].update(animation=output.get_path_name(), play_rate=speed, bone_visibility=windows)
+            data['weapon_preview_refresh'] = {'source': segment.get_editor_property('anim_reference').get_path_name(),
+                'all_control_and_transform_keys_preserved': True}
+            data.pop('refresh_weapon_animation_request')
         if data.get('finger_repair_source'):
             import importlib
             import BBBActionRetargetTools
