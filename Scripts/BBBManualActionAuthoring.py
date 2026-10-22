@@ -615,7 +615,9 @@ def _previews(data, sequence, animation, count):
                 previews.append({'label': label, 'mesh': magazine.get_path_name().split('.')[0], 'socket': socket,
                                  'transform': transform, 'ranges': ranges, 'notify_owner': owner.get_path_name(), 'notify_instance': state.get_path_name()})
                 _attachment(sequence, label, magazine, socket, transform, ranges)
-        if data['action'] == 'reload' and {row['label'] for row in previews} != {'OldMagazine', 'NewMagazine'}:
+        if data['action'] == 'reload' and not (
+                {row['label'] for row in previews} == {'OldMagazine', 'NewMagazine'}
+                or (not previews and held_objects)):
             raise RuntimeError('ACTION_RELOAD_MAGAZINE_NOTIFIES_REQUIRED')
     _attachment(sequence, 'Weapon', weapon_mesh, 'WeaponGrip_R', spawn, [[0, count]], weapon_animation, speed)
     unreal.EditorAssetLibrary.save_loaded_asset(sequence, False)
