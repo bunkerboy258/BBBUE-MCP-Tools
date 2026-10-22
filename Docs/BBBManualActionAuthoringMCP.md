@@ -179,3 +179,12 @@ ManualAction源的rifle_reload_timing是公共Rifle换弹时间约定（30 FPS�
 ## 2026-10-22 公共换弹帧的时间比例
 
 reload_timing_request使用time_space=common_source时，通知秒数按source_time_scale反向映射到型号制作/蒙太奇时间。LMG01原角色换弹2.833333秒、公共输入2.2秒，比例0.7764706；保持原有换弹时长、曲线/手指元数据输入采用当前本枪CharacterReload_Grip，公共身体动作按该比例采样。公共第11/33帧分别映射为蒙太奇0.472222/1.416667秒（30 FPS显示帧14.1667/42.5）。不是把33直接当成本枪显示帧。两侧通知保留原实例，枪体自身0.7764706播放速度保持，当前正式换弹引用仍待用户编辑结束后应用。LMG01装备已官方烘焙、替换保存；无PIE、无备份。
+
+
+## 2026-10-22 LMG01正确Shotgun换弹基准（取代前述LMG01的Rifle时间映射）
+
+用户明确指定原MM_Shotgun_Reload并要求迁入Used及首尾对齐。已原生迁移至/Game/_Project/Characters/BBBC_UA/Animation/UsedAnimation/shotgun/MM_Shotgun_Reload，旧包、重定向器及旧引用清零。唯一正式公共输入保留原名，不另建重复底稿；本轮误建的AS_Shotgun_ReloadFull_Base已核对当前哈希及无引用后原生删除。此前为这次派生源临时修改的工具源码已恢复，不保留额外入口或兼容分支。
+
+正式Source/Animation/Shotgun_Reload_Alignment_RetargetActions.json.source记录原位首尾对齐（不重新重定向）：以MM_Rifle_Idle_Hipfire第0秒为基准，入口0–6帧、出口71–81帧，末尾4帧稳定。完整2.833333秒/86采样保持；6–71帧全部原骨轨位置和旋转验证保留，中段写入误差0.00001077cm，首尾最大误差0.00003306cm。检查结果original_source_unchanged=false是因为source与animation明确为同一个原位修改资产，不代表中段改变。四条IK/握姿抑制曲线按正式首尾窗口重建。
+
+CommonActionBaselines中的shotgun.reload_full唯一引用上述MM资产（身体及手指），仅LMG01.reload映射改用该条目。LMG01制作源animation=finger_animation=上述Used/MM资产，source_time_scale=1；旧Rifle通知约定已移除，恢复原LMG01拔出0.3秒/第9帧、插入1.5秒/第45帧，原通知实例、配置及其它时序保持。修正前只读检查原生Additive层无人工关键帧，故清除错误底稿并原位重建LS；已重新打开LS_LMG01_CharacterReload第0帧及原生Offset层。新底稿全帧原姿势回读误差0.000106cm；正式运行换弹仍待用户编辑完成后烘焙应用。装备已应用不变。未跑PIE，无备份，无临时文件遗留。
