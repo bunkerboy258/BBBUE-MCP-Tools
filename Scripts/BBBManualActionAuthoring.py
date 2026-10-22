@@ -527,22 +527,31 @@ def _weapon_preview_animation(data, source, montage, weapon_rate):
         require_asset_write([], destinations=[destination])
         output = unreal.EditorAssetLibrary.duplicate_asset(source.get_path_name().split('.')[0], destination)
     rate = source.data_model_interface.get_frame_rate()
+    fps = rate.numerator / rate.denominator
+    frame_windows = [(row['bone'], math.ceil(row['start'] * fps - 0.0001),
+                      math.ceil(row['end'] * fps - 0.0001)) for row in windows]
+    boundaries = []
     for bone in {row['bone'] for row in windows}:
         values = list(unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(source, bone))
         if not values:
             raise RuntimeError('ACTION_PREVIEW_BONE_TRACK: ' + bone)
         scales = [value.scale3d for value in values]
         for index in range(len(values)):
-            time = index * rate.denominator / rate.numerator
-            if any(row['bone'] == bone and row['start'] <= time < row['end'] for row in windows):
+            if any(name == bone and start <= index < end for name, start, end in frame_windows):
                 scales[index] = unreal.Vector()
         if not output.controller.set_bone_track_keys(bone, [value.translation for value in values], [value.rotation for value in values], scales, False):
             raise RuntimeError('ACTION_PREVIEW_BONE_WRITE')
         actual = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(output, bone)
         if len(actual) != len(values) or any((value.scale3d - scale).length() > 0.00001 for value, scale in zip(actual, scales)):
             raise RuntimeError('ACTION_PREVIEW_BONE_READBACK')
+        for name, start, end in frame_windows:
+            if name == bone:
+                boundaries.append({'bone': bone, 'start_frame': start, 'end_frame': end,
+                    'samples': [{'frame': frame, 'scale': list(actual[frame].scale3d.to_tuple())}
+                                for frame in (start-1, start, end-1, end) if 0 <= frame < len(actual)]})
     if not unreal.EditorAssetLibrary.save_loaded_asset(output, False):
         raise RuntimeError('ACTION_PREVIEW_ANIMATION_SAVE')
+    data['weapon_preview_frame_boundaries'] = boundaries
     return output, windows
 
 

@@ -529,3 +529,7 @@ Shotgun01用户主动调整挂接后明确选择两者共用。正式SpawnOffset
 ManualAction制作源可显式设置refresh_weapon_animation_request，由既有prepare_action读取当前DA的角色/枪体蒙太奇及实际播放速率，复用_weapon_preview_animation把最新枪体骨轨和实际显隐区间写入本型号正式AuthoringPreview，并替换唯一有内容的Weapon动画轨；空动画轨不参与唯一性计数。刷新前后全部控制与Transform通道摘要一致，不重建绑定、不清空人工Offset或附件位置。消费请求后继续原生Offset准备并打开第0帧。
 
 Rifle02运行枪体弹匣骨轨已清理，但LS仍使用旧AuthoringPreview，本轮已刷新。预览Magazine_joint全段位置保持安装姿势，11–33帧仅使用缩放隐藏，33帧恢复；骨轨长度和每帧显隐缩放由原生回读核对。LS刷新及后续准备成功、dirty为空，人工控制键/附件摘要保持。未重新烘焙角色成品、未运行PIE，无备份或兼容资产。
+
+## 2026-10-22 弹匣预览显隐帧边界
+
+枪体AuthoringPreview的显隐窗口改为源采样帧闭开区间，以ceil(seconds*fps-0.0001)转换开始/结束，和附件生命周期采用相同的浮点帧对齐语义。避免通知11/30秒存储为0.3666666746而第11帧采样为0.3666666667时漏隐藏。保存制作源weapon_preview_frame_boundaries，来自输出骨轨实际缩放回读。Rifle02实测10帧scale=(1,1,1)、11与32帧=(0,0,0)、33帧=(1,1,1)，现有控制键和Transform摘要保持，正式通知时间未改。未运行PIE，无备份或兼容资产。
