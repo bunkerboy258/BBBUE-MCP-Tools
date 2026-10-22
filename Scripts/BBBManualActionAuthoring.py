@@ -26,6 +26,15 @@ def _save(path, data):
         raise RuntimeError('ACTION_SOURCE_READBACK')
 
 
+ACTION_MONTAGE_FIELDS = {
+    'equip': ('character_equip_montage', 'equipment_equip_montage'),
+    'reload': ('character_reload_montage', 'equipment_reload_montage'),
+    'reload_start': ('character_reload_start_montage', 'equipment_reload_start_montage'),
+    'reload_insert': ('character_reload_montage', 'equipment_reload_montage'),
+    'reload_end': ('character_reload_end_montage', 'equipment_reload_end_montage'),
+}
+
+
 def _source(recipe_path):
     """
     /**
@@ -42,7 +51,7 @@ def _source(recipe_path):
         raise RuntimeError('ACTION_SOURCE_SCOPE')
     if data.get('format') != 'BBBManualWeaponAction' or data.get('schema') != 2:
         raise RuntimeError('ACTION_SOURCE_FORMAT')
-    if data.get('action') not in ('equip', 'reload') or not data.get('approval'):
+    if data.get('action') not in ACTION_MONTAGE_FIELDS or not data.get('approval'):
         raise RuntimeError('ACTION_APPROVED_KIND_REQUIRED')
     if data.get('status') not in ('prepare_approved', 'track_created', 'keys_written', 'previews_created', 'manual_edit_ready'):
         raise RuntimeError('ACTION_SOURCE_STATUS')
@@ -553,14 +562,17 @@ def _previews(data, sequence, animation, count):
     weapon_animation = None
     speed = 1.0
     previews = []
-    if data['action'] == 'reload':
-        character_montage = definition.get_editor_property('character_reload_montage')
+    held_objects = []
+    visibility = []
+    if data['action'].startswith('reload'):
+        character_field, weapon_field = ACTION_MONTAGE_FIELDS[data['action']]
+        character_montage = definition.get_editor_property(character_field)
         character_segment = _single_segment(character_montage)
         character_source = character_segment.get_editor_property('anim_reference')
         if character_source is None or not character_source.get_path_name().startswith(data['weapon_root'] + '/Animation/Sequence/'):
             raise RuntimeError('ACTION_RELOAD_REFERENCE_CHANGED')
         character_rate = character_segment.get_editor_property('anim_play_rate')
-        weapon_montage = definition.get_editor_property('equipment_reload_montage')
+        weapon_montage = definition.get_editor_property(weapon_field)
         weapon_segment = _single_segment(weapon_montage)
         weapon_animation = weapon_segment.get_editor_property('anim_reference')
         weapon_rate = weapon_segment.get_editor_property('anim_play_rate')
@@ -572,6 +584,21 @@ def _previews(data, sequence, animation, count):
                 if state is None:
                     continue
                 kind = state.get_class().get_name()
+                if kind == 'BBBCharacterHeldObjectDisplayAnimNotifyState':
+                    start *= multiplier
+                    end *= multiplier
+                    ranges = [[max(0, math.ceil(start * rate - 0.0001)), min(count, math.ceil(end * rate - 0.0001))]]
+                    held_mesh = state.get_editor_property('object_mesh')
+                    if held_mesh is None or ranges[0][1] <= ranges[0][0]:
+                        raise RuntimeError('ACTION_HELD_OBJECT_PREVIEW_INPUT')
+                    transform = _read_transform(state.get_editor_property('hand_object_transform'))
+                    socket = str(state.get_editor_property('hand_bone_name'))
+                    label = 'HeldObject_' + str(len(held_objects))
+                    held_objects.append({'label': label, 'mesh': held_mesh.get_path_name().split('.')[0],
+                                         'socket': socket, 'transform': transform, 'ranges': ranges,
+                                         'notify_owner': owner.get_path_name(), 'notify_instance': state.get_path_name()})
+                    _attachment(sequence, label, held_mesh, socket, transform, ranges)
+                    continue
                 if kind not in ('BBBCharacterOldMagazineDisplayAnimNotifyState', 'BBBCharacterNewMagazineDisplayAnimNotifyState'):
                     continue
                 label = 'OldMagazine' if 'OldMagazine' in kind else 'NewMagazine'
@@ -588,13 +615,13 @@ def _previews(data, sequence, animation, count):
                 previews.append({'label': label, 'mesh': magazine.get_path_name().split('.')[0], 'socket': socket,
                                  'transform': transform, 'ranges': ranges, 'notify_owner': owner.get_path_name(), 'notify_instance': state.get_path_name()})
                 _attachment(sequence, label, magazine, socket, transform, ranges)
-        if {row['label'] for row in previews} != {'OldMagazine', 'NewMagazine'}:
+        if data['action'] == 'reload' and {row['label'] for row in previews} != {'OldMagazine', 'NewMagazine'}:
             raise RuntimeError('ACTION_RELOAD_MAGAZINE_NOTIFIES_REQUIRED')
     _attachment(sequence, 'Weapon', weapon_mesh, 'WeaponGrip_R', spawn, [[0, count]], weapon_animation, speed)
     unreal.EditorAssetLibrary.save_loaded_asset(sequence, False)
     return {'mesh': weapon_mesh.get_path_name().split('.')[0], 'spawn_offset': spawn,
             'animation': weapon_animation.get_path_name() if weapon_animation else None, 'play_rate': speed,
-            'magazines': previews, 'bone_visibility': visibility if data['action'] == 'reload' else []}
+            'magazines': previews, 'held_objects': held_objects, 'bone_visibility': visibility}
 
 
 def _verify_finger_edit(instance):
@@ -639,6 +666,7 @@ def _verify_previews(sequence, preview):
     from BBBControlRigAuthoringToolset import _transform
     rows = [{'label': 'Weapon', 'socket': 'WeaponGrip_R', 'transform': preview['spawn_offset'], 'ranges': [[0, sequence.get_playback_end()]]}]
     rows.extend(preview['magazines'])
+    rows.extend(preview.get('held_objects', []))
     maximum = 0.0
     for row in rows:
         frame = row['ranges'][0][0]

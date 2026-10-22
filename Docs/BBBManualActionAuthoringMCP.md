@@ -241,3 +241,11 @@ BBBNativeRetargetActions 的每项 entry_frames、exit_frames 可显式为 null�
 Shotgun01 公共 AS_Shotgun_ReloadStart_Base 仅入口0–6帧对齐 MM_Rifle_Idle_Hipfire，6–25帧保留；AS_Shotgun_ReloadEnd_Base 仅出口3–13帧对齐，0–3帧及装填接口保留，最后4帧稳定。正式源为角色 Source/Animation/Shotgun_PhasedReload_Alignment_RetargetActions.json.source，catalog 采纳两条新摘要并保存参考及制作源。单发 AS_Shotgun_ReloadInsert_Base 未写入，catalog 全部19基准/14武器/27制作要求通过。双臂外侧端点最大差0.00003494cm，开始→装填、循环、装填→结束最大差0.00005251cm，旋转最大0.000108度；源输出长度和骨轨数量保持。专属运行成品仍待各枪人工制作后烘焙应用，本轮未切换其运行引用。
 
 手枪保持自己的完整动画组，已打开 LS_Pistol_CloseHold_BodyPose 供用户修改第0帧双臂基准；当前挂接与 DA 一致。原生纯瞬态 Sequencer 导出与正式 AS_Pistol_01_HandGrip 第0帧比较无差异，未改控制键或 Rig。临时播放器直接读取曾返回未刷新骨骼缓存，不作为预览姿势错误或 IK 权重失效的证据；实际图使用直接双臂求解，不受该旧权重字段控制。用户确认新基准前不重烘整组手枪动作，不重跑已有 result 的旧任务。未运行PIE，无备份、兼容包或重新重定向。
+
+## 2026-10-22 逐发换弹原生Offset制作
+
+ManualAction/schema2 增加 reload_start、reload_insert、reload_end，继续使用 process_dual_arm_body_pose 的原有 prepare_action/bake/inspect 入口。ACTION_MONTAGE_FIELDS 明确对应角色及枪体配置字段：开始/结束读取各自 start/end 蒙太奇，单发装入读取 reload_montage；应用成品使用同一字段映射，不猜测资产名称。公共目录按相同阶段键验证源和时长，LS、Rig及必要枪体预览AS仍归本型号原有目录。普通reload的旧/新弹匣完整性检查保持，三段逐发换弹不套普通11/33帧约定。
+
+预览从真实 BBBCharacterHeldObjectDisplayAnimNotifyState 读取 ObjectMesh、HandBoneName、HandObjectTransform 及原生起止时间，在 held_objects 中记录并建立可选择附件；与 magazines 分开保存。实际挂接校验覆盖手持物体，不改运行通知实例或武器代码。三段均继承显式 runtime_right_wrist_preview，原生导出扣除运行右腕旋转以避免重复应用。尚未完成的阶段只保留正式制作要求，不提前烘焙。
+
+实机完成Shotgun01装备官方120 FPS烘焙并保存正式蒙太奇引用，骨轨误差0。新 LS_Shotgun01_CharacterReloadStart 从已对齐的公共开始基准准备26采样，原生Offset已选中，右腕预览扣除后的导出误差小于0.00012cm，全部控制键摘要保持；HeldObject_0在30 FPS第12–24帧显示，变换来自原通知，附件实际回读通过。枪体存在显隐状态，明确保留 ReloadStart_AuthoringPreview 作为有效制作输入。开始动作尚待用户手调，未应用运行成品；未运行PIE，无备份或旧路径兼容。

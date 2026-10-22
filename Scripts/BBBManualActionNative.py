@@ -274,7 +274,8 @@ def apply_baked_animation(path, data, write_paths):
     if data.get('bake_result', {}).get('animation') != data['output_animation']:
         raise RuntimeError('ACTION_APPLY_REQUIRES_BAKE_RESULT')
     definition = _asset(data['definition'], unreal.DataAsset)
-    montage = definition.get_editor_property('character_' + data['action'] + '_montage')
+    from BBBManualActionAuthoring import ACTION_MONTAGE_FIELDS
+    montage = definition.get_editor_property(ACTION_MONTAGE_FIELDS[data['action']][0])
     if set(write_paths) != {montage.get_path_name().split('.')[0]}:
         raise RuntimeError('ACTION_APPLY_WRITE_SCOPE')
     output = _asset(data['output_animation'], unreal.AnimSequence)
