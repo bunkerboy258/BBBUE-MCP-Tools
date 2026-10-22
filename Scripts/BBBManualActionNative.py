@@ -53,9 +53,14 @@ def sync_reload_timing(path, data, write_paths):
     """Apply explicit magazine frame timing to both configured montages, retaining notify instances."""
     if data['action'] != 'reload' or unreal.EditorLevelLibrary.get_pie_worlds(False):
         raise RuntimeError('RELOAD_TIMING_EDITOR_ONLY')
-    timing = data['rifle_reload_timing']
+    single = data.get('single_reload_application_timing')
+    timing = single or data['rifle_reload_timing']
     fps = float(timing['display_fps'])
-    out_time, in_time = timing['magazine_out_frame'] / fps, timing['magazine_in_frame'] / fps
+    out_time, in_time = ((timing['held_object_frames'][0] / fps, timing['load_frame'] / fps) if single
+                         else (timing['magazine_out_frame'] / fps, timing['magazine_in_frame'] / fps))
+    duration = _asset(data['output_animation'], unreal.AnimSequence).get_play_length() if single else None
+    if single and (not data.get('runtime_applied') or in_time >= duration):
+        raise RuntimeError('SINGLE_RELOAD_REQUIRES_APPLIED_BAKE')
     scale = float(data['source_time_scale']) if timing.get('time_space') == 'common_source' else 1.0
     if not math.isfinite(scale) or scale <= 0:
         raise RuntimeError('RELOAD_TIMING_SOURCE_SCALE')
@@ -80,6 +85,7 @@ def sync_reload_timing(path, data, write_paths):
         native = json.loads(unreal.BBBHandPoseLayerEditorLibrary.inspect_animation_notify_timing(owner))['events']
         track_names = list(library.get_animation_notify_track_names(owner))
         plans = []
+        time_scale = duration / owner.get_play_length() if single and role == 'weapon' else 1.0
         for event, row in zip(original, native):
             state = event.get_editor_property('notify_state_class')
             notify = state or event.get_editor_property('notify')
@@ -91,41 +97,68 @@ def sync_reload_timing(path, data, write_paths):
                 raise RuntimeError('RELOAD_TIMING_TRACK_IDENTITY')
             track = matches[0]
             start, end = row['nativeTriggerTime'], row['nativeEndTriggerTime']
-            new_start, new_end = start, end
-            if role == 'character' and name == 'BBBCharacterOldMagazineDisplayAnimNotifyState':
+            new_start, new_end = start * time_scale, end * time_scale
+            if single and role == 'character' and name == 'BBBCharacterHeldObjectDisplayAnimNotifyState':
+                new_start, new_end = out_time, in_time
+            elif role == 'character' and name == 'BBBCharacterOldMagazineDisplayAnimNotifyState':
                 new_start = out_time
             elif role == 'character' and name == 'BBBCharacterNewMagazineDisplayAnimNotifyState':
                 new_end = in_time
             elif role == 'weapon' and name == 'BBBEquipmentBoneVisibilityDisplayAnimNotifyState':
-                new_start, new_end = out_time, in_time
+                new_start, new_end = (start * time_scale if single else out_time), in_time
             elif role == 'weapon' and name in ('BBBRifleLoadMagazineLogicAnimNotifyState', 'BBBEquipmentLoadAmmoLogicAnimNotifyState'):
-                new_start, new_end = in_time, in_time + (end - start)
+                new_start, new_end = in_time, min(duration, in_time + 1/fps) if single else in_time + (end - start)
+            elif single and role == 'weapon' and name in (
+                    'BBBEquipmentReloadLifecycleLogicAnimNotifyState', 'BBBRifleReloadLifecycleLogicAnimNotifyState'):
+                new_end = duration
+            elif single and role == 'weapon' and name == 'BBBEquipmentBlockFireLogicAnimNotifyState':
+                new_end = duration - 1/fps
+            elif single and role == 'weapon' and name == 'BBBEquipmentAllowFireLogicAnimNotify':
+                new_start = new_end = duration - 1/fps
             elif role == 'weapon' and 'reload_end_seconds' in timing and name in (
                     'BBBRifleReloadLifecycleLogicAnimNotifyState', 'BBBEquipmentReloadLifecycleLogicAnimNotifyState',
                     'BBBEquipmentBlockFireLogicAnimNotifyState'):
                 new_end = float(timing['reload_end_seconds'])
             elif role == 'weapon' and 'reload_end_seconds' in timing and name == 'BBBEquipmentAllowFireLogicAnimNotify':
                 new_start = new_end = float(timing['reload_end_seconds'])
-            elif track == 'BBB_MagazineOutAudio':
+            elif not single and track == 'BBB_MagazineOutAudio':
                 new_start = new_end = out_time
             elif track == 'BBB_MagazineInAudio':
                 new_start = new_end = in_time
-            if new_end < new_start or new_end > owner.get_play_length() + 1e-5:
+            if new_end < new_start or new_end > (duration if single else owner.get_play_length()) + 1e-5:
                 raise RuntimeError('RELOAD_TIMING_NOTIFY_RANGE')
             plans.append((event, notify, state is not None, track, new_start, new_end,
                           abs(new_start-start)>1e-5 or abs(new_end-end)>1e-5))
         kinds = [p[1].get_class().get_name() for p in plans if p[1] is not None]
         required_kinds = (('BBBCharacterOldMagazineDisplayAnimNotifyState', 'BBBCharacterNewMagazineDisplayAnimNotifyState')
                           if role == 'character' else ('BBBEquipmentBoneVisibilityDisplayAnimNotifyState',))
-        if any(kinds.count(kind) != 1 for kind in required_kinds):
+        if single and role == 'character':
+            if not kinds or any(kind != 'BBBCharacterHeldObjectDisplayAnimNotifyState' for kind in kinds):
+                raise RuntimeError('SINGLE_RELOAD_HELD_OBJECT_NOTIFIES_REQUIRED')
+        elif any(kinds.count(kind) != 1 for kind in required_kinds):
             raise RuntimeError('RELOAD_TIMING_REQUIRES_MAGAZINE_RELOAD')
         if role == 'weapon' and sum(kinds.count(kind) for kind in
                 ('BBBRifleLoadMagazineLogicAnimNotifyState', 'BBBEquipmentLoadAmmoLogicAnimNotifyState')) != 1:
             raise RuntimeError('RELOAD_TIMING_LOAD_EVENT_REQUIRED')
         changed_tracks = {p[3] for p in plans if p[6]}
         require_asset_write([owner])
-        if changed_tracks:
+        if changed_tracks or (single and role == 'weapon'):
             owner.modify()
+            if single and role == 'weapon':
+                slots = list(owner.get_editor_property('slot_anim_tracks'))
+                slot = slots[0]
+                anim_track = slot.get_editor_property('anim_track')
+                segments = list(anim_track.get_editor_property('anim_segments'))
+                segments[0].set_editor_property('anim_play_rate',
+                    segments[0].get_editor_property('anim_reference').get_play_length() / duration)
+                anim_track.set_editor_property('anim_segments', segments)
+                slot.set_editor_property('anim_track', anim_track)
+                owner.set_editor_property('slot_anim_tracks', slots)
+                output = _asset(data['output_animation'], unreal.AnimSequence)
+                owner.controller.set_frame_rate(output.data_model_interface.get_frame_rate())
+                owner.controller.set_number_of_frames(unreal.FrameNumber(value=output.data_model_interface.get_number_of_keys()-1))
+                if abs(owner.get_play_length() - duration) > 0.00001:
+                    raise RuntimeError('SINGLE_RELOAD_WEAPON_LENGTH')
             for track in changed_tracks:
                 library.remove_animation_notify_events_by_track(owner, track)
                 for event, notify, is_state, event_track, start, end, changed in plans:
@@ -156,7 +189,10 @@ def sync_reload_timing(path, data, write_paths):
         reports.append({'montage': owner.get_path_name(), 'changed_tracks': sorted(changed_tracks),
                         'notify_instances_preserved': True, 'events': after})
     data.pop('reload_timing_request', None)
-    data['reload_timing_applied'] = {'out_frame': timing['magazine_out_frame'], 'in_frame': timing['magazine_in_frame'], 'fps': fps}
+    data['reload_timing_applied'] = {'out_frame': out_time * fps, 'in_frame': in_time * fps, 'fps': fps}
+    if single:
+        single['weapon_timing_sync_pending'] = False
+        data['reload_timing_applied'].update(single_load=True, seconds=duration)
     _save(path, data)
     return {'timing': data['reload_timing_applied'], 'montages': reports, 'manual_keys_modified': False}
 
