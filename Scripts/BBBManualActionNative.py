@@ -993,13 +993,16 @@ def copy_offset_keys(path, data, sequence):
 
 def match_reload_phase_offset(data, sequence):
     """/** @param data\t分段换弹制作源 @param sequence\t原生目标序列 @return\t继承开始末帧修正及真实循环接缝核验 */"""
-    if not data.get('phase_handoff_recipe') or data.get('phase_handoff'):
+    if not data.get('phase_handoff_recipe'):
         return
     _, start_data = _source(data['phase_handoff_recipe'])
     if (data['action'], start_data['action']) not in (('reload_insert', 'reload_start'), ('reload_end', 'reload_insert')) or start_data['weapon_root'] != data['weapon_root']:
         raise RuntimeError('RELOAD_HANDOFF_SOURCE_SCOPE')
     from BBBControlRigAuthoringToolset import _pose
     start = _asset(start_data['sequence'], unreal.LevelSequence)
+    prior = data.get('phase_handoff')
+    if prior and prior.get('source_channel_digest') == _channel_digest(start):
+        return
     def layer(target):
         sections = [s for b in target.get_bindings() for t in b.get_tracks()
                     if isinstance(t, unreal.MovieSceneControlRigParameterTrack) for s in t.get_sections()
@@ -1036,7 +1039,7 @@ def match_reload_phase_offset(data, sequence):
         numbers = [float(k.get_value()) for k in channel.get_keys()]
         if channel.has_default():
             numbers.append(float(channel.get_default()))
-        if any(abs(v - neutral) > 0.00001 for v in numbers):
+        if not prior and any(abs(v - neutral) > 0.00001 for v in numbers):
             raise RuntimeError('RELOAD_HANDOFF_TARGET_ALREADY_EDITED: ' + name)
     source_signature = _channel_digest(start)
     preserved = _channel_digest(sequence, [target_layer])
@@ -1052,6 +1055,45 @@ def match_reload_phase_offset(data, sequence):
         target_layer = layer(target)
         target_layer.set_is_locked(False)
         channels = {str(c.channel_name): c for c in target_layer.get_all_channels()}
+        if prior:
+            if release:
+                raise RuntimeError('RELOAD_HANDOFF_REBASE_REQUIRES_INSERT_LOOP')
+            inherited = prior.get('inherited_offset_channels', {})
+            for name, channel in channels.items():
+                neutral = 1.0 if name == 'Weight' else 0.0
+                delta = values[name] - inherited.get(name, neutral)
+                if abs(delta) < 0.000001:
+                    continue
+                if channel.has_default():
+                    channel.set_default(float(channel.get_default()) + delta)
+                for key in channel.get_keys():
+                    key.set_value(float(key.get_value()) + delta)
+            from BBBControlRigAuthoringToolset import _key
+            hierarchy = _asset(data['rig'], unreal.ControlRigBlueprint).hierarchy
+            absolute = [s for b in target.get_bindings() for t in b.get_tracks()
+                        if isinstance(t, unreal.MovieSceneControlRigParameterTrack) for s in t.get_sections()
+                        if s.get_blend_type().blend_type == unreal.MovieSceneBlendType.ABSOLUTE][0]
+            bases = {str(c.channel_name): c for c in absolute.get_all_channels()}
+            for side in ('l', 'r'):
+                for finger in ('thumb', 'index', 'middle', 'ring', 'pinky'):
+                    for joint in (1, 2, 3):
+                        bone = f'{finger}_{joint:02}_{side}'
+                        control = _key('fk_' + bone, 'CONTROL')
+                        parent = hierarchy.get_parents(control)[0]
+                        offset = hierarchy.get_global_control_offset_transform(control, True).make_relative(hierarchy.get_global_transform(parent, True))
+                        local = unreal.AnimPoseExtensions.get_bone_pose(expected, bone, unreal.AnimPoseSpaces.LOCAL)
+                        angles = (offset.rotation.inversed() * local.rotation).normalized().rotator()
+                        for axis, desired in zip(('X', 'Y', 'Z'), (angles.roll, angles.pitch, angles.yaw)):
+                            name = 'fk_' + bone + '.Rotation.' + axis
+                            for frame in (0, last):
+                                bounds = bases[name].compute_effective_range()
+                                bounds.set_start_seconds(frame * rate.denominator / rate.numerator)
+                                bounds.set_end_seconds((frame + 1) * rate.denominator / rate.numerator)
+                                samples = bases[name].evaluate_keys(bounds, rate)
+                                base_value = float(samples[0]) if samples else float(bases[name].get_default())
+                                channels[name].add_key(unreal.FrameNumber(value=frame), desired-base_value, 0.0,
+                                    unreal.MovieSceneTimeUnit.DISPLAY_RATE, unreal.MovieSceneKeyInterpolation.AUTO)
+            return
         for name, value in changed.items():
             channel = channels[name]
             for key in list(channel.get_keys()):
@@ -1067,7 +1109,8 @@ def match_reload_phase_offset(data, sequence):
     source = _asset(data['finger_animation'], unreal.AnimSequence)
     scope = unreal.new_object(unreal.LevelSequence, name='BBBReloadHandoff_' + uuid.uuid4().hex)
     try:
-        expected_animation = _export(start, _asset(start_data['finger_animation'], unreal.AnimSequence), mesh, scope, 'Start')
+        expected_animation = _export(start, _asset(start_data['finger_animation'], unreal.AnimSequence),
+                                     _asset(start_data['mesh'], unreal.SkeletalMesh), scope, 'Start')
         expected = _pose(expected_animation, mesh, expected_animation.get_play_length())
         copied = _copy_sequence(sequence, scope, 'InsertDraft')
         _export(copied, source, mesh, scope, 'Initialize', False)
