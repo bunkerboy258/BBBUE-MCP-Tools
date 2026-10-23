@@ -10,6 +10,136 @@ from BBBControlRigAuthoringToolset import _asset, _mesh_binding
 from BBBManualActionAuthoring import _source, _save, _digest
 
 
+def match_grip_endpoints(path, data, write_paths):
+    """/** @param path 制作源路径 @param data 动作制作源 @param write_paths 明确序列范围 @return 原生叠加首尾握姿匹配与导出回读 */"""
+    from BBBControlRigAuthoringToolset import _pose, _key
+    request = data['grip_endpoints_request']
+    required = {data['sequence']}
+    if data.get('runtime_right_wrist_preview'):
+        required.add(data['rig'])
+    if set(write_paths) != required:
+        raise RuntimeError('GRIP_ENDPOINT_WRITE_SCOPE')
+    sequence = _asset(data['sequence'], unreal.LevelSequence)
+    prepare_right_wrist_preview(data, sequence)
+    mesh = _asset(data['mesh'], unreal.SkeletalMesh)
+    source = _asset(data['finger_animation'], unreal.AnimSequence)
+    reference = _asset(request['animation'], unreal.AnimSequence)
+    if not request['animation'].startswith(data['weapon_root'] + '/Animation/Sequence/'):
+        raise RuntimeError('GRIP_ENDPOINT_REFERENCE_SCOPE')
+    first, release, acquire, last = request['frames']
+    if first != 0 or last != sequence.get_playback_end()-1 or not first < release < acquire < last:
+        raise RuntimeError('GRIP_ENDPOINT_FRAMES')
+    def layers(target):
+        sections = [s for b in target.get_bindings() for t in b.get_tracks()
+                    if isinstance(t, unreal.MovieSceneControlRigParameterTrack) for s in t.get_sections()]
+        base = [s for s in sections if s.get_blend_type().blend_type == unreal.MovieSceneBlendType.ABSOLUTE]
+        edit = [s for s in sections if s.get_blend_type().blend_type == unreal.MovieSceneBlendType.ADDITIVE]
+        if len(base) != 1 or len(edit) != 1:
+            raise RuntimeError('GRIP_ENDPOINT_SINGLE_OFFSET')
+        return base[0], edit[0]
+    base, edit = layers(sequence)
+    base_channels = {str(c.channel_name): c for c in base.get_all_channels()}
+    edit_channels = {str(c.channel_name): c for c in edit.get_all_channels()}
+    rate = sequence.get_display_rate()
+    def value(channel, frame):
+        if not channel.get_keys():
+            return float(channel.get_default()) if channel.has_default() else 0.0
+        bounds = channel.compute_effective_range()
+        bounds.set_start_seconds(frame * rate.denominator / rate.numerator)
+        bounds.set_end_seconds((frame+1) * rate.denominator / rate.numerator)
+        return float(channel.evaluate_keys(bounds, rate)[0])
+    reference_pose = _pose(reference, mesh, 0.0)
+    get = lambda pose, name: unreal.AnimPoseExtensions.get_bone_pose(pose, name, unreal.AnimPoseSpaces.WORLD)
+    relative = get(reference_pose, 'hand_l').make_relative(get(reference_pose, 'hand_r'))
+    asset = _asset(data['rig'], unreal.ControlRigBlueprint)
+    hierarchy = asset.hierarchy
+    hand_offset = hierarchy.get_global_control_offset_transform(_key('hand_l_ik_ctrl', 'CONTROL'), True)
+    fingers = [f'{f}_{j:02}_l' for f in ('thumb', 'index', 'middle', 'ring', 'pinky') for j in (1,2,3)]
+    local_reference = {n: unreal.AnimPoseExtensions.get_bone_pose(reference_pose, n, unreal.AnimPoseSpaces.LOCAL) for n in fingers}
+    encoded = unreal.EditorAssetLibrary.get_metadata_tag(sequence, 'BBB_RuntimeRightWristPreview')
+    delta = unreal.Quat(*json.loads(encoded)) if encoded else unreal.Quat(0.0, 0.0, 0.0, 1.0)
+    scope = unreal.new_object(unreal.LevelSequence, name='BBBGripEndpoints_' + uuid.uuid4().hex)
+    try:
+        before = _export(sequence, source, mesh, scope, 'Before')
+        targets = {}
+        expected = {}
+        for frame in (first, last):
+            pose = _pose(before, mesh, frame * rate.denominator / rate.numerator)
+            right = get(pose, 'hand_r')
+            parent = get(pose, 'lowerarm_r').rotation
+            right.rotation = (parent * delta * parent.inversed() * right.rotation).normalized()
+            desired = relative * right
+            expected[frame] = desired
+            control = desired.make_relative(hand_offset)
+            euler = control.rotation.rotator()
+            numbers = list(control.translation.to_tuple()) + [euler.roll, euler.pitch, euler.yaw]
+            names = ['hand_l_ik_ctrl.' + kind + '.' + axis for kind in ('Location', 'Rotation') for axis in ('X','Y','Z')]
+            for name, number in zip(names, numbers):
+                targets.setdefault(name, {})[frame] = number - value(base_channels[name], frame)
+            for bone in fingers:
+                key = _key('fk_' + bone, 'CONTROL')
+                parent_key = hierarchy.get_parents(key)[0]
+                offset = hierarchy.get_global_control_offset_transform(key, True).make_relative(hierarchy.get_global_transform(parent_key, True))
+                rotation = (offset.rotation.inversed() * local_reference[bone].rotation).normalized().rotator()
+                for axis, number in zip(('X','Y','Z'), (rotation.roll, rotation.pitch, rotation.yaw)):
+                    name = 'fk_' + bone + '.Rotation.' + axis
+                    targets.setdefault(name, {})[frame] = number - value(base_channels[name], frame)
+        for name, points in targets.items():
+            for frame in (release, acquire):
+                points[frame] = value(edit_channels[name], frame)
+        def write(target):
+            _, layer = layers(target)
+            layer.set_is_locked(False)
+            channels = {str(c.channel_name): c for c in layer.get_all_channels()}
+            for name, points in targets.items():
+                channel = channels[name]
+                for key in list(channel.get_keys()):
+                    frame = key.get_time(unreal.MovieSceneTimeUnit.DISPLAY_RATE).frame_number.value
+                    if frame <= release or frame >= acquire:
+                        channel.remove_key(key)
+                for frame in sorted(points):
+                    channel.add_key(unreal.FrameNumber(value=frame), points[frame], 0.0,
+                                    unreal.MovieSceneTimeUnit.DISPLAY_RATE, unreal.MovieSceneKeyInterpolation.AUTO)
+        preserved = _channel_digest(sequence, [edit])
+        candidate = _copy_sequence(sequence, scope, 'Candidate')
+        _export(candidate, source, mesh, scope, 'Initialize', False)
+        write(candidate)
+        after = _export(candidate, source, mesh, scope, 'After')
+        maximum, angle = 0.0, 0.0
+        positions = []
+        for frame in (first, last):
+            pose = _pose(after, mesh, frame * rate.denominator / rate.numerator)
+            actual, target = get(pose, 'hand_l'), expected[frame]
+            maximum = max(maximum, (actual.translation-target.translation).length())
+            positions.append({'frame': frame, 'actual': list(actual.translation.to_tuple()), 'target': list(target.translation.to_tuple())})
+            cosine = abs(sum(a*b for a,b in zip(actual.rotation.to_tuple(), target.rotation.to_tuple())))
+            angle = max(angle, math.degrees(2*math.acos(min(1.0,cosine))))
+            for name in fingers:
+                actual = unreal.AnimPoseExtensions.get_bone_pose(pose, name, unreal.AnimPoseSpaces.LOCAL)
+                cosine = abs(sum(a*b for a,b in zip(actual.rotation.to_tuple(), local_reference[name].rotation.to_tuple())))
+                angle = max(angle, math.degrees(2*math.acos(min(1.0,cosine))))
+        if maximum > 0.03 or angle > 0.1:
+            raise RuntimeError('GRIP_ENDPOINT_POSE cm=%f degrees=%f positions=%s' % (maximum, angle, positions))
+        require_asset_write([sequence])
+        write(sequence)
+        if _channel_digest(sequence, [edit]) != preserved:
+            raise RuntimeError('GRIP_ENDPOINT_UNRELATED_LAYERS_CHANGED')
+        if not unreal.EditorAssetLibrary.save_loaded_asset(sequence, False):
+            raise RuntimeError('GRIP_ENDPOINT_SAVE')
+        data.pop('grip_endpoints_request')
+        result = {'reference': request['animation'], 'frames': request['frames'], 'position_error_cm': maximum,
+                  'rotation_error_degrees': angle, 'native_offset_keys': True, 'middle_keys_preserved': True}
+        data['grip_endpoints'] = result
+        data['runtime_applied'] = False
+        _save(path, data)
+        unreal.LevelSequenceEditorBlueprintLibrary.open_level_sequence(sequence)
+        unreal.LevelSequenceEditorBlueprintLibrary.set_current_time(0)
+        unreal.LevelSequenceEditorBlueprintLibrary.force_update()
+        return result
+    finally:
+        unreal.purge_object_references(scope, True)
+
+
 def repair_timeline_range(sequence):
     """Repair invalid editor ranges without altering animation channels or valid zoom."""
     before = {'view': [sequence.get_view_range_start(), sequence.get_view_range_end()],
