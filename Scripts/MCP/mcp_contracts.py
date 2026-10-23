@@ -36,6 +36,7 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
+    'editor.process_animation_fingers': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['asset_paths']}, 'completion': 'verified_save'},
     'animation_graph.create_aim_offset_from_template': {'scope': {'fields': ['asset_path']}},
     'animation_graph.configure_aim_offset_layer': {'scope': {'fields': ['blueprint_path']}},
     'animation_graph.override_aim_offset_layer': {'scope': {'fields': ['blueprint_path']}},

@@ -1,5 +1,7 @@
 # BBBUE MCP Tools
 
+2026-10-23 新增 `editor.process_animation_fingers`，提供明确骨架校准、批量绝对动画检查和按源摘要修复。四指中末节约束校准屈曲轴，指根独立约束展开角，拇指使用显式独立规则；保留例外采样、非目标骨轨、位移缩放和动画元数据，复用原生蒙皮彩色三视图输出原始及候选。七项离线算法边界检查通过，用户要求暂不重启共享编辑器，因此新入口注册、代表动画原生实测、保存回读和视觉验收尚待完成，未修改人物动画。见 [BBBFingerAnimationMCP.md](Docs/BBBFingerAnimationMCP.md)。
+
 2026-10-23 蓝图布局收紧组内步距并按各分支自身高度排列 合流对齐主输入 共享参数整组避让 主链起点靠近消费者 新增 wireLength 引脚端点跨度指标 保留分组隔离和真实尺寸穿线检查 验证结果见 Docs/BBBBlueprintLayoutMCP.md
 
 2026-10-23 新增 animation_finish 事实动画变体配置 同骨架地面约束过渡烘焙和 PIE 骨骼数值采样 结构化分段只创建临时表现演员 不生成图片或视频 原生编译及三项 Mass 自动化通过 17 项针对性离线检查通过 最终移动复查 2037 帧 详细契约与边界见 [BBBAnimationFinishMCP.md](Docs/BBBAnimationFinishMCP.md)

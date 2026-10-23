@@ -23,6 +23,7 @@ _pie_view_camera = None
 
 
 MCP_INPUTS = {
+    'process_animation_fingers': {'profile_json': {'type': 'object', 'additionalProperties': True}},
     'sample_skeletal_mesh_surface': {'local_rotations_json': {'type': 'object', 'additionalProperties': {'type': 'array', 'items': {'type': 'number'}, 'minItems': 4, 'maxItems': 4}}},
     'configure_niagara_parameters': {'changes_json': {'type': 'array', 'items': {'type': 'object', 'properties': {'store': {'type': 'string'}, 'name': {'type': 'string'}, 'value': {'type': 'string'}}, 'required': ['store', 'name', 'value'], 'additionalProperties': False}, 'minItems': 1}},
     'configure_niagara_particle_stage': {'stage_json': {'type': 'object', 'properties': {'stage': {'type': 'string', 'enum': ['spawn', 'update']}, 'name': {'type': 'string'}, 'code': {'type': 'string'}, 'inputs': {'type': 'array', 'items': {'type': 'object', 'properties': {'name': {'type': 'string'}, 'type': {'type': 'string', 'enum': ['float', 'int', 'bool', 'position', 'vec2', 'vec3', 'color', 'quat']}}, 'required': ['name', 'type'], 'additionalProperties': False}}, 'outputs': {'type': 'array', 'minItems': 1, 'items': {'type': 'object', 'properties': {'name': {'type': 'string'}, 'type': {'type': 'string', 'enum': ['float', 'int', 'bool', 'position', 'vec2', 'vec3', 'color', 'quat']}}, 'required': ['name', 'type'], 'additionalProperties': False}}, 'render': {'type': 'object', 'properties': {'kind': {'type': 'string', 'enum': ['none', 'sprite', 'mesh']}, 'material': {'type': 'string'}, 'mesh': {'type': 'string'}, 'aligned': {'type': 'boolean'}}, 'required': ['kind'], 'additionalProperties': False}, 'modules': {'type': 'array', 'items': {'type': 'string'}, 'maxItems': 8}, 'parameters': {'type': 'array', 'items': {'type': 'object', 'properties': {'name': {'type': 'string'}, 'type': {'type': 'string', 'enum': ['float', 'int', 'bool', 'position', 'vec2', 'vec3', 'color', 'quat']}, 'value': {'type': 'string'}}, 'required': ['name', 'type', 'value'], 'additionalProperties': False}}}, 'required': ['stage', 'name', 'code', 'inputs', 'outputs'], 'additionalProperties': False}},
@@ -390,6 +391,16 @@ def _set_flat_cubic_curve(animation, curve_name, keys):
 @unreal.uclass()
 class BBBGenericEditorToolset(unreal.ToolsetDefinition):
     """提供不绑定具体领域的官方 UE 编辑器工具"""
+
+    @mcp_tool
+    @staticmethod
+    def process_animation_fingers(asset_paths: list[str], profile_json: str, action: str = 'inspect') -> str:
+        """/** @param asset_paths 明确人物动画数组 @param profile_json 骨架关节校准与例外配置 @param action calibrate inspect repair @return 异常区间与原生保存回读 */"""
+        import importlib
+        import BBBFingerAnimationTools
+        if action not in ('calibrate', 'inspect', 'repair'):
+            raise ValueError('FINGER_ACTION_INVALID')
+        return importlib.reload(BBBFingerAnimationTools).run(asset_paths, profile_json, action)
 
     @mcp_tool
     @staticmethod
