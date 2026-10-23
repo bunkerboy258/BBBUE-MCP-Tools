@@ -254,7 +254,8 @@ def _write_keys(data, sequence, keys, finger_keys, count, phase):
      * @return	官方接口关键帧回读
      */
     """
-    from BBBControlRigAuthoringToolset import _mesh_binding, _transform
+    from BBBControlRigAuthoringToolset import _transform
+    from BBBWeaponSequencePreview import mesh_binding as _mesh_binding
     world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
     asset = _asset(data['rig'], unreal.ControlRigBlueprint)
     binding = _mesh_binding(sequence, _asset(data['mesh'], unreal.SkeletalMesh))
@@ -336,7 +337,7 @@ def _verify_sequence(data, sequence, animation, mesh, count):
      * @return	官方瞬态烘焙求值误差
      */
     """
-    from BBBControlRigAuthoringToolset import _mesh_binding
+    from BBBWeaponSequencePreview import mesh_binding as _mesh_binding
     from BBBCommonActionSources import is_finger
     finger_animation = _asset(data['finger_animation'], unreal.AnimSequence)
     world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
@@ -716,6 +717,19 @@ def prepare(recipe_path, write_paths):
     if unreal.EditorLevelLibrary.get_pie_worlds(False):
         raise RuntimeError('ACTION_PREPARE_PIE_FORBIDDEN')
     path, data = _source(recipe_path)
+    if data.get('full_character_preview_request'):
+        import importlib
+        import BBBWeaponSequencePreview
+        importlib.reload(BBBWeaponSequencePreview)
+        from BBBWeaponSequencePreview import prepare as prepare_full_character
+        if set(write_paths) != {data['sequence']}:
+            raise RuntimeError('CHARACTER_PREVIEW_WRITE_SCOPE')
+        result = prepare_full_character(_asset(data['sequence'], unreal.LevelSequence),
+            _asset(data['mesh'], unreal.SkeletalMesh), _asset(data['finger_animation'], unreal.AnimSequence))
+        data.pop('full_character_preview_request')
+        data['character_preview'] = result
+        _save(path, data)
+        return result
     if data.get('smooth_left_request'):
         import importlib
         import BBBManualActionNative

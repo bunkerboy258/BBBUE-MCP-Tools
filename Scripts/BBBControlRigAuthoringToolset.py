@@ -335,6 +335,12 @@ def _mesh_binding(sequence, mesh):
             if template.skeletal_mesh_component.get_skeletal_mesh_asset() == mesh:
                 matches.append(binding)
 
+    if not matches:
+        from BBBWeaponSequencePreview import resolve_binding
+        preview = resolve_binding(sequence, mesh)
+        if preview is not None:
+            matches.append(preview)
+
     if len(matches) != 1:
         raise RuntimeError("序列中目标网格绑定必须唯一")
 

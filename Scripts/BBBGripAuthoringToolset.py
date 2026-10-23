@@ -166,7 +166,7 @@ def _inputs(recipe, project):
         hashes[field] = hashlib.sha256(path.read_bytes()).hexdigest()
     context = {'attachment_socket': _socket(meshes[0], recipe['attachment_socket']),
                'left_socket': _socket(meshes[1], recipe['left_socket'])}
-    config = {key: value for key, value in recipe.items() if key not in ('solution', 'validation', 'review')}
+    config = {key: value for key, value in recipe.items() if key not in ('solution', 'validation', 'review', 'character_preview', 'full_character_preview_request')}
     code = {}
     for name in ('BBBGripAuthoring.py', 'BBBGripFingerConstraints.py', 'BBBGripPoseFitting.py', 'BBBGripSolidAudit.py'):
         code[name] = hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()

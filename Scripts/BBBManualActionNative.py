@@ -6,7 +6,8 @@ import math
 import unreal
 
 from BBBAssetWritePolicy import require_asset_write
-from BBBControlRigAuthoringToolset import _asset, _mesh_binding
+from BBBControlRigAuthoringToolset import _asset
+from BBBWeaponSequencePreview import mesh_binding as _mesh_binding
 from BBBManualActionAuthoring import _source, _save, _digest
 
 
@@ -1108,50 +1109,19 @@ def match_reload_phase_offset(data, sequence):
 
 def prepare_preview_mesh(data, sequence):
     """/** @param data\t正式制作源 @param sequence\t保留手调的序列 @return\t同骨架完整手臂预览更新证据 */"""
-    destination = data.get('preview_mesh', '/Game/_ThirdParty/Characters/UkraineSoldier/Meshes/Arms/SK_arms')
-    original = _asset(data['mesh'], unreal.SkeletalMesh)
-    target = _asset(destination, unreal.SkeletalMesh)
-    if original == target:
-        return
-    if original.get_editor_property('skeleton') != target.get_editor_property('skeleton'):
-        raise RuntimeError('ACTION_PREVIEW_SKELETON_MISMATCH')
-    require_asset_write([sequence])
-    binding = _mesh_binding(sequence, original)
-    component = binding.get_object_template().skeletal_mesh_component
-    signature = _channel_digest(sequence)
-    source = _asset(data['finger_animation'], unreal.AnimSequence)
-    scope = unreal.new_object(unreal.LevelSequence, name='BBBPreviewMesh_' + uuid.uuid4().hex)
-    try:
-        before = _export(sequence, source, original, scope, 'Before')
-        sequence.modify()
-        component.modify()
-        component.set_skeletal_mesh_asset(target)
-        after = _export(sequence, source, target, scope, 'After')
-        error = _compare(before, after)
-        if _channel_digest(sequence) != signature or _mesh_binding(sequence, target).get_id().export_text() != binding.get_id().export_text():
-            raise RuntimeError('ACTION_PREVIEW_KEYS_OR_BINDING_CHANGED')
-        if not unreal.EditorAssetLibrary.save_loaded_asset(sequence, False):
-            raise RuntimeError('ACTION_PREVIEW_MESH_SAVE')
-        data['mesh'] = destination
-        data['preview_mesh'] = destination
-        data['preview_mesh_update'] = {'channel_digest': signature, 'keys_preserved': True,
-                                       'binding_preserved': True, 'native_bone_track_error_cm': error}
-        unreal.LevelSequenceEditorBlueprintLibrary.close_level_sequence()
-        unreal.LevelSequenceEditorBlueprintLibrary.open_level_sequence(sequence)
-    except Exception:
-        component.set_skeletal_mesh_asset(original)
-        raise
-    finally:
-        unreal.purge_object_references(scope, True)
+    from BBBWeaponSequencePreview import prepare as prepare_full_character
+    result = prepare_full_character(sequence, _asset(data['mesh'], unreal.SkeletalMesh),
+                                    _asset(data['finger_animation'], unreal.AnimSequence))
+    data['character_preview'] = result
 
 
 def _copy_sequence(sequence, scope, name):
     """/** @param sequence\t正式序列 @param scope\t瞬态容器 @param name\t副本名 @return\t携带运行预览语义的瞬态副本 */"""
     copied = unreal.SystemLibrary.duplicate_object(sequence, scope, name)
-    tag = 'BBB_RuntimeRightWristPreview'
-    encoded = unreal.EditorAssetLibrary.get_metadata_tag(sequence, tag)
-    if encoded:
-        unreal.EditorAssetLibrary.set_metadata_tag(copied, tag, encoded)
+    for tag in ('BBB_RuntimeRightWristPreview', 'BBB_WeaponCharacterPreview'):
+        encoded = unreal.EditorAssetLibrary.get_metadata_tag(sequence, tag)
+        if encoded:
+            unreal.EditorAssetLibrary.set_metadata_tag(copied, tag, encoded)
     return copied
 
 

@@ -41,7 +41,7 @@ def _instance(sequence):
 
 def _bake_static(sequence, animation, mesh):
     """/** @param sequence 人工静态序列 @param animation 正式握姿 @param mesh 实际网格 @return 官方瞬态导出及原位骨轨保存 不创建备份资产 */"""
-    from BBBControlRigAuthoringToolset import _mesh_binding
+    from BBBWeaponSequencePreview import mesh_binding as _mesh_binding
     from BBBAnimationTrajectoryTools import _track_metadata
 
     metadata = _track_metadata(animation)
@@ -108,7 +108,14 @@ def prepare(recipe, path, project):
 
     sequence = _asset(recipe['sequence'], unreal.LevelSequence)
     asset = _asset(recipe['rig'], unreal.ControlRigBlueprint)
+    import importlib
+    import BBBWeaponSequencePreview
+    importlib.reload(BBBWeaponSequencePreview)
+    from BBBWeaponSequencePreview import prepare_grip
+    if recipe.get('full_character_preview_request'):
+        return prepare_grip(recipe, path, project)
     if recipe.get('manual_edit', {}).get('format') == 'BBBGripManual':
+        prepare_grip(recipe, path, project)
         unreal.LevelSequenceEditorBlueprintLibrary.open_level_sequence(sequence)
         unreal.LevelSequenceEditorBlueprintLibrary.set_current_time(0)
         return {'status': 'manual_edit_ready', 'sequence': recipe['sequence'], 'resumed': True, 'definitionModified': False}
@@ -194,13 +201,12 @@ def prepare(recipe, path, project):
         previous = write
     _nodes(asset, nodes, links)
     unreal.EditorAssetLibrary.save_loaded_asset(asset, False)
-    character_bindings = [binding for binding in sequence.get_bindings() if isinstance(binding.get_object_template(), unreal.SkeletalMeshActor)
-                          and binding.get_object_template().skeletal_mesh_component.skeletal_mesh_asset == mesh]
-    if len(character_bindings) != 1:
-        raise RuntimeError('MANUAL_CHARACTER_NOT_UNIQUE')
+    from BBBWeaponSequencePreview import mesh_binding
+    character_bindings = [mesh_binding(sequence, mesh)]
+    displayed_mesh = character_bindings[0].get_object_template().skeletal_mesh_component.get_skeletal_mesh_asset()
     for track in list(character_bindings[0].find_tracks_by_type(unreal.MovieSceneControlRigParameterTrack)):
         character_bindings[0].remove_track(track)
-    authoring.configure_sequence_rig(recipe['sequence'], recipe['rig'], '[]', False, recipe['character_mesh'])
+    authoring.configure_sequence_rig(recipe['sequence'], recipe['rig'], '[]', False, displayed_mesh.get_path_name().split('.')[0])
     rig = _instance(sequence)
     for name in controls:
         for frame in (0, 1):
@@ -212,6 +218,7 @@ def prepare(recipe, path, project):
                              'initial_right_wrist': _values(pose['hand_r']['local']), 'definitionApplied': False}
     unreal.EditorAssetLibrary.save_loaded_asset(sequence, False)
     _write_recipe(path, recipe, project)
+    prepare_grip(recipe, path, project)
     return {'status': 'manual_edit_ready', 'sequence': recipe['sequence'], 'controls': controls,
             'definitionModified': False, 'animationModified': False, 'next': 'manual_apply'}
 
