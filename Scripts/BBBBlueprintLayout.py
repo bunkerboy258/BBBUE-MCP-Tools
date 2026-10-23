@@ -2,6 +2,7 @@ from collections import defaultdict
 import heapq
 from statistics import median
 from bisect import bisect_left, bisect_right
+from math import hypot
 
 
 def _is_main(node):
@@ -144,11 +145,6 @@ def _layout_flat_component(nodes, edges, horizontal_spacing, vertical_spacing):
         owner = min(consumers[key], key=lambda value: (ranks[value], value))
         dependency_heights[(owner, ranks[key])] += nodes[key]["height"] + 32
 
-    lane_stride = (
-        max(node["height"] for node in nodes.values())
-        + max(dependency_heights.values(), default=0)
-        + max(vertical_spacing, 64)
-    )
     lane_requests = defaultdict(list)
     lane_occupied = defaultdict(list)
     lanes = {}
@@ -159,21 +155,16 @@ def _layout_flat_component(nodes, edges, horizontal_spacing, vertical_spacing):
 
         requests = lane_requests[key]
         if not requests:
-            requests = [next_lane]
+            requests = [(0, next_lane)]
             next_lane += 1
 
-        anchor = nodes[key].get("primaryOffset", 0)
-        y = round(float(median(requests)) * lane_stride - anchor)
-        height = nodes[key]["height"]
-        for start, end in sorted(lane_occupied[ranks[key]]):
-            if y + height + 32 <= start:
-                break
+        lane = float(min(requests)[1])
+        while lane in lane_occupied[ranks[key]]:
+            lane = next_lane
+            next_lane += 1
 
-            if y < end + 32:
-                y = end + 32
-
-        lanes[key] = (y + anchor) / lane_stride
-        lane_occupied[ranks[key]].append((y, y + height))
+        lanes[key] = lane
+        lane_occupied[ranks[key]].append(lane)
         targets = sorted(
             (edge for edge in outgoing[key] if edge["kind"] in ("exec", "pose")),
             key=lambda edge: (edge["sourceOrder"], edge["target"]),
@@ -184,7 +175,20 @@ def _layout_flat_component(nodes, edges, horizontal_spacing, vertical_spacing):
                 lane = next_lane
                 next_lane += 1
 
-            lane_requests[edge["target"]].append(lane)
+            lane_requests[edge["target"]].append((edge["targetOrder"], lane))
+
+    lane_offsets = {}
+    cursor_y = 0
+    for lane in sorted(set(lanes.values())):
+        members = [key for key in lanes if lanes[key] == lane]
+        above = max(nodes[key].get("primaryOffset", 0) for key in members)
+        below = max(
+            nodes[key]["height"] - nodes[key].get("primaryOffset", 0)
+            + max((height for (owner, rank), height in dependency_heights.items() if owner == key), default=0)
+            for key in members
+        )
+        lane_offsets[lane] = cursor_y + above
+        cursor_y += above + below + max(vertical_spacing, 64)
 
     column_widths = defaultdict(int)
     for key in nodes:
@@ -203,7 +207,7 @@ def _layout_flat_component(nodes, edges, horizontal_spacing, vertical_spacing):
             continue
 
         x = column_x[ranks[key]]
-        y = round(lanes[key] * lane_stride - nodes[key].get("primaryOffset", 0))
+        y = round(lane_offsets[lanes[key]] - nodes[key].get("primaryOffset", 0))
         positions[key] = (x, y)
         occupied[ranks[key]].append((y, y + nodes[key]["height"]))
 
@@ -211,7 +215,7 @@ def _layout_flat_component(nodes, edges, horizontal_spacing, vertical_spacing):
         (key for key in reversed(order) if not _is_main(nodes[key])),
         key=lambda key: (
             -ranks[key],
-            min((edge["targetOrder"] for edge in outgoing[key]), default=0),
+            min((edge.get("targetOffset", (0, edge["targetOrder"]))[1] for edge in outgoing[key]), default=0),
             key,
         ),
     )
@@ -287,7 +291,7 @@ def _layout_component(nodes, edges, horizontal_spacing, vertical_spacing):
     for group, members in groups.items():
         local_nodes = {key: nodes[key] for key in members}
         local_edges = [edge for edge in edges if edge["source"] in members and edge["target"] in members]
-        local = _layout_flat_component(local_nodes, local_edges, horizontal_spacing, vertical_spacing)
+        local = _layout_flat_component(local_nodes, local_edges, min(horizontal_spacing, 192), min(vertical_spacing, 96))
         bounds = _bounds(local_nodes, local)
         local_positions[group] = {key: (x - bounds[0], y - bounds[1]) for key, (x, y) in local.items()}
         main = next((key for key in members if _is_main(nodes[key])), None)
@@ -324,6 +328,138 @@ def _dependency_group_conflicts(nodes, edges, positions):
 
     regions = [_bounds({key: nodes[key] for key in members}, positions) for members in _dependency_groups(nodes, edges).values()]
     return sum(_intersects(first, second) for index, first in enumerate(regions) for second in regions[index + 1:])
+
+
+def _compact_shared_groups(nodes, edges, positions, movable, fixed_regions=()):
+    """
+    /**
+     * 共享计算链整组靠近消费者 同时避开主链与其它参数区域
+     * @param nodes	节点几何
+     * @param edges	原始连线
+     * @param positions	分组初始位置
+     * @param movable	固定注释框外可移动节点
+     * @param fixed_regions	不可侵入的固定注释区域
+     * @return 保留分组的紧凑位置
+     */
+    """
+    positions = dict(positions)
+    groups = _dependency_groups(nodes, edges)
+    if not _wire_hits(nodes, edges, positions) and not _dependency_group_conflicts(nodes, edges, positions):
+        return positions
+
+    for group, members in groups.items():
+        if len(group[1]) < 2 or not members <= movable:
+            continue
+
+        local = {key: nodes[key] for key in members}
+        bounds = _bounds(local, positions)
+        width = bounds[2] - bounds[0]
+        height = bounds[3] - bounds[1]
+        targets = {edge["target"] for edge in edges if edge["source"] in members and edge["target"] not in members}
+        if not targets:
+            continue
+
+        limit = min(positions[key][0] for key in targets) - width - 64
+        incoming = [edge for edge in edges if edge["target"] in members and edge["source"] not in members]
+        minimum = max((positions[edge["source"]][0] + nodes[edge["source"]]["width"] + 64 - positions[edge["target"]][0] + bounds[0] for edge in incoming), default=float("-inf"))
+        xs = {min(bounds[0], limit), limit, limit - 64, limit - 160}
+        xs = {x for x in xs if x >= minimum}
+        ys = {bounds[1]}
+        for key in targets:
+            ys.update((positions[key][1] - height - 64, positions[key][1] + nodes[key]["height"] + 64))
+
+        for other, region_members in groups.items():
+            if other == group:
+                continue
+
+            region = _bounds({key: nodes[key] for key in region_members}, positions)
+            ys.update((region[1] - height - 32, region[3] + 32))
+
+        incident = {index for index, edge in enumerate(edges) if edge["source"] in members or edge["target"] in members}
+        other_edges = set(range(len(edges))) - incident
+        cache = {}
+        original_hits = _wire_hits(nodes, edges, positions, cache)
+        unchanged_hits = sum(index not in incident and key not in members for index, key in original_hits)
+
+        def score(trial):
+            """/** @return 优先保持几何约束 再比较画布面积与连线长度 */"""
+            region = _bounds(local, trial)
+            if any(_intersects(region, fixed) for fixed in fixed_regions):
+                return (float("inf"),) * 5
+
+            rectangles = [
+                (trial[key][0], trial[key][1], trial[key][0] + node["width"], trial[key][1] + node["height"])
+                for key, node in nodes.items()
+            ]
+            overlaps = sum(_intersects(first, second) for index, first in enumerate(rectangles) for second in rectangles[index + 1:])
+            conflicts = _dependency_group_conflicts(nodes, edges, trial)
+            if (overlaps, conflicts) > best_score[:2]:
+                return (overlaps, conflicts, float("inf"), float("inf"), float("inf"))
+
+            hits = unchanged_hits + len(_wire_hits(nodes, edges, trial, cache, incident))
+            hits += len(_wire_hits(nodes, edges, trial, cache, other_edges, members))
+            box = _bounds(nodes, trial)
+            length = sum(hypot(trial[edge["target"]][0] - trial[edge["source"]][0], trial[edge["target"]][1] - trial[edge["source"]][1]) for edge in edges)
+            return (overlaps, conflicts, hits, (box[2] - box[0]) * (box[3] - box[1]), length)
+
+        best = positions
+        best_score = (float("inf"),) * 5
+        best_score = score(best)
+        for x in sorted(xs):
+            for y in sorted(ys, key=lambda value: (abs(value - bounds[1]), value))[:48]:
+                trial = dict(positions)
+                for key in members:
+                    trial[key] = (round(positions[key][0] + x - bounds[0]), round(positions[key][1] + y - bounds[1]))
+
+                candidate = score(trial)
+                if candidate < best_score:
+                    best = trial
+                    best_score = candidate
+
+        positions = best
+
+    return positions
+
+
+def _compact_group_roots(nodes, edges, positions, movable, horizontal_spacing, fixed_regions=()):
+    """/** @return 将无外部输入的主链起点靠近消费者 缩短跨空白区域的长线 */"""
+    positions = dict(positions)
+    groups = _dependency_groups(nodes, edges)
+    owners = {key: members for members in groups.values() for key in members}
+    for members in groups.values():
+        if not members <= movable or not any(_is_main(nodes[key]) for key in members):
+            continue
+
+        if any(edge["target"] in members and edge["source"] not in members for edge in edges):
+            continue
+
+        targets = {edge["target"] for edge in edges if edge["source"] in members and edge["target"] not in members}
+        if not targets:
+            continue
+
+        bounds = _bounds({key: nodes[key] for key in members}, positions)
+        limit = min(_bounds({key: nodes[key] for key in owners[target]}, positions)[0] for target in targets)
+        shift = round(limit - max(horizontal_spacing, bounds[2] - bounds[0] + 64) - bounds[0])
+        if shift <= 0:
+            continue
+
+        trial = dict(positions)
+        for key in members:
+            trial[key] = (positions[key][0] + shift, positions[key][1])
+
+        region = _bounds({key: nodes[key] for key in members}, trial)
+        if any(_intersects(region, fixed) for fixed in fixed_regions):
+            continue
+
+        before = layout_quality(nodes, edges, positions)
+        after = layout_quality(nodes, edges, trial)
+        if any(after[field] > before[field] for field in ("overlaps", "dependencyGroupOverlaps", "wireNodeIntersections", "backwardDataEdges", "backwardPoseEdges", "backwardExecEdges")):
+            continue
+
+        if after["wireLength"] < before["wireLength"]:
+            positions = trial
+
+    return positions
 
 
 def _pack_components(nodes, edges, horizontal_spacing, vertical_spacing):
@@ -587,6 +723,15 @@ def _clear_wire_obstacles(nodes, edges, positions, allowed):
                 for y in (top - height - 32, bottom + 32, positions[key][1] - height - 64, positions[key][1] + height + 64, positions[blocker][1] - height - 64, positions[blocker][1] + nodes[blocker]["height"] + 64):
                     candidates.add((key, round(y)))
 
+                for incident_index in incidents[key]:
+                    connected = edges[incident_index]
+                    target = connected["target"]
+                    if connected["source"] != key:
+                        continue
+
+                    candidates.add((key, round(positions[target][1] - height - 64)))
+                    candidates.add((key, round(positions[target][1] + nodes[target]["height"] + 64)))
+
         for key, y in sorted(candidates):
             minimum, maximum, obstacles = allowed[key]
             if not minimum <= y <= maximum - nodes[key]["height"]:
@@ -644,11 +789,16 @@ def layout_quality(nodes, edges, positions):
                 overlaps += 1
 
     backward = {"exec": 0, "data": 0, "pose": 0}
+    wire_length = 0
     for edge in edges:
         source = edge["source"]
         target = edge["target"]
         if positions[target][0] < positions[source][0] + nodes[source]["width"]:
             backward[edge["kind"]] += 1
+
+        source_offset = edge.get("sourceOffset", (nodes[source]["width"], nodes[source]["height"] / 2))
+        target_offset = edge.get("targetOffset", (0, nodes[target]["height"] / 2))
+        wire_length += hypot(positions[target][0] + target_offset[0] - positions[source][0] - source_offset[0], positions[target][1] + target_offset[1] - positions[source][1] - source_offset[1])
 
     return {
         "bounds": list(bounds),
@@ -660,6 +810,7 @@ def layout_quality(nodes, edges, positions):
         "backwardPoseEdges": backward["pose"],
         "wireNodeIntersections": len(_wire_hits(nodes, edges, positions)),
         "dependencyGroupOverlaps": _dependency_group_conflicts(nodes, edges, positions),
+        "wireLength": round(wire_length, 2),
     }
 
 
@@ -777,6 +928,8 @@ def calculate_layout(nodes, edges, comments, horizontal_spacing=320, vertical_sp
 
             warnings.append("固定注释框约束导致连线方向或重叠恶化 保留整条连通链原位 " + min(members))
 
+    fixed_regions = [(comment["x"], comment["y"], comment["x"] + comment["width"], comment["y"] + comment["height"]) for comment in comments]
+    positions = _compact_shared_groups(nodes, edges, positions, set(free_nodes), fixed_regions)
     group_regions = []
     if any(_is_main(node) for node in nodes.values()):
         for members in _dependency_groups(nodes, edges).values():
@@ -792,6 +945,8 @@ def calculate_layout(nodes, edges, comments, horizontal_spacing=320, vertical_sp
             allowed[key] = (minimum, maximum, fixed + blockers)
 
     positions = _clear_wire_obstacles(nodes, edges, positions, allowed)
+    positions = _compact_shared_groups(nodes, edges, positions, set(free_nodes), fixed_regions)
+    positions = _compact_group_roots(nodes, edges, positions, set(free_nodes), horizontal_spacing, fixed_regions)
     if nodes and not comments:
         bounds = _bounds(nodes, positions)
         positions = {key: (x - bounds[0] + anchor_x, y - bounds[1] + min(node["y"] for node in nodes.values())) for key, (x, y) in positions.items()}

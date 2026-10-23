@@ -1,5 +1,7 @@
 # BBBUE MCP Tools
 
+2026-10-23 蓝图布局收紧组内步距并按各分支自身高度排列 合流对齐主输入 共享参数整组避让 主链起点靠近消费者 新增 wireLength 引脚端点跨度指标 保留分组隔离和真实尺寸穿线检查 验证结果见 Docs/BBBBlueprintLayoutMCP.md
+
 2026-10-23 新增 animation_finish 事实动画变体配置 同骨架地面约束过渡烘焙和 PIE 骨骼数值采样 结构化分段只创建临时表现演员 不生成图片或视频 原生编译及三项 Mass 自动化通过 17 项针对性离线检查通过 最终移动复查 2037 帧 详细契约与边界见 [BBBAnimationFinishMCP.md](Docs/BBBAnimationFinishMCP.md)
 
 2026-10-23 新增原生 AimOffset 布局复用 加法层接入与父节点资产覆盖工具 先混合加法结果再与唯一基础姿势合成 避免姿势输出分接断链 角色后坐力采样改读 GetRecoilAngles 姿势驱动变量改为 WeaponPoseOffsetAngles 不再重建 AimIK 目标偏移入口 接入方式与验证边界见 [BBBAimOffsetMCP.md](Docs/BBBAimOffsetMCP.md) 配套 42 项离线回归与三项原生 AimIK 响应测试通过

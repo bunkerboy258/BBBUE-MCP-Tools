@@ -152,6 +152,48 @@ class BlueprintLayoutTests(unittest.TestCase):
         self.assertEqual(len({position[1] for position in plan["positions"].values()}), 1)
         self.assertEqual(plan["after"]["backwardDataEdges"], 0)
 
+    def test_tall_branch_does_not_expand_unrelated_branch_gaps(self):
+        """/** @return 高节点只影响自身分支 两条短分支不沿用最大分支高度 */"""
+        from BBBBlueprintLayout import _layout_flat_component
+
+        nodes = {key: _node(key, True, height=height) for key, height in (("A", 80), ("B", 80), ("Z", 900), ("Merge", 80))}
+        edges = [_edge("A", "Merge", "pose", target_order=0), _edge("B", "Merge", "pose", target_order=1), _edge("Z", "Merge", "pose", target_order=2)]
+        positions = _layout_flat_component(nodes, edges, 320, 180)
+        self.assertLess(positions["B"][1] - positions["A"][1], 400)
+        self.assertEqual(positions["A"][1], positions["Merge"][1])
+        self.assertEqual(layout_quality(nodes, edges, positions)["overlaps"], 0)
+
+    def test_small_parameter_nodes_use_measured_width_spacing(self):
+        """/** @return 短参数链不会重复使用主链步距撑开整个分组 */"""
+        nodes = {key: _node(key, key == "Aim", width=80) for key in ("Input", "Subtract", "Multiply", "Aim")}
+        edges = [_edge("Input", "Subtract"), _edge("Subtract", "Multiply"), _edge("Multiply", "Aim")]
+        plan = self.check_plan(nodes, edges)
+        self.assertLess(plan["after"]["width"], 800)
+        self.assertEqual(plan["after"]["dependencyGroupOverlaps"], 0)
+
+    def test_root_compaction_preserves_empty_fixed_comment_region(self):
+        """/** @return 紧凑移动不能侵入没有成员的固定说明框 */"""
+        from BBBBlueprintLayout import _compact_group_roots
+
+        nodes = {key: _node(key, True) for key in ("Input", "Output")}
+        edges = [_edge("Input", "Output", "pose")]
+        positions = {"Input": (0, 0), "Output": (3000, 0)}
+        result = _compact_group_roots(nodes, edges, positions, set(nodes), 320, [(2500, -100, 2900, 200)])
+        self.assertEqual(result, positions)
+
+    def test_root_compaction_shortens_wire_without_entering_parameter_region(self):
+        """/** @return 主链起点靠近下一组 保留参数区域且缩短空白跨线 */"""
+        from BBBBlueprintLayout import _compact_group_roots
+
+        nodes = {key: _node(key, key != "Value") for key in ("Input", "Aim", "Value")}
+        edges = [_edge("Input", "Aim", "pose"), _edge("Value", "Aim")]
+        positions = {"Input": (0, 0), "Aim": (3000, 0), "Value": (2500, 300)}
+        result = _compact_group_roots(nodes, edges, positions, set(nodes), 320)
+        self.assertGreater(result["Input"][0], 0)
+        self.assertEqual(result["Aim"], positions["Aim"])
+        self.assertEqual(result["Value"], positions["Value"])
+        self.assertLess(layout_quality(nodes, edges, result)["wireLength"], layout_quality(nodes, edges, positions)["wireLength"])
+
     def test_aim_and_fabrik_dependencies_have_separate_regions(self):
         """/** @return 长瞄准权重链与左手变换链独立成组 且主姿势链仍水平 */"""
         from BBBBlueprintLayout import _dependency_groups, _bounds, _intersects
