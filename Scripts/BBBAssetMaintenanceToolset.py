@@ -2483,11 +2483,20 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
 
         require_asset_write(assets)
         saved = []
+        failures = []
         for asset in assets:
             asset_path = asset.get_path_name()
-            if not unreal.EditorAssetLibrary.save_asset(asset_path, only_if_is_dirty=False):
-                raise RuntimeError("资产重存失败 已成功重存列表: " + json.dumps(saved))
-            saved.append(asset.get_outermost().get_name())
+            try:
+                if not unreal.EditorAssetLibrary.save_asset(asset_path, only_if_is_dirty=False):
+                    raise RuntimeError("ASSET_SAVE_FAILED")
+                saved.append(asset.get_outermost().get_name())
+            except Exception as error:
+                failures.append({"package": asset.get_outermost().get_name(), "error": str(error)})
+
+        if failures:
+            from MCP.mcp_result import McpExecutionError
+            raise McpExecutionError("partial", "SAVE_FAILED", "批量重存完成逐包核验",
+                {"resaved": saved, "failures": failures})
 
         return json.dumps({"resaved": saved}, ensure_ascii=False)
 

@@ -63,6 +63,13 @@ NATURAL_CASES = [
 ]
 
 VALIDATION_CASES = [
+    ("scene performance bottleneck", ["runtime.inspect_scene_frame_metrics"]),
+    ("inspect host performance profile", ["runtime.inspect_mcp_resources"]),
+    ("检查宿主帧率和进程优先级", ["runtime.inspect_mcp_resources"]),
+    ("检查场景性能瓶颈", ["runtime.inspect_scene_frame_metrics"]),
+    ("inspect operator permissions", ["inspect_tasks"]),
+    ("查看干员等级与会话占用", ["inspect_tasks"]),
+    ("archive import asset pack", ["assets.import_asset_pack_archive"]),
     ("读取材质实例纹理参数", ["material_instance.get_texture_parameter"]),
     ("查看蒙太奇里各段动画", ["editor.inspect_animation_montage_segments"]),
     ("蓝图图表只整理节点位置", ["blueprint.optimize_blueprint_node_layout"]),

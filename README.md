@@ -1,5 +1,7 @@
 # BBBUE MCP Tools
 
+2026-10-23 例行效率优化：保存按最多128包分组读取、编译核验、批量重存与回读；参数一次返回最多16项字段问题；所有终态交付已完成结果；到期资产恢复按干员等级与原提交顺序参与调度。性能和干员目标可直接发现，启动默认60 FPS、Normal。验证通过98项独立提交隔离检查、87条发现语料和228个Python文件语法检查；现用服务沿原进程运行。
+
 2026-10-22 `grip.author_weapon` 增加 `manual_prepare_fire` 与 `manual_apply_fire`，按每把未开火先编辑并应用、开火从已应用结果起步的顺序制作。开火仅写手指姿势引用，共用未开火挂接、右腕与左手 IK；不符合该边界或基准已变更时拒绝应用。人工静态烘焙改为官方瞬态导出并原位写骨轨，保留正式 AS 的曲线、通知和采样设置。Base 手部层接入两套静态握姿和已有开火意图，主图仍只调用一次手部 Layer。当前验证边界及人工操作见 [BBBGripAuthoringMCP.md](Docs/BBBGripAuthoringMCP.md)，不将制作工具准备完成标为人体自然度或运行验收。
 
 2026-10-20 新增 `control_rig.process_dual_arm_body_pose`：人工六控制器样板采纳、实际公共层清单、逐帧生产Rig烘焙、加法重基准及正式配置/握姿底稿同步。141项原生保存回读和四项离线边界/契约检查通过，装备换弹末帧位置误差低于0.00004厘米；后台NullRHI低功耗执行，未运行PIE。见 Docs/BBBDualArmBodyPoseMCP.md。
@@ -143,7 +145,7 @@ with McpSession(task="核对资产") as session:
 
 ## 干员与调度
 
-零级最高，一级次之，二级默认。同级按提交顺序执行。零级可主动登记 `level=0`，面板也可授予；等级持续到逻辑会话结束。HTTP 连接关闭与短脚本退出保留身份，SDK 使用同一个 `conversation_id` 或私有 `client_key` 接续。每个聊天使用独立标识。Codex 中提供 `task` 时自动采用当前 `CODEX_THREAD_ID`，其它客户端可传入自己的 `conversation_id`。
+零级最高，一级次之，二级默认。同级按提交顺序执行。零级可主动登记 `level=0`，面板也可授予；等级持续到逻辑会话结束。最后一个所属连接关闭时，干员进入收尾并在工作交接后释放。SDK 通过同一个 `conversation_id` 或私有 `client_key` 恢复所属批次，重新登记后开始新任务。每个聊天使用独立标识。Codex 中提供 `task` 时自动采用当前 `CODEX_THREAD_ID`，其它客户端可传入自己的 `conversation_id`。
 
 高等级排队任务在可执行的操作边界优先进行。编辑批次先保存和回读再让行；同一资产的连续操作保持顺序。无关资产继续执行。运行中的原生调用在返回后进入调度边界。
 
@@ -190,11 +192,11 @@ result = session.submit_batch(
 $hostInfo = & .\Scripts\MCP\Start-UE58OfficialMcpEditor.ps1 `
     -ProjectPath '<uproject 绝对路径>' `
     -EnginePath '<UE5.8 根目录>' `
-    -PerformanceProfile Economy
+    -PerformanceProfile Balanced
 $env:BBB_MCP_URL = $hostInfo.Endpoint
 ```
 
-默认资源档位 `Economy`：30 FPS、低优先级。渲染与音频通过启动参数选择。
+默认资源档位 `Balanced`：60 FPS、Normal 优先级。渲染与音频通过启动参数选择。
 
 ## 验收与维护
 

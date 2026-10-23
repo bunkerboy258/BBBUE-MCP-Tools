@@ -1,6 +1,8 @@
 """/** 工具发现的任务语义 索引与简短说明 */"""
 
 ALIASES = {
+    "宿主": ("host",), "帧率": ("fps",), "优先级": ("priority",),
+    "场景": ("scene",), "性能": ("performance",), "瓶颈": ("bottleneck",),
     "蓝图": ("blueprint", "graph"), "逻辑": ("logic",), "图表": ("graph",),
     "注释": ("annotate", "comment"), "节点": ("node",), "区块": ("annotate", "comment"),
     "整理": ("layout", "optimize"), "排版": ("layout", "optimize"), "布局": ("layout",),
@@ -26,6 +28,10 @@ ALIASES = {
 }
 
 HINTS = {
+    "runtime.inspect_scene_frame_metrics": "scene performance bottleneck 帧耗时 性能 瓶颈 场景 GPU CPU",
+    "runtime.inspect_mcp_resources": "inspect host performance profile fps priority 宿主 性能 档位 帧率 优先级",
+    "runtime.configure_mcp_resources": "configure host performance profile fps priority 宿主 性能 档位 帧率 优先级",
+    "assets.import_asset_pack_archive": "archive import asset pack 压缩包 资源包 导入",
     "grip.author_weapon": "握姿 双手 手指 掌面 武器 校准 拟合 制作 审核 低思考 grip hand fingers palm calibration authoring workflow",
     "control_rig.build_hand_retarget_sequences": "batch left hand IK grip retarget contact frames sequence",
     "control_rig.bake_hand_retarget_sequences": "bake left arm animation preserve curves notifies additive root motion",
@@ -42,6 +48,9 @@ HINTS = {
 }
 
 SUMMARIES = {
+    "runtime.inspect_scene_frame_metrics": "读取真实场景帧耗时和机位",
+    "runtime.inspect_mcp_resources": "读取宿主帧率与进程优先级",
+    "runtime.configure_mcp_resources": "配置宿主帧率与进程优先级",
     "grip.author_weapon": "按正式制作配置完成武器握姿并返回唯一下一步",
     "animation.get_pie_character_motion_capture_status": "读取角色动作采样进度",
     "animation.inspect_pie_arm_pose": "读取运行时手臂骨骼姿态",

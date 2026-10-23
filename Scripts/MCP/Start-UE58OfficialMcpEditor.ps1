@@ -15,7 +15,7 @@ param(
     [switch]$MuteAudioOutput,
     [switch]$EnableSlateInspector,
     [ValidateSet('HighThroughput', 'Balanced', 'Economy', 'GamingBackground')]
-    [string]$PerformanceProfile = 'Economy',
+    [string]$PerformanceProfile = 'Balanced',
     [ValidateRange(-1, 240)]
     [int]$MaxFPS = -1,
     [ValidatePattern('^[A-Za-z0-9-]*$')]

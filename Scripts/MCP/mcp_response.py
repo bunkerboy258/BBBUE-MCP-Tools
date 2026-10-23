@@ -39,8 +39,10 @@ def response(value):
         if not recovery:
             result["next"] = failure.get("next")
     if result.get("code") == "OPERATOR_REQUIRED":
+        result["next"] = next_call("manage_operator", task="编辑器任务")
         result["needs"] = [{"path": "/arguments/task", "rule": "登记任务", "schema": {"type": "string", "minLength": 1, "maxLength": 20}}]
     if result.get("code") == "OPERATOR_LEVEL_REQUIRED":
+        result["next"] = next_call("manage_operator", action="update", level=result.get("required_level", 0))
         result["needs"] = [{"path": "/arguments/level", "rule": "明确管理任务通过manage_operator设置对应等级", "schema": {"const": result.get("required_level", 0)}}]
     if result.get("code") == "ASSET_SCOPE_REQUIRED":
         target = result.get("details", {}).get("tool")

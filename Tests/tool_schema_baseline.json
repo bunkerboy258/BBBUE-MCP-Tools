@@ -3361,6 +3361,38 @@
           "returnValue"
         ]
       }
+    },
+    "replace_animation_bone_tracks": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "animation_path": {
+            "type": "string"
+          },
+          "tracks_json": {
+            "type": "string"
+          },
+          "source_animation_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "animation_path",
+          "tracks_json",
+          "source_animation_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBExternalToolset": {
@@ -7734,6 +7766,137 @@
           "returnValue"
         ]
       }
+    },
+    "audit_static_scene_components": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expected_level": {
+            "type": "string"
+          },
+          "actor_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "expected_level",
+          "actor_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_static_actor_mesh": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "actor_path": {
+            "type": "string"
+          },
+          "asset_path": {
+            "type": "string"
+          },
+          "nanite_enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "actor_path",
+          "asset_path",
+          "nanite_enabled"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "set_static_mesh_nanite_settings": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          },
+          "settings_json": {
+            "type": "string"
+          },
+          "dry_run": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "asset_path",
+          "settings_json",
+          "dry_run"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "audit_static_actor_collision": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_actor_path": {
+            "type": "string"
+          },
+          "candidate_actor_path": {
+            "type": "string"
+          },
+          "grid_size": {
+            "type": "integer"
+          },
+          "tolerance_cm": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "source_actor_path",
+          "candidate_actor_path",
+          "grid_size",
+          "tolerance_cm"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBBlueprintGraphToolset": {
@@ -10046,6 +10209,176 @@
           "recipe_path",
           "action",
           "write_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_twist_driver": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          },
+          "mesh_path": {
+            "type": "string"
+          },
+          "chains_json": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_path",
+          "mesh_path",
+          "chains_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "audit_twist_driver": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          },
+          "mesh_path": {
+            "type": "string"
+          },
+          "chains_json": {
+            "type": "string"
+          },
+          "cases_json": {
+            "type": "string"
+          },
+          "fractions": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "output_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_path",
+          "mesh_path",
+          "chains_json",
+          "cases_json",
+          "fractions",
+          "output_name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "insert_post_process_rig": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "main_path": {
+            "type": "string"
+          },
+          "asset_path": {
+            "type": "string"
+          },
+          "after_node_guid": {
+            "type": "string"
+          },
+          "before_node_guid": {
+            "type": "string"
+          },
+          "output_bones": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "input_values_json": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "main_path",
+          "asset_path",
+          "after_node_guid",
+          "before_node_guid",
+          "output_bones",
+          "input_values_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "sample_post_process_rig": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "main_path": {
+            "type": "string"
+          },
+          "mesh_path": {
+            "type": "string"
+          },
+          "node_guid": {
+            "type": "string"
+          },
+          "animation_path": {
+            "type": "string"
+          },
+          "time_seconds": {
+            "type": "number"
+          },
+          "output_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "main_path",
+          "mesh_path",
+          "node_guid",
+          "animation_path",
+          "time_seconds",
+          "output_name"
         ]
       },
       "outputSchema": {
@@ -14991,6 +15324,34 @@
         },
         "required": [
           "asset_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_fk_retargeter": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          },
+          "align_source_pose": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "asset_path",
+          "align_source_pose"
         ]
       },
       "outputSchema": {

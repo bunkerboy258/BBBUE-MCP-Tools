@@ -178,11 +178,13 @@ class OperatorTests(unittest.TestCase):
         """/** @return 实际编译状态控制编译次数 */"""
         for stale in (False, True):
             backend = object.__new__(UnrealBackend)
-            backend.catalog = type("Catalog", (), {"tools": {key: {"id": key} for key in ("editor.inspect_asset_properties", "blueprint_base.compile_blueprint", "editor.resave_asset")}})()
+            backend.catalog = type("Catalog", (), {"tools": {key: {"id": key} for key in ("editor.inspect_asset_properties", "blueprint_base.compile_blueprint", "assets.resave_assets")}})()
             calls = []
             def invoke(contract, arguments):
                 """/** @param contract	契约 @param arguments	参数 @return 模拟蓝图状态回读 */"""
                 calls.append(contract["id"])
+                if contract["id"] == "assets.resave_assets":
+                    return {"resaved": arguments["asset_paths"]}
                 status = "BS_DIRTY" if stale and "blueprint_base.compile_blueprint" not in calls else "BS_UP_TO_DATE"
                 return {"assets": [{"classPath": "/Script/Engine.Blueprint", "assetPath": "/Game/A", "propertyErrors": [], "properties": {"status": status}}]}
             backend.invoke = invoke

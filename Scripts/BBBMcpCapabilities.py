@@ -384,14 +384,34 @@ def clean_schema(value, fields=False):
     return value
 
 
+class ArgumentValidationError(ValueError):
+    """/** 有界字段问题集合 */"""
+
+    def __init__(self, issues):
+        """/** @param issues 字段问题 @return 保留首项文本与完整有界证据的异常 */"""
+        self.issues = issues[:16]
+        super().__init__(self.issues[0])
+
+
 def validate_arguments(value, schema, path="/arguments", root=None):
+    """/** @param value 参数值 @param schema 参数结构 @param path 字段路径 @return 全部有界字段问题核验完成 */"""
+    issues = []
+    _validate_arguments(value, schema, path, root, issues)
+    if issues:
+        raise ArgumentValidationError(issues)
+
+
+def _validate_arguments(value, schema, path, root, issues):
     """/** @param value 参数值 @param schema 参数结构 @param path 字段路径 @return 参数核验完成 */"""
     if root is None:
         root = schema
+    if len(issues) >= 16:
+        return
     if schema is True:
         return
     if schema is False:
-        raise ValueError(path + ": forbidden")
+        issues.append(path + ": forbidden")
+        return
     if "$ref" in schema:
         reference = schema["$ref"]
         if not reference.startswith("#/"):
@@ -399,9 +419,9 @@ def validate_arguments(value, schema, path="/arguments", root=None):
         child = root
         for part in reference[2:].split("/"):
             child = child[part.replace("~1", "/").replace("~0", "~")]
-        validate_arguments(value, child, path, root)
+        _validate_arguments(value, child, path, root, issues)
     for branch in schema.get("allOf", []):
-        validate_arguments(value, branch, path, root)
+        _validate_arguments(value, branch, path, root, issues)
     for keyword in ("anyOf", "oneOf"):
         if keyword in schema:
             accepted = 0
@@ -412,18 +432,19 @@ def validate_arguments(value, schema, path="/arguments", root=None):
                 except ValueError:
                     pass
             if accepted == 0 or (keyword == "oneOf" and accepted != 1):
-                raise ValueError(path + ": schema branch")
+                issues.append(path + ": schema branch")
     expected = schema.get("type")
     types = {"object": dict, "array": list, "string": str, "boolean": bool, "integer": int, "number": (int, float), "null": type(None)}
     if expected is not None:
         options = expected if isinstance(expected, list) else [expected]
         accepted = any(isinstance(value, types[item]) and not (item in {"integer", "number"} and isinstance(value, bool)) for item in options)
         if not accepted:
-            raise ValueError(path + ": expected " + str(expected))
+            issues.append(path + ": expected " + str(expected))
+            return
     if "enum" in schema and value not in schema["enum"]:
-        raise ValueError(path + ": enum")
+        issues.append(path + ": enum")
     if "const" in schema and value != schema["const"]:
-        raise ValueError(path + ": const")
+        issues.append(path + ": const")
     if "if" in schema:
         branch = "then"
         try:
@@ -431,38 +452,39 @@ def validate_arguments(value, schema, path="/arguments", root=None):
         except ValueError:
             branch = "else"
         if branch in schema:
-            validate_arguments(value, schema[branch], path, root)
+            _validate_arguments(value, schema[branch], path, root, issues)
     if isinstance(value, dict):
         properties = schema.get("properties", {})
         missing = set(schema.get("required", [])) - set(value)
-        if missing:
-            raise ValueError(path + "/" + sorted(missing)[0] + ": required")
+        for key in sorted(missing)[:max(0, 16 - len(issues))]:
+            issues.append(path + "/" + key.replace("~", "~0").replace("/", "~1") + ": required")
         if schema.get("additionalProperties") is False and set(value) - set(properties):
-            raise ValueError(path + "/" + sorted(set(value) - set(properties))[0] + ": additionalProperties")
+            for key in sorted(set(value) - set(properties))[:max(0, 16 - len(issues))]:
+                issues.append(path + "/" + key.replace("~", "~0").replace("/", "~1") + ": additionalProperties")
         for key, item in value.items():
             child = properties.get(key)
             if child is None and isinstance(schema.get("additionalProperties"), dict):
                 child = schema["additionalProperties"]
             if child is not None:
-                validate_arguments(item, child, path + "/" + key.replace("~", "~0").replace("/", "~1"), root)
+                _validate_arguments(item, child, path + "/" + key.replace("~", "~0").replace("/", "~1"), root, issues)
     if isinstance(value, list):
         if len(value) < schema.get("minItems", 0) or len(value) > schema.get("maxItems", len(value)):
-            raise ValueError(path + ": items")
+            issues.append(path + ": items")
         for index, item in enumerate(value):
-            validate_arguments(item, schema.get("items", {}), path + "/" + str(index), root)
+            _validate_arguments(item, schema.get("items", {}), path + "/" + str(index), root, issues)
     if isinstance(value, str):
         if len(value) < schema.get("minLength", 0) or len(value) > schema.get("maxLength", len(value)):
-            raise ValueError(path + ": length")
+            issues.append(path + ": length")
         if "pattern" in schema and re.search(schema["pattern"], value) is None:
-            raise ValueError(path + ": pattern")
+            issues.append(path + ": pattern")
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         import math
         if not math.isfinite(value) or value < schema.get("minimum", value) or value > schema.get("maximum", value):
-            raise ValueError(path + ": range")
+            issues.append(path + ": range")
         if "exclusiveMinimum" in schema and value <= schema["exclusiveMinimum"]:
-            raise ValueError(path + ": exclusiveMinimum")
+            issues.append(path + ": exclusiveMinimum")
         if "exclusiveMaximum" in schema and value >= schema["exclusiveMaximum"]:
-            raise ValueError(path + ": exclusiveMaximum")
+            issues.append(path + ": exclusiveMaximum")
 
 
 def tool_contract(toolset, name, schema, description=""):
@@ -604,6 +626,11 @@ class ToolCatalog:
     def find(self, query, limit=3):
         """/** @param query 目标关键字 @param limit 结果上限 @return 候选工具 */"""
         normalized = query.casefold().strip()
+        if normalized == "inspect_tasks" or any(word in normalized for word in ("干员", "会话占用", "operator", "session occupancy")):
+            result = self.describe("inspect_tasks")
+            result["arguments"] = {"operators": True}
+            result["call"] = {"tool": "inspect_tasks", "arguments": {"operators": True}}
+            return [result]
         groups = [values for word, values in ALIASES.items() if word in normalized]
         tokens = set(re.findall(r"[a-z]+", normalized))
         reading = any(word in normalized for word in ("读取", "查询", "检查", "获取", "查看", "列出", "查一下")) or bool(tokens & {"inspect", "get", "read", "list", "check", "show"})
@@ -663,6 +690,11 @@ class ToolCatalog:
 
     def describe(self, identity):
         """/** @param identity 工具 ID @return 单工具契约 */"""
+        if identity == "inspect_tasks":
+            from MCP.mcp_task_gateway import public_tools
+            entry = next(item for item in public_tools() if item["name"] == identity)
+            return {"id": identity, "summary": entry["description"], "parameters": entry["inputSchema"],
+                "access": "read", "world": "any", "completion": "observed", "direct": True}
         item = self.tools[identity]
         result = {key: item[key] for key in ("id", "summary", "parameters", "access", "world")}
         result.update({key: item[key] for key in ("scope", "completion", "version")})
@@ -679,6 +711,7 @@ class ToolCatalog:
         if not isinstance(operations, list) or not 1 <= len(operations) <= 16:
             raise ValueError("BATCH_SIZE")
         prepared = []
+        issues = []
         for index, operation in enumerate(operations):
             if not isinstance(operation, dict) or set(operation) != {"tool", "arguments"}:
                 raise ValueError("OPERATION_SCHEMA")
@@ -686,11 +719,17 @@ class ToolCatalog:
             if contract is None:
                 raise ValueError("/operations/" + str(index) + "/tool: unknown tool")
             arguments = copy.deepcopy(operation["arguments"])
-            validate_arguments(arguments, contract["parameters"], "/operations/" + str(index) + "/arguments")
+            try:
+                validate_arguments(arguments, contract["parameters"], "/operations/" + str(index) + "/arguments")
+            except ArgumentValidationError as error:
+                issues.extend(error.issues)
+                continue
             arguments = default_arguments(contract, arguments)
             access, world = resolve_access(contract, arguments)
             if contract["id"] == "asset.save_assets" and not arguments.get("asset_paths"):
                 raise ValueError("SAVE_REQUIRES_EXPLICIT_ASSETS")
             targets, scoped = write_scope(contract, arguments, access, world)
             prepared.append({"contract": contract, "arguments": arguments, "access": access, "world": world, "targets": targets, "scoped": scoped})
+        if issues:
+            raise ArgumentValidationError(issues)
         return prepared

@@ -2,6 +2,7 @@ import ast
 import copy
 import hashlib
 import json
+import logging
 from pathlib import Path
 import re
 import secrets
@@ -13,7 +14,7 @@ from urllib.parse import urlparse
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from BBBMcpCapabilities import ToolCatalog, TOOL_DOMAINS, validate_arguments, write_scope
+from BBBMcpCapabilities import ToolCatalog, TOOL_DOMAINS, validate_arguments, write_scope, ArgumentValidationError
 from MCP.mcp_contracts import TOOL_POLICIES, backend_arguments
 from MCP.mcp_call import McpSession
 from MCP.mcp_jobs import JobQueue, JobConflict
@@ -243,26 +244,84 @@ class UnrealBackend:
         """/** @param packages	本批次自有包 @return 逐包编译 保存 回读与失败证据 */"""
         inspector = self.catalog.tools["editor.inspect_asset_properties"]
         proof = {"saved": [], "compiled": [], "failures": [], "readback": True}
-        for package in sorted(packages):
+        def fail(package, error):
+            evidence = copy.deepcopy(error.value) if isinstance(error, McpBusinessError) else {"error": str(error)}
+            execution = evidence.get("execution", {})
+            details = execution.get("details", {})
+            if "resaved" in details or "failures" in details:
+                execution["details"] = {"saved_count": len(details.get("resaved", [])),
+                    "failures": [row for row in details.get("failures", []) if row.get("package") == package]}
+            proof["failures"].append({"package": package, "failure": evidence})
+            proof["readback"] = False
+        def read(paths, properties):
+            rows = self.invoke(inspector, {"asset_paths": paths, "property_names": properties})["assets"]
+            indexed = {row["assetPath"].split(".", 1)[0]: row for row in rows}
+            if set(indexed) != set(paths) or len(rows) != len(paths):
+                raise McpBusinessError({"code": "SAVE_READBACK_CHANGED"})
+            return indexed
+        targets = sorted(set(packages))
+        for offset in range(0, len(targets), 128):
+            chunk = targets[offset:offset + 128]
             try:
-                before = self.invoke(inspector, {"asset_paths": [package], "property_names": []})["assets"][0]
-                if before["classPath"].endswith((".Blueprint", ".AnimBlueprint", ".ControlRigBlueprint")):
-                    status = self.invoke(inspector, {"asset_paths": [package], "property_names": ["status"]})["assets"][0]
-                    if status["propertyErrors"] or "BS_UP_TO_DATE" not in str(status["properties"].get("status", "")):
+                before = read(chunk, ["status"])
+            except Exception as error:
+                for package in chunk:
+                    fail(package, error)
+                continue
+            eligible = []
+            compiled = []
+            for package in chunk:
+                row = before[package]
+                blueprint = row["classPath"].endswith((".Blueprint", ".AnimBlueprint", ".ControlRigBlueprint"))
+                stale = row["propertyErrors"] or "BS_UP_TO_DATE" not in str(row["properties"].get("status", ""))
+                if blueprint and stale:
+                    try:
                         self.invoke(self.catalog.tools["blueprint_base.compile_blueprint"], {"blueprint": package, "warnings_as_errors": False})
                         proof["compiled"].append(package)
-                        status = self.invoke(inspector, {"asset_paths": [package], "property_names": ["status"]})["assets"][0]
-                    if status["propertyErrors"] or "BS_UP_TO_DATE" not in str(status["properties"].get("status", "")):
-                        raise McpBusinessError({"code": "COMPILE_VALIDATION_FAILED", "asset": package})
-                self.invoke(self.catalog.tools["editor.resave_asset"], {"asset_path": package})
-                after = self.invoke(inspector, {"asset_paths": [package], "property_names": []})["assets"][0]
-                if after["assetPath"] != before["assetPath"]:
-                    raise McpBusinessError({"code": "SAVE_READBACK_CHANGED", "asset": package})
-                proof["saved"].append(package)
+                        compiled.append(package)
+                    except Exception as error:
+                        fail(package, error)
+                        continue
+                eligible.append(package)
+            if compiled:
+                try:
+                    checked = read(compiled, ["status"])
+                    for package, row in checked.items():
+                        if row["propertyErrors"] or "BS_UP_TO_DATE" not in str(row["properties"].get("status", "")):
+                            eligible.remove(package)
+                            fail(package, McpBusinessError({"code": "COMPILE_VALIDATION_FAILED"}))
+                except Exception as error:
+                    for package in compiled:
+                        if package in eligible:
+                            eligible.remove(package)
+                            fail(package, error)
+            if not eligible:
+                continue
+            saved = []
+            try:
+                report = self.invoke(self.catalog.tools["assets.resave_assets"], {"asset_paths": eligible})
+                saved = report["resaved"]
+                if set(saved) != set(eligible) or len(saved) != len(eligible):
+                    raise McpBusinessError({"code": "SAVE_RESULT_INCOMPLETE"})
             except Exception as error:
-                evidence = copy.deepcopy(error.value) if isinstance(error, McpBusinessError) else {"error": str(error)}
-                proof["failures"].append({"package": package, "failure": evidence})
-                proof["readback"] = False
+                saved = []
+                if isinstance(error, McpBusinessError):
+                    details = error.value.get("execution", {}).get("details", {})
+                    saved = [package for package in details.get("resaved", []) if package in eligible]
+                for package in eligible:
+                    if package not in saved:
+                        fail(package, error)
+            if saved:
+                try:
+                    after = read(saved, [])
+                    for package in saved:
+                        if after[package]["assetPath"] != before[package]["assetPath"]:
+                            fail(package, McpBusinessError({"code": "SAVE_READBACK_CHANGED"}))
+                            continue
+                        proof["saved"].append(package)
+                except Exception as error:
+                    for package in saved:
+                        fail(package, error)
         return proof
 
     def expand_scope(self, operation):
@@ -383,6 +442,8 @@ class TaskGateway:
                 return 200, {}, {"jsonrpc": "2.0", "id": request_id, "result": {"tools": list(self.tools.values())}}
             if body.get("method") != "tools/call":
                 raise ValueError("METHOD_UNKNOWN")
+            if not isinstance(parameters.get("name"), str):
+                raise ValueError("/params/name: required")
             name = parameters["name"]
             arguments = parameters.get("arguments", {})
             if name not in self.tools:
@@ -400,6 +461,9 @@ class TaskGateway:
             if name == "find_tools":
                 return reply(self.catalog.find(**arguments))
             if name == "describe_tool":
+                if arguments["tool"] not in self.tools and arguments["tool"] not in self.catalog.tools:
+                    return reply({"status": "rejected", "code": "TOOL_UNKNOWN", "tool": arguments["tool"],
+                        "next": next_call("find_tools", query=arguments["tool"])}, True)
                 return reply(self.tools[arguments["tool"]] if arguments["tool"] in self.tools else self.catalog.describe(arguments["tool"]))
             if name == "submit_batch":
                 self.clients.operators.require(client)
@@ -417,14 +481,23 @@ class TaskGateway:
         except McpBusinessError as error:
             value = copy.deepcopy(error.value)
             return reply(value, True)
-        except (ValueError, KeyError, TypeError) as error:
-            details = str(error)
-            return reply(self._argument_failure(parameters, details), True)
+        except ValueError as error:
+            return reply(self._argument_failure(parameters, error), True)
         except Exception:
-            return reply({"status": "failed", "code": "HOST_UNVERIFIED", "next": None}, True)
+            diagnostic = secrets.token_hex(6)
+            logging.exception("mcp_internal_error diagnostic=%s", diagnostic)
+            return reply({"status": "failed", "code": "INTERNAL_ERROR", "diagnostic": diagnostic,
+                "hint": "按诊断编号检查服务日志，已接受的批次通过 inspect_tasks 查询", "next": None}, True)
 
     def _argument_failure(self, parameters, details):
         """/** @param parameters	原始调用 @param details	校验原因 @return 可重放的完整补参证据 */"""
+        if isinstance(details, ArgumentValidationError):
+            failures = [self._argument_failure(parameters, item) for item in details.issues]
+            value = failures[0]
+            value["needs"] = [need for failure in failures for need in failure.get("needs", [])]
+            value["issue_count"] = len(value["needs"])
+            return value
+        details = str(details)
         target = parameters.get("name", "initialize")
         schema = self.tools.get(target, {}).get("inputSchema", {})
         unknown = re.match(r"/operations/(\d+)/tool: unknown tool", details)
@@ -449,7 +522,7 @@ class TaskGateway:
         try:
             accepted = self.jobs.submit(client, operations, label, environment, test_options, test_host)
         except ValueError as error:
-            raise McpBusinessError(self._argument_failure({"name": "submit_batch", "arguments": {"operations": operations}}, str(error))) from error
+            raise McpBusinessError(self._argument_failure({"name": "submit_batch", "arguments": {"operations": operations}}, error)) from error
         if not await_seconds:
             return accepted
         deadline = time.monotonic() + await_seconds

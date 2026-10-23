@@ -167,8 +167,8 @@ class TestHost:
                 + ",bLaunchSeparateServer=False",
             "-DDC=(ProjectPak,EnginePak,ZenLocal,Local)", "-ZenLocalDataCacheReadOnly=true",
             "-LocalDataCachePath=" + str(self.directory / "DDC"),
-            "-BBBMcpPerformanceProfile=Economy", "-BBBMcpMaxFPS=30",
-            "-ExecCmds=t.MaxFPS 30,t.IdleWhenNotForeground 0",
+            "-BBBMcpPerformanceProfile=Balanced", "-BBBMcpMaxFPS=60",
+            "-ExecCmds=t.MaxFPS 60,t.IdleWhenNotForeground 0",
             "-Unattended", "-Multiprocess", "-NoSplash", "-AutoDeclinePackageRecovery", "-RenderOffscreen", "-SCCProvider=None"]
         if options.get("scene_performance", False):
             arguments.extend(scene_performance_arguments(project_file, Path(editor).parents[3]))
@@ -578,7 +578,7 @@ class ProjectJobs:
                     action["arguments"].update(environment="test", test_host=context["id"])
                 if context["state"] not in {"starting", "running", "recovering"}:
                     result["next"] = None
-        if detail or record["status"] == "completed":
+        if detail or record["status"] in {"completed", "failed", "rejected", "cancelled", "closed"}:
             result["results"] = copy.deepcopy(record["results"])
             result["elapsed_seconds"] = int(time.monotonic() - record["submitted_at"])
             for key in ("input_version", "input_stable"):

@@ -107,9 +107,8 @@ class ServiceTests(unittest.TestCase):
                 self.assertEqual(len(rows), 2)
                 self.assertNotIn(key, json.dumps(rows))
         with McpSession(self.url, 5, client_key=key) as resumed:
-            self.assertEqual(resumed.operator["id"], identity)
-            self.assertEqual(resumed.operator["level"], 0)
-            resumed.manage_operator(action="finish")
+            self.assertIsNone(resumed.operator)
+            self.assertEqual(resumed.inspect_tasks(operators=True)["operators"]["count"], 0)
         with McpSession(self.url, 5, client_key=key, task="新任务") as fresh:
             self.assertEqual(fresh.operator["level"], 2)
             self.assertNotEqual(fresh.operator["id"], identity)
@@ -142,8 +141,10 @@ class ServiceTests(unittest.TestCase):
                 identity = first.operator["id"]
             with McpSession(self.url, 5, conversation_id="chat-1") as second:
                 self.assertEqual(second.client_key, key)
-                self.assertEqual(second.operator["id"], identity)
-                self.assertEqual(second.operator["level"], 0)
+                self.assertIsNone(second.operator)
+                renewed = second.manage_operator(task="测试归属")
+                self.assertNotEqual(renewed["id"], identity)
+                self.assertEqual(renewed["level"], 2)
             with McpSession(self.url, 5, task="另一个聊天", conversation_id="chat-2") as third:
                 self.assertNotEqual(third.client_key, key)
 

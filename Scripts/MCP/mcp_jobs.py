@@ -345,12 +345,16 @@ class JobQueue:
                 if job["code"] != reason:
                     job["code"] = reason
                     self._signal()
+            recoveries = [self.jobs[identity] for identity, claim in self.assets.claims.items()
+                if claim["phase"] == "fault" and claim["retry_at"] <= now
+                and not self.clients.operators.paused(self.jobs[identity]["owner"])]
+            if recoveries and not self.draining:
+                candidates = recoveries + ([selected] if selected is not None else [])
+                selected = ordered(candidates, self.clients.operators)[0]
+                if selected in recoveries:
+                    self.writer = selected["id"]
             if selected is None:
-                recovery_id = self.assets.due(self.clock())
-                if recovery_id is None or self.draining:
-                    return False
-                selected = self.jobs[recovery_id]
-                self.writer = recovery_id
+                return False
         if selected["status"] != "queued":
             self._reconcile(selected)
             return True
@@ -909,7 +913,7 @@ class JobQueue:
                 result["save_failure"] = copy.deepcopy(job["save_failure"])
             if job.get("recovery_failure"):
                 result["recovery_failure"] = copy.deepcopy(job["recovery_failure"])
-        if detail or job["status"] == "completed":
+        if detail or job["status"] in {"completed", "failed", "rejected", "cancelled", "closed"}:
             result["results"] = copy.deepcopy(job["results"])
         if detail:
             result.update({"dirty": list(job["dirty"]), "failed_index": job["failed_index"]})
@@ -919,7 +923,7 @@ class JobQueue:
                 result["failure"] = copy.deepcopy(job["failure"])
             if job.get("execution"):
                 result["execution"] = job["execution"]
-        if job.get("proof"):
+        if job.get("proof") and (detail or job["status"] in {"completed", "failed", "rejected", "cancelled", "closed"}):
             result["proof"] = copy.deepcopy(job["proof"])
         if "next" not in result:
             result["next"] = None

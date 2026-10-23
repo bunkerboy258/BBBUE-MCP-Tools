@@ -201,7 +201,7 @@ class BBBMcpRuntimeToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def configure_mcp_resources(profile: str = "Economy", max_fps: int = -1) -> str:
+    def configure_mcp_resources(profile: str = "Balanced", max_fps: int = -1) -> str:
         """
         /**
          * 选择当前宿主的运行时性能档位 不保存用户配置
@@ -242,7 +242,7 @@ def configure_startup_resources():
     command_line = unreal.SystemLibrary.get_command_line()
     profile_match = re.search(r"(?i)(?:^|\s)-BBBMcpPerformanceProfile=([^\s]+)", command_line)
     fps_match = re.search(r"(?i)(?:^|\s)-BBBMcpMaxFPS=([^\s]+)", command_line)
-    profile = "Economy"
+    profile = "Balanced"
     max_fps = -1
     try:
         if profile_match:
