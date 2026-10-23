@@ -307,3 +307,9 @@ ManualAction 制作源可显式设置 `grip_endpoints_request`，包含同型号
 ManualAction 明确设置 `inspect_editor_grip_request=true` 后，原 `prepare_action` 入口读取当前已经打开的编辑器绑定实例、组件世界骨骼、附件局部变换和 Rig 手骨。只读取当前 Sequencer 实例，不创建第二播放器、不在采样时重新求值；要求 LS 已打开并给编辑器完成一轮正常求值。结果返回实际 Root_joint 缩放，避免仅用经过重定向的 AnimPose 数据判断枪体动画尺寸。请求在读取后消费。
 
 Sniper04 定位出两个实际预览问题：临时播放器结束后共享预览组件与 Rig 状态不一致，需关闭实际资产编辑页后重开；枪体换弹根骨原始缩放仍是1.0，而重导入网格参考根骨为0.9，AnimPose 重定向采样会掩盖这种原始骨轨差异。已将正式 ANI_BBB_Sniper_04_Reload 和正式 AuthoringPreview 的67个根骨采样统一为实际网格参考根骨，其他骨轨及显隐不变。重开后直接读取编辑器组件，根骨缩放0.899999976，左手组件与Rig位置一致，左手首帧[-8.712429,40.746600,143.908958]cm与已确认握姿一致。只核验前台组件及骨轨，未运行PIE；窗口留在换弹第0帧。
+
+### 开火枪体原始根轨缩放核验（2026-10-23）
+
+`inspect_editor_grip_request` 可为含 `root_tracks` 数组的对象，明确列出同型号 Animation/Sequence 动画；原入口同时返回原始首骨轨各采样的位置、四元数和缩放，不经过 AnimPose 重定向。便于保留位置和旋转，仅用既有 replace_animation_bone_tracks 改写必要缩放。
+
+Sniper04 正式 equipment_fire_montage 指向 AM_BBB_Sniper_04_Fire，其唯一序列 ANI_BBB_Sniper_04_Fire 的13个原始根采样缩放均为1.0，与当前网格参考根0.9不一致。已原位将这13个采样的缩放统一为实际网格参考根[0.899999976,0.899999857,0.899999857]；回读全部13采样一致。保留根骨位置和旋转方向，其余枪机骨轨、通知、蒙太奇引用及角色握姿未改。未运行PIE。

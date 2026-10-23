@@ -35,9 +35,20 @@ def inspect_editor_grip(path, data, write_paths):
     for proxy in unreal.ControlRigSequencerLibrary.get_control_rigs(sequence):
         hierarchy = proxy.control_rig.get_hierarchy()
         rigs.append({n: _read_transform(hierarchy.get_global_transform(_key(n))) for n in ('hand_l','hand_r')})
+    tracks = []
+    request = data['inspect_editor_grip_request']
+    paths = request.get('root_tracks', []) if isinstance(request, dict) else []
+    for animation_path in paths:
+        if not animation_path.startswith(data['weapon_root'] + '/Animation/Sequence/'):
+            raise RuntimeError('EDITOR_GRIP_ROOT_TRACK_SCOPE')
+        animation = _asset(animation_path, unreal.AnimSequence)
+        bones = list(animation.data_model_interface.get_bone_track_names())
+        root = str(bones[0])
+        values = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, root)
+        tracks.append({'animation': animation_path, 'bone': root, 'keys': [_read_transform(v) for v in values]})
     data.pop('inspect_editor_grip_request')
     _save(path, data)
-    return {'editor_bound_actors': rows, 'rigs': rigs}
+    return {'editor_bound_actors': rows, 'rigs': rigs, 'root_tracks': tracks}
 
 
 def match_grip_endpoints(path, data, write_paths):
