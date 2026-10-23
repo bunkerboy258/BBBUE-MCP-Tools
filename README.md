@@ -2,6 +2,8 @@
 
 2026-10-23 新增 animation_finish 事实动画变体配置 同骨架地面约束过渡烘焙和 PIE 骨骼数值采样 结构化分段只创建临时表现演员 不生成图片或视频 原生编译及三项 Mass 自动化通过 17 项针对性离线检查通过 最终移动复查 2037 帧 详细契约与边界见 [BBBAnimationFinishMCP.md](Docs/BBBAnimationFinishMCP.md)
 
+2026-10-23 新增原生 AimOffset 布局复用 加法层接入与父节点资产覆盖工具 先混合加法结果再与唯一基础姿势合成 避免姿势输出分接断链 角色后坐力采样改读 GetRecoilAngles 姿势驱动变量改为 WeaponPoseOffsetAngles 不再重建 AimIK 目标偏移入口 接入方式与验证边界见 [BBBAimOffsetMCP.md](Docs/BBBAimOffsetMCP.md) 配套 42 项离线回归与三项原生 AimIK 响应测试通过
+
 2026-10-23 蓝图布局改为先按主节点最终消费者划分完整参数组 再排列主链 专属计算链与多消费者共享链分别布局 连线避让保留组间边界 新增 dependencyGroupOverlaps 检查并拒绝参数组区域交叠 布局专项离线与 Base 骨骼控制图实测结果见 Docs/BBBBlueprintLayoutMCP.md
 
 2026-10-23 增加动画曲线原始数据与骨轨道摘要读取 原位名称迁移及同长动画完整曲线复制工具 蓝图名称引用通过项目编辑器库同步 不创建备份 UE5.8 编译通过 22 项离线测试通过 已保存 230 份自有资产改名及 50 份同源动作曲线同步 52 份基准与目标的骨轨道摘要保持不变 共用动画层严格编译通过

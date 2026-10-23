@@ -36,6 +36,9 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
+    'animation_graph.create_aim_offset_from_template': {'scope': {'fields': ['asset_path']}},
+    'animation_graph.configure_aim_offset_layer': {'scope': {'fields': ['blueprint_path']}},
+    'animation_graph.override_aim_offset_layer': {'scope': {'fields': ['blueprint_path']}},
     'animation_finish.configure_speed_blend': {'scope': {'fields': ['asset_path']}},
     'animation_finish.bake_pose_transition': {'scope': {'fields': ['asset_path']}},
     'animation_finish.configure_fact_animation_finish': {'scope': {'fields': ['asset_path']}},

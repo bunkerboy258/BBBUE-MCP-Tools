@@ -19,6 +19,143 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def create_aim_offset_from_template(source_path: str, asset_path: str, sequence_paths: list[str]) -> str:
+        """
+        /**
+         * 复用原生 AO 布局并替换为明确的同骨架加法样本
+         * @param source_path\t只读原生 AimOffset 来源
+         * @param asset_path\t不存在的自有目标路径
+         * @param sequence_paths\t按源采样顺序排列的同骨架 Mesh Space 序列
+         * @return 保存与实际样本回读 不修改源资产
+         */
+        """
+        source = unreal.load_asset(source_path)
+        sequences = [unreal.load_asset(path) for path in sequence_paths]
+        if not asset_path.startswith("/Game/_Project/") or unreal.EditorAssetLibrary.does_asset_exist(asset_path):
+            raise RuntimeError("AO 目标必须是不存在的自有资产")
+        if not isinstance(source, unreal.AimOffsetBlendSpace) or not sequences:
+            raise RuntimeError("AO 来源或采样列表无效")
+        if len(source.get_editor_property("sample_data")) != len(sequences):
+            raise RuntimeError("AO 样本数量与来源不一致")
+        if any(not isinstance(value, unreal.AnimSequence) for value in sequences):
+            raise RuntimeError("AO 样本必须是动画序列")
+        skeleton = sequences[0].get_editor_property("skeleton")
+        if any(value.get_editor_property("skeleton") != skeleton
+               or value.get_editor_property("additive_anim_type") != unreal.AdditiveAnimationType.AAT_ROTATION_OFFSET_MESH_SPACE
+               for value in sequences):
+            raise RuntimeError("AO 样本需要同骨架 Mesh Space 加法设置")
+        require_asset_write([], destinations=[asset_path])
+        asset = unreal.EditorAssetLibrary.duplicate_asset(source_path, asset_path)
+        if not unreal.BBBAimOffsetEditorLibrary.configure_aim_offset(asset, source, sequences):
+            raise RuntimeError("AO 同骨架采样构建失败 尚未保存")
+        if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
+            raise RuntimeError("AO 保存失败")
+        samples = asset.get_editor_property("sample_data")
+        actual = [value.get_editor_property("animation").get_path_name() for value in samples]
+        expected = [value.get_path_name() for value in sequences]
+        if actual != expected or asset.get_editor_property("skeleton") != skeleton:
+            raise RuntimeError("AO 保存后样本或骨架回读不一致")
+        return json.dumps({"asset": asset.get_path_name(), "samples": actual,
+                           "skeleton": skeleton.get_path_name(), "saved": True}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def configure_aim_offset_layer(blueprint_path: str, layer_name: str, angle_variable: str,
+                                   offset_paths: list[str], crouch_path: list[str], control_guid: str,
+                                   old_getter: str, new_getter: str, old_variable: str,
+                                   removed_input_pin: str, aim_getter: str = "IsAiming") -> str:
+        """
+        /**
+         * 将已有二维姿势变量迁到控制节点之前的原生三姿态 AO
+         * @param blueprint_path\t独占持有的公共动画层
+         * @param layer_name\t已有骨骼控制层名称
+         * @param angle_variable\tX 上下 Y 左右的目标变量名
+         * @param offset_paths\t腰射 瞄准 下蹲三个同骨架 AO
+         * @param crouch_path\t主实例下蹲快照属性路径
+         * @param control_guid\t既有控制节点标识
+         * @param old_getter\t明确删除的旧事实函数名
+         * @param new_getter\t已编译加载的新只读事实函数名
+         * @param old_variable\t明确重命名的旧图表变量
+         * @param aim_getter\t线程安全瞄准事实函数名
+         * @param removed_input_pin\t已从控制结构删除的旧引脚
+         * @return 编译保存结果 不重建既有动作和握持图
+         */
+        """
+        blueprint = unreal.load_asset(blueprint_path)
+        offsets = [unreal.load_asset(path) for path in offset_paths]
+        if not isinstance(blueprint, unreal.AnimBlueprint) or len(offsets) != 3:
+            raise RuntimeError("公共动画层或 AO 数量无效")
+        if any(not isinstance(value, unreal.AimOffsetBlendSpace) for value in offsets):
+            raise RuntimeError("姿势来源必须是原生 AimOffset")
+        require_asset_write([blueprint])
+        dirty = {value.get_path_name() for value in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
+        if blueprint.get_outermost().get_path_name() in dirty:
+            raise RuntimeError("公共动画层有未保存修改 拒绝覆盖")
+        library = unreal.BBBBlueprintEditorLibrary
+        if old_variable and old_variable != angle_variable and not library.rename_blueprint_variable(blueprint, old_variable, angle_variable):
+            raise RuntimeError("姿势变量重命名失败")
+        replaced = library.replace_blueprint_function_references(blueprint, json.dumps({old_getter: new_getter})) if old_getter else 0
+        if old_getter and replaced < 1:
+            raise RuntimeError("未找到预期的旧事实函数引用 不继续接图")
+        if not unreal.BBBAimOffsetEditorLibrary.insert_aim_offset_layer(blueprint, layer_name, angle_variable,
+                aim_getter, crouch_path, offsets, control_guid, removed_input_pin):
+            raise RuntimeError("AO 图表接入失败 尚未保存 请检查输入连接")
+        unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
+        if blueprint.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+            raise RuntimeError("AO 动画层编译有错误或警告 不保存")
+        if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
+            raise RuntimeError("AO 动画层保存失败")
+        graph = unreal.BlueprintEditorLibrary.find_graph(blueprint, layer_name)
+        snapshot = json.loads(library.inspect_blueprint_graph_logical_snapshot(graph))
+        poses = [node for node in snapshot.get("nodes", []) if node.get("nodeClass", "").endswith("AnimGraphNode_BlendSpacePlayer")]
+        applies = [node for node in snapshot.get("nodes", []) if node.get("nodeClass", "").endswith("AnimGraphNode_ApplyMeshSpaceAdditive")]
+        inputs = [node for node in snapshot.get("nodes", []) if node.get("nodeClass", "").endswith("AnimGraphNode_LinkedInputPose")]
+        if len(poses) != 3 or len(applies) != 1 or len(inputs) != 1 or any(pin.get("name") == removed_input_pin
+                                  for node in snapshot.get("nodes", []) for pin in node.get("pins", [])):
+            raise RuntimeError("AO 图表保存后节点或旧引脚回读不一致")
+        base = next((pin for pin in applies[0].get("pins", []) if pin.get("name") == "Base"), {})
+        incoming = base.get("links", [])
+        if len(incoming) != 1 or incoming[0].get("nodeGuid") != inputs[0].get("guid"):
+            raise RuntimeError("AO 基础姿势必须保持唯一有效连接")
+        return json.dumps({"asset": blueprint.get_path_name(), "poses": [node["guid"] for node in poses],
+                           "renamedCalls": replaced, "saved": True}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def override_aim_offset_layer(blueprint_path: str, base_layer_path: str,
+                                  layer_name: str, offset_paths: list[str]) -> str:
+        """
+        /**
+         * 通过 UE 原生父节点资产覆盖配置具体持枪类型
+         * @param blueprint_path\t直接继承公共层的动画蓝图
+         * @param base_layer_path\t拥有三个 AO 节点的公共层
+         * @param layer_name\t公共骨骼控制层名称
+         * @param offset_paths\t腰射 瞄准 下蹲三个同骨架 AO
+         * @return 无警告编译与保存结果 不复制图表
+         */
+        """
+        blueprint = unreal.load_asset(blueprint_path)
+        base = unreal.load_asset(base_layer_path)
+        offsets = [unreal.load_asset(path) for path in offset_paths]
+        if not isinstance(blueprint, unreal.AnimBlueprint) or not isinstance(base, unreal.AnimBlueprint):
+            raise RuntimeError("AO 父层与子层必须是动画蓝图")
+        if len(offsets) != 3 or any(not isinstance(value, unreal.AimOffsetBlendSpace) for value in offsets):
+            raise RuntimeError("AO 资产覆盖需要三份原生混合空间")
+        require_asset_write([blueprint])
+        dirty = {value.get_path_name() for value in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
+        if blueprint.get_outermost().get_path_name() in dirty:
+            raise RuntimeError("AO 子层有未保存修改 拒绝覆盖")
+        if not unreal.BBBAimOffsetEditorLibrary.override_aim_offset_assets(blueprint, base, layer_name, offsets):
+            raise RuntimeError("AO 父节点资产覆盖失败")
+        unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
+        if blueprint.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+            raise RuntimeError("AO 子层编译有错误或警告 不保存")
+        if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
+            raise RuntimeError("AO 子层保存失败")
+        return json.dumps({"asset": blueprint.get_path_name(), "offsets": [str(path) for path in offset_paths], "saved": True})
+
+    @mcp_tool
+    @staticmethod
     def create_directional_blend_space(asset_path: str, sequence_paths: list[str], maximum_speed: float) -> str:
         """
         /**

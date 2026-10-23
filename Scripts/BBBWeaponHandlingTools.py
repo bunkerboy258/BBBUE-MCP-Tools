@@ -198,7 +198,7 @@ def sample_runtime(action, seconds, equipment_class_path):
             previous[0] = time
             layer = main.get_linked_anim_layer_instance_by_class(layer_class, True)
             weapon = main.try_get_weapon_anim_instance()
-            offset = main.get_aim_offset_degrees()
+            offset = main.get_recoil_angles()
             camera = pawn.get_controller().get_control_rotation()
             controller = pawn.get_controller()
             actual_aim = controller.get_actual_aim_screen_position()
@@ -246,7 +246,7 @@ def sample_runtime(action, seconds, equipment_class_path):
                 sample["follow"] = layer.get_editor_property("WeaponAimFollowSpeed")
                 sample["backwardAlpha"] = layer.get_editor_property("WeaponBackwardRecoilAlpha")
                 sample["recoilTime"] = layer.get_editor_property("WeaponRecoilTime")
-                sway = layer.get_editor_property("WeaponAimOffsetDegrees")
+                sway = layer.get_editor_property("WeaponPoseOffsetAngles")
                 sample["aimOffset"] = [sway.x, sway.y]
                 sample["poseState"] = [layer.get_editor_property("LocomotionAimIKAlpha"), layer.get_curve_value("DisableAimIK"),
                     layer.get_editor_property("RaiseWeaponAfterFiring"), layer.get_editor_property("HipFireUpperBodyOverrideWeight"),
@@ -611,7 +611,7 @@ def configure_animation_handling(blueprint_path, animation_path):
     if "WeaponRecoilAnimation" not in variables:
         BlueprintTools.add_object_variable(blueprint, "WeaponRecoilAnimation", unreal.AnimSequence.static_class())
         BlueprintTools.set_variable_category(blueprint, "WeaponRecoilAnimation", "持枪表现")
-    for name, kind in (("WeaponAimFollowSpeed", "float"), ("WeaponAimOffsetDegrees", "Vector2D"), ("WeaponRecoilTime", "float"), ("WeaponBackwardRecoilAlpha", "float")):
+    for name, kind in (("WeaponAimFollowSpeed", "float"), ("WeaponPoseOffsetAngles", "Vector2D"), ("WeaponRecoilTime", "float"), ("WeaponBackwardRecoilAlpha", "float")):
         if name not in variables:
             BlueprintTools.add_variable(blueprint, name, kind)
 
@@ -619,9 +619,9 @@ def configure_animation_handling(blueprint_path, animation_path):
     g.editor.set_is_thread_safe_function(True)
     execute = g.editor.find_graph_entry_pin()
     character = g.out(g.call("/Script/ABBB_Evac.BBBAnimInstance.GetBBBMainAnimInstanceThreadSafe"))
-    impulse = g.out(g.call("/Script/ABBB_Evac.BBBAnimInstance.GetAimOffsetDegrees", character))
+    impulse = g.out(g.call("/Script/ABBB_Evac.BBBAnimInstance.GetRecoilAngles", character))
     execute = g.set("WeaponAimFollowSpeed", 18, execute)
-    execute = g.set("WeaponAimOffsetDegrees", impulse, execute)
+    execute = g.set("WeaponPoseOffsetAngles", impulse, execute)
     execute = g.set("WeaponRecoilTime", 1, execute)
     execute = g.set("WeaponBackwardRecoilAlpha", 0, execute)
     execute = g.set("WeaponRecoilAnimation", "None", execute)
@@ -664,7 +664,7 @@ def configure_animation_handling(blueprint_path, animation_path):
     sway = g.out(g.call("MakeVector2D", inputs={"X": sway_parts[0], "Y": sway_parts[1]}))
     offset = g.binary("Add_Vector2DVector2D", impulse, sway)
     execute = g.set("WeaponAimFollowSpeed", follow, execute)
-    execute = g.set("WeaponAimOffsetDegrees", offset, execute)
+    execute = g.set("WeaponPoseOffsetAngles", offset, execute)
     execute = g.set("WeaponRecoilTime", elapsed, execute)
     execute = g.set("WeaponBackwardRecoilAlpha", recoil, execute)
     g.set("WeaponRecoilAnimation", _weapon_get(g, weapon, "GetRecoilAnimation"), execute)
@@ -705,8 +705,6 @@ def configure_animation_handling(blueprint_path, animation_path):
     library = unreal.BBBBlueprintEditorLibrary
     if not library.bind_animation_node_input(aim_nodes[0], "AimFollowSpeed", ["WeaponAimFollowSpeed"]):
         raise RuntimeError("枪口跟随速度连接失败")
-    if not library.bind_animation_node_input(aim_nodes[0], "AimOffsetDegrees", ["WeaponAimOffsetDegrees"]):
-        raise RuntimeError("枪口角度与摇摆连接失败")
     from BBBRecoilAnimationTools import bind_recoil_additive_inputs
     bind_recoil_additive_inputs(blueprint, animation)
     additive_graph = unreal.BlueprintEditorLibrary.find_graph(blueprint, "FullBodyAdditives")
@@ -729,7 +727,7 @@ def configure_animation_handling(blueprint_path, animation_path):
             if node.get_class().get_name() != "K2Node_PropertyAccess":
                 continue
             path = list(library.get_property_access_path(node))
-            if path in (["WeaponAimFollowSpeed"], ["WeaponAimOffsetDegrees"]):
+            if path in (["WeaponAimFollowSpeed"], ["WeaponPoseOffsetAngles"]):
                 if not any(pin.list_connected_pins() for pin in node.list_output_pins()):
                     editor.remove_nodes([node])
     BlueprintTools.compile_blueprint(blueprint)
