@@ -48,7 +48,7 @@ def inspect_editor_grip(path, data, write_paths):
         tracks.append({'animation': animation_path, 'bone': root, 'keys': [_read_transform(v) for v in values]})
     data.pop('inspect_editor_grip_request')
     _save(path, data)
-    return {'editor_bound_actors': rows, 'rigs': rigs, 'root_tracks': tracks}
+    return {'frame': unreal.LevelSequenceEditorBlueprintLibrary.get_current_time(), 'editor_bound_actors': rows, 'rigs': rigs, 'root_tracks': tracks}
 
 
 def match_grip_endpoints(path, data, write_paths):
@@ -67,8 +67,19 @@ def match_grip_endpoints(path, data, write_paths):
     reference = _asset(request['animation'], unreal.AnimSequence)
     if not request['animation'].startswith(data['weapon_root'] + '/Animation/Sequence/'):
         raise RuntimeError('GRIP_ENDPOINT_REFERENCE_SCOPE')
-    first, release, acquire, last = request['frames']
-    if first != 0 or last != sequence.get_playback_end()-1 or not first < release < acquire < last:
+    frames = request['frames']
+    if len(frames) not in (2, 4):
+        raise RuntimeError('GRIP_ENDPOINT_WINDOW_COUNT')
+    last = sequence.get_playback_end()-1
+    first, release = frames[:2]
+    acquire = frames[2] if len(frames) == 4 else last+1
+    endpoints = (first, last) if len(frames) == 4 else (first,)
+    boundaries = (release, acquire) if len(frames) == 4 else (release,)
+    if len(frames) == 4 and frames[3] != last:
+        raise RuntimeError('GRIP_ENDPOINT_LAST_FRAME')
+    if len(frames) == 2 and not 0 < release < last:
+        raise RuntimeError('GRIP_ENDPOINT_ENTRY_FRAMES')
+    if first != 0 or (len(frames) == 4 and not first < release < acquire < last):
         raise RuntimeError('GRIP_ENDPOINT_FRAMES')
     def layers(target):
         sections = [s for b in target.get_bindings() for t in b.get_tracks()
@@ -95,8 +106,22 @@ def match_grip_endpoints(path, data, write_paths):
     asset = _asset(data['rig'], unreal.ControlRigBlueprint)
     hierarchy = asset.hierarchy
     hand_offset = hierarchy.get_global_control_offset_transform(_key('hand_l_ik_ctrl', 'CONTROL'), True)
-    fingers = [f'{f}_{j:02}_l' for f in ('thumb', 'index', 'middle', 'ring', 'pinky') for j in (1,2,3)]
+    sides = request.get('finger_sides', ['l'])
+    if not sides or set(sides)-{'l', 'r'}:
+        raise RuntimeError('GRIP_ENDPOINT_FINGER_SIDES')
+    fingers = [f'{f}_{j:02}_{s}' for s in sides for f in ('thumb', 'index', 'middle', 'ring', 'pinky') for j in (1,2,3)]
     local_reference = {n: unreal.AnimPoseExtensions.get_bone_pose(reference_pose, n, unreal.AnimPoseSpaces.LOCAL) for n in fingers}
+    if request.get('grip_recipe_path'):
+        from pathlib import Path
+        from BBBGripAuthoringToolset import _safe_file, _recipe, _transform
+        project = Path(unreal.Paths.project_dir()).resolve()
+        grip_path = _safe_file(project, data['weapon_root'], request['grip_recipe_path'])
+        grip = _recipe(grip_path, data['weapon_root'])
+        if grip['animation'] != request['animation'] or not grip.get('manual_edit', {}).get('definitionApplied'):
+            raise RuntimeError('GRIP_ENDPOINT_MANUAL_REFERENCE_REQUIRED')
+        values = grip['solution']
+        relative = _transform(values['component_pose']['hand_l']).make_relative(_transform(values['component_pose']['hand_r']))
+        local_reference = {n: _transform(values['local_pose'][n]) for n in fingers}
     encoded = unreal.EditorAssetLibrary.get_metadata_tag(sequence, 'BBB_RuntimeRightWristPreview')
     delta = unreal.Quat(*json.loads(encoded)) if encoded else unreal.Quat(0.0, 0.0, 0.0, 1.0)
     scope = unreal.new_object(unreal.LevelSequence, name='BBBGripEndpoints_' + uuid.uuid4().hex)
@@ -104,7 +129,7 @@ def match_grip_endpoints(path, data, write_paths):
         before = _export(sequence, source, mesh, scope, 'Before')
         targets = {}
         expected = {}
-        for frame in (first, last):
+        for frame in endpoints:
             pose = _pose(before, mesh, frame * rate.denominator / rate.numerator)
             right = get(pose, 'hand_r')
             parent = get(pose, 'lowerarm_r').rotation
@@ -126,7 +151,7 @@ def match_grip_endpoints(path, data, write_paths):
                     name = 'fk_' + bone + '.Rotation.' + axis
                     targets.setdefault(name, {})[frame] = number - value(base_channels[name], frame)
         for name, points in targets.items():
-            for frame in (release, acquire):
+            for frame in boundaries:
                 points[frame] = value(edit_channels[name], frame)
         def write(target):
             _, layer = layers(target)
@@ -148,7 +173,7 @@ def match_grip_endpoints(path, data, write_paths):
         after = _export(candidate, source, mesh, scope, 'After')
         maximum, angle = 0.0, 0.0
         positions = []
-        for frame in (first, last):
+        for frame in endpoints:
             pose = _pose(after, mesh, frame * rate.denominator / rate.numerator)
             actual, target = get(pose, 'hand_l'), expected[frame]
             maximum = max(maximum, (actual.translation-target.translation).length())
