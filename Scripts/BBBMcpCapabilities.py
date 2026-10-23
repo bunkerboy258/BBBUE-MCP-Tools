@@ -34,6 +34,7 @@ TOOL_DOMAINS = {
     "BBBAnimationGraphToolset": "animation_graph",
     "BBBAnimationFinishToolset": "animation_finish",
     "BBBHitReactionToolset": "hit",
+    "BBBMonsterGoreToolset": "monster_gore",
     "BBBSkeletalMeshImportToolset": "skeletal_import",
     "BBBRetargetAssetAuditToolset": "retarget",
     "AssetTools": "asset",

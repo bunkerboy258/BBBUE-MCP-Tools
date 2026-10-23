@@ -2995,6 +2995,73 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def reimport_static_mesh(asset_path: str, source_file: str) -> str:
+        """
+        /**
+         * 用原生 FBX 工厂原位更新已有自有静态网格 不生成材质或纹理
+         * @param asset_path\t明确的已有项目网格
+         * @param source_file\t存在的 FBX 绝对路径
+         * @return 保存后的实际包围盒和碰撞数量
+         */
+        """
+        from BBBAssetWritePolicy import require_write_access
+        if not re.fullmatch(r"/Game/_Project/[A-Za-z0-9_/]+", asset_path):
+            raise RuntimeError("静态重导入只接受明确的自有资产")
+        if not os.path.isabs(source_file) or not os.path.isfile(source_file) or not source_file.lower().endswith(".fbx"):
+            raise RuntimeError("需要存在的 FBX 绝对路径")
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止重导入共享网格")
+        mesh = unreal.load_asset(asset_path)
+        if not isinstance(mesh, unreal.StaticMesh):
+            raise RuntimeError("目标必须是已有静态网格")
+        package = mesh.get_outermost().get_path_name()
+        if any(item.get_path_name() == package for item in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()):
+            raise RuntimeError("目标存在未保存修改 拒绝覆盖")
+        require_write_access(mesh)
+        options = unreal.FbxImportUI()
+        options.automated_import_should_detect_type = False
+        options.import_mesh = True
+        options.import_as_skeletal = False
+        options.mesh_type_to_import = unreal.FBXImportType.FBXIT_STATIC_MESH
+        options.original_import_type = unreal.FBXImportType.FBXIT_STATIC_MESH
+        options.import_materials = False
+        options.import_textures = False
+        options.import_animations = False
+        options.static_mesh_import_data.combine_meshes = True
+        task = unreal.AssetImportTask()
+        task.filename = os.path.realpath(source_file)
+        task.destination_path = package.rsplit("/", 1)[0]
+        task.destination_name = mesh.get_name()
+        task.automated = True
+        task.replace_existing = True
+        task.replace_existing_settings = True
+        task.save = False
+        task.options = options
+        task.factory = unreal.FbxFactory()
+        cvar = "Interchange.FeatureFlags.Import.FBX"
+        previous = unreal.SystemLibrary.get_console_variable_bool_value(cvar)
+        try:
+            unreal.SystemLibrary.execute_console_command(None, cvar + " 0")
+            unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])
+        finally:
+            unreal.SystemLibrary.execute_console_command(None, cvar + " " + str(int(previous)))
+        imported = list(task.get_objects())
+        if len(imported) != 1 or imported[0].get_path_name() != mesh.get_path_name():
+            unreal.log_error("[BBBStaticReimport] 原位导入目标不唯一 " + package)
+            raise RuntimeError("静态网格原位导入失败")
+        result = imported[0]
+        if not unreal.EditorAssetLibrary.save_loaded_asset(result, only_if_is_dirty=False):
+            unreal.log_error("[BBBStaticReimport] 保存失败 " + package)
+            raise RuntimeError("静态网格保存失败")
+        bounds = result.get_bounds()
+        setup = result.get_editor_property("body_setup")
+        shapes = setup.get_editor_property("agg_geom") if setup is not None else None
+        return json.dumps({"asset": result.get_path_name(), "saved": True,
+            "origin": list(bounds.origin.to_tuple()), "extent": list(bounds.box_extent.to_tuple()),
+            "convexCount": len(shapes.get_editor_property("convex_elems")) if shapes is not None else 0}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def inspect_static_mesh_bounds(asset_path: str) -> str:
         """
         /**
@@ -4126,12 +4193,13 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def export_skeletal_mesh_fbx(mesh_path: str, export_name: str) -> str:
+    def export_skeletal_mesh_fbx(mesh_path: str, export_name: str, task_name: str = "") -> str:
         """
         /**
          * 导出骨骼蒙皮网格和参考姿势供离线动画制作 拒绝覆盖现有交付目录
          * @param mesh_path		骨骼网格资产路径
          * @param export_name		Saved Exports 下的新目录名称
+         * @param task_name		本次临时制作任务名 指定后写入 Saved/temp/任务名/导出名
          * @return FBX 与骨骼清单路径及导出统计
          */
         """
@@ -4161,7 +4229,11 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         if package_path in dirty_paths or skeleton.get_path_name().split(".", 1)[0] in dirty_paths:
             fail("目标网格或骨骼存在未保存改动")
 
+        if task_name and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,95}", task_name):
+            fail("任务目录名称必须使用字母数字下划线或连字符")
         directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "Exports", export_name))
+        if task_name:
+            directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "temp", task_name, export_name))
         if os.path.exists(directory):
             fail("交付目录已经存在 " + directory)
 

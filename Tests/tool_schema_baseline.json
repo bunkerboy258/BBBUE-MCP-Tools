@@ -4080,6 +4080,11 @@
           "export_name": {
             "type": "string",
             "description": "Saved Exports 下的新目录名称 *"
+          },
+          "task_name": {
+            "type": "string",
+            "description": "本次临时制作任务名 指定后写入 Saved/temp/任务名/导出名",
+            "default": ""
           }
         },
         "required": [
@@ -7562,6 +7567,34 @@
           "parent_bone_name"
         ],
         "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "reimport_static_mesh": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          },
+          "source_file": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_path",
+          "source_file"
+        ]
       },
       "outputSchema": {
         "type": "object",
@@ -13757,78 +13790,6 @@
         ]
       }
     },
-    "configure_monster_severing_parts": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "definition_path": {
-            "type": "string",
-            "description": "已独占签出的正式僵尸配置 *"
-          },
-          "parts_json": {
-            "type": "string",
-            "description": "五个部位的 region bone part cap 数组 *"
-          }
-        },
-        "required": [
-          "definition_path",
-          "parts_json"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string",
-            "description": "读取回来的资源对应表 不自动保存 */"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "create_zombie_sealed_part_meshes": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "source_mesh_path": {
-            "type": "string",
-            "description": "只读使用的完整僵尸网格 *"
-          },
-          "root_bone": {
-            "type": "string",
-            "description": "断开处骨骼名称 *"
-          },
-          "output_folder": {
-            "type": "string",
-            "description": "新增封闭部件的自有目录 *"
-          },
-          "rebuild_existing": {
-            "type": "boolean",
-            "description": "显式重建完整的同名自有部件 必须独占签出 不保留旧版本 *",
-            "default": false
-          }
-        },
-        "required": [
-          "source_mesh_path",
-          "root_bone",
-          "output_folder"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string",
-            "description": "部件和封口路径及闭环诊断 不自动保存 */"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
     "inspect_pie_audio_device": {
       "inputSchema": {
         "type": "object"
@@ -14472,107 +14433,6 @@
         ]
       }
     },
-    "plan_zombie_wound_presentation_set": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "body_mesh_path": {
-            "type": "string",
-            "description": "只读核验的自有身体 *"
-          },
-          "definition_path": {
-            "type": "string",
-            "description": "只读核验的正式配置 *"
-          },
-          "output_folder": {
-            "type": "string",
-            "description": "自有输出目录 *"
-          }
-        },
-        "required": [
-          "body_mesh_path",
-          "definition_path",
-          "output_folder"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string",
-            "description": "类型 骨骼 材质前置检查与精确待签出和新建清单 不改资产 */"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "bake_zombie_wound_presentation_set": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "body_mesh_path": {
-            "type": "string",
-            "description": "已独占签出的自有身体 *"
-          },
-          "definition_path": {
-            "type": "string",
-            "description": "已独占签出的正式配置 *"
-          },
-          "output_folder": {
-            "type": "string",
-            "description": "明确的自有输出目录 *"
-          }
-        },
-        "required": [
-          "body_mesh_path",
-          "definition_path",
-          "output_folder"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string",
-            "description": "五处立体断口 姿态部件和共享伤口结果 不保存 */"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "finalize_zombie_wound_material_masks": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "material_paths": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "明确的共享伤口主材质包路径 *"
-          }
-        },
-        "required": [
-          "material_paths"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string",
-            "description": "遮罩表达式启用结果 不保存 不重建网格 */"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
     "inspect_zombie_gib_presentation": {
       "inputSchema": {
         "type": "object"
@@ -14583,173 +14443,6 @@
           "returnValue": {
             "type": "string",
             "description": "当前真实 PIE 世界碎片池的模拟 静止与分配数 不改变池状态 */"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "rebuild_zombie_wound_cut_geometry": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "mesh_paths": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "明确的自有断口蒙皮网格包路径 *"
-          }
-        },
-        "required": [
-          "mesh_paths"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string",
-            "description": "保留五处封口并移除躯干穿孔的结果 不保存 */"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "normalize_zombie_gib_material_bindings": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "mesh_paths": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "明确的已有断肢姿态网格 最多六十四项 *"
-          },
-          "apply_changes": {
-            "type": "boolean",
-            "description": "按源分组名称重建材质绑定 默认仅核对 *",
-            "default": false
-          }
-        },
-        "required": [
-          "mesh_paths"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string",
-            "description": "源分组与实际材质索引 不保存 */"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "build_zombie_debug_gore_surface": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "source_mesh_path": {
-            "type": "string"
-          },
-          "output_folder": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "source_mesh_path",
-          "output_folder"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "inspect_zombie_debug_gore_surface": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "definition_path": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "definition_path"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "repack_zombie_debug_wound_atlas": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "output_folder": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "output_folder"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "rebuild_zombie_debug_gore_cuts": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "output_folder": {
-            "type": "string"
-          },
-          "blood_style_path": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "output_folder",
-          "blood_style_path"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
           }
         },
         "required": [
@@ -15655,6 +15348,120 @@
         "properties": {},
         "required": [],
         "additionalProperties": false
+      }
+    }
+  },
+  "BBBMonsterGoreToolset": {
+    "configure_monster_wound_materials": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "definition_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "definition_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_monster_gore_assets": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "definition_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "definition_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "open_monster_gore_editor": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "definition_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "definition_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "control_monster_gore_preview": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "definition_path": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "template_index": {
+            "type": "integer",
+            "default": -1
+          },
+          "value": {
+            "type": "number",
+            "default": 0
+          },
+          "capture_name": {
+            "type": "string",
+            "default": ""
+          }
+        },
+        "required": [
+          "definition_path",
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
       }
     }
   }

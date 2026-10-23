@@ -61,7 +61,7 @@ class BBBRigidPartToolset(unreal.ToolsetDefinition):
         meshes = [unreal.load_asset(path) for path in mesh_paths]
         if any(not isinstance(mesh, unreal.StaticMesh) for mesh in meshes):
             raise RuntimeError("目标必须是静态网格")
-        result = str(unreal.BBBZombieSeveringEditorLibrary.inspect_sealed_part_geometry(meshes))
+        result = str(unreal.BBBBlueprintEditorLibrary.inspect_static_mesh_geometry(meshes))
         if result.startswith("失败"):
             raise RuntimeError(result)
         return result
