@@ -303,6 +303,11 @@ def match_grip_endpoints(path, data, write_paths):
     acquire = frames[2] if len(frames) == 4 else last+1
     endpoints = (first, last) if len(frames) == 4 else (first,)
     boundaries = (release, acquire) if len(frames) == 4 else (release,)
+    if request.get('end_only'):
+        if len(frames) != 4:
+            raise RuntimeError('GRIP_ENDPOINT_END_WINDOW_REQUIRED')
+        endpoints = (last,)
+        boundaries = (acquire,)
     if len(frames) == 4 and frames[3] != last:
         raise RuntimeError('GRIP_ENDPOINT_LAST_FRAME')
     if len(frames) == 2 and not 0 < release < last:
@@ -389,7 +394,7 @@ def match_grip_endpoints(path, data, write_paths):
                 channel = channels[name]
                 for key in list(channel.get_keys()):
                     frame = key.get_time(unreal.MovieSceneTimeUnit.DISPLAY_RATE).frame_number.value
-                    if frame <= release or frame >= acquire:
+                    if (first in endpoints and frame <= release) or (last in endpoints and frame >= acquire):
                         channel.remove_key(key)
                 for frame in sorted(points):
                     channel.add_key(unreal.FrameNumber(value=frame), points[frame], 0.0,
@@ -1114,8 +1119,8 @@ def match_reload_phase_offset(data, sequence):
         target_layer.set_is_locked(False)
         channels = {str(c.channel_name): c for c in target_layer.get_all_channels()}
         if prior:
-            if release:
-                raise RuntimeError('RELOAD_HANDOFF_REBASE_REQUIRES_INSERT_LOOP')
+            if prior.get('release_frames') != release:
+                raise RuntimeError('RELOAD_HANDOFF_RELEASE_WINDOW_CHANGED')
             inherited = prior.get('inherited_offset_channels', {})
             for name, channel in channels.items():
                 if name.startswith('fk_'):
@@ -1127,7 +1132,12 @@ def match_reload_phase_offset(data, sequence):
                 if channel.has_default():
                     channel.set_default(float(channel.get_default()) + delta)
                 for key in channel.get_keys():
-                    key.set_value(float(key.get_value()) + delta)
+                    factor = 1.0
+                    if release:
+                        stamp = key.get_time(unreal.MovieSceneTimeUnit.DISPLAY_RATE)
+                        frame = stamp.frame_number.value + stamp.sub_frame
+                        factor = max(0.0, min(1.0, (release[1]-frame) / (release[1]-release[0])))
+                    key.set_value(float(key.get_value()) + delta * factor)
             return
         for name, value in changed.items():
             channel = channels[name]

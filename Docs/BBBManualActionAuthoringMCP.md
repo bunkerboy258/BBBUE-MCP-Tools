@@ -345,3 +345,7 @@ ManualAction制作源显式设置reset_base_request=true，通过prepare_action�
 ### 整段恢复原指骨输入并核对实际视口（2026-10-23）
 
 恢复指骨默认采用data.finger_animation，而非公共身体data.animation。显式restore_action_fingers_request={entire_clip:true}将全部30根指骨从原输入按120FPS采样写回绝对层，同时清除叠加层的全部指骨键及默认增量；独立比较非指骨通道摘要，保留手部IK、附件与其它轨道。官方导出逐采样比较完整指骨局部姿态，通过后保存；不保存动画成品或替换运行引用。身体底稿重置也从独立指骨输入取手指。inspect_editor_grip_request={verify_fingers:true}直接读取当前编辑器实际角色组件的骨骼局部姿态与原指骨输入比较。Shotgun01 ReloadStart修复前与原输入的最小旋转余弦仅0.755912；整段恢复后101采样局部位置误差0cm、旋转误差0.038459度，非指骨摘要保持，指骨叠加键为0。重新打开后实际视口第0帧30骨最大旋转误差0.038448度。两项已有专项检查通过，未运行PIE。
+
+### 2026-10-23 换弹结束段衔接
+
+持续装填修改后，结束段按既有 release_frames 窗口更新继承偏移，保留末段与人工残余编辑；窗口变化时明确报错。grip_endpoints_request.end_only 仅重写末尾握持窗口，不删除入口关键帧。两条路径均保留手指通道。实际验收：Shotgun01 Insert 原生烘焙 45 个采样并应用；End 接续位置误差 0.000042 cm，尾姿对齐误差 0.000039 cm / 0.0151 度，手指摘要保持一致，时间轴范围有效。
