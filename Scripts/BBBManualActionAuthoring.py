@@ -717,6 +717,11 @@ def prepare(recipe_path, write_paths):
     if unreal.EditorLevelLibrary.get_pie_worlds(False):
         raise RuntimeError('ACTION_PREPARE_PIE_FORBIDDEN')
     path, data = _source(recipe_path)
+    if data.get('reset_base_request'):
+        import importlib
+        import BBBManualActionReset
+        importlib.reload(BBBManualActionReset)
+        return BBBManualActionReset.reset(path, data, write_paths)
     if data.get('full_character_preview_request'):
         import importlib
         import BBBWeaponSequencePreview

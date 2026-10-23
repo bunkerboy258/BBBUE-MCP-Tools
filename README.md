@@ -599,3 +599,7 @@ bake 可显式启用 preserve_authored_end，若人工叠加键晚于源动画�
 ### 武器制作序列完整人物预览（2026-10-23）
 
 握姿（未开火与开火）、装备和换弹制作入口统一通过 BBBWeaponSequencePreview 显示 Sk_CombinedMesh。计算网格保持，显式绑定映射用于烘焙；逐序列先做瞬态官方导出对比，再保存原角色模板，保留所有关键帧与挂接。已有制作源可用 full_character_preview_request 仅更新预览，不重做人工动作。详细契约见 Docs/BBBWeaponSequencePreviewMCP.md。专项绑定与时间轴检查8项通过；14把武器113个工作序列已核验为完整人物预览，各修改项导出骨轨位置误差0。
+
+### 原位重置制作序列为公共基础动作（2026-10-23）
+
+ManualAction制作源显式设置reset_base_request=true，通过prepare_action执行，write_paths只允许当前LS。重新从data.animation采样全部源骨骼、双臂控制器和逐节FK，清空原生Additive层关键帧并将位置、旋转、缩放增量归零；保留原绑定、附件、完整人物模板和可编辑叠加段。候选先进行官方导出及全源帧骨骼对比，通过后才保存正式LS，不改公共动画或运行引用。原生Additive缩放的中性增量是0，绝对层缩放才是1，已有专项检查保护。Shotgun01 ReloadStart实际还原26个源采样，全骨骼组件姿态位置最大误差0.000082889cm，手部IK辅助骨按既有约定排除；保留武器附件，清除旧端点、去抖及烘焙记录并回到第0帧。
