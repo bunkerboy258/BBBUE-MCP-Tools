@@ -541,3 +541,9 @@ Rifle02运行枪体弹匣骨轨已清理，但LS仍使用旧AuthoringPreview，�
 2026-10-23：修复 ManualAction 时间轴范围修复不彻底的问题。repair_timeline_range 先通过 AssetEditorSubsystem.close_all_editors_for_asset 关闭目标的完整资产编辑器，再重设有限视图/工作范围、保存并重新打开；仅 close_level_sequence 不能销毁原 Sequencer 的异常窗口状态。结果新增 closed_asset_editors，原有控制通道摘要与播放区间不变检查保留。两项专项回归通过；LMG01 旧换弹 LS 实际关闭、磁盘重载、重开后范围有限，再次关闭重开后鼠标拖至第32帧正常。本次未完成整个 UE 进程重启验证（共享宿主有并行资产迁移，shutdown_host 返回 HOST_BUSY）；不将资产重载等同于进程重启。UE5.8 的 MovieScene.h 将 ViewStart/ViewEnd/WorkStart/WorkEnd 标为 Transient，因此保存资产后的即时范围回读不能替代窗口重开验收。
 
 2026-10-23：ManualAction prepare_action 支持显式 native_offset_request，只为已有制作序列建立或选中原生 Additive Offset 段并锁定基础段；消费请求后立即返回，不刷新附件、不改公共底稿、不应用运行时动作。LMG01 的 LS_BBB_LMG_01_CharacterReload_Grip 已实际建立两段：基础及原生 Offset；零偏移导出位置差0cm，瞬态副本左手1cm探针位移1.000004707cm、右手0cm。正式层保持零偏移，原基础键保持。
+
+### 骨骼网格明确导入缩放（2026-10-23）
+
+`skeletal_import.reimport_skeletal_mesh` 新增 `import_uniform_scale`，为相对 FBX 源文件的有限正数。重导入前同步已有 FBX 导入数据，临时关闭 Interchange FBX 接管并在结束时恢复；保存前核验实际 FBX 导入缩放。保留已有骨架和按槽名匹配的材质，不导入动画、材质、纹理或物理资产。
+
+Sniper04 已通过原位 FBX 重导入保存为 0.9，回读为 0.899999976；材质仍为 MI_Modern_Weapons_Sniper_04，骨架及物理资产引用保留，已打开 LS_Sniper_04_HandGrip。此次未运行 PIE。验证中确认仅传 FbxImportUI 的缩放不足以覆盖已有 FBX 设置，因此工具同时更新已有导入数据并检查实际值。
