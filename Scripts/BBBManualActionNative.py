@@ -10,6 +10,181 @@ from BBBControlRigAuthoringToolset import _asset, _mesh_binding
 from BBBManualActionAuthoring import _source, _save, _digest
 
 
+def smooth_left_keys(path, data, write_paths):
+    """/** @param path 制作源路径 @param data 当前动作制作源 @param write_paths 明确LS范围 @return 左侧原生切线平滑及轨迹对比 不改变关键姿势 */"""
+    from BBBControlRigAuthoringToolset import _pose
+    if set(write_paths) != {data['sequence']} or unreal.EditorLevelLibrary.get_pie_worlds(False):
+        raise RuntimeError('SMOOTH_LEFT_SCOPE_OR_PIE')
+    sequence = _asset(data['sequence'], unreal.LevelSequence)
+    include_base = bool(data['smooth_left_request'].get('include_base'))
+    def layer(target):
+        sections = [s for b in target.get_bindings() for t in b.get_tracks()
+                    if isinstance(t, unreal.MovieSceneControlRigParameterTrack) for s in t.get_sections()
+                    if s.get_blend_type().blend_type == unreal.MovieSceneBlendType.ADDITIVE]
+        if len(sections) != 1:
+            raise RuntimeError('SMOOTH_LEFT_SINGLE_OFFSET')
+        return sections[0]
+    def selected(channel):
+        name = str(channel.channel_name)
+        control = name.split('.')[0]
+        return (control in ('hand_l_ik_ctrl','elbow_l_pv_ctrl','clavicle_l_ctrl') or
+                control.startswith('fk_') and control.endswith('_l')) and ('.Location.' in name or '.Rotation.' in name)
+    def editable_sections(target):
+        if not include_base:
+            return [layer(target)]
+        return [s for b in target.get_bindings() for t in b.get_tracks()
+                if isinstance(t, unreal.MovieSceneControlRigParameterTrack) for s in t.get_sections()]
+    def snapshot(target):
+        values = {}
+        for index, section in enumerate(editable_sections(target)):
+            for channel in section.get_all_channels():
+                if selected(channel):
+                    values[str(index)+':'+str(channel.channel_name)] = [(k.get_time(unreal.MovieSceneTimeUnit.DISPLAY_RATE).frame_number.value,
+                        k.get_time(unreal.MovieSceneTimeUnit.DISPLAY_RATE).sub_frame, float(k.get_value())) for k in channel.get_keys()]
+        return values
+    section = layer(sequence)
+    summary = []
+    for channel in section.get_all_channels():
+        if selected(channel) and channel.get_keys():
+            keys = channel.get_keys()
+            summary.append({'channel': str(channel.channel_name), 'keys': len(keys),
+                            'modes': sorted({str(k.get_interpolation_mode()) for k in keys}),
+                            'tangents': sorted({str(k.get_tangent_mode()) for k in keys})})
+    request = data['smooth_left_request']
+    if not request.get('apply'):
+        jumps = []
+        for binding in sequence.get_bindings():
+            for track in binding.get_tracks():
+                if not isinstance(track, unreal.MovieSceneControlRigParameterTrack):
+                    continue
+                for section in track.get_sections():
+                    for channel in section.get_all_channels():
+                        name = str(channel.channel_name)
+                        if '.Rotation.' not in name or not name.split('.')[0].endswith(('_l', '_ctrl')):
+                            continue
+                        keys = channel.get_keys()
+                        for a,b in zip(keys,keys[1:]):
+                            if abs(float(b.get_value())-float(a.get_value())) > 180:
+                                jumps.append({'channel': name, 'frame': b.get_time(unreal.MovieSceneTimeUnit.DISPLAY_RATE).frame_number.value,
+                                              'from': float(a.get_value()), 'to': float(b.get_value())})
+        data.pop('smooth_left_request')
+        _save(path, data)
+        return {'channels': summary, 'anchors': snapshot(sequence), 'rotation_jumps': jumps, 'modified': False}
+    source = _asset(data['finger_animation'], unreal.AnimSequence)
+    mesh = _asset(data['mesh'], unreal.SkeletalMesh)
+    plans = {}
+    if request.get('consolidate'):
+        include_base = True
+        edits = {str(c.channel_name): c for c in layer(sequence).get_all_channels()}
+        bases = [s for s in editable_sections(sequence) if s != layer(sequence)]
+        if len(bases) != 1:
+            raise RuntimeError('SMOOTH_LEFT_SINGLE_BASE')
+        base_channels = {str(c.channel_name): c for c in bases[0].get_all_channels()}
+        canonical = {name.casefold(): name for name in base_channels}
+        anchors = [k.get_time(unreal.MovieSceneTimeUnit.DISPLAY_RATE) for k in edits['hand_l_ik_ctrl.Location.X'].get_keys()]
+        rate = sequence.get_display_rate()
+        def evaluate(channel, time):
+            if not channel.get_keys():
+                return float(channel.get_default()) if channel.has_default() else 0.0
+            frame_value = time.frame_number.value + time.sub_frame
+            for key in channel.get_keys():
+                stamp = key.get_time(unreal.MovieSceneTimeUnit.DISPLAY_RATE)
+                if abs(stamp.frame_number.value+stamp.sub_frame-frame_value) < 0.000001:
+                    return float(key.get_value())
+            seconds = (time.frame_number.value + time.sub_frame) * rate.denominator/rate.numerator
+            bounds = channel.compute_effective_range()
+            bounds.set_start_seconds(seconds)
+            bounds.set_end_seconds(seconds + rate.denominator/rate.numerator)
+            return float(channel.evaluate_keys(bounds, sequence.get_tick_resolution())[0])
+        for control in ('hand_l_ik_ctrl','elbow_l_pv_ctrl','clavicle_l_ctrl',
+                        'source_clavicle_l','source_upperarm_l','source_lowerarm_l','source_hand_l'):
+            for kind in ('Location','Rotation'):
+                for axis in ('X','Y','Z'):
+                    name = control+'.'+kind+'.'+axis
+                    name = canonical.get(name.casefold(), name)
+                    if name not in base_channels or name not in edits:
+                        continue
+                    fixed = evaluate(base_channels[name], anchors[0])
+                    totals = [(time, evaluate(base_channels[name], time)+evaluate(edits[name], time)) for time in anchors]
+                    plans[name] = (fixed, totals)
+    def write(target):
+        for edit in editable_sections(target):
+            edit.set_is_locked(False)
+            for channel in edit.get_all_channels():
+                if selected(channel):
+                    rows = [(key.get_time(unreal.MovieSceneTimeUnit.DISPLAY_RATE), key.get_value()) for key in channel.get_keys()]
+                    for key in list(channel.get_keys()):
+                        channel.remove_key(key)
+                    for time, number in rows:
+                        channel.add_key(time.frame_number, number, time.sub_frame, unreal.MovieSceneTimeUnit.DISPLAY_RATE,
+                                        unreal.MovieSceneKeyInterpolation.SMART_AUTO)
+        if plans:
+            edit = layer(target)
+            base = [s for s in editable_sections(target) if s != edit][0]
+            bc = {str(c.channel_name): c for c in base.get_all_channels()}
+            ec = {str(c.channel_name): c for c in edit.get_all_channels()}
+            for name, (fixed, totals) in plans.items():
+                for key in list(bc[name].get_keys()):
+                    bc[name].remove_key(key)
+                bc[name].set_default(fixed)
+                for key in list(ec[name].get_keys()):
+                    ec[name].remove_key(key)
+                for time, total in totals:
+                    ec[name].add_key(time.frame_number, total-fixed, time.sub_frame, unreal.MovieSceneTimeUnit.DISPLAY_RATE,
+                                     unreal.MovieSceneKeyInterpolation.SMART_AUTO)
+    def verify(target, original):
+        if not plans:
+            return snapshot(target) == original
+        edit = layer(target)
+        base = [s for s in editable_sections(target) if s != edit][0]
+        bc = {str(c.channel_name): c for c in base.get_all_channels()}
+        ec = {str(c.channel_name): c for c in edit.get_all_channels()}
+        return all(abs(evaluate(bc[name], time)+evaluate(ec[name], time)-total) < 0.0001
+                   for name, (_,totals) in plans.items() for time,total in totals)
+    def metrics(animation):
+        result = {}
+        count = animation.data_model_interface.get_number_of_keys()
+        for bone in ('hand_l','lowerarm_l'):
+            points = [unreal.AnimPoseExtensions.get_bone_pose(_pose(animation, mesh, i/120.0), bone,
+                      unreal.AnimPoseSpaces.WORLD).translation for i in range(count)]
+            steps = [points[i]-points[i-1] for i in range(1,len(points))]
+            accelerations = [(steps[i]-steps[i-1]).length()*14400 for i in range(1,len(steps))]
+            result[bone] = {'peak_speed_cm_s': max(v.length()*120 for v in steps),
+                            'peak_acceleration_cm_s2': max(accelerations),
+                            'peak_acceleration_display_frame': (accelerations.index(max(accelerations))+1)/4.0,
+                            'rms_acceleration_cm_s2': math.sqrt(sum(v*v for v in accelerations)/len(accelerations))}
+        return result
+    scope = unreal.new_object(unreal.LevelSequence, name='BBBLeftSmartAuto_' + uuid.uuid4().hex)
+    try:
+        before = _export(sequence, source, mesh, scope, 'Before')
+        candidate = _copy_sequence(sequence, scope, 'Candidate')
+        _export(candidate, source, mesh, scope, 'Initialize', False)
+        write(candidate)
+        after = _export(candidate, source, mesh, scope, 'After')
+        original = snapshot(sequence)
+        if not verify(candidate, original):
+            raise RuntimeError('SMOOTH_LEFT_KEY_POSES_CHANGED')
+        before_metrics, after_metrics = metrics(before), metrics(after)
+        preserved = _channel_digest(sequence, editable_sections(sequence))
+        require_asset_write([sequence])
+        write(sequence)
+        if not verify(sequence, original) or _channel_digest(sequence, editable_sections(sequence)) != preserved:
+            raise RuntimeError('SMOOTH_LEFT_UNRELATED_KEYS_CHANGED')
+        if not unreal.EditorAssetLibrary.save_loaded_asset(sequence, False):
+            raise RuntimeError('SMOOTH_LEFT_SAVE')
+        data.pop('smooth_left_request')
+        result = {'interpolation': 'UE_SMART_AUTO', 'key_times_and_values_preserved': not bool(plans),
+                  'keyed_control_poses_preserved': True, 'consolidated_left_controls': sorted(plans),
+                  'keyed_poses_and_attachments_preserved': True, 'include_base': include_base, 'channels': summary,
+                  'before': before_metrics, 'after': after_metrics}
+        data['left_smoothing'] = result
+        data['runtime_applied'] = False
+        _save(path, data)
+        return result
+    finally:
+        unreal.purge_object_references(scope, True)
+
+
 def inspect_editor_grip(path, data, write_paths):
     """/** @param path 制作源路径 @param data 制作源 @param write_paths 明确序列范围 @return 当前编辑器实例的真实手枪关系 不创建另一播放器 */"""
     from BBBControlRigAuthoringToolset import _read_transform, _key
@@ -987,9 +1162,17 @@ def _export(sequence, source, mesh, scope, name, duplicate=True):
         copied = _copy_sequence(sequence, scope, name + 'Sequence')
     result = unreal.SystemLibrary.duplicate_object(source, scope, name + 'Animation')
     if duplicate:
+        original_rate = copied.get_display_rate()
+        original_end_seconds = copied.get_playback_end()*original_rate.denominator/original_rate.numerator
         copied.set_display_rate(unreal.FrameRate(numerator=120, denominator=1))
         copied.set_playback_start(0)
         copied.set_playback_end(round(source.get_play_length() * 120))
+        if source.get_play_length() >= original_end_seconds-0.00001:
+            for binding in copied.get_bindings():
+                for track in binding.get_tracks():
+                    for section in track.get_sections():
+                        if section.has_end_frame() and section.get_end_frame() == copied.get_playback_end():
+                            section.set_end_frame(copied.get_playback_end()+1)
     options = unreal.AnimSeqExportOption()
     options.export_transforms = True
     options.export_morph_targets = False
@@ -1208,7 +1391,27 @@ def bake_animation(recipe_path, write_paths):
     require_asset_write([output])
     scope = unreal.new_object(unreal.LevelSequence, name='BBBNativeBake_' + uuid.uuid4().hex)
     try:
-        baked = _export(sequence, source, _asset(data['mesh'], unreal.SkeletalMesh), scope, 'Visible')
+        export_source = source
+        if data.get('preserve_authored_end'):
+            rate = sequence.get_display_rate()
+            keys = [k.get_time(unreal.MovieSceneTimeUnit.DISPLAY_RATE) for b in sequence.get_bindings()
+                    for t in b.get_tracks() if isinstance(t, unreal.MovieSceneControlRigParameterTrack)
+                    for s in t.get_sections() if s.get_blend_type().blend_type == unreal.MovieSceneBlendType.ADDITIVE
+                    for c in s.get_all_channels() for k in c.get_keys()]
+            last_seconds = max((k.frame_number.value+k.sub_frame)*rate.denominator/rate.numerator for k in keys)
+            if last_seconds > source.get_play_length()+0.00001:
+                export_source = unreal.SystemLibrary.duplicate_object(source, scope, 'ExtendedInput')
+                frame_rate = source.data_model_interface.get_frame_rate()
+                frame_count = math.ceil(last_seconds*frame_rate.numerator/frame_rate.denominator)
+                values = {str(n): list(unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(source,n))
+                          for n in source.data_model_interface.get_bone_track_names()}
+                export_source.controller.set_number_of_frames(unreal.FrameNumber(value=frame_count), False)
+                for bone, transforms in values.items():
+                    extended = transforms + [transforms[-1]]*(frame_count+1-len(transforms))
+                    if not export_source.controller.set_bone_track_keys(bone, [v.translation for v in extended],
+                            [v.rotation for v in extended], [v.scale3d for v in extended], False):
+                        raise RuntimeError('NATIVE_REVIEW_END_EXTENSION')
+        baked = _export(sequence, export_source, _asset(data['mesh'], unreal.SkeletalMesh), scope, 'Visible')
         controller = output.controller
         controller.open_bracket('直接烘焙序列可见结果', False)
         try:
@@ -1221,9 +1424,10 @@ def bake_animation(recipe_path, write_paths):
                     raise RuntimeError('NATIVE_ACTION_WRITE_BONE: ' + str(name))
         finally:
             controller.close_bracket(False)
-        if unreal.BBBBlueprintEditorLibrary.copy_animation_float_curves(_asset(data['finger_animation'], unreal.AnimSequence), output) < 0:
+        if unreal.BBBBlueprintEditorLibrary.copy_animation_float_curves(export_source, output) < 0:
             raise RuntimeError('NATIVE_ACTION_CURVES')
         error = _compare(baked, output)
+        output.set_preview_skeletal_mesh(_asset(data['mesh'], unreal.SkeletalMesh))
         if not unreal.EditorAssetLibrary.save_loaded_asset(output, False):
             raise RuntimeError('NATIVE_ACTION_SAVE')
         result = {'animation': destination, 'bake_mode': 'official_sequencer_direct', 'custom_interpolation': False,
