@@ -32,6 +32,7 @@ TOOL_DOMAINS = {
     "BBBAssetMaintenanceToolset": "assets",
     "BBBAnimationPreviewToolset": "preview",
     "BBBAnimationGraphToolset": "animation_graph",
+    "BBBAnimationFinishToolset": "animation_finish",
     "BBBHitReactionToolset": "hit",
     "BBBSkeletalMeshImportToolset": "skeletal_import",
     "BBBRetargetAssetAuditToolset": "retarget",
@@ -51,6 +52,8 @@ HELPER_MODULES = (
     "BBBBlueprintLayout", "BBBBlueprintAnnotations", "BBBAnimationMotionTools",
     "BBBAnimationTrajectoryTools", "BBBArmTwistTools", "BBBWeaponHandlingTools",
     "BBBAnimationViewTools",
+    "BBBFactAnimationCaptureTools",
+    "BBBAnimationPoseBaking",
     "BBBSoundAssetAudit", "BBBRecoilAnimationTools", "BBBDisplayAssetCaptureTools", "BBBBlueprintMigration",
 )
 SCRIPTS_ROOT = Path(__file__).resolve().parent

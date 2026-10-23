@@ -15504,5 +15504,158 @@
         ]
       }
     }
+  },
+  "BBBAnimationFinishToolset": {
+    "configure_speed_blend": {
+      "description": "/**\n * @param asset_path    现有一维速度混合资产\n * @param sequence_paths        同骨架循环序列\n * @param speeds        严格递增的厘米每秒采样点 首项为零\n * @param smoothing_time        速度轴平滑秒数\n * @return 原位重建并保存后的真实采样数据\n */",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          },
+          "sequence_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "speeds": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "smoothing_time": {
+            "type": "number",
+            "default": 0.1
+          }
+        },
+        "required": [
+          "asset_path",
+          "sequence_paths",
+          "speeds"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "configure_fact_animation_finish": {
+      "description": "/**\n * @param asset_path    完整事实动画蓝图\n * @param turn_sequence_paths   左转和右转原地九十度片段\n * @param crawl_death_sequence_path     完整爬行死亡过渡序列\n * @param crawl_attack_sequence_paths   爬行攻击变体路径\n * @param crawl_attack_sample_pivots    各变体实际接触帧的归一化位置\n * @param crawl_reference_speed 原速爬行素材对应的移动速度\n * @return 编译保存结果 实际转向不改变 Mass 移动\n */",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          },
+          "turn_sequence_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "crawl_death_sequence_path": {
+            "type": "string"
+          },
+          "crawl_attack_sequence_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "crawl_attack_sample_pivots": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "crawl_reference_speed": {
+            "type": "number",
+            "default": 39.7054
+          }
+        },
+        "required": [
+          "asset_path",
+          "turn_sequence_paths",
+          "crawl_death_sequence_path",
+          "crawl_attack_sequence_paths",
+          "crawl_attack_sample_pivots"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "bake_pose_transition": {
+      "description": "/**\n * 从同骨架两端姿态烘焙完整过渡 保持肢体长度并约束接触点高度\n * @param source_sequence_path  起始姿态序列 取首帧\n * @param target_sequence_path  结束姿态序列 取末帧\n * @param asset_path    原位新建或重建的自有动画序列\n * @param ground_bone_names     不得低于地面的骨骼名称\n * @param seconds       过渡秒数\n * @return 全骨骼烘焙与地面高度回读结果\n */",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_sequence_path": {
+            "type": "string"
+          },
+          "target_sequence_path": {
+            "type": "string"
+          },
+          "asset_path": {
+            "type": "string"
+          },
+          "ground_bone_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "seconds": {
+            "type": "number",
+            "default": 1.7
+          }
+        },
+        "required": [
+          "source_sequence_path",
+          "target_sequence_path",
+          "asset_path",
+          "ground_bone_names"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "start_pie_fact_motion_capture": {
+      "description": "/**\n * @param actor_blueprint_path  明确的表现蓝图 不创建 Mass 实体\n * @param segments_json 持续秒数 行为 速度 循环秒数和姿态事实的分段数组\n * @param file_prefix   不存在的本任务临时目录\n * @param fps   固定姿势采样频率 不作为实测游戏帧率\n * @param variation_seed        明确的出生种子\n * @return 骨骼数值采样活动 不生成图像 结束后销毁临时演员\n */",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "actor_blueprint_path": {
+            "type": "string"
+          },
+          "segments_json": {
+            "type": "string"
+          },
+          "file_prefix": {
+            "type": "string"
+          },
+          "fps": {
+            "type": "integer",
+            "default": 60
+          },
+          "variation_seed": {
+            "type": "integer",
+            "default": 123
+          }
+        },
+        "required": [
+          "actor_blueprint_path",
+          "segments_json",
+          "file_prefix"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "inspect_pie_fact_motion_capture": {
+      "description": "/** @return 当前逐帧事实动画采样状态与报告路径 */",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      }
+    }
   }
 }
