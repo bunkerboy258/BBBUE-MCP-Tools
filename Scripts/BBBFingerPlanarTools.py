@@ -27,26 +27,12 @@ def rotate(q, v):
     return qmath.multiply(qmath.multiply(q, list(v)+[0]), qmath.inverse(q))[:3]
 
 
-def frame(axis, width):
-    """/** @param axis 实际骨长方向 @param width 掌宽方向 @return 右手正交基列 */"""
-    x = qmath.unit(axis)
-    y = qmath.unit([b-dot(width, x)*a for a, b in zip(x, width)])
-    return [x, y, cross(x, y)]
-
-
-def orientation(source, target):
-    """/** @param source 骨局部正交基 @param target 目标掌空间基 @return 无轴向扭曲的绝对骨旋转 */"""
-    m = [[sum(target[k][i]*source[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
-    trace = sum(m[i][i] for i in range(3))
-    if trace > 0:
-        s = math.sqrt(trace+1)*2
-        return qmath.unit([(m[2][1]-m[1][2])/s, (m[0][2]-m[2][0])/s, (m[1][0]-m[0][1])/s, s/4])
-    i = max(range(3), key=lambda j: m[j][j])
-    j, k = (i+1)%3, (i+2)%3
-    s = math.sqrt(1+m[i][i]-m[j][j]-m[k][k])*2
-    q = [0.0]*4
-    q[i], q[j], q[k], q[3] = s/4, (m[i][j]+m[j][i])/s, (m[i][k]+m[k][i])/s, (m[k][j]-m[j][k])/s
-    return qmath.unit(q)
+def shortest_swing(source, target):
+    """/** @param source 单位起始方向 @param target 单位目标方向 @return 不含长轴扭转的最短摆动 */"""
+    cosine = dot(source, target)
+    if cosine < -0.999999:
+        raise ValueError('PLANAR_SWING_ANTIPARALLEL')
+    return qmath.unit(cross(source, target) + [1.0 + cosine])
 
 
 def solve(before, skeleton, component, settings):
@@ -84,6 +70,11 @@ def solve(before, skeleton, component, settings):
         return result
     result = {name: [] for name in names}
     maximum = 0.0
+    maximum_root_twist = 0.0
+    maximum_root_spread = 0.0
+    maximum_input_root_twist = 0.0
+    maximum_input_root_curl = 0.0
+    maximum_input_root_spread = 0.0
     for side in ('l', 'r'):
         ref = {}
         for name in [n for n in names if n.endswith('_'+side)]:
@@ -98,25 +89,42 @@ def solve(before, skeleton, component, settings):
         if dot(normal, ref_grip) < 0:
             normal = [-v for v in normal]
         width = qmath.unit(cross(normal, forward))
-        templates = {}
-        for digit in ('index', 'middle', 'ring', 'pinky'):
-            chain = [f'{digit}_{segment}_{side}' for segment in ('01', '02', '03')]
-            incoming = qmath.unit(sub(ref[chain[2]][0], ref[chain[1]][0]))
-            for index, name in enumerate(chain):
-                local_axis = list(reference_local(chain[index+1]).translation.to_tuple()) if index < 2 else rotate(qmath.inverse(ref[name][1]), incoming)
-                local_width = rotate(qmath.inverse(ref[name][1]), width)
-                templates[name] = (qmath.unit(local_axis), frame(local_axis, local_width))
         for sample in range(count):
+            templates = {}
+            for digit in ('index', 'middle', 'ring', 'pinky'):
+                chain = [f'{digit}_{segment}_{side}' for segment in ('01', '02', '03')]
+                incoming = qmath.unit(sub(ref[chain[2]][0], ref[chain[1]][0]))
+                for index, name in enumerate(chain):
+                    local_axis = rotate(qmath.inverse(ref[name][1]), incoming)
+                    if index < 2:
+                        local_axis = list(before[chain[index+1]][sample].translation.to_tuple())
+                    local_axis = qmath.unit(local_axis)
+                    rest_direction = qmath.unit(rotate(ref[name][1], local_axis))
+                    neutral = qmath.unit(qmath.multiply(shortest_swing(rest_direction, forward), ref[name][1]))
+                    templates[name] = (local_axis, neutral)
             original = {}
             for name in [n for n in names if n.endswith('_'+side)]:
                 fk(name, side, original, sample)
             target_rotations = {}
             for digit in ('index', 'middle', 'ring', 'pinky'):
                 chain = [f'{digit}_{segment}_{side}' for segment in ('01', '02', '03')]
+                root_delta = qmath.unit(qmath.multiply(original[chain[0]][1], qmath.inverse(templates[chain[0]][1])))
+                if math.hypot(dot(root_delta[:3], forward), root_delta[3]) < 0.000001:
+                    raise ValueError('PLANAR_INPUT_ROOT_TWIST_SINGULAR')
+                unused, input_twist = qmath.split(root_delta, forward)
+                maximum_input_root_twist = max(maximum_input_root_twist, abs(input_twist))
                 directions = [qmath.unit(sub(original[chain[i+1]][0], original[chain[i]][0])) for i in (0, 1)]
                 directions.append(rotate(original[chain[2]][1], templates[chain[2]][0]))
-                angles = [math.degrees(math.atan2(dot(normal, d), dot(forward, d))) for d in directions]
-                bends = [min(85.0, max(0.0, angles[0]))]
+                original_spread = math.degrees(math.atan2(dot(width, directions[0]), dot(forward, directions[0])))
+                unspread = qmath.axis_angle(normal, -original_spread)
+                aligned_directions = [rotate(unspread, direction) for direction in directions]
+                angles = [math.degrees(math.atan2(dot(normal, d), dot(forward, d))) for d in aligned_directions]
+                maximum_input_root_curl = max(maximum_input_root_curl, abs(angles[0]))
+                maximum_input_root_spread = max(maximum_input_root_spread, abs(original_spread))
+                spread = min(settings['root_spread_degrees'], max(-settings['root_spread_degrees'], original_spread))
+                maximum_root_spread = max(maximum_root_spread, abs(spread))
+                spread_rotation = qmath.axis_angle(normal, spread)
+                bends = [0.0]
                 for index in (1, 2):
                     delta = (angles[index]-angles[index-1]+180)%360-180
                     bends.append(min(120.0, max(0.0, delta)))
@@ -125,7 +133,13 @@ def solve(before, skeleton, component, settings):
                     total += bends[index]
                     radians = math.radians(total)
                     direction = [math.cos(radians)*a+math.sin(radians)*b for a, b in zip(forward, normal)]
-                    absolute = orientation(templates[name][1], frame(direction, width))
+                    direction = rotate(spread_rotation, direction)
+                    swing = qmath.multiply(spread_rotation, qmath.axis_angle(width, -total))
+                    if index == 0:
+                        swing = shortest_swing(forward, direction)
+                        unused, twist = qmath.split(swing, forward)
+                        maximum_root_twist = max(maximum_root_twist, abs(twist))
+                    absolute = qmath.unit(qmath.multiply(swing, templates[name][1]))
                     parent_q = target_rotations.get(parent(name), original.get(parent(name), ([0,0,0],[0,0,0,1]))[1])
                     local_q = qmath.unit(qmath.multiply(qmath.inverse(parent_q), absolute))
                     result[name].append(local_q)
@@ -135,10 +149,17 @@ def solve(before, skeleton, component, settings):
             for name in overrides:
                 fk(name, side, checked, sample, overrides)
                 d = rotate(checked[name][1], templates[name][0])
-                maximum = max(maximum, abs(dot(d, width)))
+                digit = name.split('_')[0]
+                root_name = digit+'_01_'+side
+                root_direction = rotate(checked.get(root_name, original[root_name])[1], templates[root_name][0])
+                root_spread = math.degrees(math.atan2(dot(width, root_direction), max(0.000001, dot(forward, root_direction))))
+                chain_width = rotate(qmath.axis_angle(normal, root_spread), width)
+                maximum = max(maximum, abs(dot(d, chain_width)))
     if maximum > 0.00001:
         raise RuntimeError('PLANAR_CHAIN_DIRECTION_FAILED')
-    return result, maximum
+    if maximum_root_twist > 0.00001:
+        raise RuntimeError('PLANAR_ROOT_AXIAL_TWIST_FAILED')
+    return result, {'maximumOutOfPlaneSine': maximum, 'maximumRootAxialTwistDegrees': maximum_root_twist, 'maximumRootSpreadDegrees': maximum_root_spread, 'maximumInputRootAxialTwistDegrees': maximum_input_root_twist, 'maximumInputRootCurlDegrees': maximum_input_root_curl, 'maximumInputRootSpreadDegrees': maximum_input_root_spread}
 
 
 def run(paths, config, action):
@@ -160,7 +181,9 @@ def run(paths, config, action):
     if grip.get_editor_property('skeleton') != mesh.get_editor_property('skeleton'):
         raise ValueError('PLANAR_REFERENCE_SKELETON_MISMATCH')
     pose = unreal.AnimPoseExtensions.get_anim_pose_at_time(grip, 0, unreal.AnimPoseEvaluationOptions())
-    settings = {'grip_directions': {}}
+    settings = {'grip_directions': {}, 'root_spread_degrees': float(config.get('root_spread_degrees', 3.0))}
+    if not math.isfinite(settings['root_spread_degrees']) or not 0 <= settings['root_spread_degrees'] <= 5:
+        raise ValueError('PLANAR_ROOT_SPREAD_LIMIT_ZERO_TO_FIVE')
     for side in ('l', 'r'):
         hand = unreal.AnimPoseExtensions.get_bone_pose(pose, 'hand_'+side, unreal.AnimPoseSpaces.WORLD)
         directions = []
@@ -169,7 +192,9 @@ def run(paths, config, action):
             b = unreal.AnimPoseExtensions.get_bone_pose(pose, digit+'_03_'+side, unreal.AnimPoseSpaces.WORLD).translation
             directions.append(list(hand.rotation.inversed().rotate_vector(b-a).to_tuple()))
         settings['grip_directions'][side] = [sum(d[i] for d in directions) for i in range(3)]
-    plan = hashlib.sha256(json.dumps({k:config[k] for k in ('mesh_path', 'reference_animation', 'geometry_chain')}, sort_keys=True).encode()).hexdigest()
+    plan_config = {k:config[k] for k in ('mesh_path', 'reference_animation', 'geometry_chain')}
+    plan_config.update(root_spread_degrees=settings['root_spread_degrees'], algorithm='actual_axis_root_planar_only')
+    plan = hashlib.sha256(json.dumps(plan_config, sort_keys=True).encode()).hexdigest()
     prepared, reports = [], []
     for path in paths:
         animation = _asset(path)
@@ -188,7 +213,7 @@ def run(paths, config, action):
         if action == 'repair' and (config.get('expected_plan_signature') != plan or config.get('expected_signatures', {}).get(path) != signature):
             raise ValueError('PLANAR_INSPECT_REQUIRED')
         prepared.append((animation, before, output, metadata))
-        reports.append({'asset':path,'signature':signature,'changedBones':list(output),'samples':len(before['hand_l']), 'maximumOutOfPlaneSine':error})
+        reports.append({'asset':path,'signature':signature,'changedBones':list(output),'samples':len(before['hand_l']), **error})
     if action == 'repair':
         dirty = {package.get_path_name() for package in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
         if any(animation.get_outermost().get_path_name() in dirty for animation, before, output, metadata in prepared):
@@ -215,10 +240,14 @@ def run(paths, config, action):
                     if (a.translation-b.translation).length()>0.0001 or (a.scale3d-b.scale3d).length()>0.0001 or qmath.distance(expected,list(b.rotation.to_tuple()))>0.01:
                         raise RuntimeError('PLANAR_READBACK_FAILED: '+name)
             repeated, error = solve(actual, animation.get_editor_property('skeleton'), component, settings)
+            if error['maximumInputRootAxialTwistDegrees'] > 0.01:
+                raise RuntimeError('PLANAR_ROOT_TWIST_READBACK_FAILED')
+            if error['maximumInputRootCurlDegrees'] > 0.01 or error['maximumInputRootSpreadDegrees'] > settings['root_spread_degrees'] + 0.01:
+                raise RuntimeError('PLANAR_ROOT_RANGE_READBACK_FAILED')
             repeat_error = max(qmath.distance(q, output[name][sample]) for name, values in repeated.items() for sample, q in enumerate(values))
             if repeat_error>0.05:
                 raise RuntimeError('PLANAR_REPEAT_CHANGED: '+str(repeat_error))
             if not unreal.EditorAssetLibrary.save_loaded_asset(animation,False):
                 raise RuntimeError('PLANAR_SAVE_FAILED')
-            reports[index].update(saved=True,readback=True,metadataPreserved=True,signature=_signature(actual),repeatErrorDegrees=repeat_error)
+            reports[index].update(saved=True,readback=True,metadataPreserved=True,signature=_signature(actual),repeatErrorDegrees=repeat_error,readbackRootAxialTwistDegrees=error['maximumInputRootAxialTwistDegrees'],readbackRootCurlDegrees=error['maximumInputRootCurlDegrees'],readbackRootSpreadDegrees=error['maximumInputRootSpreadDegrees'])
     return json.dumps({'action':action,'planSignature':plan,'assets':reports,'constraint':'四指统一前向 中末节只向掌心弯曲 无侧弯无轴向扭转','thumbModified':False},ensure_ascii=False)
