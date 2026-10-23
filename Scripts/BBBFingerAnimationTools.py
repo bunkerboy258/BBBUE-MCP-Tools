@@ -34,8 +34,21 @@ def calibrate(config):
     if curled.get_editor_property('skeleton') != skeleton:
         raise ValueError('FINGER_CALIBRATION_SKELETON_MISMATCH')
     rest, grip = _tracks(neutral), _tracks(curled)
+    reference = unreal.AnimPoseExtensions.get_reference_pose(skeleton)
+    options = unreal.AnimPoseEvaluationOptions()
+    options.evaluation_type = unreal.AnimDataEvalType.RAW
+    grip_pose = unreal.AnimPoseExtensions.get_anim_pose_at_time(curled, 0.0, options)
+    if config.get('skeleton_neutral'):
+        for name in rest:
+            local = unreal.AnimPoseExtensions.get_bone_pose(reference, name, unreal.AnimPoseSpaces.LOCAL)
+            rest[name] = [local]
     overrides = config.get('overrides', {})
     rules, unresolved = {}, []
+    hand_signs = {}
+    def reference_position(name):
+        return unreal.AnimPoseExtensions.get_bone_pose(reference, name, unreal.AnimPoseSpaces.WORLD).translation
+    def cross(a, b):
+        return unreal.Vector(a.y*b.z-a.z*b.y, a.z*b.x-a.x*b.z, a.x*b.y-a.y*b.x)
     for side in ('l', 'r'):
         for digit in ('index', 'middle', 'ring', 'pinky'):
             for segment in ('01', '02', '03'):
@@ -44,6 +57,20 @@ def calibrate(config):
                     rules[name] = overrides[name]
                     continue
                 if segment == '01':
+                    if 'root_spread_limit_degrees' in config:
+                        def position(bone):
+                            return unreal.AnimPoseExtensions.get_bone_pose(grip_pose, bone, unreal.AnimPoseSpaces.WORLD).translation
+                        forward = position('middle_01_' + side) - position('hand_' + side)
+                        width = position('index_01_' + side) - position('pinky_01_' + side)
+                        a, b = forward.to_tuple(), width.to_tuple()
+                        normal = unreal.Vector(*geometry.unit([a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]))
+                        transform = unreal.AnimPoseExtensions.get_bone_pose(grip_pose, name, unreal.AnimPoseSpaces.WORLD)
+                        axis = transform.rotation.inversed().rotate_vector(normal)
+                        limit = config['root_spread_limit_degrees']
+                        rules[name] = {'kind': 'spread', 'neutral': list(grip[name][0].rotation.to_tuple()),
+                                       'axis': geometry.unit(list(axis.to_tuple())), 'limits_degrees': [-limit, limit],
+                                       'tolerance_degrees': config['tolerance_degrees']}
+                        continue
                     unresolved.append({'bone': name, 'reason': '显式提供掌面法线在参考指根坐标中的展开轴与允许范围'})
                     continue
                 if name not in rest or name not in grip:
@@ -57,10 +84,32 @@ def calibrate(config):
                 if angle < config['minimum_calibration_degrees']:
                     unresolved.append({'bone': name, 'reason': '参考屈曲差不足 需要显式校准轴'})
                     continue
-                rules[name] = {'kind': 'hinge', 'neutral': a, 'axis': geometry.unit(delta[:3]),
+                axis = geometry.unit(delta[:3])
+                if config.get('skeleton_neutral'):
+                    palm_forward = reference_position('middle_01_' + side) - reference_position('hand_' + side)
+                    palm_width = reference_position('index_01_' + side) - reference_position('pinky_01_' + side)
+                    palm_normal = cross(palm_forward, palm_width)
+                    direction = reference_position(digit + '_03_' + side) - reference_position(digit + '_02_' + side)
+                    hinge = cross(direction, palm_normal)
+                    bone = unreal.AnimPoseExtensions.get_bone_pose(reference, name, unreal.AnimPoseSpaces.WORLD)
+                    axis = geometry.unit(list(bone.rotation.inversed().rotate_vector(hinge).to_tuple()))
+                    hand_signs[side] = hand_signs.get(side, 0.0) + sum(x*y for x, y in zip(axis, delta[:3]))
+                rules[name] = {'kind': 'hinge', 'neutral': a, 'axis': axis,
                                'limits_degrees': config['hinge_limits_degrees'], 'tolerance_degrees': config['tolerance_degrees']}
+    if config.get('skeleton_neutral'):
+        for name, rule in rules.items():
+            if rule['kind'] == 'hinge' and name not in overrides and hand_signs.get(name[-1], 0) < 0:
+                rule['axis'] = [-v for v in rule['axis']]
+        if config.get('preserve_reference_offsets', True):
+            for name, rule in rules.items():
+                if rule['kind'] != 'hinge' or name in overrides:
+                    continue
+                delta = geometry.unit(geometry.multiply(geometry.inverse(rule['neutral']), list(grip[name][0].rotation.to_tuple())))
+                residual, angle = geometry.split(delta, rule['axis'])
+                rule['neutral'] = geometry.unit(geometry.multiply(rule['neutral'], residual))
+                rule['limits_degrees'] = [min(rule['limits_degrees'][0], angle), rule['limits_degrees'][1]]
     return {'skeleton': skeleton.get_path_name(), 'rules': rules, 'unresolved': unresolved,
-            'thumb': '拇指仅使用显式独立校准 不继承四指规则', 'referenceReviewRequired': True}
+            'center_root_spread': True, 'thumb': '拇指仅使用显式独立校准 不继承四指规则', 'referenceReviewRequired': True}
 
 
 def run(asset_paths, profile_json, action):
@@ -76,16 +125,20 @@ def run(asset_paths, profile_json, action):
     if action not in ('inspect', 'repair') or not asset_paths or len(asset_paths) > 128 or len(set(asset_paths)) != len(asset_paths):
         raise ValueError('FINGER_BATCH_INVALID')
     rules = config['rules']
-    if not rules or any(name.split('_')[0] not in ('index', 'middle', 'ring', 'pinky', 'thumb') or name[-4:-2] not in ('01', '02', '03') or name[-1] not in ('l', 'r') for name in rules):
+    allowed = {f'{digit}_{segment}_{side}' for digit in ('index', 'middle', 'ring', 'pinky', 'thumb') for segment in ('01', '02', '03') for side in ('l', 'r')}
+    if not rules or set(rules) - allowed:
         raise ValueError('FINGER_RULE_BONES_INVALID')
     for rule in rules.values():
         geometry.process([], rule, set())
     if config.get('visual') and not 1 <= config['visual'].get('maximum_frames', 2) <= 4:
         raise ValueError('FINGER_VISUAL_FRAME_LIMIT')
-    if action == 'repair' and not config.get('reference_reviewed'):
+    if action == 'repair' and config.get('reference_reviewed') is not True:
         raise ValueError('FINGER_REFERENCE_REVIEW_REQUIRED')
     if action == 'repair' and config.get('unresolved'):
         raise ValueError('FINGER_CALIBRATION_UNRESOLVED')
+    plan_signature = hashlib.sha256(json.dumps({key: config.get(key, {}) for key in ('skeleton', 'rules', 'exceptions', 'center_root_spread')}, sort_keys=True, allow_nan=False).encode()).hexdigest()
+    if action == 'repair' and config.get('expected_plan_signature') != plan_signature:
+        raise ValueError('FINGER_INSPECT_PLAN_REQUIRED')
     if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
         raise ValueError('FINGER_PIE_ACTIVE')
     prepared, reports = [], []
@@ -101,7 +154,18 @@ def run(asset_paths, profile_json, action):
         if count > 10000 or any(name not in before or len(before[name]) != count for name in rules):
             raise ValueError('FINGER_TRACK_COUNT_INVALID: ' + path)
         changes, problems, temporal = {}, [], []
-        for name, rule in rules.items():
+        local_rules = {name: dict(rule) for name, rule in rules.items()}
+        if config.get('center_root_spread'):
+            import statistics
+            for side in ('l', 'r'):
+                group = [name for name, rule in rules.items() if rule['kind'] == 'spread' and name.endswith('_' + side)]
+                if len(group) != 4:
+                    raise ValueError('FINGER_SPREAD_GROUP_REQUIRES_FOUR_ROOTS')
+                angles = {name: [geometry.split(geometry.multiply(geometry.inverse(geometry.unit(rules[name]['neutral'])), list(t.rotation.to_tuple())), geometry.unit(rules[name]['axis']))[1] for t in before[name]] for name in group}
+                centers = [statistics.median([angles[name][frame] for name in group]) for frame in range(count)]
+                for name in group:
+                    local_rules[name]['centers_degrees'] = centers
+        for name, rule in local_rules.items():
             excluded = set()
             for start, end in config.get('exceptions', {}).get(path, {}).get(name, []):
                 if not 0 <= start <= end < count:
@@ -121,20 +185,20 @@ def run(asset_paths, profile_json, action):
         fingerprint = _signature(before)
         if action == 'repair' and config.get('expected_signatures', {}).get(path) != fingerprint:
             raise ValueError('FINGER_INSPECT_SIGNATURE_REQUIRED: ' + path)
-        prepared.append((animation, before, changes, _track_metadata(animation)))
+        prepared.append((animation, before, changes, _track_metadata(animation), local_rules))
         reports.append({'asset': path, 'signature': fingerprint, 'problems': problems, 'changedBones': list(changes),
                         'temporal': temporal,
                         'scope': list(rules), 'thumbChecked': any(name.startswith('thumb_') for name in rules), 'visualAcceptance': 'pending'})
         if config.get('visual') and problems:
             reports[-1]['visual'] = _review(path, animation, before, changes, problems, config['visual'])
     if action == 'repair':
-        targets = [animation for animation, before, changes, metadata in prepared if changes]
+        targets = [animation for animation, before, changes, metadata, local_rules in prepared if changes]
         dirty = {p.get_path_name() for p in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
         if any(a.get_outermost().get_path_name() in dirty for a in targets):
             raise ValueError('FINGER_TARGET_DIRTY')
         if targets:
             require_asset_write(targets)
-        for index, (animation, before, changes, metadata) in enumerate(prepared):
+        for index, (animation, before, changes, metadata, local_rules) in enumerate(prepared):
             if not changes:
                 continue
             controller = animation.controller
@@ -157,14 +221,14 @@ def run(asset_paths, profile_json, action):
                     if (old.translation-new.translation).length() > 0.0001 or (old.scale3d-new.scale3d).length() > 0.0001 or geometry.distance(expected, list(new.rotation.to_tuple())) > 0.01:
                         raise RuntimeError('FINGER_READBACK_FAILED: ' + name)
                 if name in changes:
-                    unused, remaining = geometry.process([list(t.rotation.to_tuple()) for t in actual[name]], rules[name],
+                    unused, remaining = geometry.process([list(t.rotation.to_tuple()) for t in actual[name]], local_rules[name],
                                                         {f for start, end in config.get('exceptions', {}).get(reports[index]['asset'], {}).get(name, []) for f in range(start, end+1)})
                     if remaining:
                         raise RuntimeError('FINGER_REPAIR_REMAINS_INVALID: ' + name)
             if not unreal.EditorAssetLibrary.save_loaded_asset(animation, False):
                 raise RuntimeError('FINGER_SAVE_FAILED')
             reports[index].update({'saved': True, 'readback': True, 'metadataPreserved': True, 'signature': _signature(actual)})
-    return json.dumps({'action': action, 'assets': reports, 'sequenceLayersChecked': False,
+    return json.dumps({'action': action, 'assets': reports, 'planSignature': plan_signature, 'sequenceLayersChecked': False,
                        'note': '只处理绝对动画骨轨 Sequencer与运行混合需单独检查'}, ensure_ascii=False)
 
 
@@ -192,7 +256,9 @@ def _review(path, animation, before, changes, problems, settings):
     name = 'FingerAnimation_' + uuid.uuid4().hex
     outputs = []
     rate = animation.data_model_interface.get_frame_rate()
-    for frame in sorted({p['worst']['frame'] for p in problems})[:settings.get('maximum_frames', 2)]:
+    ranked = sorted(problems, key=lambda p: max(p['worst']['offAxisDegrees'], p['worst']['limitExcessDegrees']), reverse=True)
+    frames = list(dict.fromkeys(p['worst']['frame'] for p in ranked))[:settings.get('maximum_frames', 2)]
+    for frame in frames:
         for label, rotations in [('before', {}), ('candidate', {bone: values[frame] for bone, values in changes.items()})]:
             output = name + '/' + str(frame) + '_' + label
             sampled = json.loads(sample_surface(settings['mesh_path'], path, frame * rate.denominator / rate.numerator,

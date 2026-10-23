@@ -69,6 +69,15 @@ class FingerAnimationMathTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 m.process([[0, 0, 0, 1]], self.rule(axis=axis), set())
 
+    def test_shared_spread_center_and_outlier(self):
+        """/** @return 整手共同展开保留 仅修复偏离共同方向的指根 */"""
+        rule = self.rule(kind='spread', limits_degrees=[-18, 18], centers_degrees=[30, 30])
+        poses = [m.axis_angle([0, 0, 1], angle) for angle in (35, 70)]
+        result, errors = m.process(poses, rule, set())
+        self.assertEqual([e['frame'] for e in errors], [1])
+        self.assertEqual(result[0], poses[0])
+        self.assertLess(m.distance(result[1], m.axis_angle([0, 0, 1], 48)), 0.001)
+
 
 if __name__ == '__main__':
     unittest.main()

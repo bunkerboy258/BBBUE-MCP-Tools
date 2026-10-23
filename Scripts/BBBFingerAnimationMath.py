@@ -57,6 +57,9 @@ def process(rotations, rule, excluded):
     if not all(math.isfinite(v) for v in (low, high, tolerance)) or not -179 < low <= high < 179 or not 0 <= tolerance <= 10:
         raise ValueError('FINGER_LIMIT_INVALID')
     angles, residuals, errors = [], [], []
+    centers = rule.get('centers_degrees', [0.0] * len(rotations))
+    if len(centers) != len(rotations) or not all(math.isfinite(v) for v in centers):
+        raise ValueError('FINGER_CENTER_COUNT_INVALID')
     for frame, rotation in enumerate(rotations):
         q = unit(rotation)
         if frame in excluded:
@@ -65,8 +68,9 @@ def process(rotations, rule, excluded):
             continue
         other, angle = split(unit(multiply(inverse(neutral), q)), axis)
         off_axis = distance(other, [0, 0, 0, 1]) if rule['kind'] == 'hinge' else 0.0
-        excess = max(low - angle, angle - high, 0.0)
-        angles.append(min(high, max(low, angle)))
+        lower, upper = low + centers[frame], high + centers[frame]
+        excess = max(lower - angle, angle - upper, 0.0)
+        angles.append(min(upper, max(lower, angle)))
         residuals.append(other)
         if frame not in excluded and max(off_axis, excess) > tolerance:
             errors.append({'frame': frame, 'offAxisDegrees': off_axis, 'limitExcessDegrees': excess})
@@ -79,7 +83,7 @@ def process(rotations, rule, excluded):
         previous = angles[:]
         for frame in active:
             if 0 < frame < len(angles) - 1 and frame - 1 not in excluded and frame + 1 not in excluded:
-                angles[frame] = min(high, max(low, (previous[frame-1] + 2*previous[frame] + previous[frame+1]) / 4))
+                angles[frame] = min(high + centers[frame], max(low + centers[frame], (previous[frame-1] + 2*previous[frame] + previous[frame+1]) / 4))
     for frame in active:
         relative = axis_angle(axis, angles[frame])
         if rule['kind'] == 'spread':
