@@ -258,8 +258,8 @@ def _bake(path, recipe, index, write_paths):
         # 握持时保持接触，离手时保留源动作轨迹
         disabled = 0.0
         curves = unreal.AnimationLibrary.get_animation_curve_names(source, unreal.RawCurveTrackTypes.RCT_FLOAT)
-        if any(str(c) == 'DisableLHandIK' for c in curves):
-            disabled = unreal.AnimPoseExtensions.get_curve_weight(pose, 'DisableLHandIK')
+        if any(str(c) == 'DisableLeftHandIK' for c in curves):
+            disabled = unreal.AnimPoseExtensions.get_curve_weight(pose, 'DisableLeftHandIK')
         contact = weight * (1.0 - min(1.0, max(0.0, disabled)))
         held_left = _compose(grip, values['hand_r_ik_ctrl'])
         left = values['hand_l_ik_ctrl']

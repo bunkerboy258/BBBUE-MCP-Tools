@@ -101,7 +101,7 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
         library = unreal.AnimationLibrary
         curve_type = unreal.RawCurveTrackTypes.RCT_FLOAT
         for animation in sequences:
-            for name in ["DisableLegIK", "DisableAimIK", "DisableLHandIK", "DisableLocomotionAdditives"]:
+            for name in ["DisableLegIK", "DisableAimIK", "DisableLeftHandIK", "DisableLocomotionAdditives"]:
                 if name in [str(value) for value in library.get_animation_curve_names(animation, curve_type)]:
                     raise RuntimeError("倒地曲线已存在 拒绝覆盖 " + name)
                 library.add_curve(animation, name, curve_type, False)
@@ -165,7 +165,7 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
             raise RuntimeError("帮扶状态机或继承层构图失败 不保存")
         library = unreal.AnimationLibrary
         curve_type = unreal.RawCurveTrackTypes.RCT_FLOAT
-        for name in ["DisableLegIK", "DisableAimIK", "DisableLHandIK", "DisableLocomotionAdditives"]:
+        for name in ["DisableLegIK", "DisableAimIK", "DisableLeftHandIK", "DisableLocomotionAdditives"]:
             if name in [str(value) for value in library.get_animation_curve_names(animation, curve_type)]:
                 raise RuntimeError("帮扶禁用曲线已存在 拒绝覆盖 " + name)
             library.add_curve(animation, name, curve_type, False)

@@ -1,5 +1,11 @@
 # BBB 通用编辑器 MCP
 
+## 动画曲线原样迁移
+
+- `editor.inspect_animation_curve_data` 读取精确采样率 原始浮点曲线及指定局部骨轨道的量化摘要 轨道摘要只用于同源核对 不代替动作验收
+- `editor.rename_animation_curve` 对明确的自有动画序列及动画蓝图原位改名 默认只检查 新旧曲线并存时拒绝覆盖 正式执行保留曲线原始键和标记 并更新蓝图名称引脚及节点内嵌名称属性 编译并保存
+- `editor.copy_animation_float_curves` 从明确基准复制完整浮点曲线到同源同长目标 保留插值 切线 权重和标记 不删除目标无关曲线 不创建备份 不做时间归一化 默认只检查
+
 `replace_animation_float_curve` 的 `interpolation` 可选 `linear` 或 `cubic_flat` 默认保留原先写键方式 `cubic_flat` 通过动画数据控制器写入 RCIM_Cubic 和水平 RCTM_User 切线 等价于两端水平控制柄的三次贝塞尔 不加密关键帧 `inspect_animation_float_curves` 的 keys 回读原始插值类型与切线
 
 `editor.schedule_pie_actor_function` 的 `repeat_count` 控制一至六百次公开 Actor 函数调用 `interval_seconds` 为游戏秒间隔 零表示连续游戏更新 每个游戏更新最多调用一次 总计划时长最多六十秒 `status` 返回实际调用次数与每次时刻 世界或目标结束立即释放回调

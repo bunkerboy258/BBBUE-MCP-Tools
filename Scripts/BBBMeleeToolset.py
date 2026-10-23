@@ -376,7 +376,7 @@ class BBBMeleeToolset(unreal.ToolsetDefinition):
             raise RuntimeError("攻击动画复制失败")
         sequence.set_editor_properties({"enable_root_motion": False, "force_root_lock": True})
         library = unreal.AnimationLibrary
-        for name in ("DisableLHandIK", "DisableAimIK"):
+        for name in ("DisableLeftHandIK", "DisableAimIK"):
             curve_type = unreal.RawCurveTrackTypes.RCT_FLOAT
             if library.does_curve_exist(sequence, name, curve_type):
                 library.remove_curve(sequence, name, False)
@@ -530,7 +530,7 @@ class BBBMeleeToolset(unreal.ToolsetDefinition):
         if _bones_hash(source) != _bones_hash(sequence) or sequence.get_editor_property("enable_root_motion"):
             raise RuntimeError("攻击骨骼轨道或根运动不一致")
         curves = {}
-        for name in ("DisableLHandIK", "DisableAimIK"):
+        for name in ("DisableLeftHandIK", "DisableAimIK"):
             times, values = unreal.AnimationLibrary.get_float_keys(sequence, name)
             if len(times) != 4 or list(values) != [0.0, 1.0, 1.0, 0.0]:
                 raise RuntimeError("攻击 IK 渐变曲线错误 " + name)

@@ -282,7 +282,7 @@ def finalize(recipe_path, write_paths):
                            {'time': exit_window[1] * rate.denominator / rate.numerator, 'value': 0.0}]
         if curve_keys[-1]['time'] < duration:
             curve_keys.append({'time': duration, 'value': curve_keys[-1]['value']})
-        for curve in ('DisableLHandIK', 'DisableAimIK', 'DisableLeftHandPoseOverride', 'DisableRightHandPoseOverride'):
+        for curve in ('DisableLeftHandIK', 'DisableAimIK', 'DisableLeftHandPoseOverride', 'DisableRightHandPoseOverride'):
             if not unreal.AnimationLibrary.does_curve_exist(animation, curve, unreal.RawCurveTrackTypes.RCT_FLOAT):
                 unreal.AnimationLibrary.add_curve(animation, curve, unreal.RawCurveTrackTypes.RCT_FLOAT, False)
             _set_flat_cubic_curve(animation, curve, curve_keys)

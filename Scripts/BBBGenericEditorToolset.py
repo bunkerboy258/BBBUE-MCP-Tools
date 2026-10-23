@@ -393,6 +393,33 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def inspect_animation_curve_data(asset_paths: list[str], bone_names: list[str]) -> str:
+        """/** @param asset_paths 动画路径 @param bone_names 来源比对骨骼 @return 帧率 原始曲线与局部骨轨道摘要 */"""
+        import importlib
+        import BBBAnimationCurveTools
+        return importlib.reload(BBBAnimationCurveTools).inspect(asset_paths, bone_names)
+
+
+    @mcp_tool
+    @staticmethod
+    def rename_animation_curve(asset_paths: list[str], old_name: str, new_name: str, dry_run: bool = True) -> str:
+        """/** @param asset_paths 自有动画与动画蓝图 @param old_name 原名 @param new_name 新名 @param dry_run 只检查 @return 引用数量与保存证据 */"""
+        import importlib
+        import BBBAnimationCurveTools
+        return importlib.reload(BBBAnimationCurveTools).rename(asset_paths, old_name, new_name, dry_run)
+
+
+    @mcp_tool
+    @staticmethod
+    def copy_animation_float_curves(source_path: str, target_paths: list[str], dry_run: bool = True) -> str:
+        """/** @param source_path 曲线基准 @param target_paths 同源同长目标 @param dry_run 只检查 @return 完整曲线复制回读与保存证据 */"""
+        import importlib
+        import BBBAnimationCurveTools
+        return importlib.reload(BBBAnimationCurveTools).copy(source_path, target_paths, dry_run)
+
+
+    @mcp_tool
+    @staticmethod
     def configure_animation_montage_selector(blueprint_path: str, function_name: str, montage_path: str) -> str:
         """
         /**

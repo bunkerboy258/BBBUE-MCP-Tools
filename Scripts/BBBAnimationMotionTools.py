@@ -315,7 +315,7 @@ def start_capture(montage_path, times, prefix, interrupt_time=-1.0, capture_imag
                    "animationBones": {name: _transform(source_mesh.get_socket_transform(name)) for name in source_bones},
                    "rawBones": {name: _transform(raw_pose.get_bone_pose(name, unreal.AnimPoseSpaces.WORLD)) for name in source_bones},
                    "compressedBones": {name: _transform(compressed_pose.get_bone_pose(name, unreal.AnimPoseSpaces.WORLD)) for name in source_bones},
-                   "curves": {name: animation.get_curve_value(name) for name in ["DisableLHandIK", "DisableAimIK"]},
+                   "curves": {name: animation.get_curve_value(name) for name in ["DisableLeftHandIK", "DisableAimIK"]},
                    "equipment": [], "magazines": [], "spawnedMeshes": []}
             for actor in unreal.GameplayStatics.get_all_actors_of_class(world, equipment_class):
                 if actor.get_owner() != pawn:

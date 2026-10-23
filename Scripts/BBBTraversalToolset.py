@@ -72,20 +72,20 @@ def _blueprint(path):
 def _ik_sample(animation, layer_class, montage):
     """/** @param animation 主动画实例 @param layer_class 链接层类 @param montage 当前动作 @return 运行时曲线和按现有图公式计算的输入权重 */"""
     result = {"montagePosition": animation.montage_get_position(montage) if montage else None,
-              "mainCurves": {name: animation.get_curve_value(name) for name in ("DisableLHandIK", "DisableAimIK", "DisableLegIK")},
+              "mainCurves": {name: animation.get_curve_value(name) for name in ("DisableLeftHandIK", "DisableAimIK", "DisableLegIK")},
               "footPlacementAlpha": animation.call_method("GetFootPlacementAlpha", ()),
               "useFootPlacement": animation.get_editor_property("UseFootPlacement")}
     layer = animation.get_linked_anim_layer_instance_by_class(layer_class)
     if layer is None:
         result["linkedLayer"] = None
         return result
-    curves = {name: layer.get_curve_value(name) for name in ("DisableLHandIK", "DisableAimIK")}
+    curves = {name: layer.get_curve_value(name) for name in ("DisableLeftHandIK", "DisableAimIK")}
     valid = layer.has_left_hand_ik_target()
     source_alpha = animation.get_editor_property("AimIKAlpha")
     locomotion_alpha = layer.get_editor_property("LocomotionAimIKAlpha")
     result.update({"linkedLayer": layer.get_path_name(), "layerCurves": curves, "validLeftTarget": valid,
                    "sourceAimAlpha": source_alpha, "locomotionAimAlpha": locomotion_alpha,
-                   "calculatedLeftInputAlpha": 1 - curves["DisableLHandIK"] if valid else 0,
+                   "calculatedLeftInputAlpha": 1 - curves["DisableLeftHandIK"] if valid else 0,
                    "calculatedAimInputAlpha": source_alpha * locomotion_alpha * (1 - curves["DisableAimIK"])})
     return result
 
