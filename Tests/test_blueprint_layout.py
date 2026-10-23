@@ -152,6 +152,43 @@ class BlueprintLayoutTests(unittest.TestCase):
         self.assertEqual(len({position[1] for position in plan["positions"].values()}), 1)
         self.assertEqual(plan["after"]["backwardDataEdges"], 0)
 
+    def test_aim_and_fabrik_dependencies_have_separate_regions(self):
+        """/** @return 长瞄准权重链与左手变换链独立成组 且主姿势链仍水平 */"""
+        from BBBBlueprintLayout import _dependency_groups, _bounds, _intersects
+
+        nodes = {key: _node(key, key in ("Input", "Aim", "Fabrik", "Output")) for key in ("Input", "Aim", "Fabrik", "Output", "Curve", "Subtract", "Weight", "Multiply", "HasMuzzle", "Select", "HandLocation", "HandRotation", "MakeTransform")}
+        nodes["Aim"]["height"] = 320
+        edges = [_edge("Input", "Aim", "pose"), _edge("Aim", "Fabrik", "pose"), _edge("Fabrik", "Output", "pose"), _edge("Curve", "Subtract"), _edge("Subtract", "Multiply"), _edge("Weight", "Multiply"), _edge("Multiply", "Select"), _edge("HasMuzzle", "Select", target_order=1), _edge("Select", "Aim"), _edge("HandLocation", "MakeTransform"), _edge("HandRotation", "MakeTransform", target_order=1), _edge("MakeTransform", "Fabrik")]
+        plan = self.check_plan(nodes, edges)
+        groups = _dependency_groups(nodes, edges)
+        aim = next(members for members in groups.values() if "Aim" in members)
+        fabrik = next(members for members in groups.values() if "Fabrik" in members)
+        self.assertEqual(aim, {"Aim", "Curve", "Subtract", "Weight", "Multiply", "HasMuzzle", "Select"})
+        self.assertEqual(fabrik, {"Fabrik", "HandLocation", "HandRotation", "MakeTransform"})
+        self.assertFalse(_intersects(_bounds({key: nodes[key] for key in aim}, plan["positions"]), _bounds({key: nodes[key] for key in fabrik}, plan["positions"])))
+        self.assertEqual(plan["after"]["dependencyGroupOverlaps"], 0)
+        self.assertEqual(len({plan["positions"][key][1] for key in ("Input", "Aim", "Fabrik", "Output")}), 1)
+
+    def test_shared_dependency_chain_is_one_separate_group(self):
+        """/** @return 多消费者共享计算链保留一组 不混入任一专属参数组 */"""
+        from BBBBlueprintLayout import _dependency_groups
+
+        nodes = {key: _node(key, key in ("A", "B")) for key in ("A", "B", "SharedInput", "SharedCompute", "OnlyA", "OnlyB")}
+        edges = [_edge("A", "B", "pose"), _edge("SharedInput", "SharedCompute"), _edge("SharedCompute", "A"), _edge("SharedCompute", "B"), _edge("OnlyA", "A"), _edge("OnlyB", "B")]
+        groups = _dependency_groups(nodes, edges)
+        self.assertIn({"SharedInput", "SharedCompute"}, groups.values())
+        plan = self.check_plan(nodes, edges)
+        self.assertEqual(plan["after"]["dependencyGroupOverlaps"], 0)
+        self.assertLess(plan["positions"]["SharedCompute"][0], plan["positions"]["A"][0])
+
+    def test_mixed_parameter_regions_fail_quality_without_node_overlap(self):
+        """/** @return 节点互不重叠仍能识别两个主节点参数分组交错 */"""
+        nodes = {key: _node(key, key in ("Aim", "Fabrik"), width=80, height=40) for key in ("Aim", "Fabrik", "AimValue", "FabrikValue")}
+        edges = [_edge("Aim", "Fabrik", "pose"), _edge("AimValue", "Aim"), _edge("FabrikValue", "Fabrik")]
+        quality = layout_quality(nodes, edges, {"Aim": (400, 0), "Fabrik": (800, 0), "AimValue": (0, 300), "FabrikValue": (200, 200)})
+        self.assertEqual(quality["overlaps"], 0)
+        self.assertGreater(quality["dependencyGroupOverlaps"], 0)
+
     def test_input_pin_order(self):
         """/** @return 同列输入遵循目标引脚顺序而非名称顺序 */"""
         nodes = {key: _node(key) for key in ("ZFirst", "ASecond", "Output")}
@@ -473,6 +510,18 @@ class LayoutToolSafetyTests(unittest.TestCase):
         self.assertNotIn("checkout", self.events)
         self.assertNotIn("transaction", self.events)
         self.assertFalse(any(isinstance(event, tuple) for event in self.events))
+
+    def test_mixed_dependency_groups_rejected_before_write(self):
+        """/** @return 参数组混排在任何写入和事务之前明确拒绝 */"""
+        plan = calculate_layout(self.snapshot[1], [], [])
+        plan["positions"]["A"] = (200, 200)
+        plan["after"]["dependencyGroupOverlaps"] = 1
+        with patch("BBBBlueprintLayout.calculate_layout", return_value=plan):
+            with self.assertRaisesRegex(RuntimeError, "参数分组区域交叠"):
+                self.call("/Game/Test.Test:Graph")
+
+        self.assertNotIn("checkout", self.events)
+        self.assertNotIn("transaction", self.events)
 
     def test_checkout_failure_precedes_transaction(self):
         """/** @return 未签出时任何节点都不移动 */"""

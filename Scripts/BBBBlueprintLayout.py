@@ -102,7 +102,7 @@ def _ordered_graph(nodes, edges):
     return order, forward
 
 
-def _layout_component(nodes, edges, horizontal_spacing, vertical_spacing):
+def _layout_flat_component(nodes, edges, horizontal_spacing, vertical_spacing):
     """/** @return 执行主链与局部数据块的相对位置 */"""
     order, forward = _ordered_graph(nodes, edges)
     outgoing = {key: [] for key in nodes}
@@ -245,6 +245,85 @@ def _layout_component(nodes, edges, horizontal_spacing, vertical_spacing):
         occupied[ranks[key]].append((y, y + height))
 
     return positions
+
+
+def _dependency_groups(nodes, edges):
+    """/** @return 按最终主节点消费者集合划分的专属参数组与共享参数组 */"""
+    order, forward = _ordered_graph(nodes, edges)
+    outgoing = defaultdict(list)
+    for edge in forward:
+        outgoing[edge["source"]].append(edge["target"])
+
+    consumers = {}
+    for key in reversed(order):
+        consumers[key] = {key} if _is_main(nodes[key]) else set()
+        if _is_main(nodes[key]):
+            continue
+
+        for target in outgoing[key]:
+            consumers[key].update(consumers[target])
+
+    groups = defaultdict(set)
+    for key in order:
+        owners = tuple(sorted(consumers[key]))
+        group = ("owners", owners)
+        if not owners:
+            group = ("sink", (key,))
+
+        groups[group].add(key)
+
+    return dict(groups)
+
+
+def _layout_component(nodes, edges, horizontal_spacing, vertical_spacing):
+    """/** @return 先布局完整参数组 再按主链排列分组的节点位置 */"""
+    groups = _dependency_groups(nodes, edges)
+    if not any(_is_main(node) for node in nodes.values()):
+        return _layout_flat_component(nodes, edges, horizontal_spacing, vertical_spacing)
+
+    owners = {member: group for group, members in groups.items() for member in members}
+    local_positions = {}
+    group_nodes = {}
+    for group, members in groups.items():
+        local_nodes = {key: nodes[key] for key in members}
+        local_edges = [edge for edge in edges if edge["source"] in members and edge["target"] in members]
+        local = _layout_flat_component(local_nodes, local_edges, horizontal_spacing, vertical_spacing)
+        bounds = _bounds(local_nodes, local)
+        local_positions[group] = {key: (x - bounds[0], y - bounds[1]) for key, (x, y) in local.items()}
+        main = next((key for key in members if _is_main(nodes[key])), None)
+        group_nodes[group] = {
+            "width": bounds[2] - bounds[0],
+            "height": bounds[3] - bounds[1],
+            "exec": main is not None,
+            "primaryOffset": 0,
+        }
+        if main is not None:
+            group_nodes[group]["primaryOffset"] = local_positions[group][main][1] + nodes[main].get("primaryOffset", 0)
+
+    group_edges = []
+    for edge in edges:
+        source = owners[edge["source"]]
+        target = owners[edge["target"]]
+        if source == target:
+            continue
+
+        item = dict(edge, source=source, target=target)
+        group_edges.append(item)
+
+    group_positions = _layout_flat_component(group_nodes, group_edges, horizontal_spacing, vertical_spacing)
+    return {
+        key: (group_positions[group][0] + point[0], group_positions[group][1] + point[1])
+        for group, members in local_positions.items() for key, point in members.items()
+    }
+
+
+def _dependency_group_conflicts(nodes, edges, positions):
+    """/** @return 不同主节点参数组及共享组的区域交叠数量 */"""
+    if not any(_is_main(node) for node in nodes.values()):
+        return 0
+
+    regions = [_bounds({key: nodes[key] for key in members}, positions) for members in _dependency_groups(nodes, edges).values()]
+    return sum(_intersects(first, second) for index, first in enumerate(regions) for second in regions[index + 1:])
 
 
 def _pack_components(nodes, edges, horizontal_spacing, vertical_spacing):
@@ -580,6 +659,7 @@ def layout_quality(nodes, edges, positions):
         "backwardDataEdges": backward["data"],
         "backwardPoseEdges": backward["pose"],
         "wireNodeIntersections": len(_wire_hits(nodes, edges, positions)),
+        "dependencyGroupOverlaps": _dependency_group_conflicts(nodes, edges, positions),
     }
 
 
@@ -697,6 +777,20 @@ def calculate_layout(nodes, edges, comments, horizontal_spacing=320, vertical_sp
 
             warnings.append("固定注释框约束导致连线方向或重叠恶化 保留整条连通链原位 " + min(members))
 
+    group_regions = []
+    if any(_is_main(node) for node in nodes.values()):
+        for members in _dependency_groups(nodes, edges).values():
+            group_regions.append((members, _bounds({key: nodes[key] for key in members}, positions)))
+
+    for members, region in group_regions:
+        for key in members:
+            if key not in allowed:
+                continue
+
+            minimum, maximum, fixed = allowed[key]
+            blockers = [rect for other, rect in group_regions if other is not members]
+            allowed[key] = (minimum, maximum, fixed + blockers)
+
     positions = _clear_wire_obstacles(nodes, edges, positions, allowed)
     if nodes and not comments:
         bounds = _bounds(nodes, positions)
@@ -705,6 +799,9 @@ def calculate_layout(nodes, edges, comments, horizontal_spacing=320, vertical_sp
     hits = _wire_hits(nodes, edges, positions)
     if hits:
         warnings.append("仍有连线穿过节点 写入被拒绝 请检查固定分组或共享依赖")
+
+    if _dependency_group_conflicts(nodes, edges, positions):
+        warnings.append("主节点参数分组区域交叠 写入被拒绝 请检查固定分组或共享依赖")
 
     _, forward = _ordered_graph(nodes, edges)
     if len(forward) != len(edges):

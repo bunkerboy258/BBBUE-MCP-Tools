@@ -560,6 +560,9 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
                 if plan["after"]["wireNodeIntersections"]:
                     raise RuntimeError("拒绝应用连线穿过节点的布局")
 
+                if plan["after"]["dependencyGroupOverlaps"]:
+                    raise RuntimeError("拒绝应用主节点参数分组区域交叠的布局")
+
                 require_write_access(blueprint)
                 original = {path: (nodes[path]["x"], nodes[path]["y"]) for path in changes}
                 with unreal.ScopedEditorTransaction("BBB Optimize Blueprint Node Layout"):
