@@ -227,6 +227,24 @@ def inspect_editor_grip(path, data, write_paths):
     return {'frame': unreal.LevelSequenceEditorBlueprintLibrary.get_current_time(), 'editor_bound_actors': rows, 'rigs': rigs, 'root_tracks': tracks}
 
 
+def _finger_channel_digest(sequence):
+    """/** @param sequence	动作制作序列 @return	全部手指通道摘要 用于禁止位置对齐改写指骨 */"""
+    rows = []
+    for binding in sequence.get_bindings():
+        for track in binding.get_tracks():
+            for section in track.get_sections():
+                for channel in section.get_all_channels():
+                    if not str(channel.channel_name).startswith('fk_'):
+                        continue
+                    keys = [(key.get_time(unreal.MovieSceneTimeUnit.DISPLAY_RATE).frame_number.value,
+                             key.get_time(unreal.MovieSceneTimeUnit.DISPLAY_RATE).sub_frame, str(key.get_value()))
+                            for key in channel.get_keys()]
+                    default = str(channel.get_default()) if channel.has_default() else None
+                    rows.append([str(channel.channel_name), default, keys])
+    return hashlib.sha256(json.dumps(rows).encode()).hexdigest()
+
+
+
 def match_grip_endpoints(path, data, write_paths):
     """/** @param path 制作源路径 @param data 动作制作源 @param write_paths 明确序列范围 @return 原生叠加首尾握姿匹配与导出回读 */"""
     from BBBControlRigAuthoringToolset import _pose, _key
@@ -282,8 +300,8 @@ def match_grip_endpoints(path, data, write_paths):
     asset = _asset(data['rig'], unreal.ControlRigBlueprint)
     hierarchy = asset.hierarchy
     hand_offset = hierarchy.get_global_control_offset_transform(_key('hand_l_ik_ctrl', 'CONTROL'), True)
-    sides = request.get('finger_sides', ['l'])
-    if not sides or set(sides)-{'l', 'r'}:
+    sides = request.get('finger_sides', [])
+    if set(sides)-{'l', 'r'}:
         raise RuntimeError('GRIP_ENDPOINT_FINGER_SIDES')
     fingers = [f'{f}_{j:02}_{s}' for s in sides for f in ('thumb', 'index', 'middle', 'ring', 'pinky') for j in (1,2,3)]
     local_reference = {n: unreal.AnimPoseExtensions.get_bone_pose(reference_pose, n, unreal.AnimPoseSpaces.LOCAL) for n in fingers}
@@ -343,9 +361,12 @@ def match_grip_endpoints(path, data, write_paths):
                     channel.add_key(unreal.FrameNumber(value=frame), points[frame], 0.0,
                                     unreal.MovieSceneTimeUnit.DISPLAY_RATE, unreal.MovieSceneKeyInterpolation.AUTO)
         preserved = _channel_digest(sequence, [edit])
+        finger_signature = _finger_channel_digest(sequence)
         candidate = _copy_sequence(sequence, scope, 'Candidate')
         _export(candidate, source, mesh, scope, 'Initialize', False)
         write(candidate)
+        if not sides and _finger_channel_digest(candidate) != finger_signature:
+            raise RuntimeError('GRIP_ENDPOINT_FINGER_CHANNELS_CHANGED')
         after = _export(candidate, source, mesh, scope, 'After')
         maximum, angle = 0.0, 0.0
         positions = []
@@ -364,6 +385,8 @@ def match_grip_endpoints(path, data, write_paths):
             raise RuntimeError('GRIP_ENDPOINT_POSE cm=%f degrees=%f positions=%s' % (maximum, angle, positions))
         require_asset_write([sequence])
         write(sequence)
+        if not sides and _finger_channel_digest(sequence) != finger_signature:
+            raise RuntimeError('GRIP_ENDPOINT_FINGER_CHANNELS_CHANGED')
         if _channel_digest(sequence, [edit]) != preserved:
             raise RuntimeError('GRIP_ENDPOINT_UNRELATED_LAYERS_CHANGED')
         if not unreal.EditorAssetLibrary.save_loaded_asset(sequence, False):
@@ -1043,7 +1066,8 @@ def match_reload_phase_offset(data, sequence):
             raise RuntimeError('RELOAD_HANDOFF_TARGET_ALREADY_EDITED: ' + name)
     source_signature = _channel_digest(start)
     preserved = _channel_digest(sequence, [target_layer])
-    changed = {n: v for n, v in values.items() if abs(v - (1.0 if n == 'Weight' else 0.0)) > 0.00001}
+    finger_signature = _finger_channel_digest(sequence)
+    changed = {n: v for n, v in values.items() if not n.startswith('fk_') and abs(v - (1.0 if n == 'Weight' else 0.0)) > 0.00001}
     last = sequence.get_playback_end() - 1
     release = data.get('handoff_release_frames')
     if data['action'] == 'reload_end':
@@ -1060,6 +1084,8 @@ def match_reload_phase_offset(data, sequence):
                 raise RuntimeError('RELOAD_HANDOFF_REBASE_REQUIRES_INSERT_LOOP')
             inherited = prior.get('inherited_offset_channels', {})
             for name, channel in channels.items():
+                if name.startswith('fk_'):
+                    continue
                 neutral = 1.0 if name == 'Weight' else 0.0
                 delta = values[name] - inherited.get(name, neutral)
                 if abs(delta) < 0.000001:
@@ -1068,31 +1094,6 @@ def match_reload_phase_offset(data, sequence):
                     channel.set_default(float(channel.get_default()) + delta)
                 for key in channel.get_keys():
                     key.set_value(float(key.get_value()) + delta)
-            from BBBControlRigAuthoringToolset import _key
-            hierarchy = _asset(data['rig'], unreal.ControlRigBlueprint).hierarchy
-            absolute = [s for b in target.get_bindings() for t in b.get_tracks()
-                        if isinstance(t, unreal.MovieSceneControlRigParameterTrack) for s in t.get_sections()
-                        if s.get_blend_type().blend_type == unreal.MovieSceneBlendType.ABSOLUTE][0]
-            bases = {str(c.channel_name): c for c in absolute.get_all_channels()}
-            for side in ('l', 'r'):
-                for finger in ('thumb', 'index', 'middle', 'ring', 'pinky'):
-                    for joint in (1, 2, 3):
-                        bone = f'{finger}_{joint:02}_{side}'
-                        control = _key('fk_' + bone, 'CONTROL')
-                        parent = hierarchy.get_parents(control)[0]
-                        offset = hierarchy.get_global_control_offset_transform(control, True).make_relative(hierarchy.get_global_transform(parent, True))
-                        local = unreal.AnimPoseExtensions.get_bone_pose(expected, bone, unreal.AnimPoseSpaces.LOCAL)
-                        angles = (offset.rotation.inversed() * local.rotation).normalized().rotator()
-                        for axis, desired in zip(('X', 'Y', 'Z'), (angles.roll, angles.pitch, angles.yaw)):
-                            name = 'fk_' + bone + '.Rotation.' + axis
-                            for frame in (0, last):
-                                bounds = bases[name].compute_effective_range()
-                                bounds.set_start_seconds(frame * rate.denominator / rate.numerator)
-                                bounds.set_end_seconds((frame + 1) * rate.denominator / rate.numerator)
-                                samples = bases[name].evaluate_keys(bounds, rate)
-                                base_value = float(samples[0]) if samples else float(bases[name].get_default())
-                                channels[name].add_key(unreal.FrameNumber(value=frame), desired-base_value, 0.0,
-                                    unreal.MovieSceneTimeUnit.DISPLAY_RATE, unreal.MovieSceneKeyInterpolation.AUTO)
             return
         for name, value in changed.items():
             channel = channels[name]
@@ -1117,12 +1118,13 @@ def match_reload_phase_offset(data, sequence):
         original_animation = _export(copied, source, mesh, scope, 'Neutral')
         final_expected = _pose(original_animation, mesh, original_animation.get_play_length())
         write(copied)
+        if _finger_channel_digest(copied) != finger_signature:
+            raise RuntimeError('RELOAD_HANDOFF_FINGER_CHANNELS_CHANGED')
         actual_animation = _export(copied, source, mesh, scope, 'Insert')
         maximum = 0.0
         angle = 0.0
         names = ['clavicle_' + s for s in ('l', 'r')]
         names += [b + '_' + s for s in ('l', 'r') for b in ('upperarm', 'lowerarm', 'hand')]
-        names += [f'{b}_{j:02}_{s}' for s in ('l', 'r') for b in ('thumb', 'index', 'middle', 'ring', 'pinky') for j in (1, 2, 3)]
         for time in (0.0, actual_animation.get_play_length()):
             actual = _pose(actual_animation, mesh, time)
             endpoint_expected = final_expected if release and time > 0 else expected
@@ -1138,6 +1140,8 @@ def match_reload_phase_offset(data, sequence):
                     raise RuntimeError('RELOAD_HANDOFF_ENDPOINT: %s time=%f cm=%f degrees=%f' % (name, time, error, degrees))
         require_asset_write([sequence])
         write(sequence)
+        if _finger_channel_digest(sequence) != finger_signature:
+            raise RuntimeError('RELOAD_HANDOFF_FINGER_CHANNELS_CHANGED')
         if _channel_digest(sequence, [target_layer]) != preserved or _channel_digest(start) != source_signature:
             raise RuntimeError('RELOAD_HANDOFF_UNRELATED_KEYS_CHANGED')
         if not unreal.EditorAssetLibrary.save_loaded_asset(sequence, False):

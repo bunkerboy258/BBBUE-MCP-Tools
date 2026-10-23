@@ -1,3 +1,4 @@
+import math
 import uuid
 
 import unreal
@@ -8,6 +9,107 @@ from BBBAssetWritePolicy import require_asset_write
 def neutral_value(name, absolute):
     """/** @param name\t通道名 @param absolute\t是否绝对层 @return\t绝对缩放一及原生叠加零增量 */"""
     return 1.0 if absolute and '.Scale.' in name else 0.0
+
+
+def restore_fingers(path, data, write_paths):
+    """/** @param path\t制作源 @param data\t明确撤销的手指修正帧 @param write_paths\t唯一序列 @return\t原基础手指恢复及手部IK保持证明 */"""
+    import BBBManualActionNative as native
+    from BBBControlRigAuthoringToolset import _asset, _pose
+    from BBBManualActionAuthoring import _save
+
+    if set(write_paths) != {data['sequence']} or unreal.EditorLevelLibrary.get_pie_worlds(False):
+        raise RuntimeError('RESTORE_ACTION_FINGERS_SCOPE')
+    sequence = _asset(data['sequence'], unreal.LevelSequence)
+    mesh = _asset(data['mesh'], unreal.SkeletalMesh)
+    source = _asset(data['finger_animation'], unreal.AnimSequence)
+    request = data['restore_action_fingers_request']
+    reference = _asset(request.get('animation', data['animation']), unreal.AnimSequence)
+    frames = request['frames']
+    rate = sequence.get_display_rate()
+    def layer(target):
+        sections = [section for track in native._mesh_binding(target, mesh).find_tracks_by_type(unreal.MovieSceneControlRigParameterTrack)
+                    for section in track.get_sections() if section.get_blend_type().blend_type == unreal.MovieSceneBlendType.ADDITIVE]
+        if len(sections) != 1:
+            raise RuntimeError('RESTORE_ACTION_FINGERS_SINGLE_OFFSET')
+        return sections[0]
+    from BBBControlRigAuthoringToolset import _key
+    hierarchy = _asset(data['rig'], unreal.ControlRigBlueprint).hierarchy
+    absolute = [section for track in native._mesh_binding(sequence, mesh).find_tracks_by_type(unreal.MovieSceneControlRigParameterTrack)
+                for section in track.get_sections() if section.get_blend_type().blend_type == unreal.MovieSceneBlendType.ABSOLUTE][0]
+    bases = {str(channel.channel_name): channel for channel in absolute.get_all_channels()}
+    plans = {}
+    for frame in frames:
+        pose = _pose(reference, mesh, frame * rate.denominator / rate.numerator)
+        for side in ('l', 'r'):
+            for finger in ('thumb', 'index', 'middle', 'ring', 'pinky'):
+                for joint in (1, 2, 3):
+                    bone = f'{finger}_{joint:02}_{side}'
+                    key = _key('fk_' + bone, 'CONTROL')
+                    parent = hierarchy.get_parents(key)[0]
+                    offset = hierarchy.get_global_control_offset_transform(key, True).make_relative(hierarchy.get_global_transform(parent, True))
+                    local = unreal.AnimPoseExtensions.get_bone_pose(pose, bone, unreal.AnimPoseSpaces.LOCAL)
+                    angles = (offset.rotation.inversed() * local.rotation).normalized().rotator()
+                    for axis, desired in zip(('X', 'Y', 'Z'), (angles.roll, angles.pitch, angles.yaw)):
+                        name = 'fk_' + bone + '.Rotation.' + axis
+                        channel = bases[name]
+                        exact = [k for k in channel.get_keys() if abs(k.get_time(unreal.MovieSceneTimeUnit.DISPLAY_RATE).frame_number.value + k.get_time(unreal.MovieSceneTimeUnit.DISPLAY_RATE).sub_frame - frame) < 0.000001]
+                        base_value = float(channel.get_default()) if not channel.get_keys() else None
+                        if exact:
+                            base_value = float(exact[0].get_value())
+                        if base_value is None:
+                            bounds = channel.compute_effective_range()
+                            bounds.set_start_seconds(frame * rate.denominator / rate.numerator)
+                            bounds.set_end_seconds((frame + 1) * rate.denominator / rate.numerator)
+                            base_value = float(channel.evaluate_keys(bounds, rate)[0])
+                        plans[(name, frame)] = desired - base_value
+    def write(target):
+        section = layer(target)
+        section.set_is_locked(False)
+        for channel in section.get_all_channels():
+            name = str(channel.channel_name)
+            if not name.startswith('fk_') or '.Rotation.' not in name:
+                continue
+            for frame in frames:
+                channel.add_key(unreal.FrameNumber(value=frame), plans[(name, frame)], 0.0,
+                                unreal.MovieSceneTimeUnit.DISPLAY_RATE, unreal.MovieSceneKeyInterpolation.AUTO)
+    scope = unreal.new_object(unreal.LevelSequence, name='BBBRestoreActionFingers_' + uuid.uuid4().hex)
+    try:
+        candidate = native._copy_sequence(sequence, scope, 'Candidate')
+        native._export(candidate, source, mesh, scope, 'Initialize', False)
+        write(candidate)
+        animation = native._export(candidate, source, mesh, scope, 'Restored')
+        maximum_angle = 0.0
+        for frame in frames:
+            time = frame * rate.denominator / rate.numerator
+            expected = _pose(reference, mesh, time * data['source_time_scale'])
+            actual = _pose(animation, mesh, time)
+            for side in ('l', 'r'):
+                for finger in ('thumb', 'index', 'middle', 'ring', 'pinky'):
+                    for joint in (1, 2, 3):
+                        bone = f'{finger}_{joint:02}_{side}'
+                        a = unreal.AnimPoseExtensions.get_bone_pose(expected, bone, unreal.AnimPoseSpaces.LOCAL)
+                        b = unreal.AnimPoseExtensions.get_bone_pose(actual, bone, unreal.AnimPoseSpaces.LOCAL)
+                        dot = abs(sum(x * y for x, y in zip(a.rotation.to_tuple(), b.rotation.to_tuple())))
+                        angle = math.degrees(2 * math.acos(min(1.0, dot)))
+                        maximum_angle = max(maximum_angle, angle)
+                        if angle > 0.1:
+                            raise RuntimeError('RESTORE_ACTION_FINGERS_POSE: ' + bone)
+        require_asset_write([sequence])
+        write(sequence)
+        if not unreal.EditorAssetLibrary.save_loaded_asset(sequence, False):
+            raise RuntimeError('RESTORE_ACTION_FINGERS_SAVE')
+        data.pop('restore_action_fingers_request')
+        data.get('grip_endpoints', {})['finger_sides'] = []
+        data['runtime_applied'] = False
+        _save(path, data)
+        unreal.LevelSequenceEditorBlueprintLibrary.open_level_sequence(sequence)
+        unreal.LevelSequenceEditorBlueprintLibrary.set_current_time(0)
+        unreal.LevelSequenceEditorBlueprintLibrary.force_update()
+        native.repair_timeline_range(sequence)
+        return {'sequence': data['sequence'], 'fingers_restored_to_base': True, 'frames': frames,
+                'rotation_error_degrees': maximum_angle, 'hand_ik_and_attachment_tracks_untouched': True}
+    finally:
+        unreal.purge_object_references(scope, True)
 
 
 def reset(path, data, write_paths):
