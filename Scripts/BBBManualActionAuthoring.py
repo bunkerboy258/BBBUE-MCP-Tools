@@ -741,6 +741,11 @@ def prepare(recipe_path, write_paths):
             data['timeline_range_repair'] = timeline
             _save(path, data)
             return {'sequence': data['sequence'], 'timeline': timeline, 'runtimeModified': False}
+        if data.pop('native_offset_request', False):
+            native_edit = BBBManualActionNative.prepare_offset(data, sequence)
+            _save(path, data)
+            return {'sequence': data['sequence'], 'native_edit': native_edit,
+                    'native_offset': data['native_offset'], 'runtimeModified': False}
     if data.get('status') in ('previews_created', 'manual_edit_ready'):
         unreal.LevelSequenceEditorBlueprintLibrary.open_level_sequence(sequence)
         if data.get('refresh_weapon_animation_request'):
