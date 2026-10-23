@@ -120,6 +120,9 @@ def run(asset_paths, profile_json, action):
 
     importlib.reload(geometry)
     config = json.loads(profile_json)
+    if config.get('geometry_chain'):
+        import BBBFingerPlanarTools
+        return importlib.reload(BBBFingerPlanarTools).run(asset_paths, config, action)
     if action == 'calibrate':
         return json.dumps(calibrate(config), ensure_ascii=False)
     if action not in ('inspect', 'repair') or not asset_paths or len(asset_paths) > 128 or len(set(asset_paths)) != len(asset_paths):

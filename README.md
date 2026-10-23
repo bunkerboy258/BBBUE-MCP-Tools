@@ -1,5 +1,7 @@
 # BBBUE MCP Tools
 
+2026-10-23 用户否决宽容指骨规则后，editor.process_animation_fingers 增加 geometry_chain 掌空间硬约束：四指共同前向，每节仅保留向掌心卷曲，清除反向弯曲、侧弯及扭转。指定 MM_Shotgun_Reload 的双手24骨、86采样已实际重建保存并前台打开；其他骨轨与动画元数据回读保持，效果待用户播放确认。四元数角距离先单位化；制作参数和证据保存在角色 Source/Animation/MM_Shotgun_Reload_FingerRepair.json.source，未重烘各武器离散动作。详见 Docs/BBBFingerAnimationMCP.md。
+
 2026-10-23 指骨工具已完成前台注册和两条动画的原生只读采样、候选彩色三视图；未烘焙或修改人物动画。视觉检查后补入参考固定偏置保留、共同展开中心和检查方案摘要约束，八项离线边界通过；实际保存及最终观感仍待用户指定动画验收。用户明确后续由其指名动画，处理后打开前台窗口并根据其反馈修正，已取消额外排队校准。见 Docs/BBBFingerAnimationMCP.md。
 
 2026-10-23 新增 `editor.process_animation_fingers`，提供明确骨架校准、批量绝对动画检查和按源摘要修复。四指中末节约束校准屈曲轴，指根独立约束展开角，拇指使用显式独立规则；保留例外采样、非目标骨轨、位移缩放和动画元数据，复用原生蒙皮彩色三视图输出原始及候选。七项离线算法边界检查通过，用户要求暂不重启共享编辑器，因此新入口注册、代表动画原生实测、保存回读和视觉验收尚待完成，未修改人物动画。见 [BBBFingerAnimationMCP.md](Docs/BBBFingerAnimationMCP.md)。

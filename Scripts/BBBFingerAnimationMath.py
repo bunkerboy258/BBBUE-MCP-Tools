@@ -43,6 +43,7 @@ def split(q, axis):
 
 def distance(a, b):
     """/** @param a 第一旋转 @param b 第二旋转 @return 最短弧角度 */"""
+    a, b = unit(a), unit(b)
     return math.degrees(2 * math.acos(min(1.0, abs(sum(x*y for x, y in zip(a, b))))))
 
 

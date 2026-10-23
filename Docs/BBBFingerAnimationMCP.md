@@ -1,6 +1,36 @@
 # 批量人物指骨异常检查与修复
 
-## 当前状态
+## 2026-10-23 当前四指硬约束
+
+用户拒绝首轮保留参考偏置的结果，要求激进清除错误旋转。当前人物四指修复使用 `geometry_chain=true`，不使用下面旧的宽容关节配置。左右手分别在掌空间建立共同前向和掌心方向；四指全部指根对齐前向，保留各自朝掌心的卷曲；中末节只允许正向卷曲。完整重建每节旋转，清除侧弯、轴向扭转和反向弯曲，不保留原始错误偏置。指根卷曲限于0至85度，中末节相对卷曲限于0至120度；这是本工具参数，不是人体医学界限。拇指独立，本次不修改。
+
+同一公共入口的 `profile` 示例：
+
+```json
+{
+  "geometry_chain": true,
+  "mesh_path": "/Game/_Project/Characters/BBBC_UA/BasicOutfit/Meshes/SK_UA_BasicArms",
+  "reference_animation": "/Game/_Project/Characters/BBBC_UA/Animation/UsedAnimation/rifle/MM_Rifle_Idle_Hipfire"
+}
+```
+
+先 `inspect`，再把返回的 `planSignature` 作为 `expected_plan_signature`，逐资产 `signature` 作为 `expected_signatures`，用同一配置调用 `repair`。参考握姿只确定左右掌心方向；实际骨长、父骨和局部轴从网格骨架读取，不把四元数欧拉角当作生物屈曲方向。末节虚拟方向由参考骨架相邻骨长方向构建。变换含非单位缩放时拒绝。
+
+指定 MM_Shotgun_Reload 已在原生批次 `ee9c3d5f14862f39` 重建双手24骨、全部86个采样并保存。逐骨核对其他旋转、全部位移缩放和元数据保持；平面外方向误差约2.8e-16，原生浮点回读后重复求解最大旋转差0.04376度。当前摘要 `20497201ee9605d9562d54086e3a04b556863142be4fd8cde1231e812cf22c99`。批次 `62cbece6d657a7be` 成功打开前台资产窗口，效果待用户播放确认。没有重新烘焙武器专属动作或修改LS人工层。
+
+实现 `BBBFingerPlanarTools.py` 经现有入口热加载，无需重启编辑器。保留逐轨保存回读；不另选测试动画，不以约束数值代替用户观感验收。
+
+## 首轮结果已被用户否决
+
+用户明确指定 `/Game/_Project/Characters/BBBC_UA/Animation/UsedAnimation/shotgun/MM_Shotgun_Reload`。使用已有 MM_Rifle_Idle_Hipfire 首尾参考、实际参考骨架及保留固定偏置的24关节配置；只处理这一条动画，没有继续选择其他动画或生成视觉测试。
+
+原生批次 `2bee996b8654fa4c` 曾写入11骨、634个采样，元数据保持，但用户在第67帧附近指出仍有侧折和反向翻折。该宽容规则已不用于当前四指修复。旧摘要 `ddf3075204b68f93d4e0857f9bf7d3a9ff86f24d66f6ff93d2d1ea214c469c67` 已由上面的硬约束结果替代；旧数值通过不代表视觉通过。
+
+批次 `f9e3dc3b6014ca64` 已成功打开该动画的前台编辑器。唯一制作参数和这次修复证据保存在角色 `Source/Animation/MM_Shotgun_Reload_FingerRepair.json.source`。既有各武器LS及已烘焙专属动作未重建；通过当前样板后再安排制作链路的基准采纳与同步。
+
+原生回读发现UE浮点四元数有微小模长误差，角距离计算现先单位化再比较，避免未修改骨轨被错误报告为旋转变化。未增加备份、兼容路径或临时资产。
+
+## 早期宽容模式记录
 
 2026-10-23 后续已在前台 UE5.8 注册入口并完成原生只读调用。曾抽样 UsedAnimation/shotgun/MM_Shotgun_Reload 与 OtherAnimation/BigLocomotionPackV05/M4A1/Reload/anim_m4a1_aim_reload，生成原生蒙皮原始/候选图，未写入任何动画。视觉发现固定参考偏置和共同展开应保留，因此补入下述规则；修订规则尚未做实际资产保存验收。用户随后明确由其指定下一条动画，处理烘焙后打开窗口，由用户报告效果；排队中的额外校准已取消，不继续自行挑选或批量修改资产。
 
