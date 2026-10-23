@@ -35,13 +35,37 @@ def shortest_swing(source, target):
     return qmath.unit(cross(source, target) + [1.0 + cosine])
 
 
+def evaluated_tracks(animation, tracks, mesh):
+    """/** @param animation 原动画 @param tracks 原生骨轨 @param mesh 实际绑定网格 @return 网格重定向后的几何骨轨及旋转平移差 */"""
+    options = unreal.AnimPoseEvaluationOptions()
+    options.optional_skeletal_mesh = mesh
+    options.should_retarget = True
+    options.evaluation_type = unreal.AnimDataEvalType.RAW
+    names = [name for name in tracks if name.startswith(('hand_', 'index_', 'middle_', 'ring_', 'pinky_'))]
+    result = dict(tracks)
+    for name in names:
+        result[name] = []
+    rate = animation.data_model_interface.get_frame_rate()
+    rotation_error = 0.0
+    translation_error = 0.0
+    for sample in range(len(tracks['hand_l'])):
+        pose = unreal.AnimPoseExtensions.get_anim_pose_at_time(animation, sample*rate.denominator/rate.numerator, options)
+        for name in names:
+            transform = unreal.AnimPoseExtensions.get_bone_pose(pose, name, unreal.AnimPoseSpaces.LOCAL)
+            result[name].append(transform)
+            rotation_error = max(rotation_error, qmath.distance(list(transform.rotation.to_tuple()), list(tracks[name][sample].rotation.to_tuple())))
+            translation_error = max(translation_error, (transform.translation-tracks[name][sample].translation).length())
+    if rotation_error > 0.01:
+        raise ValueError('PLANAR_RETARGET_ROTATION_MAPPING_REQUIRED: '+str(rotation_error))
+    return result, {'maximumMeshPoseTranslationDifferenceCentimeters':translation_error, 'maximumMeshPoseRotationDifferenceDegrees':rotation_error}
+
+
 def solve(before, skeleton, component, settings):
     """/** @param before 原生局部骨轨 @param skeleton 实际骨架 @param component 父骨查询组件 @param settings 硬约束配置 @return 四指24骨完整旋转及最终方向误差 */"""
     count = len(before['hand_l'])
     names = [f'{digit}_{segment}_{side}' for side in ('l', 'r') for digit in ('index', 'middle', 'ring', 'pinky') for segment in ('01', '02', '03')]
     if any(name not in before or len(before[name]) != count for name in names):
         raise ValueError('PLANAR_FINGER_TRACKS_REQUIRED')
-    reference = unreal.AnimPoseExtensions.get_reference_pose(skeleton)
     parents = {}
     ref_local = {}
     def parent(name):
@@ -50,7 +74,10 @@ def solve(before, skeleton, component, settings):
         return parents[name]
     def reference_local(name):
         if name not in ref_local:
-            ref_local[name] = unreal.AnimPoseExtensions.get_bone_pose(reference, name, unreal.AnimPoseSpaces.LOCAL)
+            values = settings['mesh_reference'][name]
+            transform = unreal.Transform(location=unreal.Vector(*values[:3]), scale=unreal.Vector(*values[7:10]))
+            transform.rotation = unreal.Quat(*values[3:7])
+            ref_local[name] = transform
         return ref_local[name]
     def fk(name, side, cache, sample, rotations=None):
         if name == 'hand_' + side:
@@ -180,8 +207,20 @@ def run(paths, config, action):
     grip = _asset(config['reference_animation'])
     if grip.get_editor_property('skeleton') != mesh.get_editor_property('skeleton'):
         raise ValueError('PLANAR_REFERENCE_SKELETON_MISMATCH')
-    pose = unreal.AnimPoseExtensions.get_anim_pose_at_time(grip, 0, unreal.AnimPoseEvaluationOptions())
-    settings = {'grip_directions': {}, 'root_spread_degrees': float(config.get('root_spread_degrees', 3.0))}
+    grip_options = unreal.AnimPoseEvaluationOptions()
+    grip_options.optional_skeletal_mesh = mesh
+    grip_options.should_retarget = True
+    grip_options.evaluation_type = unreal.AnimDataEvalType.RAW
+    pose = unreal.AnimPoseExtensions.get_anim_pose_at_time(grip, 0, grip_options)
+    sampled_reference = json.loads(unreal.BBBGripGeometryEditorLibrary.sample_skeletal_mesh_surface(mesh, [], [unreal.Name('hand_l'), unreal.Name('hand_r')], 1.0, []))
+    mesh_reference = {bone['name']: bone['referenceLocal'] for bone in sampled_reference['bones']}
+    settings = {'grip_directions': {}, 'root_spread_degrees': float(config.get('root_spread_degrees', 3.0)), 'mesh_reference': mesh_reference}
+    skeleton_reference = unreal.AnimPoseExtensions.get_reference_pose(mesh.get_editor_property('skeleton'))
+    reference_difference = []
+    for name, values in mesh_reference.items():
+        if name.startswith(('index_', 'middle_', 'ring_', 'pinky_')):
+            skeleton_local = unreal.AnimPoseExtensions.get_bone_pose(skeleton_reference, name, unreal.AnimPoseSpaces.LOCAL)
+            reference_difference.append({'bone':name, 'rotationDegrees':qmath.distance(values[3:7], list(skeleton_local.rotation.to_tuple())), 'translationCentimeters':(unreal.Vector(*values[:3])-skeleton_local.translation).length()})
     if not math.isfinite(settings['root_spread_degrees']) or not 0 <= settings['root_spread_degrees'] <= 5:
         raise ValueError('PLANAR_ROOT_SPREAD_LIMIT_ZERO_TO_FIVE')
     for side in ('l', 'r'):
@@ -193,7 +232,7 @@ def run(paths, config, action):
             directions.append(list(hand.rotation.inversed().rotate_vector(b-a).to_tuple()))
         settings['grip_directions'][side] = [sum(d[i] for d in directions) for i in range(3)]
     plan_config = {k:config[k] for k in ('mesh_path', 'reference_animation', 'geometry_chain')}
-    plan_config.update(root_spread_degrees=settings['root_spread_degrees'], algorithm='actual_axis_root_planar_only')
+    plan_config.update(root_spread_degrees=settings['root_spread_degrees'], algorithm='mesh_bind_evaluated_axis_root_planar_only', mesh_reference=mesh_reference)
     plan = hashlib.sha256(json.dumps(plan_config, sort_keys=True).encode()).hexdigest()
     prepared, reports = [], []
     for path in paths:
@@ -208,12 +247,13 @@ def run(paths, config, action):
         if transform_curves & finger_names:
             raise ValueError('PLANAR_TRANSFORM_CURVE_REQUIRES_COMPOSED_POSE')
         signature = _signature(before)
-        output, error = solve(before, animation.get_editor_property('skeleton'), component, settings)
+        evaluated, evaluation_error = evaluated_tracks(animation, before, mesh)
+        output, error = solve(evaluated, animation.get_editor_property('skeleton'), component, settings)
         metadata = _track_metadata(animation)
         if action == 'repair' and (config.get('expected_plan_signature') != plan or config.get('expected_signatures', {}).get(path) != signature):
             raise ValueError('PLANAR_INSPECT_REQUIRED')
         prepared.append((animation, before, output, metadata))
-        reports.append({'asset':path,'signature':signature,'changedBones':list(output),'samples':len(before['hand_l']), **error})
+        reports.append({'asset':path,'signature':signature,'changedBones':list(output),'samples':len(before['hand_l']), **error, **evaluation_error})
     if action == 'repair':
         dirty = {package.get_path_name() for package in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
         if any(animation.get_outermost().get_path_name() in dirty for animation, before, output, metadata in prepared):
@@ -239,7 +279,8 @@ def run(paths, config, action):
                     expected = output[name][sample] if name in output else list(a.rotation.to_tuple())
                     if (a.translation-b.translation).length()>0.0001 or (a.scale3d-b.scale3d).length()>0.0001 or qmath.distance(expected,list(b.rotation.to_tuple()))>0.01:
                         raise RuntimeError('PLANAR_READBACK_FAILED: '+name)
-            repeated, error = solve(actual, animation.get_editor_property('skeleton'), component, settings)
+            evaluated, evaluation_error = evaluated_tracks(animation, actual, mesh)
+            repeated, error = solve(evaluated, animation.get_editor_property('skeleton'), component, settings)
             if error['maximumInputRootAxialTwistDegrees'] > 0.01:
                 raise RuntimeError('PLANAR_ROOT_TWIST_READBACK_FAILED')
             if error['maximumInputRootCurlDegrees'] > 0.01 or error['maximumInputRootSpreadDegrees'] > settings['root_spread_degrees'] + 0.01:
@@ -250,4 +291,4 @@ def run(paths, config, action):
             if not unreal.EditorAssetLibrary.save_loaded_asset(animation,False):
                 raise RuntimeError('PLANAR_SAVE_FAILED')
             reports[index].update(saved=True,readback=True,metadataPreserved=True,signature=_signature(actual),repeatErrorDegrees=repeat_error,readbackRootAxialTwistDegrees=error['maximumInputRootAxialTwistDegrees'],readbackRootCurlDegrees=error['maximumInputRootCurlDegrees'],readbackRootSpreadDegrees=error['maximumInputRootSpreadDegrees'])
-    return json.dumps({'action':action,'planSignature':plan,'assets':reports,'constraint':'四指统一前向 中末节只向掌心弯曲 无侧弯无轴向扭转','thumbModified':False},ensure_ascii=False)
+    return json.dumps({'action':action,'planSignature':plan,'assets':reports,'meshSkeletonReferenceDifference':reference_difference,'constraint':'四指统一前向 中末节只向掌心弯曲 无侧弯无轴向扭转','thumbModified':False},ensure_ascii=False)
