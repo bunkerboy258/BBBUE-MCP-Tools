@@ -27,6 +27,8 @@ def repair_timeline_range(sequence):
     margin = max((end - start) * 0.05, rate.denominator / rate.numerator)
     bounds = [start - margin, end + margin]
     require_asset_write([sequence])
+    editors = unreal.get_editor_subsystem(unreal.AssetEditorSubsystem)
+    closed_editors = editors.close_all_editors_for_asset(sequence)
     unreal.LevelSequenceEditorBlueprintLibrary.close_level_sequence()
     sequence.set_work_range_start(bounds[0])
     sequence.set_work_range_end(bounds[1])
@@ -46,7 +48,8 @@ def repair_timeline_range(sequence):
         raise RuntimeError('TIMELINE_CHANNELS_CHANGED')
     return {'repaired': True, 'before': {key: [v if math.isfinite(v) else str(v) for v in values]
                                         for key, values in before.items()},
-            **after, 'channels_preserved': True, 'playback_preserved': True}
+            **after, 'closed_asset_editors': closed_editors,
+            'channels_preserved': True, 'playback_preserved': True}
 
 
 def sync_reload_timing(path, data, write_paths):

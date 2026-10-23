@@ -535,3 +535,5 @@ Rifle02运行枪体弹匣骨轨已清理，但LS仍使用旧AuthoringPreview，�
 枪体AuthoringPreview的显隐窗口改为源采样帧闭开区间，以ceil(seconds*fps-0.0001)转换开始/结束，和附件生命周期采用相同的浮点帧对齐语义。避免通知11/30秒存储为0.3666666746而第11帧采样为0.3666666667时漏隐藏。保存制作源weapon_preview_frame_boundaries，来自输出骨轨实际缩放回读。Rifle02实测10帧scale=(1,1,1)、11与32帧=(0,0,0)、33帧=(1,1,1)，现有控制键和Transform摘要保持，正式通知时间未改。未运行PIE，无备份或兼容资产。
 
 2026-10-22：set_sequence_spawn_range 在出现帧之前显式写入隐藏键，避免布尔通道将首个 True 反向延伸到序列开头；返回 spawnKeys 供核验。LMG01 换弹旧弹匣采用 0=false、11=true、20=false，新弹匣采用 0=false、30=true、40=false。
+
+2026-10-23：修复 ManualAction 时间轴范围修复不彻底的问题。repair_timeline_range 先通过 AssetEditorSubsystem.close_all_editors_for_asset 关闭目标的完整资产编辑器，再重设有限视图/工作范围、保存并重新打开；仅 close_level_sequence 不能销毁原 Sequencer 的异常窗口状态。结果新增 closed_asset_editors，原有控制通道摘要与播放区间不变检查保留。两项专项回归通过；LMG01 旧换弹 LS 实际关闭、磁盘重载、重开后范围有限，再次关闭重开后鼠标拖至第32帧正常。本次未完成整个 UE 进程重启验证（共享宿主有并行资产迁移，shutdown_host 返回 HOST_BUSY）；不将资产重载等同于进程重启。UE5.8 的 MovieScene.h 将 ViewStart/ViewEnd/WorkStart/WorkEnd 标为 Transient，因此保存资产后的即时范围回读不能替代窗口重开验收。

@@ -288,3 +288,5 @@ Python 3.12.14 / NumPy 2.3.5
 Shotgun01用户主动调整挂接后明确选择两者共用。正式SpawnOffset平移回读[-8.772383773,3.707190574,-3.933614135]cm；左手IK补偿为[7.207152215,-2.846411012,-9.833188199]cm，右腕和左手IK旋转保持。新挂接及开火指骨成品应用成功，rightArmPreserved=true；原FireGrip通道摘要在共享步骤保持。已打开Shotgun03未开火LS继续人工流程，未运行PIE，无备份或兼容资产。
 
 2026-10-22：set_sequence_spawn_range 在出现帧之前显式写入隐藏键，避免布尔通道将首个 True 反向延伸到序列开头；返回 spawnKeys 供核验。LMG01 换弹旧弹匣采用 0=false、11=true、20=false，新弹匣采用 0=false、30=true、40=false。
+
+2026-10-23：修复 ManualAction 时间轴范围修复不彻底的问题。repair_timeline_range 先通过 AssetEditorSubsystem.close_all_editors_for_asset 关闭目标的完整资产编辑器，再重设有限视图/工作范围、保存并重新打开；仅 close_level_sequence 不能销毁原 Sequencer 的异常窗口状态。结果新增 closed_asset_editors，原有控制通道摘要与播放区间不变检查保留。两项专项回归通过；LMG01 旧换弹 LS 实际关闭、磁盘重载、重开后范围有限，再次关闭重开后鼠标拖至第32帧正常。本次未完成整个 UE 进程重启验证（共享宿主有并行资产迁移，shutdown_host 返回 HOST_BUSY）；不将资产重载等同于进程重启。UE5.8 的 MovieScene.h 将 ViewStart/ViewEnd/WorkStart/WorkEnd 标为 Transient，因此保存资产后的即时范围回读不能替代窗口重开验收。
