@@ -113,7 +113,7 @@ MCP_INPUTS = {
             'items': {
                 'type': 'object',
                 'properties': {
-                    'name': {'type': 'string', 'enum': ['Camera', 'Unequip', 'AimFact', 'AimImpulseFact']},
+                    'name': {'type': 'string', 'enum': ['Camera', 'Unequip', 'AimFact']},
                     'value': {'$ref': '#/$defs/Vector3'},
                 },
                 'required': ['name', 'value'],
@@ -3692,7 +3692,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
         if not isinstance(requests, list) or not requests or len(requests) > 16:
             raise RuntimeError("诊断输入必须为一到十六项的数组")
         for request in requests:
-            if request.get("name") not in ("Camera", "Unequip", "AimFact", "AimImpulseFact") or len(request.get("value", [])) != 3:
+            if request.get("name") not in ("Camera", "Unequip", "AimFact") or len(request.get("value", [])) != 3:
                 raise RuntimeError("诊断输入名称或数值格式无效")
         results = []
         for request in requests:
