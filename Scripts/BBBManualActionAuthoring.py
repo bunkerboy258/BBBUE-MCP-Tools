@@ -716,6 +716,11 @@ def prepare(recipe_path, write_paths):
     if unreal.EditorLevelLibrary.get_pie_worlds(False):
         raise RuntimeError('ACTION_PREPARE_PIE_FORBIDDEN')
     path, data = _source(recipe_path)
+    if data.get('inspect_editor_grip_request'):
+        import importlib
+        import BBBManualActionNative
+        importlib.reload(BBBManualActionNative)
+        return BBBManualActionNative.inspect_editor_grip(path, data, write_paths)
     if data.get('grip_endpoints_request'):
         import importlib
         import BBBManualActionNative

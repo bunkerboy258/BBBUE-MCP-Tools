@@ -10,6 +10,36 @@ from BBBControlRigAuthoringToolset import _asset, _mesh_binding
 from BBBManualActionAuthoring import _source, _save, _digest
 
 
+def inspect_editor_grip(path, data, write_paths):
+    """/** @param path 制作源路径 @param data 制作源 @param write_paths 明确序列范围 @return 当前编辑器实例的真实手枪关系 不创建另一播放器 */"""
+    from BBBControlRigAuthoringToolset import _read_transform, _key
+    sequence = _asset(data['sequence'], unreal.LevelSequence)
+    if set(write_paths) != {data['sequence']}:
+        raise RuntimeError('EDITOR_GRIP_SCOPE')
+    if unreal.LevelSequenceEditorBlueprintLibrary.get_current_level_sequence() != sequence:
+        raise RuntimeError('EDITOR_GRIP_SEQUENCE_NOT_OPEN')
+    rows = []
+    for binding in sequence.get_bindings():
+        identifier = unreal.MovieSceneObjectBindingID()
+        identifier.set_editor_property('guid', binding.get_id())
+        for actor in unreal.LevelSequenceEditorBlueprintLibrary.get_bound_objects(identifier):
+            if not isinstance(actor, unreal.SkeletalMeshActor):
+                continue
+            component = actor.skeletal_mesh_component
+            sockets = ['hand_r', 'hand_l', 'WeaponGrip_R', 'LeftHand', 'Root_joint']
+            rows.append({'binding': binding.get_name(), 'world': _read_transform(actor.get_actor_transform()),
+                         'relative': _read_transform(actor.root_component.get_relative_transform()),
+                         'sockets': {n: _read_transform(component.get_socket_transform(n, unreal.RelativeTransformSpace.RTS_WORLD))
+                                     for n in sockets if component.does_socket_exist(n)}})
+    rigs = []
+    for proxy in unreal.ControlRigSequencerLibrary.get_control_rigs(sequence):
+        hierarchy = proxy.control_rig.get_hierarchy()
+        rigs.append({n: _read_transform(hierarchy.get_global_transform(_key(n))) for n in ('hand_l','hand_r')})
+    data.pop('inspect_editor_grip_request')
+    _save(path, data)
+    return {'editor_bound_actors': rows, 'rigs': rigs}
+
+
 def match_grip_endpoints(path, data, write_paths):
     """/** @param path 制作源路径 @param data 动作制作源 @param write_paths 明确序列范围 @return 原生叠加首尾握姿匹配与导出回读 */"""
     from BBBControlRigAuthoringToolset import _pose, _key
