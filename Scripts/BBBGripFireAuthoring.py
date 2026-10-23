@@ -28,6 +28,8 @@ def prepare(hold, hold_path, project):
     if fire_path == hold_path:
         raise RuntimeError('FIRE_GRIP_RECIPE_NAME_REQUIRED')
     signature = hold_signature(hold, project)
+    if hold.get('rebase_fire_request'):
+        return _rebase(hold, hold_path, fire_path, project, signature)
     if fire_path.exists():
         recipe = _recipe(fire_path, hold['weapon_root'])
         if recipe.get('hold_signature') != signature:
@@ -52,6 +54,57 @@ def prepare(hold, hold_path, project):
             raise RuntimeError('FIRE_GRIP_CREATE_FAILED: ' + recipe[field])
     _write_recipe(fire_path, recipe, project)
     return _open(recipe, fire_path, project, hold['animation'])
+
+
+def _rebase(hold, hold_path, fire_path, project, signature):
+    """/** @param hold 已应用未开火制作源 @param hold_path 未开火路径 @param fire_path 开火路径 @param project 项目根 @param signature 新基准摘要 @return 保留开火右食指并同步新握姿和挂接的底稿 */"""
+    import json
+    import BBBGripManualAuthoring as manual
+    from BBBGripAuthoringToolset import _asset, _recipe, _write_recipe, _FINGERS, _values
+    from BBBAnimationTrajectoryTools import replace_tracks
+    from BBBControlRigAuthoringToolset import BBBControlRigAuthoringToolset as authoring
+
+    fire = _recipe(fire_path, hold['weapon_root'])
+    mesh = _asset(hold['character_mesh'], unreal.SkeletalMesh)
+    animation = _asset(fire['animation'], unreal.AnimSequence)
+    names = list(hold['solution']['local_pose'])
+    pose = manual._pose(animation, names, mesh)
+    # 同步新握姿 保留原开火右食指的扳机姿势
+    preserved = {f'index_{joint:02}_r' for joint in (1, 2, 3)}
+    count = animation.data_model_interface.get_number_of_keys()
+    tracks = {}
+    for name in animation.data_model_interface.get_bone_track_names():
+        name = str(name)
+        if name in preserved or name not in hold['solution']['local_pose']:
+            continue
+        value = hold['solution']['local_pose'][name]
+        tracks[name] = [{'position': value[:3], 'rotation': value[3:7], 'scale': value[7:10]}] * count
+    replace_tracks(fire['animation'], json.dumps(tracks))
+    fire['calibration'] = copy.deepcopy(hold['calibration'])
+    fire['solution'] = copy.deepcopy(hold['solution'])
+    fire['hold_signature'] = signature
+    fire.pop('manual_edit', None)
+    fire.pop('validation', None)
+    fire.pop('review', None)
+    _write_recipe(fire_path, fire, project)
+    result = _open(fire, fire_path, project, hold['animation'])
+    sequence = _asset(fire['sequence'], unreal.LevelSequence)
+    bindings = [b for b in sequence.get_bindings() if isinstance(b.get_object_template(), unreal.SkeletalMeshActor)
+                and b.get_object_template().skeletal_mesh_component.skeletal_mesh_asset == _asset(fire['weapon_mesh'], unreal.SkeletalMesh)]
+    if len(bindings) != 1:
+        raise RuntimeError('FIRE_REBASE_WEAPON_NOT_UNIQUE')
+    value = hold['calibration']['spawn_offset']
+    authoring.set_sequence_attachment_transform(fire['sequence'], bindings[0].get_name(), json.dumps(
+        {'position': value[:3], 'rotation': value[3:7], 'scale': value[7:10]}))
+    unreal.EditorAssetLibrary.save_loaded_asset(sequence, False)
+    actual = manual._pose(animation, list(_FINGERS), mesh)
+    for name in preserved:
+        if _values(actual[name]['local']) != _values(pose[name]['local']):
+            raise RuntimeError('FIRE_REBASE_FINGERS_CHANGED: ' + name)
+    hold.pop('rebase_fire_request')
+    _write_recipe(hold_path, hold, project)
+    result.update({'rebased': True, 'fireRightIndexPreserved': True, 'attachmentSynchronized': True})
+    return result
 
 
 def _open(recipe, fire_path, project, seed):

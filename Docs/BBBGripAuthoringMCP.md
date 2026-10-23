@@ -298,3 +298,9 @@ Shotgun01用户主动调整挂接后明确选择两者共用。正式SpawnOffset
 `skeletal_import.reimport_skeletal_mesh` 新增 `import_uniform_scale`，为相对 FBX 源文件的有限正数。重导入前同步已有 FBX 导入数据，临时关闭 Interchange FBX 接管并在结束时恢复；保存前核验实际 FBX 导入缩放。保留已有骨架和按槽名匹配的材质，不导入动画、材质、纹理或物理资产。
 
 Sniper04 已通过原位 FBX 重导入保存为 0.9，回读为 0.899999976；材质仍为 MI_Modern_Weapons_Sniper_04，骨架及物理资产引用保留，已打开 LS_Sniper_04_HandGrip。此次未运行 PIE。验证中确认仅传 FbxImportUI 的缩放不足以覆盖已有 FBX 设置，因此工具同时更新已有导入数据并检查实际值。
+
+### 明确同步未开火新握姿至开火底稿（2026-10-23）
+
+用户明确要求同步后，可在未开火制作源设置 `rebase_fire_request=true`，通过 `manual_prepare_fire` 消费请求。入口先确认当前未开火结果已应用，再按正式 AS 同步开火骨轨，保留已有开火右食指三节局部姿势；重建原开火 Rig 的静态编辑基准，更新共同挂接和基准签名。随后仍需 `manual_apply_fire` 完成非指骨、冻结右臂、共同挂接及烘焙回读检查。没有请求时旧基准保护保持。
+
+Sniper04 实际完成未开火应用、开火新基准同步及开火应用；右臂冻结和烘焙回读通过。两套共用新挂接，装备制作 LS 的 Weapon 预览挂接及制作源已同步；已打开原生 Offset 装备序列第0帧，保留已有装备编辑键，未烘焙装备动作、未运行 PIE。
