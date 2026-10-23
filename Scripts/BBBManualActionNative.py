@@ -222,9 +222,43 @@ def inspect_editor_grip(path, data, write_paths):
         root = str(bones[0])
         values = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, root)
         tracks.append({'animation': animation_path, 'bone': root, 'keys': [_read_transform(v) for v in values]})
+    finger_check = None
+    if isinstance(request, dict) and request.get('verify_fingers'):
+        from BBBControlRigAuthoringToolset import _pose
+        mesh = _asset(data['mesh'], unreal.SkeletalMesh)
+        frame = unreal.LevelSequenceEditorBlueprintLibrary.get_current_time()
+        rate = sequence.get_display_rate()
+        reference = _pose(_asset(data['finger_animation'], unreal.AnimSequence), mesh,
+                          frame * rate.denominator / rate.numerator)
+        errors = []
+        for binding in sequence.get_bindings():
+            identifier = unreal.MovieSceneObjectBindingID()
+            identifier.set_editor_property('guid', binding.get_id())
+            for actor in unreal.LevelSequenceEditorBlueprintLibrary.get_bound_objects(identifier):
+                if not isinstance(actor, unreal.SkeletalMeshActor):
+                    continue
+                component = actor.skeletal_mesh_component
+                displayed = component.get_skeletal_mesh_asset()
+                if displayed.get_editor_property('skeleton') != mesh.get_editor_property('skeleton'):
+                    continue
+                for side in ('l', 'r'):
+                    for finger in ('thumb', 'index', 'middle', 'ring', 'pinky'):
+                        for joint in (1, 2, 3):
+                            bone = f'{finger}_{joint:02}_{side}'
+                            parent = component.get_parent_bone(bone)
+                            local = component.get_socket_transform(bone, unreal.RelativeTransformSpace.RTS_COMPONENT).make_relative(
+                                component.get_socket_transform(parent, unreal.RelativeTransformSpace.RTS_COMPONENT))
+                            expected = unreal.AnimPoseExtensions.get_bone_pose(reference, bone, unreal.AnimPoseSpaces.LOCAL)
+                            dot = abs(sum(a*b for a,b in zip(local.rotation.to_tuple(), expected.rotation.to_tuple())))
+                            errors.append({'bone': bone, 'degrees': math.degrees(2*math.acos(min(1.0, dot)))})
+        if len(errors) != 30:
+            raise RuntimeError('EDITOR_FINGER_COMPONENT_COUNT')
+        finger_check = {'bones': len(errors), 'maximum_rotation_error_degrees': max(row['degrees'] for row in errors),
+                        'worst': sorted(errors, key=lambda row: row['degrees'], reverse=True)[:3]}
     data.pop('inspect_editor_grip_request')
     _save(path, data)
-    return {'frame': unreal.LevelSequenceEditorBlueprintLibrary.get_current_time(), 'editor_bound_actors': rows, 'rigs': rigs, 'root_tracks': tracks}
+    return {'frame': unreal.LevelSequenceEditorBlueprintLibrary.get_current_time(), 'editor_bound_actors': rows,
+            'rigs': rigs, 'root_tracks': tracks, 'live_finger_check': finger_check}
 
 
 def _finger_channel_digest(sequence):

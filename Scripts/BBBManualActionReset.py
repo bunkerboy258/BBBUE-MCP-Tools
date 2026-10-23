@@ -1,4 +1,6 @@
 import math
+import hashlib
+import json
 import uuid
 
 import unreal
@@ -11,19 +13,141 @@ def neutral_value(name, absolute):
     return 1.0 if absolute and '.Scale.' in name else 0.0
 
 
+def nonfinger_digest(sequence):
+    """/** @param sequence\t制作序列 @return\t手指之外的全部通道摘要 */"""
+    rows = []
+    for binding in sequence.get_bindings():
+        for track in binding.get_tracks():
+            for section in track.get_sections():
+                for channel in section.get_all_channels():
+                    name = str(channel.channel_name)
+                    if name.startswith('fk_'):
+                        continue
+                    keys = [(key.get_time(unreal.MovieSceneTimeUnit.DISPLAY_RATE).frame_number.value,
+                             key.get_time(unreal.MovieSceneTimeUnit.DISPLAY_RATE).sub_frame, str(key.get_value()))
+                            for key in channel.get_keys()]
+                    default = str(channel.get_default()) if hasattr(channel, 'has_default') and channel.has_default() else None
+                    rows.append([binding.get_id().export_text(), str(track.get_class().get_name()), name, default, keys])
+    return hashlib.sha256(json.dumps(rows).encode()).hexdigest()
+
+
+def restore_entire_fingers(path, data, write_paths):
+    """/** @param path\t制作源 @param data\t原指骨动画输入 @param write_paths\t唯一序列 @return\t整段原指骨恢复及非指骨保持证明 */"""
+    import BBBManualActionNative as native
+    from BBBControlRigAuthoringToolset import _asset, _pose
+    from BBBManualActionAuthoring import _save
+
+    if set(write_paths) != {data['sequence']} or unreal.EditorLevelLibrary.get_pie_worlds(False):
+        raise RuntimeError('RESTORE_ENTIRE_FINGERS_SCOPE')
+    sequence = _asset(data['sequence'], unreal.LevelSequence)
+    mesh = _asset(data['mesh'], unreal.SkeletalMesh)
+    reference = _asset(data['restore_action_fingers_request'].get('animation', data['finger_animation']), unreal.AnimSequence)
+    rate = sequence.get_display_rate()
+    fps = 120.0
+    count = round(reference.get_play_length() * fps) + 1
+    fingers = [f'{finger}_{joint:02}_{side}' for side in ('l', 'r')
+               for finger in ('thumb', 'index', 'middle', 'ring', 'pinky') for joint in (1, 2, 3)]
+    rows = {bone: [] for bone in fingers}
+    for frame in range(count):
+        pose = _pose(reference, mesh, frame / fps)
+        for bone in fingers:
+            transform = unreal.AnimPoseExtensions.get_bone_pose(pose, bone, unreal.AnimPoseSpaces.LOCAL)
+            rotation = transform.rotation.rotator()
+            values = list(transform.translation.to_tuple()) + [rotation.roll, rotation.pitch, rotation.yaw] + list(transform.scale3d.to_tuple())
+            if rows[bone]:
+                for axis in range(3, 6):
+                    values[axis] += 360 * round((rows[bone][-1][axis] - values[axis]) / 360)
+            rows[bone].append(values)
+    suffixes = ('Location.X', 'Location.Y', 'Location.Z', 'Rotation.X', 'Rotation.Y', 'Rotation.Z', 'Scale.X', 'Scale.Y', 'Scale.Z')
+    def write(target):
+        binding = native._mesh_binding(target, mesh)
+        sections = [section for track in binding.find_tracks_by_type(unreal.MovieSceneControlRigParameterTrack) for section in track.get_sections()]
+        if len(sections) != 2:
+            raise RuntimeError('RESTORE_ENTIRE_FINGERS_TWO_SECTIONS')
+        for section in sections:
+            absolute = section.get_blend_type().blend_type == unreal.MovieSceneBlendType.ABSOLUTE
+            for channel in section.get_all_channels():
+                name = str(channel.channel_name)
+                if not name.startswith('fk_'):
+                    continue
+                control, suffix = name.split('.', 1)
+                bone = control.removeprefix('fk_')
+                if bone not in rows or suffix not in suffixes:
+                    raise RuntimeError('RESTORE_ENTIRE_FINGERS_CONTROL: ' + name)
+                for key in list(channel.get_keys()):
+                    channel.remove_key(key)
+                channel.set_default(neutral_value(name, absolute))
+                if not absolute:
+                    continue
+                for frame, values in enumerate(rows[bone]):
+                    display_frame = frame / fps * rate.numerator / rate.denominator
+                    channel.add_key(unreal.FrameNumber(value=math.floor(display_frame)), values[suffixes.index(suffix)],
+                                    display_frame-math.floor(display_frame), unreal.MovieSceneTimeUnit.DISPLAY_RATE,
+                                    unreal.MovieSceneKeyInterpolation.LINEAR)
+    protected = nonfinger_digest(sequence)
+    scope = unreal.new_object(unreal.LevelSequence, name='BBBRestoreEntireFingers_' + uuid.uuid4().hex)
+    try:
+        copied = native._copy_sequence(sequence, scope, 'Candidate')
+        native._export(copied, reference, mesh, scope, 'Initialize', False)
+        write(copied)
+        if nonfinger_digest(copied) != protected:
+            raise RuntimeError('RESTORE_ENTIRE_FINGERS_NONFINGER_CHANGED')
+        baked = native._export(copied, reference, mesh, scope, 'Restored')
+        sample_rate = baked.data_model_interface.get_frame_rate()
+        sample_fps = sample_rate.numerator / sample_rate.denominator
+        maximum_position = 0.0
+        maximum_rotation = 0.0
+        for sample in range(baked.data_model_interface.get_number_of_keys()):
+            time = sample / sample_fps
+            expected = _pose(reference, mesh, time)
+            actual = _pose(baked, mesh, time)
+            for bone in fingers:
+                a = unreal.AnimPoseExtensions.get_bone_pose(expected, bone, unreal.AnimPoseSpaces.LOCAL)
+                b = unreal.AnimPoseExtensions.get_bone_pose(actual, bone, unreal.AnimPoseSpaces.LOCAL)
+                maximum_position = max(maximum_position, (a.translation-b.translation).length())
+                dot = abs(sum(x*y for x, y in zip(a.rotation.to_tuple(), b.rotation.to_tuple())))
+                maximum_rotation = max(maximum_rotation, math.degrees(2 * math.acos(min(1.0, dot))))
+        if maximum_position > 0.01 or maximum_rotation > 0.1:
+            raise RuntimeError('RESTORE_ENTIRE_FINGERS_OUTPUT: ' + str((maximum_position, maximum_rotation)))
+        require_asset_write([sequence])
+        write(sequence)
+        if nonfinger_digest(sequence) != protected:
+            raise RuntimeError('RESTORE_ENTIRE_FINGERS_NONFINGER_CHANGED')
+        if not unreal.EditorAssetLibrary.save_loaded_asset(sequence, False):
+            raise RuntimeError('RESTORE_ENTIRE_FINGERS_SAVE')
+        result = {'sequence': data['sequence'], 'reference': reference.get_path_name(), 'finger_bones': len(fingers),
+                  'checked_samples': baked.data_model_interface.get_number_of_keys(), 'position_error_cm': maximum_position,
+                  'rotation_error_degrees': maximum_rotation, 'nonfinger_channels_preserved': True, 'additive_finger_keys': 0}
+        data.pop('restore_action_fingers_request')
+        data['finger_restore'] = result
+        data['runtime_applied'] = False
+        _save(path, data)
+        editors = unreal.get_editor_subsystem(unreal.AssetEditorSubsystem)
+        editors.close_all_editors_for_asset(sequence)
+        unreal.LevelSequenceEditorBlueprintLibrary.open_level_sequence(sequence)
+        unreal.LevelSequenceEditorBlueprintLibrary.set_current_time(0)
+        unreal.LevelSequenceEditorBlueprintLibrary.force_update()
+        native.repair_timeline_range(sequence)
+        return result
+    finally:
+        unreal.purge_object_references(scope, True)
+
+
 def restore_fingers(path, data, write_paths):
     """/** @param path\t制作源 @param data\t明确撤销的手指修正帧 @param write_paths\t唯一序列 @return\t原基础手指恢复及手部IK保持证明 */"""
     import BBBManualActionNative as native
     from BBBControlRigAuthoringToolset import _asset, _pose
     from BBBManualActionAuthoring import _save
 
+    if data['restore_action_fingers_request'].get('entire_clip'):
+        return restore_entire_fingers(path, data, write_paths)
     if set(write_paths) != {data['sequence']} or unreal.EditorLevelLibrary.get_pie_worlds(False):
         raise RuntimeError('RESTORE_ACTION_FINGERS_SCOPE')
     sequence = _asset(data['sequence'], unreal.LevelSequence)
     mesh = _asset(data['mesh'], unreal.SkeletalMesh)
     source = _asset(data['finger_animation'], unreal.AnimSequence)
     request = data['restore_action_fingers_request']
-    reference = _asset(request.get('animation', data['animation']), unreal.AnimSequence)
+    reference = _asset(request.get('animation', data['finger_animation']), unreal.AnimSequence)
     frames = request['frames']
     rate = sequence.get_display_rate()
     def layer(target):
@@ -144,13 +268,14 @@ def reset(path, data, write_paths):
     values = {control: [] for control in controls}
     for frame in range(count):
         pose = _pose(reference, mesh, frame * rate.denominator / rate.numerator * data['source_time_scale'])
+        finger_pose = _pose(source, mesh, frame * rate.denominator / rate.numerator)
         for control in controls:
             name = mapping.get(control, control.removeprefix('source_').removeprefix('fk_'))
             bone = names.get(name.casefold())
             if bone is None:
                 raise RuntimeError('ACTION_RESET_UNKNOWN_CONTROL: ' + control)
             space = unreal.AnimPoseSpaces.LOCAL if control.startswith('fk_') else unreal.AnimPoseSpaces.WORLD
-            transform = unreal.AnimPoseExtensions.get_bone_pose(pose, bone, space)
+            transform = unreal.AnimPoseExtensions.get_bone_pose(finger_pose if control.startswith('fk_') else pose, bone, space)
             if not control.startswith('fk_'):
                 offset = asset.hierarchy.get_global_control_offset_transform(_key(control, 'CONTROL'), True)
                 transform = transform.make_relative(offset)
@@ -193,11 +318,14 @@ def reset(path, data, write_paths):
             time = frame * rate.denominator / rate.numerator
             expected = _pose(reference, mesh, time * data['source_time_scale'])
             actual = _pose(baked, mesh, time)
+            finger_pose = _pose(source, mesh, time)
             for bone in names.values():
                 if bone.casefold().startswith('ik_hand_'):
                     continue
-                a = unreal.AnimPoseExtensions.get_bone_pose(expected, bone, unreal.AnimPoseSpaces.WORLD)
-                b = unreal.AnimPoseExtensions.get_bone_pose(actual, bone, unreal.AnimPoseSpaces.WORLD)
+                finger = bone.casefold().startswith(('thumb_', 'index_', 'middle_', 'ring_', 'pinky_'))
+                space = unreal.AnimPoseSpaces.LOCAL if finger else unreal.AnimPoseSpaces.WORLD
+                a = unreal.AnimPoseExtensions.get_bone_pose(finger_pose if finger else expected, bone, space)
+                b = unreal.AnimPoseExtensions.get_bone_pose(actual, bone, space)
                 error = (a.translation - b.translation).length()
                 maximum = max(maximum, error)
                 dot = abs(sum(x * y for x, y in zip(a.rotation.to_tuple(), b.rotation.to_tuple())))
