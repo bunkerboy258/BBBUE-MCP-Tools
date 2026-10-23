@@ -136,4 +136,3 @@ class AnimationCurveTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.tools.copy(source, [target], False)
         self.assertFalse(self.saved)
-

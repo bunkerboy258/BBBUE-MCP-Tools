@@ -132,4 +132,3 @@ def copy(source_path, target_paths, dry_run):
                 raise RuntimeError('曲线复制保存失败')
         results.append({'asset': target.get_path_name(), 'curves': [str(n) for n in names], 'saved': not dry_run})
     return json.dumps({'source': source.get_path_name(), 'dry_run': dry_run, 'targets': results}, ensure_ascii=False)
-
