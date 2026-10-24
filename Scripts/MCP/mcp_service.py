@@ -354,6 +354,11 @@ class ProjectRuntime:
                         value["host"] = {**value["host"], "verified": False}
                         if self.state == "offline":
                             value["host"]["process_id"] = None
+                            if gateway is not None and gateway.jobs.editor.shutdown_requested:
+                                process_id = gateway.jobs.editor.activity["process_id"]
+                                current = process_identity(process_id)
+                                same_process = current is not None and self.identity == (process_id, current["created"])
+                                value["shutdown"] = {"status": "exit_pending" if same_process else "exited", "process_id": process_id}
                         value["stale"] = gateway is not None
                     signature = (value.get("revision", 0), self.revision, self.registry.revision, self.clients.operators.revision)
                     if signature != self.view_signature:

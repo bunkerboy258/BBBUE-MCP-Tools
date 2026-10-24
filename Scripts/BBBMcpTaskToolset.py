@@ -2,6 +2,7 @@ import json
 import builtins
 import os
 import sys
+import time
 import uuid
 
 import unreal
@@ -15,6 +16,44 @@ if not hasattr(builtins, "BBB_MCP_HOST_ACTIVITY_STATE"):
         "host_instance": uuid.uuid4().hex, "pie_generation": 0, "world_identity": (),
     }
 _host_state = builtins.BBB_MCP_HOST_ACTIVITY_STATE
+
+
+def _shutdown_blocked():
+    """/** @return 当前世界 活动及脏包是否要求继续交接 */"""
+    return bool(unreal.EditorLevelLibrary.get_pie_worlds(False)
+        or unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor()
+        or active_activities()
+        or unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()
+        or unreal.EditorLoadingAndSavingUtils.get_dirty_map_packages())
+
+
+def _shutdown_tick(delta_seconds):
+    """/** @param delta_seconds 编辑器帧间隔 @return 延后执行正常退出并保留实际状态 */"""
+    state = _host_state["shutdown"]
+    if time.monotonic() < state["due"]:
+        return
+    try:
+        if _shutdown_blocked():
+            unreal.unregister_slate_post_tick_callback(state.pop("handle"))
+            state.update(status="shutdown_blocked", code="HOST_BUSY")
+            unreal.log_warning("[BBBMcpShutdown] HOST_BUSY")
+            return
+        if state["status"] == "shutdown_requested":
+            editors = unreal.get_editor_subsystem(unreal.AssetEditorSubsystem)
+            state["closed_blueprint_editors"] = sum(editors.close_all_editors_for_asset(asset)
+                for asset in list(unreal.ObjectIterator(unreal.Blueprint)) if asset.get_path_name().startswith("/Game/"))
+            state.update(status="closing_editors", due=time.monotonic() + 0.2)
+            return
+        unreal.unregister_slate_post_tick_callback(state.pop("handle"))
+        state["status"] = "exiting"
+        unreal.log("[BBBMcpShutdown] 正常退出编辑器")
+        unreal.SystemLibrary.quit_editor()
+    except Exception as error:
+        handle = state.pop("handle", None)
+        if handle is not None:
+            unreal.unregister_slate_post_tick_callback(handle)
+        state.update(status="shutdown_failed", code="EDITOR_SHUTDOWN_FAILED", error=str(error))
+        unreal.log_error("[BBBMcpShutdown] " + str(error))
 
 
 def _observe_worlds(delta_seconds=0.0):
@@ -36,6 +75,33 @@ def _observe_worlds(delta_seconds=0.0):
 @unreal.uclass()
 class BBBMcpTaskToolset(unreal.ToolsetDefinition):
     """/** 提供共享宿主的只读活动证据 */"""
+
+    @mcp_tool
+    @staticmethod
+    def request_editor_shutdown(process_id: int, host_instance: str) -> str:
+        """
+        /**
+         * 核对宿主及交接状态后延后正常退出
+         * @param process_id\t目标进程编号
+         * @param host_instance\t目标宿主代际
+         * @return 已接受退出请求的身份及状态
+         */
+        """
+        if process_id != os.getpid() or host_instance != _host_state["host_instance"]:
+            raise RuntimeError("HOST_IDENTITY_CHANGED")
+        state = _host_state.get("shutdown", {})
+        if state.get("status") in {"shutdown_requested", "closing_editors", "exiting"}:
+            return json.dumps({"status": "shutdown_requested", "process_id": process_id, "host_instance": host_instance})
+        if _shutdown_blocked():
+            raise RuntimeError("HOST_BUSY")
+        state = {"status": "shutdown_requested", "due": time.monotonic() + 0.5}
+        _host_state["shutdown"] = state
+        try:
+            state["handle"] = unreal.register_slate_post_tick_callback(_shutdown_tick)
+        except Exception:
+            state.update(status="shutdown_failed", code="EDITOR_SHUTDOWN_SCHEDULE_FAILED")
+            raise
+        return json.dumps({"status": "shutdown_requested", "process_id": process_id, "host_instance": host_instance})
 
     @mcp_tool
     @staticmethod
@@ -173,6 +239,7 @@ class BBBMcpTaskToolset(unreal.ToolsetDefinition):
             "saved_directory": os.path.realpath(unreal.Paths.project_saved_dir()),
             "project_root": os.path.realpath(unreal.Paths.project_dir()),
             "host_instance": _host_state["host_instance"],
+            "shutdown": {key: value for key, value in _host_state.get("shutdown", {}).items() if key not in {"handle", "due"}},
             "editor_world": editor_world.get_path_name() if editor_world is not None else None,
             "pie_active": bool(subsystem.is_in_play_in_editor()),
             "pie_generation": _host_state["pie_generation"],

@@ -33,7 +33,7 @@ def public_tools():
         ("describe_tool", "读取一个工具的参数与权限", {"tool": {"type": "string"}}, ["tool"]),
         ("submit_batch", "自动保存目标并执行 操作冲突自动排队 按next继续", {"operations": {"type": "array", "minItems": 1, "maxItems": 16, "items": {"type": "object", "properties": {"tool": {"type": "string"}, "arguments": {"type": "object"}}, "required": ["tool", "arguments"], "additionalProperties": False}}, "await_seconds": {"type": "number", "minimum": 0, "maximum": 10, "default": 2}, "label": {"type": "string", "maxLength": 120}, "environment": {"type": "string", "enum": ["editor", "test"], "default": "editor"}, "test_host": {"type": "string", "pattern": "^[0-9a-f]{16}$"}, "test_options": {"type": "object", "properties": {"map": {"type": "string", "pattern": "^/(Game|Engine)/[A-Za-z0-9_/]+$"}, "rendering": {"type": "boolean"}, "scene_performance": {"type": "boolean"}, "audio": {"type": "boolean"}, "players": {"type": "integer", "minimum": 1, "maximum": 8}, "net_mode": {"type": "string", "enum": ["standalone", "listen", "client"]}}, "required": ["map"], "additionalProperties": False}}, ["operations"]),
         ("inspect_tasks", "读取占用与批次结果 operators=true展开干员池", {"batch": {"type": "string"}, "detail": {"type": "boolean"}, "operators": {"type": "boolean"}, "after_revision": {"type": "integer", "minimum": 0}, "wait_seconds": {"type": "number", "minimum": 0, "maximum": 60}}, []),
-        ("control_task", "所属批次收尾恢复 0级可接管故障批次与管理宿主", {"action": {"type": "string", "enum": ["cancel", "close", "recover", "shutdown_host", "pause_operator", "resume_operator", "cancel_blocker", "terminate_host"]}, "batch": {"type": "string", "description": "cancel close recover cancel_blocker 的目标批次"}, "operator": {"type": "string", "description": "pause_operator resume_operator 的干员ID"}, "lease_seconds": {"type": "number", "minimum": 1, "maximum": 300, "default": 60}, "host": {"type": "string", "description": "terminate_host 使用 inspect_tasks.hosts.id"}}, ["action"]),
+        ("control_task", "正常关闭编辑器shutdown_host 批次收尾恢复 0级接管故障与管理宿主", {"action": {"type": "string", "enum": ["cancel", "close", "recover", "shutdown_host", "pause_operator", "resume_operator", "cancel_blocker", "terminate_host"]}, "batch": {"type": "string", "description": "cancel close recover cancel_blocker 的目标批次"}, "operator": {"type": "string", "description": "pause_operator resume_operator 的干员ID"}, "lease_seconds": {"type": "number", "minimum": 1, "maximum": 300, "default": 60}, "host": {"type": "string", "description": "terminate_host 使用 inspect_tasks.hosts.id"}}, ["action"]),
     ]
     return [{"name": name, "description": description, "inputSchema": {"type": "object", "properties": properties, "required": required, "additionalProperties": False}} for name, description, properties, required in schemas]
 
@@ -238,7 +238,18 @@ class UnrealBackend:
 
     def shutdown(self):
         """/** @return 正式请求空闲宿主退出 */"""
-        self._call("call_tool", {"toolset_name": self.external_name, "tool_name": "util", "arguments": {"action": "execute_console_command", "params_json": json.dumps({"command": "QUIT_EDITOR"})}})
+        current = self.probe()
+        definition = self._call("describe_toolset", {"toolset_name": self.task_name})
+        if isinstance(definition, str):
+            definition = json.loads(definition)
+        if not any(item["name"] == "request_editor_shutdown" for item in definition["tools"]):
+            raise McpBusinessError({"code": "EDITOR_TOOLSET_RELOAD_REQUIRED",
+                "hint": "当前编辑器加载了旧工具集；交接后启动新版编辑器加载正常退出工具", "next": next_call("inspect_tasks")})
+        result = self._call("call_tool", {"toolset_name": self.task_name, "tool_name": "request_editor_shutdown",
+            "arguments": {"process_id": current["process_id"], "host_instance": current["host_instance"]}})
+        if result.get("status") != "shutdown_requested" or result.get("process_id") != current["process_id"] or result.get("host_instance") != current["host_instance"]:
+            raise McpBusinessError({"code": "EDITOR_SHUTDOWN_UNCONFIRMED", "next": next_call("inspect_tasks")})
+        return result
 
     def recover_asset_moves(self, report):
         """/** @param report 所属迁移证据 @return 保存和旧源包收尾的实际结果 */"""

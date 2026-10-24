@@ -1,5 +1,34 @@
 {
   "BBBMcpTaskToolset": {
+    "request_editor_shutdown": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "process_id": {
+            "type": "integer"
+          },
+          "host_instance": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "process_id",
+          "host_instance"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "已接受退出请求的身份及状态 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
     "inspect_editor_activity": {
       "inputSchema": {
         "type": "object"

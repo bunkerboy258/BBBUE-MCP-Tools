@@ -631,6 +631,11 @@ class ToolCatalog:
     def find(self, query, limit=3):
         """/** @param query 目标关键字 @param limit 结果上限 @return 候选工具 */"""
         normalized = query.casefold().strip()
+        if any(word in normalized for word in ("关闭编辑器", "退出编辑器", "关编辑器", "关闭ue", "退出ue", "shutdown_host", "close editor", "quit editor")):
+            result = self.describe("control_task")
+            result["arguments"] = {"action": "shutdown_host"}
+            result["call"] = {"tool": "control_task", "arguments": result["arguments"]}
+            return [result]
         if normalized == "inspect_tasks" or any(word in normalized for word in ("干员", "会话占用", "operator", "session occupancy")):
             result = self.describe("inspect_tasks")
             result["arguments"] = {"operators": True}
@@ -695,11 +700,11 @@ class ToolCatalog:
 
     def describe(self, identity):
         """/** @param identity 工具 ID @return 单工具契约 */"""
-        if identity == "inspect_tasks":
+        if identity in {"inspect_tasks", "control_task"}:
             from MCP.mcp_task_gateway import public_tools
             entry = next(item for item in public_tools() if item["name"] == identity)
             return {"id": identity, "summary": entry["description"], "parameters": entry["inputSchema"],
-                "access": "read", "world": "any", "completion": "observed", "direct": True}
+                "access": "read" if identity == "inspect_tasks" else "write", "world": "any", "completion": "observed", "direct": True}
         item = self.tools[identity]
         result = {key: item[key] for key in ("id", "summary", "parameters", "access", "world")}
         result.update({key: item[key] for key in ("scope", "completion", "version")})

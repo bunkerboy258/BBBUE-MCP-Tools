@@ -134,3 +134,5 @@ SDK 缓存发现首项的完整契约，按响应 `catalog_version` 失效。工
 资产故障的 `retry_at=null` 表示自动恢复预算耗尽或实际状态需要核验。迁移专用证据在 `proof.move_recovery` 交付，原操作失败事实独立保留，资产已完成交接时响应明确提示后续可继续。
 
 零级干员使用 `control_task(action="recover", batch=...)` 接管其它会话的故障批次。服务核对终态、故障占用及所属活动，原子转移批次归属并记录原干员与接管干员。原客户端控制权限随归属转移；恢复沿原迁移证据核验、保存及释放资产。
+
+正常关闭编辑器使用 `control_task(action="shutdown_host")`，随后按 `next` 查询 `inspect_tasks.shutdown`。`shutdown_requested` 表示已安排退出，`exited` 表示原进程已退出；`shutdown_blocked` 与 `shutdown_failed` 携带实际原因。

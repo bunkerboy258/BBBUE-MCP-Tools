@@ -209,6 +209,7 @@ class JobQueue:
                     return copy.deepcopy(self.activity)
             identity = (snapshot["process_id"], snapshot["host_instance"])
             business = {key: snapshot.get(key) for key in ("process_id", "host_instance", "editor_world", "pie_active", "pie_generation", "worlds", "activities", "dirty_packages")}
+            business["shutdown"] = snapshot.get("shutdown", {})
             hosts = snapshot.get("project_hosts", {})
             business["host_exclusive"] = hosts.get("verified", True) and hosts.get("exclusive", True)
             business["host_verified"] = True
@@ -218,6 +219,8 @@ class JobQueue:
                     self.host_identity = identity
                 if self.host_identity != identity:
                     self.host_changed = True
+                if business["shutdown"].get("status") in {"shutdown_blocked", "shutdown_failed"}:
+                    self.shutdown_requested = False
                 self.draining = self.shutdown_requested or self.host_changed or not business["host_exclusive"]
                 self.activity = business
                 self.observed_at = self.clock()
@@ -879,8 +882,16 @@ class JobQueue:
                 self.draining = True
                 self.shutdown_requested = True
                 self._signal()
-            self.backend.shutdown()
-            return {"status": "shutdown_requested"}
+            try:
+                self.backend.shutdown()
+            except Exception:
+                with self.changed:
+                    self.shutdown_requested = False
+                    self.draining = self.host_changed or not self.activity.get("host_exclusive", False)
+                    self._signal()
+                raise
+            return {"status": "shutdown_requested", "process_id": self.activity["process_id"],
+                "next": {"tool": "inspect_tasks", "arguments": {"wait_seconds": 2}}}
         with self.changed:
             job = self.jobs.get(batch)
             if job is None:
@@ -1013,6 +1024,8 @@ class JobQueue:
                         return self._job_view(job, detail)
                     result = {"revision": self.revision, "host": {"process_id": self.activity["process_id"], "exclusive": self.activity["host_exclusive"], "verified": self.activity["host_verified"]}, "status": "draining" if self.draining else "ready", "available": ["read", "prepare"], "queued": len(self.queue), "pie": bool(self.activity.get("pie_active")), "activities": len(self.activity.get("activities", [])), "dirty": len(self.activity.get("dirty_packages", [])), "next": None}
                     result["owned_activities"] = sorted(key for key, owner in self.activity_owners.items() if owner == client)
+                    if self.activity.get("shutdown"):
+                        result["shutdown"] = copy.deepcopy(self.activity["shutdown"])
                     blockers = [job for job in self.jobs.values() if job["status"] in {"running"}]
                     blockers.sort(key=lambda job: job["status"] != "running")
                     if blockers:

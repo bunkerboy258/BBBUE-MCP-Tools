@@ -41,3 +41,9 @@
 最后连接关闭后的原身份仍可查询和恢复自己的故障批次，登记和新编辑沿干员生命周期执行。SDK 重连在 `session.recovery` 提供完整下一步，`session.operator` 保持释放状态。服务重启保留迁移证据、实际故障和恢复次数。
 
 零级干员使用 `control_task(action="recover", batch=...)` 接管其它会话的故障批次。服务核对终态、故障占用及所属活动，原子转移批次归属并记录原干员与接管干员。原客户端控制权限随归属转移；恢复沿原迁移证据核验、保存及释放资产。
+
+## 正常关闭编辑器
+
+`control_task(action="shutdown_host")` 核对任务、测试宿主、活动和脏包交接后，调用私有 `request_editor_shutdown(process_id, host_instance)`。编辑器先返回身份回执，延后关闭已加载蓝图的编辑窗口，再隔帧调用官方 `SystemLibrary.quit_editor()`。每个退出边界重新检查 PIE、活动和脏包。调用失败及延后交接阻塞恢复服务调度；`inspect_tasks.shutdown` 返回 `shutdown_requested`、`closing_editors`、`exiting`、`shutdown_blocked` 或 `shutdown_failed`。服务核对原进程代际后以 `exited` 确认退出；连接中断但进程仍在时返回 `exit_pending`。
+
+搜索“关闭编辑器”直接返回完整公开调用。旧宿主缺少退出小工具时返回 `EDITOR_TOOLSET_RELOAD_REQUIRED`，交接重启后加载新版工具集。零级 `terminate_host` 保留明确强制终止语义。
