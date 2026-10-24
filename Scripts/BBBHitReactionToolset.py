@@ -139,9 +139,10 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
             raise RuntimeError("环境画面采集需要带渲染的 PIE")
         if any(item["status"] == "pending" for item in _captures.values()):
             raise RuntimeError("已有采样尚未完成")
-        settings = unreal.load_asset(settings_path)
-        if not isinstance(settings, unreal.BBBMonsterBloodPresentationDefinition):
-            raise RuntimeError("正式血效配置无效")
+        presentation = unreal.load_asset(settings_path)
+        if not isinstance(presentation, unreal.BBBMonsterPresentationDefinition):
+            raise RuntimeError("需要僵尸表现配置")
+        settings = presentation.get_editor_property("blood")
         cube = unreal.load_asset("/Engine/BasicShapes/Cube")
         neutral = unreal.load_asset("/Engine/BasicShapes/BasicShapeMaterial")
         identifier = str(uuid.uuid4())

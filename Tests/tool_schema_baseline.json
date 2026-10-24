@@ -15397,6 +15397,18 @@
     }
   },
   "BBBMonsterGoreToolset": {
+    "inspect_monster_presentation": {
+      "inputSchema": {"type": "object", "properties": {"definition_path": {"type": "string"}}, "required": ["definition_path"]},
+      "outputSchema": {"type": "object", "properties": {"returnValue": {"type": "string"}}, "required": ["returnValue"]}
+    },
+    "save_monster_presentation": {
+      "inputSchema": {"type": "object", "properties": {"definition_path": {"type": "string"}}, "required": ["definition_path"]},
+      "outputSchema": {"type": "object", "properties": {"returnValue": {"type": "string"}}, "required": ["returnValue"]}
+    },
+    "import_monster_hit_profile": {
+      "inputSchema": {"type": "object", "properties": {"definition_path": {"type": "string"}, "region": {"type": "integer"}, "source_path": {"type": "string"}}, "required": ["definition_path", "region", "source_path"]},
+      "outputSchema": {"type": "object", "properties": {"returnValue": {"type": "string"}}, "required": ["returnValue"]}
+    },
     "configure_monster_wound_materials": {
       "inputSchema": {
         "type": "object",

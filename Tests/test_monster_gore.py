@@ -19,7 +19,7 @@ class MonsterGoreTests(unittest.TestCase):
         self.engine = Mock()
         self.access = Mock()
         self.scope = {"unreal": self.engine, "json": json, "re": re, "require_asset_write": self.access}
-        for name in ("configure_monster_wound_materials",):
+        for name in ("configure_monster_wound_materials", "save_monster_presentation", "import_monster_hit_profile"):
             function = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == name)
             function.decorator_list = []
             exec(compile(ast.Module(body=[function], type_ignores=[]), "monster_gore_test", "exec"), self.scope)
@@ -35,7 +35,7 @@ class MonsterGoreTests(unittest.TestCase):
         """/** @return 运行中的世界不能重做配对资源 */"""
         self.engine.get_editor_subsystem.return_value.get_game_world.return_value = object()
         with self.assertRaises(RuntimeError):
-            self.scope["configure_monster_wound_materials"]("/Game/_Project/Mass/Monster/Zombie/Shared/Injury/Connor/DA_Wounds")
+            self.scope["configure_monster_wound_materials"]("/Game/_Project/Mass/Monster/Zombie/Male/Variants/Connor/DA_BBBZombieConnorPresentation")
         self.engine.load_asset.assert_not_called()
 
     def test_gib_probe_queries_only_the_current_world(self):
@@ -74,6 +74,27 @@ class MonsterGoreTests(unittest.TestCase):
         current = source_index("BBBMonsterGoreToolset")["public_tools"]
         self.assertFalse({"open_monster_gore_editor", "control_monster_gore_preview",
                           "adjust_monster_wound_preview"}.intersection(current))
+
+    def test_presentation_save_and_import_wait_for_pie(self):
+        """/** @return 用户运行游戏时不写主配置或受击模板 */"""
+        self.engine.get_editor_subsystem.return_value.get_game_world.return_value = object()
+        with self.assertRaises(RuntimeError):
+            self.scope["save_monster_presentation"]("/Game/_Project/Debug/ZombieHitReaction/DA_TargetPresentation")
+        with self.assertRaises(RuntimeError):
+            self.scope["import_monster_hit_profile"]("/Game/_Project/Debug/ZombieHitReaction/DA_TargetPresentation", 0, "/Game/Template")
+        self.engine.load_asset.assert_not_called()
+        self.access.assert_not_called()
+
+    def test_main_configuration_contracts_have_one_write_owner(self):
+        """/** @return 检查只读 导入和保存均只登记目标主配置 */"""
+        read = tool_contract("BBBMonsterGoreToolset", "inspect_monster_presentation", {})
+        self.assertEqual(read["access"], "read")
+        for name in ("save_monster_presentation", "import_monster_hit_profile"):
+            contract = tool_contract("BBBMonsterGoreToolset", name, {})
+            self.assertEqual(contract["access"], "write")
+            self.assertEqual(contract["scope"]["fields"], ["definition_path"])
+        from BBBMcpCapabilities import source_index
+        self.assertNotIn("consolidate_monster_configuration", source_index("BBBMonsterGoreToolset")["public_tools"])
 
 
 if __name__ == "__main__":

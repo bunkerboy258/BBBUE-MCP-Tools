@@ -4,7 +4,7 @@
 
 ## 正式资源
 
-配置固定在 `/Game/_Project/Mass/Monster/Zombie/Shared/Injury/<外观>/DA_Wounds`。
+僵尸只有逻辑与表现两份主配置。表现入口为各版本目录中的 `DA_BBBZombie<外观>Presentation`。伤口 血液 声音与四个受击混合参数保存为其内联分区 不再创建独立 DA_Wounds 或血液和声音数据资产。测试独立入口为 `/Game/_Project/Debug/ZombieHitReaction/DA_TargetPresentation`。
 
 - 普通局部伤口最多两处 新伤口轮换替换局部槽位。
 - 永久损毁最多五处 头与四肢各一处 普通命中不能挤走。
@@ -24,7 +24,15 @@
 
 `monster_gore.inspect_monster_gore_assets(definition_path)` 回读配置引用 有效性及固定容量 不运行世界 不保存。
 
-专用预览窗口 手柄编辑及其后台独立预览世界已删除。此工具集只保留正式共享材质适配和资源只读检查 不提供旧入口转发。
+`monster_gore.inspect_monster_presentation(definition_path)` 只读核对新主配置的有效性与全部内联分区所有权。
+
+`monster_gore.save_monster_presentation(definition_path)` 在编辑器中验证并保存整份表现配置。拒绝 PIE 和非自有资产。
+
+`monster_gore.import_monster_hit_profile(definition_path, region, source_path)` 将参数模板的可编辑值复制到主配置内部的受击分区。编号依次为躯干 头 手臂 腿。导入后不引用模板 不改变逻辑或身体资源。物理来源绑定主配置的物理资产。
+
+材质适配与伤口检查的 `definition_path` 同样只接受新表现主配置 不接受已废弃的独立伤口配置。
+
+专用预览窗口 手柄编辑及其后台独立预览世界已删除。不提供旧入口转发。
 
 实际效果迭代在 BBBTest 调试靶与真实 Mass 僵尸上完成。使用现有正式命中链与真实游戏时间采图 检查创口边缘 内部组织 动画随动 喷血 断肢飞行和落地。参数有效性与构建通过不算表现达标。
 

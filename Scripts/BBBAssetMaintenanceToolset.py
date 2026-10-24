@@ -1173,9 +1173,10 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         channel = unreal.load_asset(channel_path)
         if any(not isinstance(item, unreal.MaterialInterface) for values in materials.values() for item in values) or not isinstance(channel, unreal.NiagaraDataChannelAsset):
             raise RuntimeError("血迹材质或已有数据通道无效")
-        settings = unreal.load_asset(settings_path)
-        if not isinstance(settings, unreal.BBBMonsterBloodPresentationDefinition):
-            raise RuntimeError("已有血效配置类型无效")
+        presentation = unreal.load_asset(settings_path)
+        if not isinstance(presentation, unreal.BBBMonsterPresentationDefinition):
+            raise RuntimeError("需要僵尸表现配置")
+        settings = presentation.get_editor_property("blood")
         require_asset_write([settings_path], [])
         settings.modify()
         settings.set_editor_property("impact_channel", channel)
@@ -1184,7 +1185,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
                   "maximum_traces_per_frame": 96}
         for key, value in {**materials, **values}.items():
             settings.set_editor_property(key, value)
-        if not unreal.EditorAssetLibrary.save_loaded_asset(settings, False):
+        if not unreal.EditorAssetLibrary.save_loaded_asset(presentation, False):
             raise RuntimeError("血效配置保存失败")
         for key, value in {**materials, **values, "impact_channel": channel}.items():
             if settings.get_editor_property(key) != value:

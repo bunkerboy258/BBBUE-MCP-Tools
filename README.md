@@ -650,3 +650,7 @@ ManualAction制作源显式设置reset_base_request=true，通过prepare_action�
 # 2026-10-24 后坐力屏幕探针
 
 新增 `animation.sample_recoil_runtime` 使用项目编辑器库在游戏视口绘制结束时观察本地实际准星 保留游戏帧号 相机 枪口与视口证据。只在主动测试时运行 不扫描特效或弹壳 不参与装备玩法。支持统计与原始数据分页 异常投影及漏采显式报告。25 项探针与相关契约及 AO 检查通过 UE5.8 完整编译链接通过。主项目关闭小怪自动生成后完成原配置及新配置的完整弹匣对照 腰射 单发 点射和新实例加载回归。实测约 30/60/75.5 FPS 不把 120 FPS 上限当成实际帧率。使用说明见 `Docs/BBBRecoilProbeMCP.md`。
+
+## 僵尸两份主配置与内联分区
+
+Monster 版本只编辑逻辑与表现两份主配置。`monster_gore.inspect_monster_presentation` 核对分区所有权 `save_monster_presentation` 验证后保存 `import_monster_hit_profile` 将制作模板的参数导入主配置内部分区且不保留模板引用。伤口材质与血液工具改为接收表现主配置。普通与断肢喷血的四项倍率经既有批量通道传递 不逐命中创建系统。旧迁移入口已移除。7 项专项工具边界与 5 项公共契约检查通过。UE5.8 完整编译链接通过 原生配置 调试靶 受击连射 出生 动画和声音共 12 项检查通过。两套血粒子系统的 16 个脚本均为 UpToDate。未将这些结果当作主观表现或帧率验收。使用说明见 `Docs/BBBMonsterGoreMCP.md`。

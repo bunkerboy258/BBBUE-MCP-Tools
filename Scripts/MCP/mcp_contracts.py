@@ -36,6 +36,9 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
+    'monster_gore.inspect_monster_presentation': {'access': 'read', 'world': 'any'},
+    'monster_gore.import_monster_hit_profile': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['definition_path']}, 'completion': 'verified_save'},
+    'monster_gore.save_monster_presentation': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['definition_path']}, 'completion': 'verified_save'},
     'monster_gore.configure_monster_wound_materials': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['definition_path']}, 'completion': 'verified_save'},
     'monster_gore.inspect_monster_gore_assets': {'access': 'read', 'world': 'any'},
     'editor.reimport_static_mesh': {'scope': {'fields': ['asset_path']}},
