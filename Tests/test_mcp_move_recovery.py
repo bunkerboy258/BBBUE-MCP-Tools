@@ -10,7 +10,7 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[1] / "Scripts"), str(Path(_
 from MCP.mcp_result import McpBusinessError, McpExecutionError
 from MCP.mcp_response import response
 from MCP.mcp_jobs import JobQueue
-from MCP.mcp_task_gateway import TaskGateway
+from MCP.mcp_task_gateway import TaskGateway, UnrealBackend
 from test_mcp_task_gateway import fixtures, operation
 import test_asset_move_persistence as persistence_tests
 
@@ -201,6 +201,41 @@ class MoveRecoveryTests(unittest.TestCase):
         count = len(self.recover_calls)
         restored.run_once()
         self.assertEqual(len(self.recover_calls), count)
+
+
+class CompletedMoveReadbackTests(unittest.TestCase):
+    """/** 已落盘迁移通过真实核验完成收尾 */"""
+
+    def backend(self, success=True, count=1, dirty=()):
+        """/** @param success 核验结果 @param count 核验数量 @param dirty 待保存包 @return 后端与写调用 */"""
+        backend = object.__new__(UnrealBackend)
+        backend.catalog = SimpleNamespace(tools={"assets.verify_asset_moves": {"id": "assets.verify_asset_moves"}})
+        backend.task_name = "Task"
+        backend.invoke = lambda contract, arguments: {"success": success, "asset_count": count}
+        backend.probe = lambda: {"dirty_packages": list(dirty)}
+        calls = []
+        backend._call = lambda name, arguments: calls.append(arguments) or {"success": False}
+        return backend, calls
+
+    def test_verified_saved_moves_release_without_loading_stale_referencers(self):
+        """/** @return 已核验迁移沿只读结果收尾 */"""
+        backend, calls = self.backend()
+        report = {"assets": [{"source": "/Game/Old/A", "destination": "/Game/New/A"}],
+            "object_results": [{"source": "/Game/Old/A", "renamed": True}], "referencer_packages": ["/Game/StaleRef"]}
+        result = backend.recover_asset_moves(report)
+        self.assertTrue(result["success"])
+        self.assertTrue(result["persistence"]["read_only"])
+        self.assertEqual(calls, [])
+
+    def test_incomplete_readback_and_dirty_referencers_keep_write_recovery(self):
+        """/** @return 核验失败 数量缺失及脏引用者继续实际恢复 */"""
+        report = {"assets": [{"source": "/Game/Old/A", "destination": "/Game/New/A"}],
+            "object_results": [{"source": "/Game/Old/A", "renamed": True}], "referencer_packages": ["/Game/Ref"]}
+        for options in ({"success": False}, {"count": 0}, {"dirty": ["/Game/Ref"]}):
+            backend, calls = self.backend(**options)
+            backend.recover_asset_moves(report)
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(calls[0]["tool_name"], "recover_asset_moves")
 
 
 class MovePersistenceRecoveryTests(unittest.TestCase):

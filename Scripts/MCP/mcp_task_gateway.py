@@ -242,6 +242,17 @@ class UnrealBackend:
 
     def recover_asset_moves(self, report):
         """/** @param report 所属迁移证据 @return 保存和旧源包收尾的实际结果 */"""
+        renamed = {item["source"] for item in report["object_results"] if item["renamed"]}
+        selected = [item for item in report["assets"] if item["source"] in renamed]
+        if not selected:
+            raise McpBusinessError({"code": "MOVE_RECOVERY_INVALID", "next": None})
+        verification = self.invoke(self.catalog.tools["assets.verify_asset_moves"], {"moves": selected})
+        scope = {item[key] for item in selected for key in ("source", "destination")}
+        scope.update(report["referencer_packages"])
+        if verification.get("success") is True and verification.get("asset_count") == len(selected):
+            if not scope.intersection(self.probe().get("dirty_packages", [])):
+                return {"success": True, "verification": verification,
+                    "persistence": {"success": True, "phase": "verified", "read_only": True, "saved_packages": []}}
         return self._call("call_tool", {"toolset_name": self.task_name, "tool_name": "recover_asset_moves",
             "arguments": {"report_json": json.dumps(report, ensure_ascii=False)}})
 
