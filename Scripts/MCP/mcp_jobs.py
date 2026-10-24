@@ -103,7 +103,7 @@ class JobQueue:
             targets=sorted(asset_targets(job["targets"])), owned_dirty=sorted(job["owned_dirty"]),
             coordination=self.assets.view(job["id"]), uncertain=sorted(job["uncertain"]),
             activities=sorted(job["activities"]), pie=job["id"] == self.pie_batch, host=list(job.get("host", self.host_identity)))
-        for key in ("proof", "execution", "failure", "yield_versions", "cancel_requested"):
+        for key in ("proof", "execution", "failure", "yield_versions", "cancel_requested", "move_recovery", "recovery_failure", "save_failure", "save_code"):
             if key in job:
                 record[key] = copy.deepcopy(job[key])
         self.clients.store_job(record)
@@ -146,7 +146,9 @@ class JobQueue:
                 record["owned_dirty"].update(conflicting_packages(appeared, claim["packages"]))
                 record["dirty"] = sorted(record["owned_dirty"] & set(self.activity.get("dirty_packages", [])))
                 record["uncertain"].update(claim["packages"])
-                self.assets.fault(record["id"], set(claim["packages"]) | set(record["dirty"]), record.get("code"), self.clock() - 2)
+                self.assets.hold(record["id"], claim["packages"], "fault")
+                self.assets.claims[record["id"]]["attempts"] = max(0, claim.get("attempts", 0) - 1)
+                self.assets.fault(record["id"], set(claim["packages"]) | set(record["dirty"]), claim.get("code"), self.clock() - 2)
             if host != self.host_identity:
                 record["owned_dirty"] = set()
                 record["dirty"] = []
@@ -156,6 +158,8 @@ class JobQueue:
                         record.setdefault("proof", {})["host_readback"] = self.backend.reconcile(set(claim["packages"]))
                     except Exception as error:
                         record.setdefault("proof", {})["host_readback"] = {"code": "HOST_READBACK_PENDING", "type": type(error).__name__}
+                if record.get("move_recovery"):
+                    self.assets.fault(record["id"], claim["packages"] or record["targets"], "MOVE_HOST_CHANGED", self.clock())
             self.jobs[record["id"]] = record
             self.activity_owners.update({identity: owner for identity in record["activities"] & active})
             if pie and self.activity.get("pie_active"):
@@ -346,8 +350,9 @@ class JobQueue:
                     job["code"] = reason
                     self._signal()
             recoveries = [self.jobs[identity] for identity, claim in self.assets.claims.items()
-                if claim["phase"] == "fault" and claim["retry_at"] <= now
-                and not self.clients.operators.paused(self.jobs[identity]["owner"])]
+                if claim["phase"] == "fault" and claim["retry_at"] is not None and claim["retry_at"] <= now
+                and not self.clients.operators.paused(self.jobs[identity]["owner"])
+                and not activity.get("pie_active") and not activity.get("worlds")]
             if recoveries and not self.draining:
                 candidates = recoveries + ([selected] if selected is not None else [])
                 selected = ordered(candidates, self.clients.operators)[0]
@@ -523,6 +528,15 @@ class JobQueue:
         except McpBusinessError as error:
             job["failure"] = copy.deepcopy(error.value)
             job["failure"]["operation"] = job["failed_index"]
+            recovery = error.value.get("execution", {}).get("details", {}).get("recovery")
+            if recovery is not None and operation.get("contract", {}).get("id") in {"assets.move_assets_batch", "assets.move_assets_preserving_external_actor_references"}:
+                paths = [row[key] for row in recovery.get("assets", []) for key in ("source", "destination")]
+                paths.extend(recovery.get("referencer_packages", []))
+                if conflicting_packages(asset_targets(paths), job["targets"]) != asset_targets(paths):
+                    error.value.update(code="MOVE_RECOVERY_INVALID", execution={"state": "unknown"})
+                    job["failure"] = copy.deepcopy(error.value)
+                if conflicting_packages(asset_targets(paths), job["targets"]) == asset_targets(paths):
+                    job["move_recovery"] = copy.deepcopy(recovery)
             for need in job["failure"].get("needs", []):
                 if need["path"].startswith("/arguments"):
                     need["path"] = "/operations/" + str(job["failed_index"]) + need["path"]
@@ -753,17 +767,18 @@ class JobQueue:
         job.setdefault("failure", {"code": code, "execution": {"state": execution}})
         if execution == "unknown":
             job["uncertain"].update(job.get("effect_scope", job["targets"]))
-        if settle and execution != "unknown" and not job["activities"] & set(self.activity_owners):
+        if settle and execution != "unknown" and not job.get("move_recovery") and not job["activities"] & set(self.activity_owners):
             if self._save_owned(job, current):
                 self._finish(job)
                 return
         with self.changed:
             job["status"] = "failed"
-            self.assets.fault(job["id"], set(job["dirty"]) | job["uncertain"], code, self.clock())
+            recovery_scope = job["targets"] if job.get("move_recovery") else set(job["dirty"]) | job["uncertain"]
+            self.assets.fault(job["id"], recovery_scope, code, self.clock())
             if self.writer == job["id"]:
                 self.writer = None
             self._signal()
-        if execution == "unknown" and not self.draining and not job["activities"] & set(self.activity_owners):
+        if (execution == "unknown" or job.get("move_recovery")) and not self.draining and not job["activities"] & set(self.activity_owners):
             self._reconcile(job)
 
     def _reconcile(self, job):
@@ -771,7 +786,8 @@ class JobQueue:
         with self.changed:
             self.writer = job["id"]
             job["status"] = "running"
-            self.assets.hold(job["id"], set(job["dirty"]) | job["uncertain"], "verifying")
+            scope = job["targets"] if job.get("move_recovery") else set(job["dirty"]) | job["uncertain"]
+            self.assets.hold(job["id"], scope, "verifying")
             self._signal()
         try:
             if job["activities"] & set(self.activity_owners) or (self.pie_batch == job["id"] and self.activity.get("pie_active")):
@@ -779,6 +795,19 @@ class JobQueue:
             current = self.observe(force=True)
             if self.draining or not current["host_verified"]:
                 raise JobConflict("HOST_UNVERIFIED")
+            if current.get("pie_active") or current.get("worlds"):
+                raise JobConflict("EDITOR_WORLD_REQUIRED")
+            if job.get("move_recovery"):
+                self.call_active = True
+                try:
+                    result = self.backend.recover_asset_moves(copy.deepcopy(job["move_recovery"]))
+                    if not isinstance(result, dict) or result.get("success") is not True:
+                        raise JobConflict("MOVE_RECOVERY_UNVERIFIED")
+                    job.setdefault("proof", {})["move_recovery"] = result
+                    job.pop("move_recovery")
+                finally:
+                    self.call_active = False
+                current = self.observe(force=True)
             job["owned_dirty"].update(conflicting_packages(current.get("dirty_packages", []), job["uncertain"]))
             if not self._save_owned(job, current):
                 raise JobConflict(job.get("save_code", "SAVE_FAILED"))
@@ -794,10 +823,14 @@ class JobQueue:
             self._finish(job)
         except Exception as error:
             job["recovery_failure"] = copy.deepcopy(error.value) if isinstance(error, McpBusinessError) else {"error": str(error)}
+            recovery = job["recovery_failure"].get("execution", {}).get("details", {}).get("recovery")
+            if recovery is not None and job.get("move_recovery"):
+                job["move_recovery"] = copy.deepcopy(recovery)
             with self.changed:
                 job["status"] = "failed"
                 code = job["recovery_failure"].get("code", "ASSET_READBACK_FAILED")
-                self.assets.fault(job["id"], set(job["dirty"]) | job["uncertain"], code, self.clock())
+                scope = job["targets"] if job.get("move_recovery") else set(job["dirty"]) | job["uncertain"]
+                self.assets.fault(job["id"], scope, code, self.clock())
                 if self.writer == job["id"]:
                     self.writer = None
                 self._signal()
@@ -855,6 +888,20 @@ class JobQueue:
             foreign = job["owner"] != client
             if foreign:
                 raise JobConflict("BATCH_OWNERSHIP")
+            if action == "recover":
+                claim = self.assets.claims.get(batch)
+                if claim is None:
+                    return self._job_view(job)
+                if job["status"] == "running":
+                    return self._job_view(job)
+                if self.draining:
+                    raise JobConflict("HOST_DRAINING")
+                if claim["phase"] != "fault":
+                    raise JobConflict("BATCH_ACTIVE")
+                claim.update(attempts=0, retry_at=self.clock())
+                self.clients.operators.record(client, action, batch, result="recovery_requested")
+                self._signal()
+                return self._job_view(job)
             if action == "cancel":
                 if job["status"] != "queued" or job["completed"]:
                     raise JobConflict("BATCH_ALREADY_DISPATCHED")
@@ -925,6 +972,8 @@ class JobQueue:
                 result["execution"] = job["execution"]
         if job.get("proof") and (detail or job["status"] in {"completed", "failed", "rejected", "cancelled", "closed"}):
             result["proof"] = copy.deepcopy(job["proof"])
+            if job["proof"].get("move_recovery", {}).get("success") and claim["phase"] == "released":
+                result["hint"] = "迁移收尾已核验并释放资产；原执行错误保留，后续按当前资产状态继续"
         if "next" not in result:
             result["next"] = None
         return response(result)

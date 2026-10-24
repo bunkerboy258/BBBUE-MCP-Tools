@@ -48,6 +48,9 @@ def response(value):
         target = result.get("details", {}).get("tool")
         if target:
             result["next"] = next_call("describe_tool", tool=target)
+    if recovery and result.get("assets", {}).get("retry_at") is None and isinstance(result.get("batch"), str):
+        result["next"] = next_call("control_task", action="recover", batch=result["batch"])
+        result["hint"] = "自动恢复已暂停；核对 recovery_failure 后接续原批次恢复"
     return result
 
 

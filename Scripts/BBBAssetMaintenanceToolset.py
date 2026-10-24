@@ -707,11 +707,18 @@ def _persist_asset_moves(report, source_packages, loaded_assets, referencer_pack
     unexpected = sorted(set(packages) - allowed)
     if unexpected:
         raise RuntimeError("原生移动产生范围外包 拒绝保存: " + str(unexpected))
-    result = {"success": False, "requested_packages": list(packages), "saved_packages": []}
-    if packages:
-        result["success"] = bool(unreal.EditorLoadingAndSavingUtils.save_packages(list(packages.values()), False))
+    result = {"success": False, "phase": "saving", "requested_packages": list(packages),
+        "saved_packages": [], "failures": [], "empty_sources": [package.get_path_name() for package in empty_sources]}
+    report["persistence"] = result
+    for path, candidate in packages.items():
+        try:
+            if not unreal.EditorLoadingAndSavingUtils.save_packages([candidate], False):
+                raise RuntimeError("SAVE_PACKAGE_FAILED")
+            result["saved_packages"].append(path)
+        except Exception as error:
+            result["failures"].append({"package": path, "code": "SAVE_FAILED", "error": str(error)})
+    result["success"] = not result["failures"]
     if result["success"]:
-        result["saved_packages"] = list(packages)
         pending = set(_move_dirty_packages(list(allowed)))
         empty_paths = {package.get_path_name() for package in empty_sources}
         if pending - empty_paths:
@@ -726,10 +733,79 @@ def _persist_asset_moves(report, source_packages, loaded_assets, referencer_pack
         package = None
         outer = None
         obj = None
+        result["phase"] = "source_cleanup"
         result["empty_source_cleanup"] = _cleanup_empty_move_sources(report, empty_sources)
     result["unsaved_packages"] = _move_dirty_packages(list(allowed))
     result["success"] = result["success"] and not result["unsaved_packages"]
+    if result["success"]:
+        result["phase"] = "verified"
     return result
+
+
+def _resume_asset_moves(report):
+    """
+    /**
+     * 按已执行证据接续保存与原包清理
+     * @param report	所属批次记录的迁移证据
+     * @return 保存及精确旧路径核验结果
+     */
+    """
+    from MCP.mcp_result import McpExecutionError
+    assets = report["assets"]
+    if not assets or len(assets) > 5000:
+        raise McpExecutionError("rejected", "MOVE_RECOVERY_INVALID", "迁移恢复范围无效")
+    renamed = {item["source"] for item in report["object_results"] if item["renamed"]}
+    selected = [item for item in assets if item["source"] in renamed]
+    if not selected:
+        raise McpExecutionError("rejected", "MOVE_RECOVERY_INVALID", "迁移恢复需要实际改名证据")
+    loaded = []
+    originals = []
+    refs = []
+    scope = set(report["referencer_packages"])
+    for item in selected:
+        source = _move_path(item["source"])
+        destination = _move_path(item["destination"])
+        if item["source_object"] != source + "." + source.rsplit("/", 1)[-1] or item["destination_object"] != destination + "." + destination.rsplit("/", 1)[-1]:
+            raise McpExecutionError("rejected", "MOVE_RECOVERY_INVALID", "迁移对象身份不符")
+        filename = _move_filename(source)
+        if os.path.isfile(filename):
+            if _move_file_sha256(filename) != item["source_sha256"]:
+                raise McpExecutionError("rejected", "MOVE_SOURCE_CHANGED", "迁移源文件摘要变化", {"package": source})
+            package = unreal.find_object(None, source, follow_redirectors=False)
+            if package is None or package.get_path_name() != source:
+                raise McpExecutionError("rejected", "MOVE_SOURCE_STATE_REQUIRED", "迁移原包需要实际状态核验", {"package": source})
+            originals.append(package)
+        asset = unreal.load_object(None, item["destination_object"], follow_redirectors=False)
+        if asset is None or asset.get_path_name() != item["destination_object"] or _move_class_path(asset.get_class().get_class_path_name()) != item["class_path"]:
+            raise McpExecutionError("rejected", "MOVE_TARGET_CHANGED", "迁移目标路径或类型变化", {"package": destination})
+        loaded.append(asset)
+        scope.update((source, destination))
+    for path in report["referencer_packages"]:
+        path = _move_path(path)
+        package = unreal.load_package(path)
+        if package is None or package.get_path_name() != path:
+            raise McpExecutionError("rejected", "MOVE_REFERENCER_REQUIRED", "迁移引用者需要实际状态核验", {"package": path})
+        refs.append(package)
+    require_asset_write(scope)
+    original_paths = {package.get_path_name() for package in originals}
+    for obj in unreal.ObjectIterator():
+        outer = obj.get_outermost()
+        if obj != outer and outer.get_path_name() in original_paths:
+            raise McpExecutionError("rejected", "MOVE_SOURCE_STATE_REQUIRED", "迁移原包仍有子对象，保留原包等待核验",
+                {"package": outer.get_path_name()})
+    package = None
+    obj = None
+    outer = None
+    current = {"assets": selected, "referencer_packages": report["referencer_packages"], "object_results": report["object_results"]}
+    try:
+        current["persistence"] = _persist_asset_moves(current, originals, loaded, refs)
+        current["verification"] = json.loads(_verify_asset_moves_json(json.dumps(selected)))
+    except Exception as error:
+        current["persistence"] = {**current.get("persistence", {}), "success": False, "error": str(error)}
+    current["success"] = current["persistence"]["success"] and current.get("verification", {}).get("success", False)
+    if not current["success"]:
+        raise McpExecutionError("partial", "ASSET_MOVE_INCOMPLETE", "迁移收尾保留实际完成阶段", {"recovery": current})
+    return current
 
 
 class _AssetMoveQueryContext:
@@ -1039,7 +1115,7 @@ def _execute_asset_moves(report):
         with _move_phase(report, "persistence"):
             report["persistence"] = _persist_asset_moves(report, source_packages, loaded_assets, referencer_packages)
     except Exception as error:
-        report["persistence"] = {"success": False, "error": str(error)}
+        report["persistence"] = {**report.get("persistence", {}), "success": False, "error": str(error)}
     try:
         with _move_phase(report, "verification"):
             report["verification"] = json.loads(_verify_asset_moves_json(json.dumps(report["assets"])))
@@ -1054,6 +1130,13 @@ def _execute_asset_moves(report):
     report["partial"] = not report["success"] and any(item["renamed"] for item in report["object_results"])
     if not report["success"]:
         unreal.log_error("[BBBAssetMove]移动或核验未完整通过 必须检查逐项结果 禁止直接重试整批")
+        from MCP.mcp_result import McpExecutionError
+        recovery = {key: report[key] for key in ("assets", "referencer_packages", "object_results", "persistence", "verification")}
+        details = {"report": report}
+        if report["partial"]:
+            details["recovery"] = recovery
+        raise McpExecutionError("partial" if report["partial"] else "rejected", "ASSET_MOVE_INCOMPLETE",
+            "迁移完成范围已记录，接续原批次收尾", details)
     if report["success"]:
         unreal.log("[BBBAssetMove]PASS {} 个资产 已核验磁盘与注册表".format(len(renames)))
     return json.dumps(report, ensure_ascii=False)

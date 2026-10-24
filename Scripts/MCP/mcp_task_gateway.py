@@ -33,7 +33,7 @@ def public_tools():
         ("describe_tool", "读取一个工具的参数与权限", {"tool": {"type": "string"}}, ["tool"]),
         ("submit_batch", "自动保存目标并执行 操作冲突自动排队 按next继续", {"operations": {"type": "array", "minItems": 1, "maxItems": 16, "items": {"type": "object", "properties": {"tool": {"type": "string"}, "arguments": {"type": "object"}}, "required": ["tool", "arguments"], "additionalProperties": False}}, "await_seconds": {"type": "number", "minimum": 0, "maximum": 10, "default": 2}, "label": {"type": "string", "maxLength": 120}, "environment": {"type": "string", "enum": ["editor", "test"], "default": "editor"}, "test_host": {"type": "string", "pattern": "^[0-9a-f]{16}$"}, "test_options": {"type": "object", "properties": {"map": {"type": "string", "pattern": "^/(Game|Engine)/[A-Za-z0-9_/]+$"}, "rendering": {"type": "boolean"}, "scene_performance": {"type": "boolean"}, "audio": {"type": "boolean"}, "players": {"type": "integer", "minimum": 1, "maximum": 8}, "net_mode": {"type": "string", "enum": ["standalone", "listen", "client"]}}, "required": ["map"], "additionalProperties": False}}, ["operations"]),
         ("inspect_tasks", "读取占用与批次结果 operators=true展开干员池", {"batch": {"type": "string"}, "detail": {"type": "boolean"}, "operators": {"type": "boolean"}, "after_revision": {"type": "integer", "minimum": 0}, "wait_seconds": {"type": "number", "minimum": 0, "maximum": 60}}, []),
-        ("control_task", "批次收尾 0级按权限直接暂停取消或定向终止已核验UE", {"action": {"type": "string", "enum": ["cancel", "close", "shutdown_host", "pause_operator", "resume_operator", "cancel_blocker", "terminate_host"]}, "batch": {"type": "string", "description": "cancel close cancel_blocker 的目标批次"}, "operator": {"type": "string", "description": "pause_operator resume_operator 的干员ID"}, "lease_seconds": {"type": "number", "minimum": 1, "maximum": 300, "default": 60}, "host": {"type": "string", "description": "terminate_host 使用 inspect_tasks.hosts.id"}}, ["action"]),
+        ("control_task", "所属批次收尾与恢复 0级按权限直接管理宿主", {"action": {"type": "string", "enum": ["cancel", "close", "recover", "shutdown_host", "pause_operator", "resume_operator", "cancel_blocker", "terminate_host"]}, "batch": {"type": "string", "description": "cancel close recover cancel_blocker 的目标批次"}, "operator": {"type": "string", "description": "pause_operator resume_operator 的干员ID"}, "lease_seconds": {"type": "number", "minimum": 1, "maximum": 300, "default": 60}, "host": {"type": "string", "description": "terminate_host 使用 inspect_tasks.hosts.id"}}, ["action"]),
     ]
     return [{"name": name, "description": description, "inputSchema": {"type": "object", "properties": properties, "required": required, "additionalProperties": False}} for name, description, properties, required in schemas]
 
@@ -240,6 +240,11 @@ class UnrealBackend:
         """/** @return 正式请求空闲宿主退出 */"""
         self._call("call_tool", {"toolset_name": self.external_name, "tool_name": "util", "arguments": {"action": "execute_console_command", "params_json": json.dumps({"command": "QUIT_EDITOR"})}})
 
+    def recover_asset_moves(self, report):
+        """/** @param report 所属迁移证据 @return 保存和旧源包收尾的实际结果 */"""
+        return self._call("call_tool", {"toolset_name": self.task_name, "tool_name": "recover_asset_moves",
+            "arguments": {"report_json": json.dumps(report, ensure_ascii=False)}})
+
     def finalize(self, packages):
         """/** @param packages	本批次自有包 @return 逐包编译 保存 回读与失败证据 */"""
         inspector = self.catalog.tools["editor.inspect_asset_properties"]
@@ -414,10 +419,16 @@ class TaskGateway:
                 recovered = self.clients.known(resume_key)
                 client = self.jobs.connect(resume_key)
                 operator = None
+                operator_recovery = None
                 registration = parameters.get("_meta", {}).get("bbb/operator")
                 if registration is not None:
                     validate_arguments(registration, {"type": "object", "properties": {"task": {"type": "string", "minLength": 1, "maxLength": 20}, "level": {"type": "integer", "enum": [0, 1, 2]}}, "required": ["task"], "additionalProperties": False})
-                    operator = self.clients.operators.manage(client, **registration)
+                    try:
+                        operator = self.clients.operators.manage(client, **registration)
+                    except McpBusinessError as error:
+                        if error.value.get("code") != "OPERATOR_DRAINING":
+                            raise
+                        operator_recovery = copy.deepcopy(error.value)
                 if registration is None:
                     with self.clients.condition:
                         owner = self.clients.operators.owner(client)
@@ -426,7 +437,7 @@ class TaskGateway:
                             operator = self.clients.operators.view(owner)
                 session_id = self.clients.bind(client)
                 response_headers["Mcp-Session-Id"] = session_id
-                return 200, response_headers, {"jsonrpc": "2.0", "id": request_id, "result": {"protocolVersion": "2025-11-25", "capabilities": {"tools": {}}, "serverInfo": {"name": "BBB-MCP", "version": "6"}, "_meta": {"bbb/client_key": client, "bbb/client_recovered": recovered, "bbb/catalog_version": self.catalog.version(), "bbb/operator": operator}}}
+                return 200, response_headers, {"jsonrpc": "2.0", "id": request_id, "result": {"protocolVersion": "2025-11-25", "capabilities": {"tools": {}}, "serverInfo": {"name": "BBB-MCP", "version": "6"}, "_meta": {"bbb/client_key": client, "bbb/client_recovered": recovered, "bbb/catalog_version": self.catalog.version(), "bbb/operator": operator, "bbb/operator_recovery": operator_recovery}}}
             client = self.clients.resolve(session_id)
             if client is None:
                 return 404, {}, {"error": "SESSION_REQUIRED"}
@@ -450,7 +461,7 @@ class TaskGateway:
                 raise ValueError("TOOL_UNKNOWN")
             validate_arguments(arguments, self.tools[name]["inputSchema"])
             if name == "control_task":
-                required = {"cancel": "batch", "close": "batch", "cancel_blocker": "batch", "pause_operator": "operator", "resume_operator": "operator", "terminate_host": "host"}.get(arguments["action"])
+                required = {"cancel": "batch", "close": "batch", "recover": "batch", "cancel_blocker": "batch", "pause_operator": "operator", "resume_operator": "operator", "terminate_host": "host"}.get(arguments["action"])
                 if required is not None and not arguments.get(required):
                     raise ValueError("/arguments/" + required + ": required")
             if name == "manage_operator":

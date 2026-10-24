@@ -39,6 +39,19 @@ class BBBMcpTaskToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def recover_asset_moves(report_json: str) -> str:
+        """
+        /**
+         * 接续网关所属迁移批次的保存和旧源包清理
+         * @param report_json	已执行迁移证据
+         * @return 实际阶段及路径核验结果
+         */
+        """
+        from BBBAssetMaintenanceToolset import _resume_asset_moves
+        return json.dumps(_resume_asset_moves(json.loads(report_json)), ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def inspect_saved_test_inputs(asset_paths: list[str]) -> str:
         """
         /**

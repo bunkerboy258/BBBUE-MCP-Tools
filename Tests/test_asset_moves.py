@@ -130,7 +130,10 @@ class AssetMoveTests(unittest.TestCase):
     def test_execution_preserves_partial_results_and_phase_timings(self):
         """/** @return 原生部分失败只调用一次且仍回读已完成对象 */"""
         report, writes, renames, verifications = self._execution_fixture()
-        result = json.loads(self.runtime["_execute_asset_moves"](report))
+        from MCP.mcp_result import McpExecutionError
+        with self.assertRaises(McpExecutionError) as raised:
+            self.runtime["_execute_asset_moves"](report)
+        result = raised.exception.value["execution"]["details"]["report"]
         self.assertFalse(result["success"])
         self.assertTrue(result["partial"])
         self.assertEqual([item["renamed"] for item in result["object_results"]], [True, False])

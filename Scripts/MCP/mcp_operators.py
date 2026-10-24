@@ -57,7 +57,8 @@ class OperatorPool:
 
     def manage(self, client, action="join", task=None, level=None, operator=None):
         """/** @param client 会话凭证 @param action 登记 更新或结束 @param task 单行任务 @param level 等级 @param operator 目标干员 @return 干员视图 */"""
-        self.collect()
+        jobs = list(self.work_source()) if self.work_source is not None else []
+        self.collect(jobs)
         with self.lock:
             owner = self.owner(client)
             target = owner
@@ -86,7 +87,12 @@ class OperatorPool:
                 if not 1 <= len(task) <= 20 or "\n" in task or "\r" in task:
                     raise McpBusinessError({"status": "rejected", "code": "OPERATOR_TASK_INVALID", "hint": "task 使用单行 1 至 20 字符", "next": None})
             if row is not None and row.get("ended"):
-                raise McpBusinessError({"status": "rejected", "code": "OPERATOR_DRAINING", "hint": "所属工作收尾后重新登记", "next": None})
+                pending = next((job for job in jobs if self.owner(job["owner"]) == target and job.get("status") == "recovering"), None)
+                continuation = {"tool": "inspect_tasks", "arguments": {"wait_seconds": 30}}
+                if pending is not None:
+                    continuation = {"tool": "control_task", "arguments": {"action": "recover", "batch": pending["id"]}}
+                raise McpBusinessError({"status": "rejected", "code": "OPERATOR_DRAINING",
+                    "hint": "原会话可接续所属批次恢复；资产交接完成后重新登记", "next": continuation})
             if row is None:
                 if len(self.rows) >= 256:
                     raise McpBusinessError({"status": "rejected", "code": "OPERATOR_CAPACITY", "next": None})

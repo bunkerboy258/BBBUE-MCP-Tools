@@ -83,7 +83,7 @@ class AutomaticFinalizationTests(unittest.TestCase):
         """/** @return 公开协议保留提交 等待与交付 */"""
         tools = {item["name"]: item for item in public_tools()}
         self.assertNotIn("completion", tools["submit_batch"]["inputSchema"]["properties"])
-        self.assertEqual(tools["control_task"]["inputSchema"]["properties"]["action"]["enum"], ["cancel", "close", "shutdown_host", "pause_operator", "resume_operator", "cancel_blocker", "terminate_host"])
+        self.assertEqual(tools["control_task"]["inputSchema"]["properties"]["action"]["enum"], ["cancel", "close", "recover", "shutdown_host", "pause_operator", "resume_operator", "cancel_blocker", "terminate_host"])
 
     def test_expired_pie_owner_is_cleaned_up_automatically(self):
         """/** @return 客户端离线后其 PIE 自动结束 */"""

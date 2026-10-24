@@ -106,6 +106,30 @@
           "returnValue"
         ]
       }
+    },
+    "recover_asset_moves": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "report_json": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "report_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBHudAssetToolset": {

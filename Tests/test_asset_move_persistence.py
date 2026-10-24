@@ -50,9 +50,9 @@ class AssetMovePersistenceTests(unittest.TestCase):
         """/** @return 目标及引用者先于原包保存 且重复包只保存一次 */"""
         result = self.runtime["_persist_asset_moves"](self.report, [self.old], [self.asset], [self.ref, self.new])
         self.assertTrue(result["success"])
-        self.assertEqual(self.calls[0], ("save", ["/Game/New/A", "/Game/Ref", "/Game/Old/A"], False))
-        self.assertEqual(self.calls[1][0], "scan")
-        self.assertEqual(result["saved_packages"], self.calls[0][1])
+        self.assertEqual(self.calls[:3], [("save", [p], False) for p in ["/Game/New/A", "/Game/Ref", "/Game/Old/A"]])
+        self.assertEqual(self.calls[3][0], "scan")
+        self.assertEqual(result["saved_packages"], ["/Game/New/A", "/Game/Ref", "/Game/Old/A"])
 
     def test_failed_native_save_is_not_reported_as_saved_or_retried(self):
         """/** @return 原生保存失败不会伪报已保存或重新执行 */"""
@@ -64,7 +64,7 @@ class AssetMovePersistenceTests(unittest.TestCase):
         result = self.runtime["_persist_asset_moves"](self.report, [self.old], [self.asset], [self.ref])
         self.assertFalse(result["success"])
         self.assertEqual(result["saved_packages"], [])
-        self.assertEqual(sum(call[0] == "save" for call in self.calls), 1)
+        self.assertEqual(sum(call[0] == "save" for call in self.calls), 3)
 
     def test_native_save_success_does_not_hide_remaining_dirty_packages(self):
         """/** @return 原生保存返回成功仍须检查实际未保存包 */"""
@@ -94,7 +94,7 @@ class AssetMovePersistenceTests(unittest.TestCase):
             return True
         def verify(moves):
             """/** @param moves 已执行映射 @return 确认实际保存后再核验 */"""
-            self.assertEqual([call[0] for call in self.calls], ["load_ref", "rename", "save", "scan"])
+            self.assertEqual([call[0] for call in self.calls], ["load_ref", "rename", "save", "save", "save", "scan"])
             self.calls.append(("verify", len(json.loads(moves))))
             return json.dumps({"success": True})
         report = {
@@ -151,10 +151,10 @@ class AssetMovePersistenceTests(unittest.TestCase):
         with patch("os.path.isfile", side_effect=lambda path: path in state["files"]):
             result = self.runtime["_persist_asset_moves"](self.report, [self.old], [self.asset], [self.ref])
         self.assertTrue(result["success"])
-        self.assertEqual(self.calls[0], ("save", ["/Game/New/A", "/Game/Ref"], False))
-        self.assertEqual(self.calls[1][0], "scan")
-        self.assertEqual(self.calls[2], ("reload", ["/Game/Old/A"]))
-        self.assertEqual(self.calls[3], ("delete", ["/Game/Old/A.A"]))
+        self.assertEqual(self.calls[:2], [("save", [p], False) for p in ["/Game/New/A", "/Game/Ref"]])
+        self.assertEqual(self.calls[2][0], "scan")
+        self.assertEqual(self.calls[3], ("reload", ["/Game/Old/A"]))
+        self.assertEqual(self.calls[4], ("delete", ["/Game/Old/A.A"]))
         self.assertEqual(result["empty_source_cleanup"]["deleted"], ["/Game/Old/A"])
         self.assertEqual(state["files"], {"/Game/New/A.uasset"})
 

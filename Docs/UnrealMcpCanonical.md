@@ -126,3 +126,9 @@ SDK 缓存发现首项的完整契约，按响应 `catalog_version` 失效。工
 参数校验覆盖整批，`needs` 最多十六项，分别给出操作字段路径、类型及修正规则。`INTERNAL_ERROR` 提供诊断编号，服务日志记录对应原因；所属已接受批次继续通过 `inspect_tasks` 核实。
 
 干员目标的发现首项标注 `direct=true` 并提供公开 `call`；AI 直接执行该公开入口。宿主默认 `Balanced`，即60 FPS、Normal，显式性能参数决定本次配置。
+
+## 故障批次接续
+
+`control_task(action="recover", batch=...)` 仅接受当前客户端所属故障批次，在原范围内重新安排恢复。处于 releasing 的身份通过该入口完成交接，权限维持二级收尾语义。SDK 初始化保留传输连接，并在 `session.recovery` 返回登记收尾原因与完整继续调用；新编辑继续要求有效登记。
+
+资产故障的 `retry_at=null` 表示自动恢复预算耗尽或实际状态需要核验。迁移专用证据在 `proof.move_recovery` 交付，原操作失败事实独立保留，资产已完成交接时响应明确提示后续可继续。

@@ -78,6 +78,7 @@ class McpSession:
         self.client_key = client_key
         self.private_backend = private_backend
         self.operator = None
+        self.recovery = None
         self.registration = {"task": task}
         if level is not None:
             self.registration["level"] = level
@@ -145,6 +146,7 @@ class McpSession:
         if not self.private_backend:
             self.client_key = value["_meta"]["bbb/client_key"]
             self.operator = value["_meta"].get("bbb/operator")
+            self.recovery = value["_meta"].get("bbb/operator_recovery")
             self.registration = None
             if self.identity_path is not None:
                 from MCP.mcp_host_registry import atomic_json
