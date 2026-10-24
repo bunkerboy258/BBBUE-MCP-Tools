@@ -84,7 +84,7 @@ class ResponseTests(unittest.TestCase):
             calls.append(parameters["tool_name"])
             return {"snapshot": "fresh"}
         backend._call = read
-        contract = {"id": "blueprint.annotate_blueprint_graph", "name": "annotate", "toolset": "test", "access": "write"}
+        contract = {"id": "blueprint.edit_blueprint_graph_comments", "name": "annotate", "toolset": "test", "access": "write"}
         with self.assertRaises(McpBusinessError) as raised:
             backend.invoke(contract, {"graph_path": "/Game/BP.BP:EventGraph", "annotations": {"expectedSnapshot": "old"}})
         self.assertEqual(calls, ["inspect"])

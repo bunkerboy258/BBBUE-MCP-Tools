@@ -40,15 +40,13 @@ class StructuredContractTests(unittest.TestCase):
         self.assertEqual(tested, expected)
         self.assertGreater(tested, 0)
 
-    def test_annotation_contract_validates_nested_member_path(self):
-        """/** @return 错误位置指向具体区块字段 */"""
-        contract = tool_contract("BBBBlueprintGraphToolset", "annotate_blueprint_graph", {"type": "object", "properties": {"graph_path": {"type": "string"}, "annotations_json": {"type": "string"}, "dry_run": {"type": "boolean"}}, "required": ["graph_path", "annotations_json", "dry_run"]})
-        arguments = {"graph_path": "/Game/Test.Test:Graph", "annotations": {"expectedSnapshot": "one", "blocks": [{"title": "标题", "description": "说明", "members": [1]}], "nodeComments": []}}
-        with self.assertRaisesRegex(ValueError, "/arguments/annotations/blocks/0/members/0"):
-            validate_arguments(arguments, contract["parameters"])
-        arguments["annotations"]["blocks"][0]["members"] = ["guid"]
-        validate_arguments(arguments, contract["parameters"])
-        self.assertTrue(default_arguments(contract, arguments)["dry_run"])
+    def test_formatter_contract_validates_node_ids(self):
+        """/** @return 插件整理节点范围保留结构化类型 */"""
+        schema = {"type": "object", "properties": {"graph_path": {"type": "string"}, "node_guids": {"type": "array", "items": {"type": "string"}, "default": []}}, "required": ["graph_path"]}
+        contract = tool_contract("BBBBlueprintGraphToolset", "format_blueprint_graph", schema)
+        with self.assertRaisesRegex(ValueError, "/arguments/node_guids/0"):
+            validate_arguments({"graph_path": "/Game/Test.Test:Graph", "node_guids": [1]}, contract["parameters"])
+        validate_arguments({"graph_path": "/Game/Test.Test:Graph", "node_guids": ["guid"]}, contract["parameters"])
 
     def test_reference_and_property_inputs_use_public_native_boundaries(self):
         """/** @return 路径和属性字典在传输边界编码 */"""

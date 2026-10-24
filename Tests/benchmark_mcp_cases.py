@@ -2,8 +2,8 @@ from test_mcp_discovery import DISCOVERY_CASES
 
 FULL_DISCOVERY_CASES = [
     *[(query, ["asset.save_assets", "assets.resave_assets", "editor.resave_asset"] if query == "保存资产" else [tool]) for query, tool in DISCOVERY_CASES],
-    ("给蓝图节点加区块注释", ["blueprint.annotate_blueprint_graph"]),
-    ("整理蓝图节点布局", ["blueprint.optimize_blueprint_node_layout"]),
+    ("给蓝图节点加区块注释", ["blueprint.add_blueprint_comment_node"]),
+    ("整理蓝图节点布局", ["blueprint.format_blueprint_graph"]),
     ("查看蓝图图表逻辑", ["blueprint.inspect_blueprint_graph"]),
     ("读取动画通知", ["editor.inspect_animation_notifies", "editor.inspect_animation_notify_properties"]),
     ("inspect animation montage segments", ["editor.inspect_animation_montage_segments"]),
@@ -41,8 +41,8 @@ FULL_DISCOVERY_CASES = [
 
 NATURAL_CASES = [
     ("查看蓝图逻辑连线", ["blueprint.inspect_blueprint_graph"]),
-    ("把蓝图节点摆整齐", ["blueprint.optimize_blueprint_node_layout"]),
-    ("给蓝图加分组说明", ["blueprint.annotate_blueprint_graph"]),
+    ("把蓝图节点摆整齐", ["blueprint.format_blueprint_graph"]),
+    ("给蓝图加分组说明", ["blueprint.add_blueprint_comment_node"]),
     ("查询动画通知时间", ["editor.inspect_animation_notifies", "editor.inspect_animation_notify_properties"]),
     ("给动画添加通知", ["editor.add_animation_notify_events"]),
     ("查看蒙太奇动画片段", ["editor.inspect_animation_montage_segments"]),
@@ -72,8 +72,8 @@ VALIDATION_CASES = [
     ("archive import asset pack", ["assets.import_asset_pack_archive"]),
     ("读取材质实例纹理参数", ["material_instance.get_texture_parameter"]),
     ("查看蒙太奇里各段动画", ["editor.inspect_animation_montage_segments"]),
-    ("蓝图图表只整理节点位置", ["blueprint.optimize_blueprint_node_layout"]),
-    ("给蓝图里的节点写区块注释", ["blueprint.annotate_blueprint_graph"]),
+    ("蓝图图表只整理节点位置", ["blueprint.format_blueprint_graph"]),
+    ("给蓝图里的节点写区块注释", ["blueprint.add_blueprint_comment_node"]),
     ("查一下动画上的通知事件", ["editor.inspect_animation_notifies"]),
     ("检查重定向器映射配置", ["retarget.inspect_retargeter"]),
     ("查看动画的骨骼姿态", ["retarget.inspect_animation_poses"]),

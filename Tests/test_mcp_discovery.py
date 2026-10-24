@@ -9,12 +9,12 @@ from BBBMcpCapabilities import ToolCatalog
 
 
 DISCOVERY_CASES = [
-    ("蓝图 注释 整理", "blueprint.annotate_blueprint_graph"),
+    ("蓝图 注释 整理", "blueprint.add_blueprint_comment_node"),
     ("读取蓝图逻辑", "blueprint.inspect_blueprint_graph"),
-    ("节点区块注释", "blueprint.annotate_blueprint_graph"),
-    ("annotate_blueprint_graph", "blueprint.annotate_blueprint_graph"),
+    ("节点区块注释", "blueprint.add_blueprint_comment_node"),
+    ("add_blueprint_comment_node", "blueprint.add_blueprint_comment_node"),
     ("inspect_blueprint_graph", "blueprint.inspect_blueprint_graph"),
-    ("优化蓝图布局", "blueprint.optimize_blueprint_node_layout"),
+    ("优化蓝图布局", "blueprint.format_blueprint_graph"),
     ("动画通知事件", "editor.inspect_animation_notifies"),
     ("保存资产", "assets.resave_assets"),
     ("动画蒙太奇片段", "editor.inspect_animation_montage_segments"),

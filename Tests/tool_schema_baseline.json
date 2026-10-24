@@ -805,17 +805,33 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "action": {"type": "string"},
-          "seconds": {"type": "number"},
-          "offset": {"type": "integer"},
-          "limit": {"type": "integer"}
+          "action": {
+            "type": "string"
+          },
+          "seconds": {
+            "type": "number"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          }
         },
-        "required": ["action"]
+        "required": [
+          "action"
+        ]
       },
       "outputSchema": {
         "type": "object",
-        "properties": {"returnValue": {"type": "string"}},
-        "required": ["returnValue"]
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
       }
     },
     "sample_weapon_handling_runtime": {
@@ -8071,42 +8087,6 @@
         ]
       }
     },
-    "annotate_blueprint_graph": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "graph_path": {
-            "type": "string",
-            "description": "项目蓝图图表完整路径"
-          },
-          "annotations_json": {
-            "type": "string",
-            "description": "含快照校验值的区块与节点注释方案"
-          },
-          "dry_run": {
-            "type": "boolean",
-            "description": "是否只读预览",
-            "default": true
-          }
-        },
-        "required": [
-          "graph_path",
-          "annotations_json"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string",
-            "description": "注释布局质量与实际写入结果"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
     "inspect_blueprint_graph": {
       "inputSchema": {
         "type": "object",
@@ -8185,42 +8165,6 @@
           "returnValue": {
             "type": "string",
             "description": "回读通过的节点坐标 尚未编译保存"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "optimize_blueprint_node_layout": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "graph_path": {
-            "type": "string"
-          },
-          "horizontal_spacing": {
-            "type": "integer",
-            "default": 320
-          },
-          "vertical_spacing": {
-            "type": "integer",
-            "default": 180
-          },
-          "dry_run": {
-            "type": "boolean",
-            "default": false
-          }
-        },
-        "required": [
-          "graph_path"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
           }
         },
         "required": [
@@ -8452,6 +8396,37 @@
           "node_type_id",
           "position_x",
           "position_y"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "format_blueprint_graph": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_path": {
+            "type": "string"
+          },
+          "node_guids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          }
+        },
+        "required": [
+          "graph_path"
         ]
       },
       "outputSchema": {

@@ -38,7 +38,7 @@ def main():
         if contract["name"] == "graph_read":
             return {"snapshot": graph[0], "nodes": [{"guid": "node-a"}]}
         if contract["name"] == "graph_edit":
-            if arguments["annotations"]["expectedSnapshot"] != graph[0]:
+            if arguments["request"]["expectedSnapshot"] != graph[0]:
                 raise McpExecutionError("rejected", "GRAPH_SNAPSHOT_CHANGED", "图表已变化")
             backend.state["dirty_packages"].append("/Game/BP")
             return {"changed": True}
@@ -62,7 +62,7 @@ def main():
         catalog.add({"id": "validation.case_" + str(index), "name": "write", "summary": "验证写入参数", "definition": "BBBValidation", "toolset": "test", "parameters": schema, "access": "write", "world": "editor", "scope": {"fields": ["asset"]}})
     for identity, name, access, properties in (
         ("blueprint.inspect_blueprint_graph", "graph_read", "read", {"graph_path": {"type": "string"}, "view": {"type": "string"}}),
-        ("blueprint.annotate_blueprint_graph", "graph_edit", "write", {"graph_path": {"type": "string"}, "annotations": {"type": "object"}})):
+        ("blueprint.edit_blueprint_graph_comments", "graph_edit", "write", {"graph_path": {"type": "string"}, "request": {"type": "object"}})):
         catalog.add({"id": identity, "name": name, "summary": "图表快照与注释", "definition": "BBBGraph", "toolset": "test", "access": access,
             "world": "editor", "scope": {"fields": ["graph_path"]}, "parameters": {"type": "object", "properties": properties}})
     gateway = TaskGateway(backend, catalog)
@@ -152,7 +152,7 @@ def main():
             def snapshot():
                 """/** @return 旧快照拒绝后按新图表重新核实并应用 */"""
                 target = "/Game/BP.BP:EventGraph"
-                value = submit(first, [{"tool": "blueprint.annotate_blueprint_graph", "arguments": {"graph_path": target, "annotations": {"expectedSnapshot": "old"}}}])
+                value = submit(first, [{"tool": "blueprint.edit_blueprint_graph_comments", "arguments": {"graph_path": target, "request": {"expectedSnapshot": "old"}}}])
                 assert value["status"] == "rejected"
                 if args.profile == "candidate":
                     action = value["next"]
@@ -161,7 +161,7 @@ def main():
                         current = first.wait_batch(current["batch"], 5)
                 if args.profile == "current":
                     current = submit(first, [{"tool": "blueprint.inspect_blueprint_graph", "arguments": {"graph_path": target, "view": "logic"}}])
-                result = submit(first, [{"tool": "blueprint.annotate_blueprint_graph", "arguments": {"graph_path": target, "annotations": {"expectedSnapshot": current["results"][0]["snapshot"]}}}])
+                result = submit(first, [{"tool": "blueprint.edit_blueprint_graph_comments", "arguments": {"graph_path": target, "request": {"expectedSnapshot": current["results"][0]["snapshot"]}}}])
                 assert result["status"] == "completed"
             measure("图表快照过期恢复", "snapshot", snapshot)
             for index in range(4):

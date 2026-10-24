@@ -29,17 +29,6 @@ ROUTES = {
             {"evidence": "批次 completed、字段回读匹配、保存证据"},
         ],
     },
-    "blueprint.annotate_blueprint_graph": {
-        "use_when": "为节点或区块添加注释并结合布局整理",
-        "difference": "inspect_blueprint_graph 读取逻辑；optimize_blueprint_node_layout 整理位置",
-        "workflow": [
-            {"tool": "blueprint.inspect_blueprint_graph", "when": "读取逻辑与当前快照", "inputs": ["graph_path", "view=logic"]},
-            {"tool": "blueprint.annotate_blueprint_graph", "when": "预览注释范围与布局质量", "inputs": ["graph_path", "annotations", "dry_run=true"]},
-            {"tool": "blueprint.annotate_blueprint_graph", "when": "范围确认后按当前快照应用", "inputs": ["graph_path", "annotations", "dry_run=false"]},
-            {"tool": "blueprint.inspect_blueprint_graph", "when": "分别回读逻辑与几何", "inputs": ["graph_path", "view"]},
-            {"evidence": "快照匹配、注释与成员范围正确、连线逻辑一致、布局质量与保存证据"},
-        ],
-    },
     "animation.sample_weapon_handling_runtime": {
         "use_when": "采样武器装备或换弹的实际运行时事实",
         "difference": "run_pie_input_sequence 注入输入；采样事实与图像各自提供验收证据",
@@ -62,7 +51,7 @@ PURPOSES = {
     "editor.inspect_animation_notifies": "读取通知事件及时间位置",
     "editor.add_animation_notify_events": "按明确事件类型与时间添加通知",
     "blueprint.inspect_blueprint_graph": "读取图表逻辑、快照或几何",
-    "blueprint.optimize_blueprint_node_layout": "整理现有节点位置并返回布局质量",
+    "blueprint.format_blueprint_graph": "调用 Graph Formatter 原生命令整理节点并核对逻辑",
     "animation.run_pie_input_sequence": "按给定步骤注入玩法输入",
     "object.list_properties": "查找反射字段名称与类型",
     "object.get_properties": "读取指定反射字段当前值",

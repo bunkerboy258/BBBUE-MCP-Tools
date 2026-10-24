@@ -96,8 +96,8 @@ class McpContractTests(unittest.TestCase):
 
     def test_source_dependencies_follow_helpers_and_dynamic_library_aliases(self):
         """/** @return 排版测量 群体库 刚性部件与旧辅助依赖均被发现 */"""
-        graph = capabilities.native_requirements("BBBBlueprintGraphToolset", "optimize_blueprint_node_layout")
-        self.assertIn("measure_blueprint_graph_visual_geometry", graph["BBBBlueprintEditorLibrary"])
+        graph = capabilities.native_requirements("BBBBlueprintGraphToolset", "format_blueprint_graph")
+        self.assertIn("execute_graph_formatter", graph["BBBBlueprintEditorLibrary"])
         preview = capabilities.native_requirements("BBBAnimationPreviewToolset", "spawn_mass_inspection_population")
         self.assertIn("spawn_population", preview["BBBMassValidationLibrary"])
         transition = capabilities.native_requirements("BBBAnimationPreviewToolset", "capture_monster_animation_transition")

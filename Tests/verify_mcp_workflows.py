@@ -74,10 +74,7 @@ def main():
             before = call(first, "blueprint.inspect_blueprint_graph", {"graph_path": graph, "view": "logic"})["results"][0]
         candidates = [node for node in before["nodes"] if not node["isComment"] and not node["nodeComment"]]
         assert candidates, before
-        request = {"expectedSnapshot": before["snapshot"], "blocks": [{"title": "事件入口", "description": "接收事件并启动后续处理", "members": [node["guid"] for node in candidates]}], "nodeComments": [{"nodeGuid": candidates[0]["guid"], "text": "接收事件输入"}]}
-        preview = call(first, "blueprint.annotate_blueprint_graph", {"graph_path": graph, "annotations": request})
-        assert preview["status"] == "completed" and preview["results"][0]["dryRun"], preview
-        annotated = call(first, "blueprint.annotate_blueprint_graph", {"graph_path": graph, "annotations": request, "dry_run": False})
+        annotated = call(first, "blueprint.add_blueprint_comment_node", {"graph_path": graph, "expected_snapshot": before["snapshot"], "text": "事件入口", "x": -400, "y": -200, "width": 300, "height": 160, "dry_run": False})
         assert annotated["status"] == "completed" and annotated["proof"]["saved"] == [assets[2]], annotated
         after = call(first, "blueprint.inspect_blueprint_graph", {"graph_path": graph, "view": "logic"})["results"][0]
         assert before["logicSignature"] == after["logicSignature"], after

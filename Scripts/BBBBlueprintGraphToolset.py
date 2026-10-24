@@ -1,5 +1,6 @@
 import json
 import os
+import re
 
 import unreal
 import toolset_registry
@@ -62,42 +63,6 @@ MCP_INPUTS = {
             'additionalProperties': False,
         },
     },
-    'annotate_blueprint_graph': {
-        'annotations_json': {
-            'type': 'object',
-            'properties': {
-                'expectedSnapshot': {'type': 'string'},
-                'blocks': {
-                    'type': 'array',
-                    'items': {
-                        'type': 'object',
-                        'properties': {
-                            'title': {'type': 'string'},
-                            'description': {'type': 'string'},
-                            'members': {'type': 'array', 'items': {'type': 'string'}, 'minItems': 1},
-                        },
-                        'required': ['title', 'description', 'members'],
-                        'additionalProperties': False,
-                    },
-                    'minItems': 0,
-                    'maxItems': 64,
-                },
-                'nodeComments': {
-                    'type': 'array',
-                    'items': {
-                        'type': 'object',
-                        'properties': {'nodeGuid': {'type': 'string'}, 'text': {'type': 'string', 'maxLength': 2048}},
-                        'required': ['nodeGuid', 'text'],
-                        'additionalProperties': False,
-                    },
-                    'minItems': 0,
-                    'maxItems': 512,
-                },
-            },
-            'required': ['expectedSnapshot', 'blocks', 'nodeComments'],
-            'additionalProperties': False,
-        },
-    },
     'write_graph': {'node_aliases_json': {'$ref': '#/$defs/StringMap'}, 'pin_aliases_json': {'$ref': '#/$defs/StringMap'}},
 }
 
@@ -123,6 +88,21 @@ def _annotation_documentation(method):
 
     method.__doc__ = "\n".join(lines).strip()
     return method
+
+
+def _text(value, field, required=True):
+    """/** @param value	新增文字 @param field	字段名 @param required	是否必填 @return 已校验的中文文字 */"""
+    if not isinstance(value, str) or len(value) > 2048:
+        raise RuntimeError(field + " 必须为不超过 2048 字的文字")
+    if required and not value.strip():
+        raise RuntimeError(field + " 不允许为空")
+    if any(character in value for character in (",", "，", "；", "：", "（", "）", "。", "！", "？")):
+        raise RuntimeError(field + " 请用空格断句及半角符号")
+    if any(ord(character) < 32 and character not in "\n\t" for character in value):
+        raise RuntimeError(field + " 包含非法控制字符")
+    if value.strip() and not re.search(r"[\u4e00-\u9fff]", value):
+        raise RuntimeError(field + " 必须包含简体中文说明")
+    return value
 
 
 def _read_aliases(value):
@@ -482,133 +462,38 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def optimize_blueprint_node_layout(
-        graph_path: str,
-        horizontal_spacing: int = 320,
-        vertical_spacing: int = 180,
-        dry_run: bool = False,
-    ) -> str:
-        """按蓝图连线拓扑从左到右分层排版节点 不自动保存资产"""
-        from BBBBlueprintLayout import calculate_layout
+    @_annotation_documentation
+    def format_blueprint_graph(graph_path: str, node_guids: list[str] = []) -> str:
+        """
+        /**
+         * 调用原版 Graph Formatter 整理节点 不包含自研排列或自动布线
+         * @param graph_path	目标项目图表完整路径
+         * @param node_guids	节点 GUID 数组 空数组整理全图 单节点按插件规则扩展连通范围
+         * @return 插件执行结果及逻辑和注释核验 尚未保存
+         */
+        """
+        from BBBGraphFormatter import verify_formatter_result
 
-        if not isinstance(graph_path, str) or not graph_path.startswith("/Game/"):
-            raise RuntimeError("只能编辑项目蓝图图表")
-
-        if type(horizontal_spacing) is not int or type(vertical_spacing) is not int:
-            raise RuntimeError("节点间距必须为整数")
-
-        if type(dry_run) is not bool:
-            raise RuntimeError("dry_run 必须为布尔值")
-
-        if not 0 < horizontal_spacing <= 10000 or not 0 < vertical_spacing <= 10000:
-            raise RuntimeError("节点间距必须大于零且不超过 10000")
-
+        before = json.loads(BBBBlueprintGraphToolset._graph_snapshot(graph_path))
+        node_guids = list(node_guids)
+        if any(not isinstance(key, str) for key in node_guids):
+            raise RuntimeError("node_guids 必须为字符串数组")
+        if len(node_guids) != len(set(node_guids)):
+            raise RuntimeError("节点标识不能重复")
+        existing = {node["guid"] for node in before["nodes"]}
+        if set(node_guids) - existing:
+            raise RuntimeError("指定节点不存在 请重新读取图表")
         graph = unreal.load_object(None, graph_path)
-        if not isinstance(graph, unreal.EdGraph):
-            raise RuntimeError("目标不是蓝图图表")
-
-        blueprint = graph.get_outer()
-        if not isinstance(blueprint, unreal.Blueprint):
-            raise RuntimeError("图表必须直接属于蓝图")
-
         if unreal.EditorLevelLibrary.get_pie_worlds(False):
-            raise RuntimeError("PIE 期间禁止修改蓝图图表")
-
-        objects, nodes, edges, comments, estimated = _capture_layout_graph(graph)
-        plan = calculate_layout(nodes, edges, comments, horizontal_spacing, vertical_spacing)
-        changes = {
-            path: position for path, position in plan["positions"].items()
-            if position != (nodes[path]["x"], nodes[path]["y"])
-        }
-        warnings = list(plan["warnings"])
-        if plan["after"]["overlaps"]:
-            warnings.append("布局仍有节点重叠 写入被拒绝 请检查固定注释框或节点尺寸")
-
-        report = {
-            "graph": graph_path,
-            "nodes": len(nodes),
-            "edges": len(edges),
-            "execEdges": sum(edge["kind"] == "exec" for edge in edges),
-            "dataEdges": sum(edge["kind"] == "data" for edge in edges),
-            "poseEdges": sum(edge["kind"] == "pose" for edge in edges),
-            "moved": 0,
-            "plannedMoves": len(changes),
-            "cycleBreaks": plan["cycleBreaks"],
-            "excludedComments": len(comments),
-            "commentMembers": plan["commentMembers"],
-            "components": plan["components"],
-            "horizontalSpacing": horizontal_spacing,
-            "verticalSpacing": vertical_spacing,
-            "dryRun": dry_run,
-            "estimatedSizes": estimated,
-            "before": plan["before"],
-            "after": plan["after"],
-            "positions": {path: list(position) for path, position in plan["positions"].items()},
-            "warnings": warnings,
-            "saved": False,
-            "wireNodeHits": plan["wireNodeHits"],
-            "measurement": "SlateFullDetail",
-        }
-        for warning in warnings:
-            unreal.log_warning("[BBBBlueprintLayout] " + warning)
-
-        if not dry_run and changes:
-            try:
-                if plan["after"]["overlaps"]:
-                    raise RuntimeError("拒绝应用存在节点重叠的布局")
-
-                if plan["after"]["wireNodeIntersections"]:
-                    raise RuntimeError("拒绝应用连线穿过节点的布局")
-
-                if plan["after"]["dependencyGroupOverlaps"]:
-                    raise RuntimeError("拒绝应用主节点参数分组区域交叠的布局")
-
-                require_write_access(blueprint)
-                original = {path: (nodes[path]["x"], nodes[path]["y"]) for path in changes}
-                with unreal.ScopedEditorTransaction("BBB Optimize Blueprint Node Layout"):
-                    blueprint.modify()
-                    graph.modify()
-                    for path in changes:
-                        objects[path].modify()
-
-                    try:
-                        for path, (x, y) in changes.items():
-                            objects[path].set_node_pos(unreal.IntPoint(x, y))
-
-                        current_objects, current_nodes, current_edges, current_comments, _ = _capture_layout_graph(graph)
-                        if set(current_objects) != set(objects) or current_edges != edges or current_comments != comments:
-                            raise RuntimeError("排版期间图表结构或固定注释发生变化")
-
-                        for path, position in plan["positions"].items():
-                            if (current_nodes[path]["x"], current_nodes[path]["y"]) != position:
-                                raise RuntimeError("节点位置回读不符 " + path)
-
-                        if hasattr(graph, "notify_graph_changed"):
-                            graph.notify_graph_changed()
-                    except Exception:
-                        for path, (x, y) in original.items():
-                            objects[path].set_node_pos(unreal.IntPoint(x, y))
-
-                        if hasattr(graph, "notify_graph_changed"):
-                            graph.notify_graph_changed()
-                        raise
-
-                report["moved"] = len(changes)
-            except Exception as error:
-                unreal.log_error("[BBBBlueprintLayout] 写入失败 未保存 仅回退本次节点坐标 请检查图表或撤销 " + str(error))
-                raise
-
-        unreal.log(
-            "[BBBBlueprintLayout] graph={} dry_run={} planned={} moved={} exec={} data={} overlaps={}".format(
-                graph_path,
-                dry_run,
-                len(changes),
-                report["moved"],
-                report["execEdges"],
-                report["dataEdges"],
-                plan["after"]["overlaps"],
-            ),
-        )
+            raise RuntimeError("PIE 期间禁止整理蓝图")
+        require_write_access(graph)
+        result = json.loads(unreal.BBBBlueprintEditorLibrary.execute_graph_formatter(graph, node_guids))
+        if result.get("error") or result.get("executed") is not True:
+            raise RuntimeError("Graph Formatter 调用失败 " + str(result.get("error", result)))
+        after = json.loads(BBBBlueprintGraphToolset._graph_snapshot(graph_path))
+        report = verify_formatter_result(before, after)
+        report.update({"backend": "GraphFormatter", "graph": graph_path, "requestedNodes": node_guids, "saved": False})
+        unreal.log("[BBBGraphFormatter] graph={} moved={} logic_verified=true".format(graph_path, report["moved"]))
         return json.dumps(report, ensure_ascii=False)
 
     @mcp_tool
@@ -691,7 +576,6 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
          * @return 精确目标及事务回读结果
          */
         """
-        from BBBBlueprintAnnotations import _text
 
         if type(dry_run) is not bool:
             raise RuntimeError("dry_run 必须为布尔值")
@@ -754,7 +638,6 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
          * @return 新增说明框身份及逻辑保持结果 不编译或保存
          */
         """
-        from BBBBlueprintAnnotations import _text
 
         _text(text, "说明框正文")
         if type(dry_run) is not bool or any(type(value) is not int for value in (x, y, width, height)):
@@ -926,62 +809,7 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
 
         return json.dumps(graph_view(result, view, node_guids, offset, limit, expected_snapshot), ensure_ascii=False)
 
-    @mcp_tool
-    @staticmethod
-    @_annotation_documentation
-    def annotate_blueprint_graph(graph_path: str, annotations_json: str, dry_run: bool = True) -> str:
-        """
-        /**
-         * 预览或添加区块与空节点注释 并联合排版 不自动保存
-         * @param graph_path	项目蓝图图表完整路径
-         * @param annotations_json	含快照校验值的区块与节点注释方案
-         * @param dry_run	是否只读预览
-         * @return 注释布局质量与实际写入结果
-         */
-        """
-        from BBBBlueprintAnnotations import prepare_annotations, plan_annotations
 
-        if type(dry_run) is not bool:
-            raise RuntimeError("dry_run 必须为布尔值")
-
-        if unreal.EditorLevelLibrary.get_pie_worlds(False):
-            raise RuntimeError("PIE 期间禁止注释及排版蓝图")
-
-        snapshot = json.loads(BBBBlueprintGraphToolset._graph_snapshot(graph_path))
-        if not snapshot["layoutSupported"]:
-            raise RuntimeError("图表无法完整测量 不允许注释排版 " + " ".join(snapshot["warnings"]))
-
-        prepared = prepare_annotations(snapshot, annotations_json)
-        graph = unreal.load_object(None, graph_path)
-        if not prepared["blocks"] and not prepared["nodeComments"]:
-            return json.dumps({"graph": graph_path, "dryRun": dry_run, "changed": False, "skipped": prepared["skipped"], "saved": False}, ensure_ascii=False)
-
-        measurement = json.loads(unreal.BBBBlueprintEditorLibrary.measure_blueprint_graph_annotation_geometry(graph, json.dumps(prepared, ensure_ascii=False)))
-        if measurement.get("error"):
-            raise RuntimeError("注释显示测量失败 " + measurement["error"])
-
-        plan = plan_annotations(snapshot, prepared, measurement)
-        plan["graph"] = graph_path
-        plan["dryRun"] = dry_run
-        plan["changed"] = False
-        for warning in plan["warnings"]:
-            unreal.log_warning("[BBBBlueprintAnnotations] " + warning)
-
-        if not dry_run:
-            if not plan["canApply"]:
-                raise RuntimeError("注释布局质量不满足写入要求 请检查预览报告")
-
-            require_write_access(graph.get_outer())
-            result = json.loads(unreal.BBBBlueprintEditorLibrary.apply_blueprint_graph_annotations(graph, json.dumps(plan, ensure_ascii=False)))
-            if result.get("error"):
-                raise RuntimeError("注释写入失败 " + result["error"])
-
-            plan["changed"] = result["changed"]
-            plan["createdBlocks"] = result["createdBlocks"]
-            plan["snapshot"] = result["snapshot"]
-
-        unreal.log("[BBBBlueprintAnnotations] graph={} dry_run={} blocks={} node_comments={} changed={}".format(graph_path, dry_run, len(prepared["blocks"]), len(prepared["nodeComments"]), plan["changed"]))
-        return json.dumps(plan, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod
