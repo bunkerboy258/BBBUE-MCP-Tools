@@ -1,5 +1,13 @@
 # 批量人物指骨异常检查与修复
 
+## 2026-10-24 FAL 修复已按用户要求撤销
+
+用户取消FAL的全部9条角色动画手指修复。装备、换弹与后坐力从未修改的正式LS读取原旋转；两套握姿从human_manual_edit制作源的finger_rotations恢复；近战与使用返回两对成品从正式动作源保存的完整逐帧组件姿势还原局部旋转。只恢复本轮改动指骨的旋转，全部其他骨轨、位移缩放、帧数、曲线、通知及加法设置保持。源姿势恢复存在浮点运算，不宣称所有包与旧二进制逐字节一致。换弹恢复后的原始骨轨签名与修复前完全一致。
+
+公共入口支持明确恢复来源，不执行方向约束算法：profile.restore_sequences将目标包映射到sequence及可选bones；profile.restore_records将目标映射到同型号Source/Animation下的source_record，动作组件快照另需sample_asset。仍先inspect获取planSignature与逐目标signature，再按expected_plan_signature和expected_signatures调用repair。绑定通过实际同骨架角色模板和Guid文本核对；官方烘焙只在瞬态副本执行，按成品采样率并保持末帧有效范围，正式LS不写入。正式输出只替换指定指骨旋转并验证非目标轨及元数据，再保存。
+
+恢复实现BBBFingerSequenceRestore.py由现有入口热加载。LS恢复批次2d25988aeed758d5、制作记录恢复批次4fd6b840437835b1均保存回读通过；九条成品最终全轨核对通过。本轮新增FAL_FingerRepair.json.source已删除，不保留这次已取消修复的生效记录。恢复不等于再次通过人体自然度验收；已确认人工握姿不应套用指根归零规则。
+
 ## 2026-10-23 当前实现：实际网格绑定与最终姿势
 
 用户再次指出网格扭曲后，确认此前使用共享Skeleton的参考姿势是错误基准：SK_UA_BasicArms实际绑定与Skeleton参考中，食指01局部旋转相差约19.9度、食指03约14度、中指03约16.5度。旧版所谓接近零的扭转只对错误基准成立，不能当作网格自然度验收。

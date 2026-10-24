@@ -120,6 +120,9 @@ def run(asset_paths, profile_json, action):
 
     importlib.reload(geometry)
     config = json.loads(profile_json)
+    if config.get('restore_sequences') or config.get('restore_records'):
+        import BBBFingerSequenceRestore
+        return importlib.reload(BBBFingerSequenceRestore).run(asset_paths, config, action)
     if config.get('geometry_chain'):
         import BBBFingerPlanarTools
         return importlib.reload(BBBFingerPlanarTools).run(asset_paths, config, action)
