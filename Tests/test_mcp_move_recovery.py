@@ -191,6 +191,7 @@ class MovePersistenceRecoveryTests(unittest.TestCase):
         """/** @return 临时锁释放后仅接续保存和原包清理 */"""
         f = self.fixture
         state = f._empty_source_fixture()
+        f.report["referencer_packages"].append("/Game/Old/A")
         f.report["assets"][0]["destination_object"] = "/Game/New/A.A"
         native = f.runtime["unreal"]
         old_loader = native.load_object
@@ -198,7 +199,11 @@ class MovePersistenceRecoveryTests(unittest.TestCase):
         f.asset.get_class = lambda: SimpleNamespace(get_class_path_name=lambda: SimpleNamespace(package_name="/Script/Engine", asset_name="StaticMesh"))
         native.load_object = lambda outer, path, **options: f.asset if path == "/Game/New/A.A" else old_loader(outer, path, **options)
         native.find_object = lambda outer, path, **options: f.old
-        native.load_package = lambda path: f.ref
+        def load_referencer(path):
+            """/** @param path 实际外部引用者 @return 禁止再次加载已迁移原包 */"""
+            self.assertNotEqual(path, "/Game/Old/A")
+            return f.ref
+        native.load_package = load_referencer
         f.runtime["_move_path"] = lambda path: path
         f.runtime["require_asset_write"] = lambda scope: None
         f.runtime["_verify_asset_moves_json"] = lambda rows: json.dumps({"success": "/Game/Old/A.uasset" not in state["files"]})

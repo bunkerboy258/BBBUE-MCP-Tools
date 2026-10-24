@@ -782,6 +782,8 @@ def _resume_asset_moves(report):
         scope.update((source, destination))
     for path in report["referencer_packages"]:
         path = _move_path(path)
+        if path in renamed:
+            continue
         package = unreal.load_package(path)
         if package is None or package.get_path_name() != path:
             raise McpExecutionError("rejected", "MOVE_REFERENCER_REQUIRED", "迁移引用者需要实际状态核验", {"package": path})
