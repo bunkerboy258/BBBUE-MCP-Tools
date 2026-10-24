@@ -136,6 +136,7 @@ TOOL_POLICIES = {
     'animation.retarget_missing_animations': {'scope': {'fields': ['target_path']}},
     'animation.rewrite_animation_node_binding_paths': {'scope': {'fields': ['blueprint_path']}},
     'animation.rewrite_animation_property_access_paths': {'scope': {'fields': ['blueprint_paths']}},
+    'animation.sample_recoil_runtime': {'world': 'pie', 'input_rules': {'properties': {'action': {'type': 'string', 'enum': ['start', 'status', 'stop']}, 'seconds': {'minimum': 0.001, 'maximum': 60}, 'offset': {'minimum': 0}, 'limit': {'minimum': 0, 'maximum': 1200}}}},
     'animation.sample_backward_recoil_runtime': {'world': 'pie', 'input_rules': {'properties': {'action': {'type': 'string', 'enum': ['start', 'status']}}}},
     'animation.sample_weapon_handling_runtime': {'world': 'pie', 'input_rules': {'properties': {'action': {'type': 'string', 'enum': ['start', 'status', 'equip']}, 'seconds': {'minimum': 0, 'maximum': 60}}, 'if': {'properties': {'action': {'const': 'equip'}}, 'required': ['action']}, 'then': {'required': ['equipment_class_path'], 'properties': {'equipment_class_path': {'minLength': 1}}}}},
     'animation.set_animation_blueprint_preview_mesh': {'scope': {'fields': ['blueprint_path']}},

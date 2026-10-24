@@ -51,7 +51,7 @@ HELPER_MODULES = (
     "BBBGripGeometryTools",
     "BBBHandPoseLayerTools",
     "BBBBlueprintLayout", "BBBBlueprintAnnotations", "BBBAnimationMotionTools",
-    "BBBAnimationTrajectoryTools", "BBBArmTwistTools", "BBBWeaponHandlingTools",
+    "BBBAnimationTrajectoryTools", "BBBArmTwistTools", "BBBWeaponHandlingTools", "BBBRecoilProbeTools",
     "BBBAnimationViewTools",
     "BBBFactAnimationCaptureTools",
     "BBBAnimationPoseBaking",
@@ -559,7 +559,7 @@ def resolve_access(contract, arguments):
         access, world = "read", "any"
     if contract["definition"] == "BBBAnimationPreviewToolset" and contract["name"] == "inspect_mass_inspection_population" and arguments.get("pause_game", False) is False:
         access, world = "read", "any"
-    if contract["definition"] == "BBBAnimationMigrationToolset" and contract["name"] in {"sample_weapon_handling_runtime", "sample_backward_recoil_runtime"} and arguments.get("action") == "status":
+    if contract["definition"] == "BBBAnimationMigrationToolset" and contract["name"] in {"sample_weapon_handling_runtime", "sample_backward_recoil_runtime", "sample_recoil_runtime"} and arguments.get("action") == "status":
         access, world = "read", "any"
     if contract["definition"] == "BBBGenericEditorToolset" and contract["name"] == "generate_and_inspect_pcg" and arguments.get("generate", False) is False:
         access = "read"

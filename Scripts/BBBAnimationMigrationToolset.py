@@ -3661,6 +3661,22 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def sample_recoil_runtime(action: str, seconds: float = 10.0, offset: int = 0, limit: int = 0) -> str:
+        """
+        /**
+         * 在最终游戏视口绘制时采样实际准星 屏幕轨迹与镜头
+         * @param action	start status stop
+         * @param seconds	采样游戏秒数 仅 start 使用
+         * @param offset	逐帧数据分页起点
+         * @param limit	返回帧数 零只返回统计 最大 1200
+         * @return 游戏帧证据及统计 不修改玩法或资产
+         */
+        """
+        import BBBRecoilProbeTools
+        return json.dumps(BBBRecoilProbeTools.sample_runtime(action, seconds, offset, limit), ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def sample_weapon_handling_runtime(action: str, seconds: float = 8.0, equipment_class_path: str = "") -> str:
         """
         /**

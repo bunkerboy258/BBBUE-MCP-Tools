@@ -801,6 +801,23 @@
         ]
       }
     },
+    "sample_recoil_runtime": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {"type": "string"},
+          "seconds": {"type": "number"},
+          "offset": {"type": "integer"},
+          "limit": {"type": "integer"}
+        },
+        "required": ["action"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {"returnValue": {"type": "string"}},
+        "required": ["returnValue"]
+      }
+    },
     "sample_weapon_handling_runtime": {
       "inputSchema": {
         "type": "object",
