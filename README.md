@@ -654,3 +654,9 @@ ManualAction制作源显式设置reset_base_request=true，通过prepare_action�
 ## 僵尸两份主配置与内联分区
 
 Monster 版本只编辑逻辑与表现两份主配置。`monster_gore.inspect_monster_presentation` 核对分区所有权 `save_monster_presentation` 验证后保存 `import_monster_hit_profile` 将制作模板的参数导入主配置内部分区且不保留模板引用。伤口材质与血液工具改为接收表现主配置。普通与断肢喷血的四项倍率经既有批量通道传递 不逐命中创建系统。旧迁移入口已移除。7 项专项工具边界与 5 项公共契约检查通过。UE5.8 完整编译链接通过 原生配置 调试靶 受击连射 出生 动画和声音共 12 项检查通过。两套血粒子系统的 16 个脚本均为 UpToDate。未将这些结果当作主观表现或帧率验收。使用说明见 `Docs/BBBMonsterGoreMCP.md`。
+
+2026-10-24 移动只读探针统一输出到 Saved/temp/LocomotionRuntimeProbe；当前网关要求 PIE 已运行后调用启动入口，不自动启动或停止 PIE，结束后停止探针并清理本次报告。
+
+2026-10-24 blueprint.copy_reference_graph_nodes 从明确外部动画蓝图复制已有函数体或指定节点集合。局部复制必须显式映射所有边界节点。完整复制保留目标函数接口和参考布局 并映射自有成员与完整 Property Access 路径。默认仅预检 正式应用要求无 PIE 和项目资产写入权限 严格编译后保存。参考图不修改 不产生资产备份。
+
+2026-10-24 blueprint.set_blueprint_comment_text 按明确图表 节点标识和原文替换说明正文 保留节点位置和连线 无 PIE 时执行 在可视编辑器验证保存与回读。参考图复制已通过两个实际动画蓝图的无警告编译及五项保存边界测试 项目原生模块编译成功。

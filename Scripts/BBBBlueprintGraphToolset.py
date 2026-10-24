@@ -14,6 +14,13 @@ from editor_toolset.toolsets import blueprint_dsl
 
 
 MCP_INPUTS = {
+    'copy_reference_graph_nodes': {
+        'existing_nodes_json': {'type': 'object', 'additionalProperties': {'type': 'string'}},
+        'path_replacements_json': {'type': 'array', 'items': {'type': 'object', 'properties': {
+            'oldPath': {'type': 'array', 'items': {'type': 'string'}},
+            'newPath': {'type': 'array', 'items': {'type': 'string'}}},
+            'required': ['oldPath', 'newPath'], 'additionalProperties': False}},
+    },
     'set_blueprint_node_positions': {
         'positions_json': {
             'type': 'array',
@@ -226,6 +233,103 @@ def _capture_layout_graph(graph):
 
 @unreal.uclass()
 class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
+    @mcp_tool
+    @staticmethod
+    def set_blueprint_comment_text(graph_path: str, node_guid: str, expected_text: str, text: str) -> str:
+        """/** @param graph_path 项目图表 @param node_guid 节点标识 @param expected_text 原文 @param text 新正文 @return 保存与回读结果 */"""
+        if not graph_path.startswith('/Game/_Project/'):
+            raise RuntimeError('需要项目图表')
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError('PIE 期间禁止编辑图表说明')
+        _text(text, '图表说明', False)
+        graph = unreal.load_object(None, graph_path)
+        snapshot = json.loads(BBBBlueprintGraphToolset._graph_snapshot(graph_path))
+        row = next((item for item in snapshot['nodes'] if item['guid'] == node_guid), None)
+        if row is None or row['nodeComment'] != expected_text:
+            raise RuntimeError('节点不存在或说明原文已变化')
+        node = unreal.load_object(None, row['path'])
+        blueprint = unreal.load_asset(graph_path.split('.', 1)[0])
+        require_write_access(blueprint)
+        with unreal.ScopedEditorTransaction('更新蓝图说明正文'):
+            blueprint.modify()
+            node.modify()
+            unreal.BlueprintEditorLibrary.set_comment_text(node, text)
+        after = json.loads(BBBBlueprintGraphToolset._graph_snapshot(graph_path))
+        if next(item for item in after['nodes'] if item['guid'] == node_guid)['nodeComment'] != text:
+            raise RuntimeError('说明回读不符')
+        if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
+            raise RuntimeError('蓝图说明保存失败')
+        return json.dumps({'graph': graph_path, 'nodeGuid': node_guid, 'text': text, 'saved': True}, ensure_ascii=False)
+
+
+    @mcp_tool
+    @staticmethod
+    def copy_reference_graph_nodes(source_file: str, target_asset: str, function_name: str,
+        node_guids: list[str], existing_nodes_json: str, path_replacements_json: str,
+        replace_body: bool = False, dry_run: bool = True) -> str:
+        """
+        /**
+         * 从明确参考动画蓝图复制函数体或节点集合 并映射项目属性读取
+         * @param source_file\t只读参考动画蓝图文件
+         * @param target_asset\t项目目标动画蓝图
+         * @param function_name\t双方已有函数名
+         * @param node_guids\t局部复制节点标识
+         * @param existing_nodes_json\t边界节点标识映射
+         * @param path_replacements_json\t完整属性路径映射
+         * @param replace_body\t替换函数体而非局部补齐
+         * @param dry_run\t只读取计划
+         * @return 参考路径与节点复制及无警告编译保存结果
+         */
+        """
+        source_file = os.path.abspath(source_file).replace('\\', '/')
+        if '/Content/' not in source_file or not os.path.isfile(source_file) or not source_file.endswith('.uasset'):
+            raise RuntimeError('参考动画蓝图文件无效')
+        if not target_asset.startswith('/Game/_Project/') or not function_name:
+            raise RuntimeError('需要项目目标和明确函数名')
+        root, relative = source_file.rsplit('/Content/', 1)
+        reference = json.loads(unreal.BBBAnimationGraphEditorLibrary.inspect_reference_animation_blueprint(root + '/Content/', relative[:-7]))
+        source_graph = next((item for item in reference.get('graphs', []) if item['name'] == function_name), None)
+        if source_graph is None:
+            raise RuntimeError('参考函数图不存在')
+        source = unreal.load_object(None, source_graph['path'])
+        blueprint = unreal.load_asset(target_asset)
+        graph = next((item for item in unreal.BlueprintEditorLibrary.list_graphs(blueprint) if item.get_name() == function_name), None)
+        if graph is None:
+            raise RuntimeError('目标函数图不存在')
+        library = unreal.BBBBlueprintEditorLibrary
+        paths = []
+        for node in unreal.BlueprintGraphEditor.get_graph_editor(source).list_all_nodes():
+            if node.get_class().get_name() == 'K2Node_PropertyAccess':
+                paths.append({'node': node.get_path_name(), 'path': list(library.get_property_access_path(node))})
+        result = {'target': target_asset, 'function': function_name, 'propertyPaths': paths, 'dryRun': dry_run}
+        if dry_run:
+            return json.dumps(result, ensure_ascii=False)
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError('PIE 期间禁止复制图表')
+        require_write_access(blueprint)
+        if not hasattr(library, 'copy_blueprint_graph_nodes'):
+            raise RuntimeError('请编译参考节点复制能力')
+        copied = json.loads(library.copy_blueprint_graph_nodes(source, graph, node_guids, json.loads(existing_nodes_json), replace_body))
+        if copied.get('error'):
+            raise RuntimeError('参考图复制失败 ' + copied['error'])
+        replacements = json.loads(path_replacements_json)
+        for row in copied['created']:
+            node = unreal.load_object(None, row['path'])
+            if node.get_class().get_name() == 'K2Node_PropertyAccess':
+                old = list(library.get_property_access_path(node))
+                replacement = next((item['newPath'] for item in replacements if item['oldPath'] == old), None)
+                if replacement is not None and not library.set_property_access_path(node, replacement):
+                    raise RuntimeError('项目属性路径映射失败')
+        unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
+        if blueprint.get_editor_property('status') != unreal.BlueprintStatus.BS_UP_TO_DATE:
+            raise RuntimeError('参考函数图未通过无警告编译 不保存')
+        if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
+            raise RuntimeError('参考函数图保存失败')
+        result.update(copied)
+        result['saved'] = True
+        return json.dumps(result, ensure_ascii=False)
+
+
     """通过显式语言映射复用官方蓝图图表工具 不改变编辑器语言"""
 
     @mcp_tool

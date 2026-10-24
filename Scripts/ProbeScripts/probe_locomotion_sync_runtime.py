@@ -11,12 +11,14 @@ import unreal
 
 OUTPUT_PATH = os.path.join(
     unreal.Paths.project_saved_dir(),
-    "Diagnostics",
+    "temp",
+    "LocomotionRuntimeProbe",
     "BBBLocomotionRuntime.jsonl",
 )
 FEET_OUTPUT_PATH = os.path.join(
     unreal.Paths.project_saved_dir(),
-    "Diagnostics",
+    "temp",
+    "LocomotionRuntimeProbe",
     "BBBLocomotionFeet.csv",
 )
 

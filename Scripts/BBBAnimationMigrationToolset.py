@@ -1714,12 +1714,14 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             {
                 "runtimeReport": os.path.join(
                     unreal.Paths.project_saved_dir(),
-                    "Diagnostics",
+                    "temp",
+                    "LocomotionRuntimeProbe",
                     "BBBLocomotionRuntime.jsonl",
                 ),
                 "feetReport": os.path.join(
                     unreal.Paths.project_saved_dir(),
-                    "Diagnostics",
+                    "temp",
+                    "LocomotionRuntimeProbe",
                     "BBBLocomotionFeet.csv",
                 ),
                 "started": True,

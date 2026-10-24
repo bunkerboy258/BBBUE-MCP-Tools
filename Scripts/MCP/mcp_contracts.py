@@ -36,6 +36,8 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
+    'blueprint.copy_reference_graph_nodes': {'scope': {'fields': ['target_asset']}},
+    'blueprint.set_blueprint_comment_text': {'scope': {'fields': ['graph_path']}},
     'monster_gore.inspect_monster_presentation': {'access': 'read', 'world': 'any'},
     'monster_gore.import_monster_hit_profile': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['definition_path']}, 'completion': 'verified_save'},
     'monster_gore.save_monster_presentation': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['definition_path']}, 'completion': 'verified_save'},
