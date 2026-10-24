@@ -79,6 +79,55 @@ class MoveRecoveryTests(unittest.TestCase):
         renewed = self.queue.clients.operators.manage(self.owner, task="新任务")
         self.assertEqual(renewed["level"], 2)
 
+    def test_zero_level_takes_over_fault_and_fences_original_client(self):
+        """/** @return 零级接管持久化归属 原客户端失去控制权限并保留审计 */"""
+        batch = self.submit_move()
+        previous = self.queue.jobs[batch]["operator"]
+        self.queue.clients.operators.manage(self.owner, action="finish")
+        self.queue.clients.operators.manage(self.other, task="接管迁移收尾", level=0)
+        self.queue.control(self.other, "recover", batch)
+        self.assertEqual(self.queue.jobs[batch]["owner"], self.other)
+        self.assertEqual(self.queue.jobs[batch]["operator"], self.queue.clients.operators.identity(self.other))
+        audit = next(row for row in self.queue.clients.operators.audit if row["action"] == "takeover_recovery")
+        self.assertEqual(audit["previous_operator"], previous)
+        with self.assertRaises(McpBusinessError):
+            self.queue.control(self.owner, "recover", batch)
+        self.backend.recover_asset_moves = lambda report: self.backend.state.update(dirty_packages=[]) or {"success": True}
+        self.queue.run_once()
+        self.assertNotIn(batch, self.queue.assets.claims)
+        self.assertTrue(self.queue.inspect(self.other, batch)["proof"]["move_recovery"]["success"])
+        self.assertEqual(sum(name == "move_assets_batch" for name, arguments in self.backend.calls), 1)
+
+    def test_takeover_requires_zero_level_and_terminal_fault(self):
+        """/** @return 普通干员与正在执行批次维持归属 */"""
+        batch = self.submit_move()
+        self.queue.clients.operators.manage(self.other, task="接管迁移收尾")
+        with self.assertRaises(McpBusinessError) as caught:
+            self.queue.control(self.other, "recover", batch)
+        self.assertEqual(caught.exception.value["code"], "OPERATOR_LEVEL_REQUIRED")
+        self.queue.clients.operators.manage(self.other, level=0)
+        for state in ("running", "queued"):
+            self.queue.jobs[batch]["status"] = state
+            with self.assertRaises(McpBusinessError) as caught:
+                self.queue.control(self.other, "recover", batch)
+            self.assertEqual(caught.exception.value["code"], "BATCH_ACTIVE")
+            self.assertEqual(self.queue.jobs[batch]["owner"], self.owner)
+
+    def test_takeover_is_persisted_across_service_restart(self):
+        """/** @return 重启恢复接管身份并保留迁移证据 */"""
+        stored = {}
+        self.queue.clients.store_job = lambda row: stored.update({row["id"]: copy.deepcopy(row)})
+        self.queue.clients.stored_jobs = lambda: list(copy.deepcopy(stored).values())
+        batch = self.submit_move()
+        self.queue.clients.operators.manage(self.other, task="接管迁移收尾", level=0)
+        self.queue.control(self.other, "recover", batch)
+        self.assertEqual(stored[batch]["owner"], self.queue.clients.digest(self.other))
+        restored = JobQueue(self.backend, self.catalog, clock=lambda: self.now, start_worker=False, clients=self.queue.clients)
+        self.addCleanup(restored.close)
+        restored.connect(resume_key=self.other)
+        self.assertEqual(restored.jobs[batch]["owner"], self.other)
+        self.assertEqual(restored.jobs[batch]["move_recovery"], self.record)
+
     def test_automatic_recovery_stops_after_bounded_failures(self):
         """/** @return 确定失败返回明确恢复动作并保留证据 */"""
         batch = self.submit_move()

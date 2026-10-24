@@ -886,18 +886,32 @@ class JobQueue:
             if job is None:
                 raise JobConflict("BATCH_OWNERSHIP")
             foreign = job["owner"] != client
-            if foreign:
+            if foreign and action != "recover":
                 raise JobConflict("BATCH_OWNERSHIP")
             if action == "recover":
+                if foreign:
+                    self.clients.operators.require(client, level=0)
                 claim = self.assets.claims.get(batch)
                 if claim is None:
+                    if foreign:
+                        raise JobConflict("BATCH_ALREADY_FINISHED")
                     return self._job_view(job)
                 if job["status"] == "running":
+                    if foreign:
+                        raise JobConflict("BATCH_ACTIVE")
                     return self._job_view(job)
                 if self.draining:
                     raise JobConflict("HOST_DRAINING")
-                if claim["phase"] != "fault":
+                if claim["phase"] != "fault" or job["status"] == "queued" or self.writer == batch:
                     raise JobConflict("BATCH_ACTIVE")
+                if foreign:
+                    if job["activities"] & set(self.activity_owners) or self.pie_batch == batch:
+                        raise JobConflict("OWNED_ACTIVITY_PENDING")
+                    previous_operator = job.get("operator")
+                    job["owner"] = client
+                    job["operator"] = self.clients.operators.identity(client)
+                    self.clients.operators.record(client, "takeover_recovery", batch,
+                        previous_operator=previous_operator, operator=job["operator"])
                 claim.update(attempts=0, retry_at=self.clock())
                 self.clients.operators.record(client, action, batch, result="recovery_requested")
                 self._signal()
