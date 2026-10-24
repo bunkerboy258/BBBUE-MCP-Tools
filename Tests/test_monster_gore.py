@@ -9,7 +9,6 @@ from unittest.mock import Mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "Scripts"))
 from BBBMcpCapabilities import tool_contract
-from MCP.mcp_contracts import backend_arguments
 
 
 class MonsterGoreTests(unittest.TestCase):
@@ -20,7 +19,7 @@ class MonsterGoreTests(unittest.TestCase):
         self.engine = Mock()
         self.access = Mock()
         self.scope = {"unreal": self.engine, "json": json, "re": re, "require_asset_write": self.access}
-        for name in ("configure_monster_wound_materials", "control_monster_gore_preview"):
+        for name in ("configure_monster_wound_materials",):
             function = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == name)
             function.decorator_list = []
             exec(compile(ast.Module(body=[function], type_ignores=[]), "monster_gore_test", "exec"), self.scope)
@@ -37,26 +36,6 @@ class MonsterGoreTests(unittest.TestCase):
         self.engine.get_editor_subsystem.return_value.get_game_world.return_value = object()
         with self.assertRaises(RuntimeError):
             self.scope["configure_monster_wound_materials"]("/Game/_Project/Mass/Monster/Zombie/Shared/Injury/Connor/DA_Wounds")
-        self.engine.load_asset.assert_not_called()
-
-    def test_unknown_preview_action_rejected_before_asset_load(self):
-        """/** @return 未知动作不建立预览世界 */"""
-        with self.assertRaises(RuntimeError):
-            self.scope["control_monster_gore_preview"]("/Game/_Project/Definition", "unknown")
-        self.engine.load_asset.assert_not_called()
-
-    def test_action_is_raw_string_not_json_string(self):
-        """/** @return 预览动作不能被结构化输入编码为带引号的字符串 */"""
-        contract = tool_contract("BBBMonsterGoreToolset", "control_monster_gore_preview", {
-            "type": "object", "properties": {"definition_path": {"type": "string"}, "action": {"type": "string"}},
-            "required": ["definition_path", "action"]})
-        self.assertEqual(backend_arguments(contract, {"action": "state"})["action"], "state")
-        self.assertNotIn("action", contract["codecs"])
-
-    def test_same_frame_physics_advance_is_not_a_preview_action(self):
-        """/** @return 物理必须随真实引擎帧推进 不接受同帧循环推进 */"""
-        with self.assertRaises(RuntimeError):
-            self.scope["control_monster_gore_preview"]("/Game/_Project/Definition", "advance")
         self.engine.load_asset.assert_not_called()
 
     def test_gib_probe_queries_only_the_current_world(self):
@@ -88,6 +67,13 @@ class MonsterGoreTests(unittest.TestCase):
             "normalize_zombie_gib_material_bindings"}
         self.assertFalse(retired.intersection(current))
         self.assertEqual(tool_contract("BBBHitReactionToolset", "inspect_zombie_gib_presentation", {})["access"], "read")
+
+    def test_preview_interface_is_removed_without_aliases(self):
+        """/** @return 专用预览窗口与后台预览接口均不再注册 */"""
+        from BBBMcpCapabilities import source_index
+        current = source_index("BBBMonsterGoreToolset")["public_tools"]
+        self.assertFalse({"open_monster_gore_editor", "control_monster_gore_preview",
+                          "adjust_monster_wound_preview"}.intersection(current))
 
 
 if __name__ == "__main__":

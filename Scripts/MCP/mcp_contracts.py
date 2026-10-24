@@ -38,8 +38,6 @@ INPUT_SHAPES = {
 TOOL_POLICIES = {
     'monster_gore.configure_monster_wound_materials': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['definition_path']}, 'completion': 'verified_save'},
     'monster_gore.inspect_monster_gore_assets': {'access': 'read', 'world': 'any'},
-    'monster_gore.open_monster_gore_editor': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['definition_path']}, 'completion': 'observed'},
-    'monster_gore.control_monster_gore_preview': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['definition_path']}, 'completion': 'observed'},
     'editor.reimport_static_mesh': {'scope': {'fields': ['asset_path']}},
     'editor.process_animation_fingers': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['asset_paths']}, 'completion': 'verified_save'},
     'animation_graph.create_aim_offset_from_template': {'scope': {'fields': ['asset_path']}},

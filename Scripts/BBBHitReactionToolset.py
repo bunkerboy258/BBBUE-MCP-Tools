@@ -411,23 +411,36 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
                   "imagePaths": [], "imageSeconds": [], "samples": [], "durationSeconds": duration_seconds}
         _captures[identifier] = record
         from BBBMcpCapabilities import register_activity
-        register_activity("hit:" + identifier, lambda: record)
+        register_activity("hit:" + identifier, lambda: record, blocking=False, wait=False)
         data = {"start": unreal.GameplayStatics.get_time_seconds(world), "last": -1.0, "lastImage": -1.0, "handle": None}
 
         def complete(error=None):
             """/** @return 销毁相机并保存完整采样 失败时保留诊断 */"""
-            unreal.unregister_slate_post_tick_callback(data["handle"])
-            camera.destroy_actor()
-            record["temporaryActorsDestroyed"] = True
+            if record["status"] != "pending":
+                return
             record["status"] = "failed" if error else "completed"
             if error:
                 record["error"] = str(error)
-            report = os.path.join(directory, "capture.json")
-            with open(report, "w", encoding="utf-8") as stream:
-                json.dump(record, stream, ensure_ascii=False)
-            record["reportPath"] = report
+            try:
+                unreal.unregister_slate_post_tick_callback(data["handle"])
+                if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() == world:
+                    camera.destroy_actor()
+                record["temporaryActorsDestroyed"] = True
+            except Exception as cleanup_error:
+                record["status"] = "failed"
+                record["cleanupError"] = str(cleanup_error)
+                record["temporaryActorsDestroyed"] = False
             record["sampleFrames"] = len(record["samples"])
-            record.pop("samples")
+            report = os.path.join(directory, "capture.json")
+            try:
+                with open(report, "w", encoding="utf-8") as stream:
+                    json.dump(record, stream, ensure_ascii=False)
+                record["reportPath"] = report
+            except Exception as report_error:
+                record["status"] = "failed"
+                record["reportError"] = str(report_error)
+            finally:
+                record.pop("samples")
 
         def tick(delta_seconds):
             """/** @return 依据实际游戏时间采样 不使用截图数量推算时长 */"""

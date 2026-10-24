@@ -67,46 +67,5 @@ class BBBMonsterGoreToolset(unreal.ToolsetDefinition):
             raise RuntimeError("需要统一血腥表现配置")
         return str(unreal.BBBMonsterGoreEditorLibrary.inspect_gore_assets(definition))
 
-    @mcp_tool
-    @staticmethod
-    def open_monster_gore_editor(definition_path: str) -> str:
-        """
-        /**
-         * @param definition_path\t当前统一血腥配置包路径
-         * @return 打开原生三维编辑器 不保存参数
-         */
-        """
-        definition = unreal.load_asset(definition_path)
-        if not isinstance(definition, unreal.BBBMonsterGoreDefinition):
-            raise RuntimeError("需要统一血腥表现配置")
-        unreal.BBBMonsterGoreEditorLibrary.open_gore_editor(definition)
-        return json.dumps({"opened": definition.get_path_name(), "saved": False})
-
-
-    @mcp_tool
-    @staticmethod
-    def control_monster_gore_preview(definition_path: str, action: str, template_index: int = -1,
-                                    value: float = 0.0, capture_name: str = "") -> str:
-        """
-        /**
-         * @param definition_path\t当前预览配置
-         * @param action\t查看 命中 断开 重置 播放 定位或截图
-         * @param template_index\t明确模板编号 负一保留当前选择
-         * @param value\t时间或间隔数值
-         * @param capture_name\t唯一截图名称 输出位于本任务临时目录
-         * @return 实际预览结果 不保存配置或关卡
-         */
-        """
-        if action not in ('state', 'fire', 'burst', 'apply', 'reset', 'play', 'pause', 'scrub', 'focus', 'wide', 'piece', 'set_reset', 'capture', 'camera', 'time_scale'):
-            raise RuntimeError("预览操作无效")
-        definition = unreal.load_asset(definition_path)
-        if not isinstance(definition, unreal.BBBMonsterGoreDefinition):
-            raise RuntimeError("需要统一血腥表现配置")
-        result = str(unreal.BBBMonsterGoreEditorLibrary.control_gore_preview(
-            definition, action, template_index, value, capture_name))
-        if result.startswith("失败"):
-            raise RuntimeError(result)
-        return result
-
 
 _registration = Registration([BBBMonsterGoreToolset])

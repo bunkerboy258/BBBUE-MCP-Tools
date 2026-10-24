@@ -85,7 +85,6 @@ SUMMARIES = {
     "hit.inspect_pie_audio_device": "读取 PIE 音频设备状态",
     "monster_gore.configure_monster_wound_materials": "适配预制伤口的统一投影材质",
     "monster_gore.inspect_monster_gore_assets": "读取统一伤口资源与容量",
-    "monster_gore.control_monster_gore_preview": "无窗口预览伤口与物理残肢",
     "editor.reimport_static_mesh": "原位更新自有静态网格与凸碰撞",
     "hud.set_input_action_keys": "设置输入动作按键",
     "hud.render_mesh_silhouettes": "渲染网格轮廓图",
