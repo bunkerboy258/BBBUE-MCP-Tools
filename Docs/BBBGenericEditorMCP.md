@@ -4,7 +4,7 @@
 
 `editor.configure_animation_root_motion_matrix` 对明确且不重复的自有 AnimSequence 列表使用原生 `PropertyEditor` 属性矩阵编辑 `bEnableRootMotion` `bForceRootLock` 和 `RootMotionRootLock`。默认仅预检。正式应用通过矩阵单元格写入 保存并回读 同时核对动画数据模型指纹不变。`show_matrix=true` 显示矩阵供人工查看。单次最多 512 个序列。
 
-普通 MM 移动可使用启用根运动加首帧强制锁根的序列 保留根轨道供索引读取。运行时位移职责由 AnimInstance 的 RootMotionMode 决定 含既有根运动攀爬的角色应保留 Montages Only 以排除普通序列对移动的贡献。
+普通 MM 库若含有非零首帧根平移或朝向 应明确传入 `root_lock="Zero"` 并开启根运动读取与强制锁根。原始根轨道继续供索引使用 运行时姿态统一到零点 避免切片时继承各动画不同的首帧偏移。Anim First Frame 仅适用于已确认首帧原点一致的动画。运行时位移职责由 AnimInstance 的 RootMotionMode 决定 含既有根运动攀爬的角色保留 Montages Only。
 
 ## 动画曲线原样迁移
 

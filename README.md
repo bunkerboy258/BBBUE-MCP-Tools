@@ -1,5 +1,7 @@
 # BBBUE MCP Tools
 
+2026-10-25 修正步枪 MM 动画的锁根位置为 Zero。原动画首帧含数米偏移及不同朝向 使用 Anim First Frame 会在检索切片时造成网格跳变。372 个序列通过原生矩阵统一锁零点并保留根轨道 装备步枪的 PIE 静止采样 31.27 秒胶囊和根骨位移均为零 未新增原 PoseJump 警告。
+
 2026-10-25 新增 `editor.configure_animation_root_motion_matrix`。使用引擎原生属性矩阵批量配置明确动画序列的根运动读取和锁根设置 保存回读并核对动画数据模型指纹不变 支持显示矩阵供人工查看。
 
 2026-10-25 新增 `BBBMotionMatchingToolset`：构造标准 Pose Search Schema 与候选 Database 原生等待索引完成并核对姿态数和维度。支持动画层提供五组普通运动数据库 主线程候选库更新 线程安全轨迹与 MM 回调 合并普通状态和导管 以及精确清理旧图和变量。资产移动跳过已保存清洁包 并直接原生清理已确认完全空的原包。UE5.8 Editor 编译和数据库索引回读通过 工具边界专项检查通过 动画效果交由用户验收。调用边界见 `Docs/BBBMotionMatchingMCP.md`。
