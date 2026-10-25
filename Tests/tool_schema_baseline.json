@@ -7693,6 +7693,60 @@
           "returnValue"
         ]
       }
+    },
+    "configure_animation_root_motion_matrix": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "明确自有动画序列列表 *"
+          },
+          "enable_root_motion": {
+            "type": "boolean",
+            "description": "允许引擎读取根运动 *",
+            "default": true
+          },
+          "force_root_lock": {
+            "type": "boolean",
+            "description": "未提取根运动时仍锁定根骨 *",
+            "default": true
+          },
+          "root_lock": {
+            "type": "string",
+            "description": "RefPose AnimFirstFrame 或 Zero *",
+            "default": "AnimFirstFrame"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "只预检 不修改或保存 *",
+            "default": true
+          },
+          "show_matrix": {
+            "type": "boolean",
+            "description": "显示原生属性矩阵 *",
+            "default": false
+          }
+        },
+        "required": [
+          "asset_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "矩阵后端 属性回读与动画数据不变的证据 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBLevelEditingToolset": {

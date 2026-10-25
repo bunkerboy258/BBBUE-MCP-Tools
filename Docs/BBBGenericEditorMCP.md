@@ -1,5 +1,11 @@
 # BBB 通用编辑器 MCP
 
+## 动画根运动属性矩阵
+
+`editor.configure_animation_root_motion_matrix` 对明确且不重复的自有 AnimSequence 列表使用原生 `PropertyEditor` 属性矩阵编辑 `bEnableRootMotion` `bForceRootLock` 和 `RootMotionRootLock`。默认仅预检。正式应用通过矩阵单元格写入 保存并回读 同时核对动画数据模型指纹不变。`show_matrix=true` 显示矩阵供人工查看。单次最多 512 个序列。
+
+普通 MM 移动可使用启用根运动加首帧强制锁根的序列 保留根轨道供索引读取。运行时位移职责由 AnimInstance 的 RootMotionMode 决定 含既有根运动攀爬的角色应保留 Montages Only 以排除普通序列对移动的贡献。
+
 ## 动画曲线原样迁移
 
 - `editor.inspect_animation_curve_data` 读取精确采样率 原始浮点曲线及指定局部骨轨道的量化摘要 轨道摘要只用于同源核对 不代替动作验收

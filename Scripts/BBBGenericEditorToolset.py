@@ -4999,4 +4999,50 @@ return saturate(edge*3)*smoothstep(0.18,0.7,n)*0.8;
 
 
 
+    @mcp_tool
+    @staticmethod
+    def configure_animation_root_motion_matrix(asset_paths: list[str], enable_root_motion: bool = True,
+                                               force_root_lock: bool = True, root_lock: str = "AnimFirstFrame",
+                                               dry_run: bool = True, show_matrix: bool = False) -> str:
+        """
+        /**
+         * 使用引擎属性矩阵统一动画序列根运动提取及锁根 保存并回读
+         * @param asset_paths 明确自有动画序列列表
+         * @param enable_root_motion 允许引擎读取根运动
+         * @param force_root_lock 未提取根运动时仍锁定根骨
+         * @param root_lock RefPose AnimFirstFrame 或 Zero
+         * @param dry_run 只预检 不修改或保存
+         * @param show_matrix 显示原生属性矩阵
+         * @return 矩阵后端 属性回读与动画数据不变的证据
+         */
+        """
+        from BBBAssetWritePolicy import require_asset_write
+
+        if not asset_paths or len(asset_paths) > 512 or len(set(asset_paths)) != len(asset_paths):
+            raise RuntimeError("需要一至五百一十二个不重复的动画序列")
+        if root_lock not in {"RefPose", "AnimFirstFrame", "Zero"}:
+            raise RuntimeError("根锁定位置无效")
+        if any(not path.startswith("/Game/_Project/") for path in asset_paths):
+            raise RuntimeError("只允许自有动画序列")
+        assets = [unreal.load_asset(path) for path in asset_paths]
+        if any(not isinstance(asset, unreal.AnimSequence) for asset in assets):
+            raise RuntimeError("所有目标必须是动画序列")
+        if not dry_run:
+            require_asset_write(assets)
+        result = json.loads(unreal.BBBAssetRepairEditorLibrary.configure_animation_root_motion_matrix(
+            assets, enable_root_motion, force_root_lock, root_lock, dry_run, show_matrix))
+        if not result.get("success"):
+            raise RuntimeError("根运动矩阵操作失败 " + str(result))
+        if not result.get("animationDataUnchanged") or len(result.get("assets", [])) != len(assets):
+            raise RuntimeError("矩阵回读范围或动画数据核验不完整")
+        if any(row["asset"] != asset.get_path_name() for asset, row in zip(assets, result["assets"])):
+            raise RuntimeError("矩阵回读资产顺序与明确范围不一致")
+        if not dry_run:
+            for asset, row in zip(assets, result["assets"]):
+                if row["changed"] and not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
+                    raise RuntimeError("根运动设置保存失败 " + asset.get_path_name())
+        result["saved"] = not dry_run
+        return json.dumps(result, ensure_ascii=False)
+
+
 _registration = Registration([BBBGenericEditorToolset])
