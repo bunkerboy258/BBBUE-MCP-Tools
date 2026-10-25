@@ -775,6 +775,16 @@ def prepare(recipe_path, write_paths):
         import importlib
         import BBBManualActionNative
         importlib.reload(BBBManualActionNative)
+        if data.get('timeline_ui_request') == 'inspect':
+            result = BBBManualActionNative.inspect_timeline_window(sequence)
+            data.pop('timeline_ui_request')
+            _save(path, data)
+            return result
+        if data.get('timeline_ui_request') == 'close':
+            timeline = BBBManualActionNative.repair_timeline_range(sequence, reopen=False)
+            data.pop('timeline_ui_request')
+            _save(path, data)
+            return {'timeline': timeline, 'next': 'reopen_after_editor_tick'}
         timeline = BBBManualActionNative.repair_timeline_range(sequence)
         if data.pop('timeline_ui_request', False):
             data['timeline_range_repair'] = timeline

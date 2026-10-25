@@ -1,5 +1,7 @@
 # BBBUE MCP Tools
 
+2026-10-25：拔枪序列时间轴复发时使用分帧恢复。ManualAction 制作源 timeline_ui_request="close" 只调用共享修复器关闭窗口、恢复范围并保存，不在同次调用重开；待编辑器 Tick 后另批 open_in_sequencer，再设置 timeline_ui_request="inspect" 读取真实视图、工作范围和各轨边界。仅即时范围回读不能证明窗口恢复。FAL 拔枪实测同次重开后上界再次 NaN，分帧重开后独立回读为 -0.085 至 1.785 秒；播放区间与关键帧保持。三个时间轴专项检查通过。
+
 2026-10-25：握持 manual_prepare 在加载 Rig 与准备预览前复用 repair_timeline_range。发现 NaN、无穷或倒置窗口范围时，关闭完整资产编辑器，按原播放区间重建视图与工作范围后保存重开，并立即返回；核验控制通道和播放区间不变，不进入握姿重建或运行配置写入。FAL HandGrip 实测将 NaN 视图结束值恢复为有限范围，两项时间轴回归通过。
 
 2026-10-24 用户取消FAL手指修复，9条角色成品已从正式LS、人工握姿源及完整动作快照恢复并保存；非目标轨、位移缩放和元数据保持。现有指骨入口支持restore_sequences及restore_records明确来源恢复，官方烘焙仅用瞬态副本，不改正式LS或生成备份资产。详见 Docs/BBBFingerAnimationMCP.md。

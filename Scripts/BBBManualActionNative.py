@@ -444,7 +444,24 @@ def match_grip_endpoints(path, data, write_paths):
         unreal.purge_object_references(scope, True)
 
 
-def repair_timeline_range(sequence):
+def inspect_timeline_window(sequence):
+    """/** @param sequence 当前序列 @return 时间范围与轨道边界 供跨帧核验 */"""
+    sections = []
+    for binding in sequence.get_bindings():
+        for track in binding.get_tracks():
+            for section in track.get_sections():
+                sections.append({'binding': binding.get_name(), 'track': track.get_class().get_name(),
+                    'start': section.get_start_frame() if section.has_start_frame() else None,
+                    'end': section.get_end_frame() if section.has_end_frame() else None})
+    ranges = {'view': [str(sequence.get_view_range_start()), str(sequence.get_view_range_end())],
+              'work': [str(sequence.get_work_range_start()), str(sequence.get_work_range_end())],
+              'sections': sections, 'rate': str(sequence.get_display_rate()),
+              'tick': str(sequence.get_tick_resolution())}
+    return ranges
+
+
+
+def repair_timeline_range(sequence, reopen=True):
     """Repair invalid editor ranges without altering animation channels or valid zoom."""
     before = {'view': [sequence.get_view_range_start(), sequence.get_view_range_end()],
               'work': [sequence.get_work_range_start(), sequence.get_work_range_end()]}
@@ -470,10 +487,11 @@ def repair_timeline_range(sequence):
     sequence.set_view_range_end(bounds[1])
     if not unreal.EditorAssetLibrary.save_loaded_asset(sequence, False):
         raise RuntimeError('TIMELINE_RANGE_SAVE')
-    unreal.LevelSequenceEditorBlueprintLibrary.open_level_sequence(sequence)
-    unreal.LevelSequenceEditorBlueprintLibrary.set_current_time(playback[0])
-    unreal.LevelSequenceEditorBlueprintLibrary.refresh_current_level_sequence()
-    unreal.LevelSequenceEditorBlueprintLibrary.force_update()
+    if reopen:
+        unreal.LevelSequenceEditorBlueprintLibrary.open_level_sequence(sequence)
+        unreal.LevelSequenceEditorBlueprintLibrary.set_current_time(playback[0])
+        unreal.LevelSequenceEditorBlueprintLibrary.refresh_current_level_sequence()
+        unreal.LevelSequenceEditorBlueprintLibrary.force_update()
     after = {'view': [sequence.get_view_range_start(), sequence.get_view_range_end()],
              'work': [sequence.get_work_range_start(), sequence.get_work_range_end()]}
     if any(not all(math.isfinite(v) for v in values) or values[1] <= values[0] for values in after.values()):
@@ -483,7 +501,7 @@ def repair_timeline_range(sequence):
     return {'repaired': True, 'before': {key: [v if math.isfinite(v) else str(v) for v in values]
                                         for key, values in before.items()},
             **after, 'closed_asset_editors': closed_editors,
-            'channels_preserved': True, 'playback_preserved': True}
+            'channels_preserved': True, 'playback_preserved': True, 'reopened': reopen}
 
 
 def sync_reload_timing(path, data, write_paths):

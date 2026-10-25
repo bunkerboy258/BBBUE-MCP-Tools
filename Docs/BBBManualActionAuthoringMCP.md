@@ -1,5 +1,7 @@
 # 武器装备与换弹动作的人工制作
 
+2026-10-25：拔枪序列时间轴复发时使用分帧恢复。ManualAction 制作源 timeline_ui_request="close" 只调用共享修复器关闭窗口、恢复范围并保存，不在同次调用重开；待编辑器 Tick 后另批 open_in_sequencer，再设置 timeline_ui_request="inspect" 读取真实视图、工作范围和各轨边界。仅即时范围回读不能证明窗口恢复。FAL 拔枪实测同次重开后上界再次 NaN，分帧重开后独立回读为 -0.085 至 1.785 秒；播放区间与关键帧保持。三个时间轴专项检查通过。
+
 ## 本轮实现范围
 
 `control_rig.process_dual_arm_body_pose` 的 `action=prepare_action` 准备一把武器的完整装备或换弹序列。实现为 `Scripts/BBBManualActionAuthoring.py`，入口通过现有正式工具加载。它只准备人工编辑输入，尚未提供本流程的应用操作；不得将准备完成当作正式动画已经更新。

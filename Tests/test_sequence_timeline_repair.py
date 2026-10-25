@@ -68,6 +68,16 @@ class TimelineRepairTests(unittest.TestCase):
         subsystem.close_all_editors_for_asset.assert_not_called()
         unreal.EditorAssetLibrary.save_loaded_asset.assert_not_called()
 
+    def test_deferred_reopen_leaves_editor_closed(self):
+        """/** @return 分帧恢复先关闭窗口 保留关键帧 等下一次调用再打开 */"""
+        repair, sequence, state, subsystem, unreal = self.make_repair([0.0, float('nan')])
+        result = repair(sequence, reopen=False)
+        self.assertTrue(result['repaired'])
+        self.assertFalse(result['reopened'])
+        self.assertTrue(result['channels_preserved'])
+        unreal.LevelSequenceEditorBlueprintLibrary.open_level_sequence.assert_not_called()
+        unreal.EditorAssetLibrary.save_loaded_asset.assert_called_once_with(sequence, False)
+
 
 if __name__ == '__main__':
     unittest.main()
