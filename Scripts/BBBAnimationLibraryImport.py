@@ -8,6 +8,14 @@ import unreal
 from BBBAssetWritePolicy import require_asset_write
 
 
+def _sample_rate(row):
+    """/** @param row\t单条导入请求 @return 明确的一至二百四十帧整数采样率 */"""
+    rate = row.get("sample_rate", 30)
+    if type(rate) is not int or not 1 <= rate <= 240:
+        raise RuntimeError("动画采样率必须是一至二百四十的整数")
+    return rate
+
+
 @contextlib.contextmanager
 def legacy_fbx_import():
     """/** @return 单次操作使用原生 FBX 工厂并恢复原导入开关 */"""
@@ -33,8 +41,9 @@ def import_animation_library_batch(requests_json):
     paths = [row["asset_path"] for row in requests]
     if len(set(paths)) != len(paths):
         raise RuntimeError("动画目标路径重复")
+    rates = [_sample_rate(row) for row in requests]
     prepared = []
-    for row in requests:
+    for row, rate in zip(requests, rates):
         path = row["asset_path"]
         source = row["source_file"]
         if not os.path.isabs(source) or not os.path.isfile(source) or not source.lower().endswith(".fbx"):
@@ -48,11 +57,11 @@ def import_animation_library_batch(requests_json):
         angles = [float(row.get(key, 0)) for key in ("import_pitch", "import_yaw", "import_roll")]
         if not all(math.isfinite(value) for value in angles):
             raise RuntimeError("导入旋转必须为有限数值")
-        prepared.append((row, skeleton, mesh, angles))
+        prepared.append((row, skeleton, mesh, angles, rate))
     require_asset_write([], paths)
     results = []
     with legacy_fbx_import():
-        for row, skeleton, mesh, angles in prepared:
+        for row, skeleton, mesh, angles, rate in prepared:
             path = row["asset_path"]
             options = unreal.FbxImportUI()
             options.automated_import_should_detect_type = False
@@ -64,7 +73,8 @@ def import_animation_library_batch(requests_json):
             options.import_textures = False
             options.skeleton = skeleton
             data = options.anim_sequence_import_data
-            data.set_editor_property("use_default_sample_rate", True)
+            data.set_editor_property("use_default_sample_rate", False)
+            data.set_editor_property("custom_sample_rate", rate)
             data.set_editor_property("import_custom_attribute", True)
             data.set_editor_property("import_rotation", unreal.Rotator(pitch=angles[0], yaw=angles[1], roll=angles[2]))
             task = unreal.AssetImportTask()
@@ -85,7 +95,7 @@ def import_animation_library_batch(requests_json):
             animation.set_preview_skeletal_mesh(mesh)
             if not unreal.EditorAssetLibrary.save_loaded_asset(animation, False):
                 raise RuntimeError("动画保存失败: " + path)
-            results.append({"asset": path, "seconds": animation.get_play_length(), "keys": animation.data_model_interface.get_number_of_keys(), "rotation": angles})
+            results.append({"asset": path, "seconds": animation.get_play_length(), "keys": animation.data_model_interface.get_number_of_keys(), "rotation": angles, "sampleRate": rate})
     return json.dumps({"saved": results}, ensure_ascii=False)
 
 
