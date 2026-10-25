@@ -226,6 +226,8 @@ class BBBRetargetAssetAuditToolset(unreal.ToolsetDefinition):
                 controller.remove_retarget_op(index)
         root_mode = None
         fk_count = 0
+        root_count = 0
+        curve_count = 0
         for index in range(controller.get_num_retarget_ops()):
             op = controller.get_op_controller(index)
             kind = op.get_class().get_name()
@@ -237,7 +239,7 @@ class BBBRetargetAssetAuditToolset(unreal.ToolsetDefinition):
                     chain.rotation_alpha = 1.0
                     chain.translation_mode = unreal.FKChainTranslationMode.NONE
                     chain.rotation_mode = unreal.FKChainRotationMode.ONE_TO_ONE
-                    if str(chain.target_chain_name) == "Spine":
+                    if str(chain.target_chain_name) in {"Spine", "Neck"}:
                         chain.rotation_mode = unreal.FKChainRotationMode.INTERPOLATED
                 settings.chains_to_retarget = chains
                 op.set_settings(settings)
@@ -255,8 +257,15 @@ class BBBRetargetAssetAuditToolset(unreal.ToolsetDefinition):
                     settings.root_height_source = unreal.RootMotionHeightSource.SNAP_TO_GROUND
                 op.set_settings(settings)
                 root_mode = str(op.get_settings().root_motion_source)
-        if fk_count != 1 or root_mode is None:
-            raise RuntimeError("需要唯一 FK 链操作和根骨操作")
+                root_count += 1
+            if kind == "IKRetargetCurveRemapController":
+                settings = op.get_settings()
+                settings.copy_all_source_curves = True
+                settings.remap_curves = False
+                op.set_settings(settings)
+                curve_count += 1
+        if fk_count != 1 or root_count != 1 or curve_count != 1:
+            raise RuntimeError("需要唯一 FK 链 根骨和曲线复制操作")
         index = controller.add_retarget_op("/Script/IKRig.IKRetargetPinBoneOp")
         controller.set_op_name("Utility IK Bones", index)
         pin = controller.get_op_controller(index)
