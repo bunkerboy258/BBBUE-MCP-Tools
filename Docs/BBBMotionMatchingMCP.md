@@ -1,5 +1,7 @@
 # Motion Matching 编辑工具
 
+完整参考配置的检查 依赖映射 Chooser 条目及标准 MM 内部图迁移见 [运动匹配配置检查与迁移](BBBMotionMatchingConfigurationMCP.md)。该入口支持接入参考 CMC 系统的场景轨迹碰撞处理。
+
 `BBBMotionMatchingToolset` 通过 UE5.8 标准 Pose Search 构造动画数据库与动画图。仅允许明确的 `/Game/_Project` 目标。预览不修改资产 正式应用编译 保存并回读。
 
 - `motion_matching.create_schema` 创建单骨架格式 包含轨迹位置 速度 朝向和指定骨的姿态位置 速度通道。

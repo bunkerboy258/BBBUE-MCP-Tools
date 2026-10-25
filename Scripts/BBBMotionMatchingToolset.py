@@ -7,6 +7,20 @@ from toolset_registry.registration import Registration
 
 
 MCP_INPUTS = {
+    "migrate_configuration": {
+        "request_json": {
+            "type": "object",
+            "properties": {
+                "assets": {"type": "array", "items": {"type": "object", "properties": {"source": {"type": "string"}, "target": {"type": "string"}}, "required": ["source", "target"], "additionalProperties": False}},
+                "objectRemaps": {"type": "array", "items": {"type": "object", "properties": {"source": {"type": "string"}, "target": {"type": "string"}}, "required": ["source", "target"], "additionalProperties": False}},
+                "blueprint": {"type": "object", "properties": {"source": {"type": "string"}, "target": {"type": "string"}, "functions": {"type": "array", "items": {"type": "string"}}, "variables": {"type": "array", "items": {"type": "string"}}, "nodeTemplates": {"type": "array", "items": {"type": "object", "properties": {"source": {"type": "string"}, "target": {"type": "string"}}, "required": ["source", "target"], "additionalProperties": False}}, "historyAtOutput": {"type": "string"}}, "required": ["source", "target", "functions", "variables"], "additionalProperties": False},
+                "overrides": {"type": "array", "items": {"type": "object", "properties": {"object": {"type": "string"}, "property": {"type": "string"}, "value": {"type": "string"}}, "required": ["object", "property", "value"], "additionalProperties": False}},
+                "integration": {"type": "object", "properties": {"baseLayer": {"type": "string"}, "layer": {"type": "string"}, "chooser": {"type": "string"}}, "required": ["baseLayer", "layer", "chooser"], "additionalProperties": False},
+            },
+            "required": ["assets", "objectRemaps"],
+            "additionalProperties": False,
+        },
+    },
     "cleanup_animation_blueprints": {
         "requests_json": {
             "type": "array",
@@ -40,6 +54,49 @@ MCP_INPUTS = {
 @unreal.uclass()
 class BBBMotionMatchingToolset(unreal.ToolsetDefinition):
     """/** 创建并核验标准 Pose Search 数据资产 */"""
+
+    @mcp_tool
+    @staticmethod
+    def inspect_configuration(content_directory: str, object_paths: list[str]) -> str:
+        """/** @param content_directory 只读参考 Content 目录 空值读取本项目 @param object_paths 明确对象列表 @return 完整配置文本及子对象 */"""
+        report = json.loads(unreal.BBBMotionMatchingEditorLibrary.inspect_configuration(content_directory, object_paths))
+        if report.get("error"):
+            raise RuntimeError(report["error"])
+        return json.dumps(report, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def migrate_configuration(content_directory: str, target_paths: list[str], request_json: str, dry_run: bool = True) -> str:
+        """/** @param content_directory 参考 Content 目录 @param target_paths 完整写入对象范围 @param request_json 明确资产 对象和函数映射 @param dry_run 仅预检 @return 迁移报告 应用后保存与回读 */"""
+        from BBBAssetWritePolicy import require_asset_write
+        request = json.loads(request_json)
+        expected = [row["target"] for row in request.get("assets", [])]
+        if request.get("blueprint"):
+            expected.append(request["blueprint"]["target"])
+        if request.get("integration"):
+            expected.append(request["integration"]["layer"])
+        if len(target_paths) != len(set(target_paths)) or set(target_paths) != set(expected):
+            raise RuntimeError("写入范围必须与映射目标完全一致")
+        if not dry_run:
+            existing = [unreal.load_asset(path) for path in target_paths if unreal.EditorAssetLibrary.does_asset_exist(path)]
+            destinations = [path for path in target_paths if not unreal.EditorAssetLibrary.does_asset_exist(path)]
+            require_asset_write(existing, destinations)
+        report = json.loads(unreal.BBBMotionMatchingEditorLibrary.migrate_configuration(content_directory, request_json, not dry_run))
+        if report.get("error"):
+            raise RuntimeError(report["error"])
+        if not dry_run:
+            for path in target_paths:
+                asset = unreal.load_asset(path)
+                if asset is None:
+                    raise RuntimeError("迁移目标无法回读: " + path)
+                if isinstance(asset, unreal.Blueprint):
+                    unreal.BlueprintEditorLibrary.compile_blueprint(asset)
+                    if asset.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+                        raise RuntimeError("迁移蓝图编译存在错误或警告: " + path)
+                if not unreal.EditorAssetLibrary.save_loaded_asset(asset, only_if_is_dirty=False):
+                    raise RuntimeError("迁移资产保存失败: " + path)
+            report["saved"] = list(target_paths)
+        return json.dumps(report, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod

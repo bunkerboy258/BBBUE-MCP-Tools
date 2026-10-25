@@ -15982,6 +15982,125 @@
           }
         }
       }
+    },
+    "inspect_configuration": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "content_directory": {
+            "type": "string"
+          },
+          "object_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "content_directory",
+          "object_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "migrate_configuration": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "content_directory": {
+            "type": "string"
+          },
+          "target_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "request_json": {
+            "type": "string"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "content_directory",
+          "target_paths",
+          "request_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "start_runtime_probe": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "duration_seconds": {
+            "type": "number",
+            "default": 20.0
+          },
+          "sample_interval": {
+            "type": "number",
+            "default": 0.1
+          },
+          "file_prefix": {
+            "type": "string",
+            "default": "MMRuntimeProbe"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "inspect_runtime_probe": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "stop_runtime_probe": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        }
+      }
     }
   }
 }

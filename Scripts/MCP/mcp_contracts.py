@@ -36,6 +36,8 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
+    'motion_matching.migrate_configuration': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['target_paths']}, 'completion': 'verified_save'},
+    'motion_matching.inspect_configuration': {'access': 'read', 'world': 'editor', 'completion': 'observed'},
     'editor.configure_animation_root_motion_matrix': {'scope': {'fields': ['asset_paths']}},
     'motion_matching.start_runtime_probe': {'access': 'read', 'world': 'any', 'completion': 'observed'},
     'motion_matching.inspect_runtime_probe': {'access': 'read', 'world': 'any', 'completion': 'observed'},

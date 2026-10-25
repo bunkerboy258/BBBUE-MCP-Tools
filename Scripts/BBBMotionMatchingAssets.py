@@ -33,7 +33,9 @@ def _schema_report(schema):
     """/** @param schema 搜索格式 @return 保存后可核验的格式 */"""
     channels = []
     for channel in schema.get_editor_property("channels"):
-        item = {"class": channel.get_class().get_path_name(), "weight": channel.get_editor_property("weight")}
+        item = {"class": channel.get_class().get_path_name()}
+        if not isinstance(channel, unreal.PoseSearchFeatureChannel_Group):
+            item["weight"] = channel.get_editor_property("weight")
         if isinstance(channel, unreal.PoseSearchFeatureChannel_Trajectory):
             item["samples"] = [{"offset": sample.get_editor_property("offset"), "flags": sample.get_editor_property("flags")} for sample in channel.get_editor_property("samples")]
         if isinstance(channel, unreal.PoseSearchFeatureChannel_Pose):

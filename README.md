@@ -1,5 +1,7 @@
 # BBBUE MCP Tools
 
+2026-10-25 新增 `motion_matching.inspect_configuration` 与 `motion_matching.migrate_configuration`。原生读取完整 Chooser 结果与配置子对象 按明确映射迁移数据库 Schema 归一化和蓝图标准 MM 函数 保留内部图 搜索后回调与必要编译扩展。运动匹配 Python 回归二十八项通过。调用和部分失败处理见 `Docs/BBBMotionMatchingConfigurationMCP.md`。
+
 2026-10-25 修正步枪 MM 动画的锁根位置为 Zero。原动画首帧含数米偏移及不同朝向 使用 Anim First Frame 会在检索切片时造成网格跳变。372 个序列通过原生矩阵统一锁零点并保留根轨道 装备步枪的 PIE 静止采样 31.27 秒胶囊和根骨位移均为零 未新增原 PoseJump 警告。
 
 2026-10-25 新增 `editor.configure_animation_root_motion_matrix`。使用引擎原生属性矩阵批量配置明确动画序列的根运动读取和锁根设置 保存回读并核对动画数据模型指纹不变 支持显示矩阵供人工查看。
