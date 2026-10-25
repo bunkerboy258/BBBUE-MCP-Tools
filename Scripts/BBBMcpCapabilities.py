@@ -15,6 +15,7 @@ from MCP.mcp_contracts import TOOL_POLICIES, compile_contract, default_arguments
 
 
 TOOL_DOMAINS = {
+    "BBBMotionMatchingToolset": "motion_matching",
     "BBBHudAssetToolset": "hud",
     "BBBTraversalToolset": "traversal",
     "BBBMeleeToolset": "melee",
@@ -47,6 +48,11 @@ TOOL_DOMAINS = {
 TOOLSET_ROUTES = tuple(name for name in TOOL_DOMAINS if name.startswith("BBB"))
 
 HELPER_MODULES = (
+    "BBBMotionMatchingAssets",
+    "BBBMotionMatchingProvider",
+    "BBBMotionMatchingGraph",
+    "BBBMotionMatchingUpdates",
+    "BBBMotionMatchingCleanup",
     "BBBGraphFormatter",
     "BBBGripCaptureTools",
     "BBBGripGeometryTools",

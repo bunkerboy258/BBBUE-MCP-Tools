@@ -36,6 +36,15 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
+    'motion_matching.create_schema': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['asset_path']}, 'completion': 'verified_save'},
+    'motion_matching.create_database': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['asset_path']}, 'completion': 'verified_save'},
+    'motion_matching.inspect_database': {'access': 'read', 'world': 'any', 'completion': 'observed'},
+    'motion_matching.configure_database_provider': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['base_path', 'layer_path']}, 'completion': 'verified_save'},
+    'motion_matching.configure_main_updates': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['main_path']}, 'completion': 'verified_save'},
+    'motion_matching.inspect_animation_blueprints': {'access': 'read', 'world': 'any', 'completion': 'observed'},
+    'motion_matching.cleanup_animation_blueprints': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['blueprint_paths']}, 'completion': 'verified_save'},
+    'motion_matching.collapse_animation_states': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['blueprint_path']}, 'completion': 'verified_save'},
+    'motion_matching.replace_motion_matching_pose': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['graph_path']}, 'completion': 'verified_save'},
     'blueprint.copy_reference_graph_nodes': {'scope': {'fields': ['target_asset']}},
     'blueprint.set_blueprint_comment_text': {'scope': {'fields': ['graph_path']}},
     'monster_gore.inspect_monster_presentation': {'access': 'read', 'world': 'any'},

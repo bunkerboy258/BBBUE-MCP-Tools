@@ -14918,12 +14918,16 @@
         "properties": {
           "retargeter_paths": {
             "type": "array",
-            "items": {"type": "string"},
+            "items": {
+              "type": "string"
+            },
             "description": "明确持枪重定向器 *"
           },
           "source_rig_paths": {
             "type": "array",
-            "items": {"type": "string"},
+            "items": {
+              "type": "string"
+            },
             "description": "只读复用的源 Rig *"
           },
           "target_rig_path": {
@@ -14931,12 +14935,22 @@
             "description": "共用自有目标 Rig *"
           }
         },
-        "required": ["retargeter_paths", "source_rig_paths", "target_rig_path"]
+        "required": [
+          "retargeter_paths",
+          "source_rig_paths",
+          "target_rig_path"
+        ]
       },
       "outputSchema": {
         "type": "object",
-        "properties": {"returnValue": {"type": "string"}},
-        "required": ["returnValue"]
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
       }
     },
     "retarget_sequences": {
@@ -15425,16 +15439,84 @@
   },
   "BBBMonsterGoreToolset": {
     "inspect_monster_presentation": {
-      "inputSchema": {"type": "object", "properties": {"definition_path": {"type": "string"}}, "required": ["definition_path"]},
-      "outputSchema": {"type": "object", "properties": {"returnValue": {"type": "string"}}, "required": ["returnValue"]}
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "definition_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "definition_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     },
     "save_monster_presentation": {
-      "inputSchema": {"type": "object", "properties": {"definition_path": {"type": "string"}}, "required": ["definition_path"]},
-      "outputSchema": {"type": "object", "properties": {"returnValue": {"type": "string"}}, "required": ["returnValue"]}
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "definition_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "definition_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     },
     "import_monster_hit_profile": {
-      "inputSchema": {"type": "object", "properties": {"definition_path": {"type": "string"}, "region": {"type": "integer"}, "source_path": {"type": "string"}}, "required": ["definition_path", "region", "source_path"]},
-      "outputSchema": {"type": "object", "properties": {"returnValue": {"type": "string"}}, "required": ["returnValue"]}
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "definition_path": {
+            "type": "string"
+          },
+          "region": {
+            "type": "integer"
+          },
+          "source_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "definition_path",
+          "region",
+          "source_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     },
     "configure_monster_wound_materials": {
       "inputSchema": {
@@ -15482,6 +15564,369 @@
         "required": [
           "returnValue"
         ]
+      }
+    }
+  },
+  "BBBMotionMatchingToolset": {
+    "create_schema": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          },
+          "skeleton_path": {
+            "type": "string"
+          },
+          "bone_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "trajectory_offsets": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "sample_rate": {
+            "type": "integer",
+            "default": 30
+          }
+        },
+        "required": [
+          "asset_path",
+          "skeleton_path",
+          "bone_names",
+          "trajectory_offsets"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "create_database": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          },
+          "schema_path": {
+            "type": "string"
+          },
+          "animation_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "replace_existing": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "asset_path",
+          "schema_path",
+          "animation_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "inspect_database": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "asset_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "configure_database_provider": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "base_path": {
+            "type": "string"
+          },
+          "layer_path": {
+            "type": "string"
+          },
+          "standing_database_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "crouching_database_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rising_database_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "falling_database_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "landing_database_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "base_path",
+          "layer_path",
+          "standing_database_paths",
+          "crouching_database_paths",
+          "rising_database_paths",
+          "falling_database_paths",
+          "landing_database_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "inspect_animation_blueprints": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "blueprint_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "cleanup_animation_blueprints": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "requests_json": {
+            "type": "string"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "blueprint_paths",
+          "requests_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "configure_main_updates": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "main_path": {
+            "type": "string"
+          },
+          "base_layer_path": {
+            "type": "string"
+          },
+          "layer_node_guid": {
+            "type": "string"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "main_path",
+          "base_layer_path",
+          "layer_node_guid"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "collapse_animation_states": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "blueprint_path": {
+            "type": "string"
+          },
+          "graph_path": {
+            "type": "string"
+          },
+          "retained_state_name": {
+            "type": "string"
+          },
+          "new_state_name": {
+            "type": "string"
+          },
+          "merged_state_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "blueprint_path",
+          "graph_path",
+          "retained_state_name",
+          "new_state_name",
+          "merged_state_names"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "replace_motion_matching_pose": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "graph_path": {
+            "type": "string"
+          },
+          "source_node_guid": {
+            "type": "string"
+          },
+          "source_output_pin": {
+            "type": "string"
+          },
+          "destination_node_guid": {
+            "type": "string"
+          },
+          "destination_input_pin": {
+            "type": "string"
+          },
+          "database_path": {
+            "type": "string"
+          },
+          "trajectory_variable": {
+            "type": "string"
+          },
+          "remove_node_guids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "on_update_function": {
+            "type": "string",
+            "default": ""
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true
+          },
+          "expected_snapshot": {
+            "type": "string",
+            "default": ""
+          }
+        },
+        "required": [
+          "graph_path",
+          "source_node_guid",
+          "source_output_pin",
+          "destination_node_guid",
+          "destination_input_pin",
+          "database_path",
+          "trajectory_variable",
+          "remove_node_guids"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        }
       }
     }
   }

@@ -636,7 +636,7 @@ def _cleanup_empty_move_sources(report, packages):
     registry = _move_registry()
     sources = {package.get_path_name() for package in packages}
     rows = [item for item in report["assets"] if item["source"] in sources]
-    result = {"packages": sorted(sources), "reloaded": False, "deleted": []}
+    result = {"packages": sorted(sources), "native_cleanup": False, "deleted": []}
     if not packages:
         return result
     for item in rows:
@@ -644,24 +644,10 @@ def _cleanup_empty_move_sources(report, packages):
             raise RuntimeError("空原包清理缺少已保存目标或原文件摘要变化: " + item["source"])
         if set(_move_referencers(registry, item["source"])) - sources:
             raise RuntimeError("空原包仍有组外引用 拒绝清理: " + item["source"])
-    any_reloaded, error = unreal.EditorLoadingAndSavingUtils.reload_packages(packages, unreal.ReloadPackagesInteractionMode.ASSUME_POSITIVE)
-    result["reloaded"] = bool(any_reloaded)
-    result["reload_error"] = str(error)
-    if not any_reloaded or str(error) or _move_dirty_packages(list(sources)):
-        raise RuntimeError("仅本次空原包的原生重载失败: " + json.dumps(result, ensure_ascii=False))
     packages.clear()
-    objects = []
-    for item in rows:
-        if _move_file_sha256(_move_filename(item["source"])) != item["source_sha256"]:
-            raise RuntimeError("重载后原文件摘要变化: " + item["source"])
-        asset = unreal.load_object(None, item["source_object"], follow_redirectors=False)
-        if asset is None or asset.get_path_name() != item["source_object"] or _move_class_path(asset.get_class().get_class_path_name()) != item["class_path"]:
-            raise RuntimeError("重载旧磁盘对象路径或类型不符: " + item["source"])
-        objects.append(asset)
-    if _move_dirty_packages(list(sources)) or any(set(_move_referencers(registry, path)) - sources for path in sources):
-        raise RuntimeError("加载旧文件产生脏包或组外引用 拒绝清理")
-    if not unreal.BBBAssetRepairEditorLibrary.delete_asset_packages(objects):
-        raise RuntimeError("已移动原文件原生删除失败 不自动重试")
+    if not unreal.BBBAssetRepairEditorLibrary.cleanup_empty_asset_packages(sorted(sources)):
+        raise RuntimeError("已移动空原包的引擎清理失败 不自动重试")
+    result["native_cleanup"] = True
     registry.scan_paths_synchronous(sorted({path.rsplit("/", 1)[0] for path in sources}), force_rescan=True)
     for path in sorted(sources):
         if os.path.isfile(_move_filename(path)) or registry.get_assets_by_package_name(path):
@@ -708,9 +694,13 @@ def _persist_asset_moves(report, source_packages, loaded_assets, referencer_pack
     if unexpected:
         raise RuntimeError("原生移动产生范围外包 拒绝保存: " + str(unexpected))
     result = {"success": False, "phase": "saving", "requested_packages": list(packages),
-        "saved_packages": [], "failures": [], "empty_sources": [package.get_path_name() for package in empty_sources]}
+        "saved_packages": [], "already_saved_packages": [], "failures": [], "empty_sources": [package.get_path_name() for package in empty_sources]}
     report["persistence"] = result
+    dirty_packages = set(_move_dirty_packages(list(allowed)))
     for path, candidate in packages.items():
+        if path not in dirty_packages and os.path.isfile(_move_filename(path)):
+            result["already_saved_packages"].append(path)
+            continue
         try:
             if not unreal.EditorLoadingAndSavingUtils.save_packages([candidate], False):
                 raise RuntimeError("SAVE_PACKAGE_FAILED")
@@ -3015,7 +3005,7 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
             objects.append(asset)
         if _move_dirty_packages(paths) or any(set(_move_referencers(registry, path)) - set(paths) for path in paths):
             raise RuntimeError('加载待删除组后出现脏包或组外引用')
-        native_deleted = unreal.BBBAssetRepairEditorLibrary.delete_asset_packages(objects)
+        native_deleted = unreal.BBBAssetRepairEditorLibrary.delete_unreferenced_asset_packages(objects)
         for row in rows:
             row['nativeDeleted'] = bool(native_deleted)
             row['fileAbsent'] = not os.path.exists(row['file'])

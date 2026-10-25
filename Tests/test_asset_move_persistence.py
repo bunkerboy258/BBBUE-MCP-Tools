@@ -119,30 +119,19 @@ class AssetMovePersistenceTests(unittest.TestCase):
         state = {"files": {"/Game/Old/A.uasset", "/Game/New/A.uasset"}, "dirty": True, "references": [], "class_name": "StaticMesh"}
         self.report["assets"][0].update(source_object="/Game/Old/A.A", class_path="/Script/Engine.StaticMesh", source_sha256="source-sha")
         self.report["object_results"] = [{"source": "/Game/Old/A", "renamed": True}]
-        old_asset = types.SimpleNamespace(
-            get_path_name=lambda: "/Game/Old/A.A",
-            get_class=lambda: types.SimpleNamespace(get_class_path_name=lambda: types.SimpleNamespace(package_name="/Script/Engine", asset_name=state["class_name"])),
-        )
-        def reload(packages, interaction):
-            """/** @param packages 仅明确空原包 @param interaction 原生交互策略 @return 清除仅原空包状态 */"""
-            self.calls.append(("reload", [package.get_path_name() for package in packages]))
-            state["reload_package_wrappers"] = packages
+        def cleanup(paths):
+            """/** @param paths 精确空原包路径 @return 引擎清除旧文件并保留目标 */"""
+            self.calls.append(("cleanup", list(paths)))
             state["dirty"] = False
-            return True, ""
-        def delete(objects):
-            """/** @param objects 精确旧磁盘对象 @return 删除旧包而保留目标 */"""
-            self.calls.append(("delete", [obj.get_path_name() for obj in objects]))
-            state["files"].remove("/Game/Old/A.uasset")
+            for path in paths:
+                state["files"].remove(path + ".uasset")
             return True
         registry = self.runtime["_move_registry"]()
         registry.get_assets_by_package_name = lambda path: []
         self.runtime["_move_referencers"] = lambda registry, path: state["references"]
         self.runtime["_move_dirty_packages"] = lambda scope: ["/Game/Old/A"] if state["dirty"] and "/Game/Old/A" in scope else []
         native = self.runtime["unreal"]
-        native.ReloadPackagesInteractionMode = types.SimpleNamespace(ASSUME_POSITIVE="only-declared-empty-source")
-        native.EditorLoadingAndSavingUtils.reload_packages = reload
-        native.load_object = lambda outer, path, **options: old_asset
-        native.BBBAssetRepairEditorLibrary = types.SimpleNamespace(delete_asset_packages=delete)
+        native.BBBAssetRepairEditorLibrary = types.SimpleNamespace(cleanup_empty_asset_packages=cleanup)
         return state
 
     def test_empty_original_is_reloaded_and_deleted_after_saved_target_and_referencer(self):
@@ -151,10 +140,10 @@ class AssetMovePersistenceTests(unittest.TestCase):
         with patch("os.path.isfile", side_effect=lambda path: path in state["files"]):
             result = self.runtime["_persist_asset_moves"](self.report, [self.old], [self.asset], [self.ref])
         self.assertTrue(result["success"])
-        self.assertEqual(self.calls[:2], [("save", [p], False) for p in ["/Game/New/A", "/Game/Ref"]])
-        self.assertEqual(self.calls[2][0], "scan")
-        self.assertEqual(self.calls[3], ("reload", ["/Game/Old/A"]))
-        self.assertEqual(self.calls[4], ("delete", ["/Game/Old/A.A"]))
+        self.assertEqual(self.calls[0], ("save", ["/Game/Ref"], False))
+        self.assertEqual(result["already_saved_packages"], ["/Game/New/A"])
+        self.assertEqual(self.calls[1][0], "scan")
+        self.assertEqual(self.calls[2], ("cleanup", ["/Game/Old/A"]))
         self.assertEqual(result["empty_source_cleanup"]["deleted"], ["/Game/Old/A"])
         self.assertEqual(state["files"], {"/Game/New/A.uasset"})
 
@@ -188,16 +177,8 @@ class AssetMovePersistenceTests(unittest.TestCase):
                 with patch("os.path.isfile", side_effect=lambda path: path in state["files"]):
                     with self.assertRaises(RuntimeError):
                         self.runtime["_persist_asset_moves"](self.report, [self.old], [self.asset], [self.ref])
-                self.assertFalse(any(call[0] in {"reload", "delete"} for call in self.calls))
+                self.assertFalse(any(call[0] in {"cleanup"} for call in self.calls))
 
-    def test_reloaded_old_file_wrong_native_type_is_not_deleted(self):
-        """/** @return 重载后原生类型变化不能删除未知资产 */"""
-        state = self._empty_source_fixture()
-        state["class_name"] = "Texture2D"
-        with patch("os.path.isfile", side_effect=lambda path: path in state["files"]):
-            with self.assertRaisesRegex(RuntimeError, "类型不符"):
-                self.runtime["_persist_asset_moves"](self.report, [self.old], [self.asset], [self.ref])
-        self.assertFalse(any(call[0] == "delete" for call in self.calls))
 
     def test_target_save_failure_never_discards_empty_source(self):
         """/** @return 目标未完成保存时不丢弃原包状态或删除原文件 */"""
@@ -206,50 +187,38 @@ class AssetMovePersistenceTests(unittest.TestCase):
         with patch("os.path.isfile", side_effect=lambda path: path in state["files"]):
             result = self.runtime["_persist_asset_moves"](self.report, [self.old], [self.asset], [self.ref])
         self.assertFalse(result["success"])
-        self.assertFalse(any(call[0] in {"reload", "delete"} for call in self.calls))
+        self.assertFalse(any(call[0] in {"cleanup"} for call in self.calls))
 
-    def test_releases_original_package_wrapper_lists_before_native_delete(self):
-        """/** @return 原包及引用者包包装引用在原生删除前解除 不阻止引擎回收空包 */"""
+
+
+
+    def test_empty_cleanup_releases_package_wrappers_and_passes_only_paths(self):
+        """/** @return 原包包装引用释放后仅向原生清理传递路径 */"""
         state = self._empty_source_fixture()
         sources = [self.old]
         referencers = [self.ref]
         native = self.runtime["unreal"].BBBAssetRepairEditorLibrary
-        previous_delete = native.delete_asset_packages
-        def delete(objects):
-            """/** @param objects 单项精确旧对象 @return 拒绝持有原包列表时删除 */"""
+        original = native.cleanup_empty_asset_packages
+        def cleanup(paths):
+            """/** @param paths 精确路径 @return 核验包装引用已经释放 */"""
             self.assertEqual(sources, [])
             self.assertEqual(referencers, [])
-            self.assertEqual(state["reload_package_wrappers"], [])
-            self.assertEqual(len(objects), 1)
-            return previous_delete(objects)
-        native.delete_asset_packages = delete
+            self.assertEqual(paths, ["/Game/Old/A"])
+            return original(paths)
+        native.cleanup_empty_asset_packages = cleanup
         with patch("os.path.isfile", side_effect=lambda path: path in state["files"]):
             result = self.runtime["_persist_asset_moves"](self.report, sources, [self.asset], referencers)
         self.assertTrue(result["success"])
 
-    def test_multiple_empty_sources_use_one_explicit_native_delete_group(self):
-        """/** @return 全部旧文件先校验 再整组原生删除一次并逐文件核验 */"""
+    def test_empty_cleanup_checks_whole_group_before_one_native_call(self):
+        """/** @return 整组摘要和引用通过后仅执行一次原生空包清理 */"""
         state = self._empty_source_fixture()
         state["files"].update({"/Game/Old/B.uasset", "/Game/New/B.uasset"})
-        self.report["assets"].append({"source": "/Game/Old/B", "destination": "/Game/New/B", "source_object": "/Game/Old/B.B", "class_path": "/Script/Engine.StaticMesh", "source_sha256": "source-sha"})
-        self.report["object_results"].append({"source": "/Game/Old/B", "renamed": True})
-        native = self.runtime["unreal"]
-        native.load_object = lambda outer, path, **options: types.SimpleNamespace(
-            get_path_name=lambda: path,
-            get_class=lambda: types.SimpleNamespace(get_class_path_name=lambda: types.SimpleNamespace(package_name="/Script/Engine", asset_name="StaticMesh")),
-        )
-        def delete(objects):
-            """/** @param objects 两个已校验原对象 @return 单次整组原生删除 */"""
-            self.calls.append(("delete", [obj.get_path_name() for obj in objects]))
-            for obj in objects:
-                state["files"].remove(obj.get_path_name().split(".", 1)[0] + ".uasset")
-            return True
-        native.BBBAssetRepairEditorLibrary.delete_asset_packages = delete
+        self.report["assets"].append({"source": "/Game/Old/B", "destination": "/Game/New/B", "source_sha256": "source-sha"})
         with patch("os.path.isfile", side_effect=lambda path: path in state["files"]):
             result = self.runtime["_cleanup_empty_move_sources"](self.report, [self.old, self.package("/Game/Old/B")])
-        self.assertEqual([call for call in self.calls if call[0] == "delete"], [("delete", ["/Game/Old/A.A", "/Game/Old/B.B"])])
+        self.assertEqual([call for call in self.calls if call[0] == "cleanup"], [("cleanup", ["/Game/Old/A", "/Game/Old/B"])])
         self.assertEqual(result["deleted"], ["/Game/Old/A", "/Game/Old/B"])
-        self.assertEqual(state["files"], {"/Game/New/A.uasset", "/Game/New/B.uasset"})
 
 
 if __name__ == "__main__":

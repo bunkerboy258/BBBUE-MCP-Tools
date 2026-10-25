@@ -843,9 +843,9 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
             raise RuntimeError("说明框正文已变化 请重新确认删除目标")
 
         graph = unreal.load_object(None, graph_path)
-        blueprint = graph.get_outer()
+        blueprint = graph.get_typed_outer(unreal.Blueprint)
         if not isinstance(blueprint, unreal.Blueprint):
-            raise RuntimeError("图表必须直接属于蓝图")
+            raise RuntimeError("图表必须属于蓝图")
 
         report = {
             "graph": graph_path,

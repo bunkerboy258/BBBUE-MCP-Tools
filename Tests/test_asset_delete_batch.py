@@ -39,7 +39,7 @@ class AssetDeleteBatchTests(unittest.TestCase):
                 LevelEditorSubsystem=object,
                 get_editor_subsystem=lambda subsystem: SimpleNamespace(is_in_play_in_editor=lambda: False),
                 load_object=lambda outer, path, **options: self.objects.get(path),
-                BBBAssetRepairEditorLibrary=SimpleNamespace(delete_asset_packages=self.delete),
+                BBBAssetRepairEditorLibrary=SimpleNamespace(delete_unreferenced_asset_packages=self.delete),
             ),
         }
         exec(compile(ast.Module(body=[node], type_ignores=[]), "delete_batch", "exec"), self.runtime)
