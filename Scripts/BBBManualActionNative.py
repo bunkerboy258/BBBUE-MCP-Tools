@@ -457,6 +457,14 @@ def inspect_timeline_window(sequence):
               'work': [str(sequence.get_work_range_start()), str(sequence.get_work_range_end())],
               'sections': sections, 'rate': str(sequence.get_display_rate()),
               'tick': str(sequence.get_tick_resolution())}
+    ranges['current_frame'] = unreal.LevelSequenceEditorBlueprintLibrary.get_current_time()
+    native = getattr(unreal, 'BBBSequencerViewEditorLibrary', None)
+    if native is not None:
+        ranges['instance'] = json.loads(native.inspect_timeline(sequence.get_path_name(), False))
+    slate = unreal.load_class(None, '/Script/SlateInspectorToolset.SlateInspectorToolset')
+    if slate is not None:
+        toolset = unreal.get_default_object(slate)
+        ranges['windows'] = toolset.call_method('Snapshot', ('', 0, False))
     return ranges
 
 
@@ -478,6 +486,16 @@ def repair_timeline_range(sequence, reopen=True):
     margin = max((end - start) * 0.05, rate.denominator / rate.numerator)
     bounds = [start - margin, end + margin]
     require_asset_write([sequence])
+    native = getattr(unreal, 'BBBSequencerViewEditorLibrary', None)
+    if native is not None and reopen:
+        instance = json.loads(native.inspect_timeline(sequence.get_path_name(), True))
+        if 'error' not in instance:
+            if not instance.get('viewFinite'):
+                raise RuntimeError('TIMELINE_INSTANCE_STILL_INVALID')
+            if _channel_digest(sequence) != signature or playback != [sequence.get_playback_start(), sequence.get_playback_end()]:
+                raise RuntimeError('TIMELINE_CHANNELS_CHANGED')
+            return {'repaired': True, 'instance': instance,
+                    'channels_preserved': True, 'playback_preserved': True}
     editors = unreal.get_editor_subsystem(unreal.AssetEditorSubsystem)
     closed_editors = editors.close_all_editors_for_asset(sequence)
     unreal.LevelSequenceEditorBlueprintLibrary.close_level_sequence()

@@ -1,5 +1,6 @@
 import ast
 import math
+import json
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -43,7 +44,7 @@ class TimelineRepairTests(unittest.TestCase):
         path = Path(__file__).resolve().parents[1] / 'Scripts/BBBManualActionNative.py'
         node = next(node for node in ast.parse(path.read_text(encoding='utf-8-sig')).body
                     if isinstance(node, ast.FunctionDef) and node.name == 'repair_timeline_range')
-        scope = {'math': math, 'unreal': unreal, '_channel_digest': lambda asset: 'unchanged',
+        scope = {'math': math, 'json': json, 'unreal': unreal, '_channel_digest': lambda asset: 'unchanged',
                  'require_asset_write': Mock()}
         exec(compile(ast.Module(body=[node], type_ignores=[]), str(path), 'exec'), scope)
         return scope['repair_timeline_range'], sequence, state, subsystem, unreal
@@ -77,6 +78,17 @@ class TimelineRepairTests(unittest.TestCase):
         self.assertTrue(result['channels_preserved'])
         unreal.LevelSequenceEditorBlueprintLibrary.open_level_sequence.assert_not_called()
         unreal.EditorAssetLibrary.save_loaded_asset.assert_called_once_with(sequence, False)
+
+    def test_native_instance_repair_does_not_recreate_window(self):
+        """/** @return 优先立即修复当前实例 不用资产范围冒充实例验收 */"""
+        repair, sequence, state, subsystem, unreal = self.make_repair([0.0, float('nan')])
+        sequence.get_path_name = lambda: '/Game/Test'
+        method = Mock(return_value=json.dumps({'viewFinite': True, 'viewStart': '0', 'viewEnd': '3'}))
+        unreal.BBBSequencerViewEditorLibrary = SimpleNamespace(inspect_timeline=method)
+        result = repair(sequence)
+        self.assertTrue(result['instance']['viewFinite'])
+        method.assert_called_once_with('/Game/Test', True)
+        subsystem.close_all_editors_for_asset.assert_not_called()
 
 
 if __name__ == '__main__':

@@ -775,6 +775,17 @@ def prepare(recipe_path, write_paths):
         import importlib
         import BBBManualActionNative
         importlib.reload(BBBManualActionNative)
+        if data.get('timeline_ui_request') == 'instance_repair':
+            signature = BBBManualActionNative._channel_digest(sequence)
+            result = json.loads(unreal.BBBSequencerViewEditorLibrary.inspect_timeline(sequence.get_path_name(), True))
+            if 'error' in result or not result.get('viewFinite'):
+                raise RuntimeError('TIMELINE_INSTANCE_REPAIR_FAILED: ' + json.dumps(result))
+            if BBBManualActionNative._channel_digest(sequence) != signature:
+                raise RuntimeError('TIMELINE_CHANNELS_CHANGED')
+            data.pop('timeline_ui_request')
+            _save(path, data)
+            result['channels_preserved'] = True
+            return result
         if data.get('timeline_ui_request') == 'inspect':
             result = BBBManualActionNative.inspect_timeline_window(sequence)
             data.pop('timeline_ui_request')
