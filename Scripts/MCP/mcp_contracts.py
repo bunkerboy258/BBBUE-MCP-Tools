@@ -175,6 +175,7 @@ TOOL_POLICIES = {
     'app.SelectAssets': {'scope': {'kind': 'session'}},
     'app.SetCameraTransform': {'scope': {'kind': 'session'}},
     'app.SetContentBrowserPath': {'scope': {'kind': 'session'}},
+    'retarget.configure_hand_contact_retargeters': {'scope': {'fields': ['retargeter_paths', 'target_rig_path']}},
     'slate_inspector_toolset.Snapshot': {'access': 'read', 'world': 'editor', 'scope': {'kind': 'session'}, 'completion': 'observed'},
     'slate_inspector_toolset.Click': {'scope': {'kind': 'session'}, 'completion': 'observed'},
     'slate_inspector_toolset.Type': {'scope': {'kind': 'session'}, 'completion': 'observed'},

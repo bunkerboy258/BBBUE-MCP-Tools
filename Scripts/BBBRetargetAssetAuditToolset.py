@@ -25,6 +25,20 @@ class BBBRetargetAssetAuditToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def configure_hand_contact_retargeters(retargeter_paths: list[str], source_rig_paths: list[str], target_rig_path: str) -> str:
+        """
+        /**
+         * @param retargeter_paths\t明确持枪重定向器
+         * @param source_rig_paths\t只读复用的源 Rig
+         * @param target_rig_path\t共用自有目标 Rig
+         * @return\t保留根运动和当前姿态的双手约束配置
+         */
+        """
+        from BBBHandContactRetarget import configure_hand_contact_retargeters
+        return configure_hand_contact_retargeters(retargeter_paths, source_rig_paths, target_rig_path)
+
+    @mcp_tool
+    @staticmethod
     def retarget_sequences(source_paths: list[str], retargeter_path: str, target_folder: str, overwrite: bool = False) -> str:
         """
         /**

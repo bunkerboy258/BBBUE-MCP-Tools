@@ -9,3 +9,15 @@ Motion Matching 的根轨迹、姿势与速度需要从最终目标动画计算�
 官方 Slate 工具 `slate_inspector_toolset.Snapshot` 按只读编辑器会话处理；`Click`、`Type` 和 `PressKey` 按编辑器 UI 会话处理，不要求不存在的资产写入路径。必须先以 Snapshot 获取真实控件引用，再执行输入。Type 在现有光标位置输入文本，更换搜索条件时先聚焦文本框，再 PressKey Ctrl+A，随后 Type。资产浏览器中优先对实际名称文本控件双击，等待界面求值后回读，避免把仅选中的行当作正在预览的动画。
 
 2026-10-25 验证：20 项重定向数据、Slate 作用域及相关工具契约测试通过。可视 UE5.8 中实际配置 Manny 与 UEFN 两套源到相同士兵目标，均回读 21 条链、五项操作与七对辅助骨，编辑器初始化成功。完成步行、斜向、急转、蹲行等代表动作预览，保持源库和游戏运行入口不变；未批量导出动画，未进行 PIE。
+
+## 双手距离约束
+
+`retarget.configure_hand_contact_retargeters` 接收一至四个 `retargeter_paths`、逐项对应的只读 `source_rig_paths` 和一个自有 `target_rig_path`。写入范围只有重定向器与目标 Rig；第三方源 Rig、源网格和骨架均只读。目标 Rig 必须仅被这些明确重定向器引用，防止重建手臂求解器影响其它制作链路。调用前需要完整同名链、唯一 FK、根运动、曲线与 `Utility IK Bones` 操作；预检失败时不得开始修改目标 Rig。
+
+工具保留当前源、目标重定向姿态和身体 FK、根运动、曲线参数，为目标建立左右上臂到手腕的两个 Limb IK。`Hand Contact Positions` 从源实际 `hand_l/r` 复制全局位置到目标手部辅助骨，避开源中已经失效的旧 IK 手轨；`Hand Contact Orientations` 从当前目标 FK 手腕复制旋转，保留目标骨轴。子操作 `Two Hand Contact` 在 `Hand Contact Solve` 前执行：以目标右手为锚，平移源双手间的向量，不缩放武器；随后只求解双臂。最后 `Utility IK Bones` 从最终目标手脚重建七对辅助骨。
+
+源单骨链使用 Absolute FK 时复制的是局部平移，不能替代这里的全局手目标；仅检查 IK 辅助骨是否贴合手腕也不足以证明握距正确。导出后应逐帧比较源、目标 `hand_l - hand_r`，同时核对根、骨盆、脚、曲线、时长和原始帧数。本工具不为某一把实际枪定义握把位置，不覆盖手指姿态；持枪、松手、换弹与攀爬应分别检查，不能据六个样本宣称整个库通过。
+
+2026-10-25 双手修正：两套重定向器改为共用自有 `IK_UASoldier`，Manny 仍只读复用原源 Rig。四段 GaspFix 步枪样本和两段 Fab 样本共 816 帧，逐帧双手向量偏差最大 0.02121 cm；辅助 IK 到实际手脚偏差最大 0.00649 cm。九点对比根、骨盆和脚位置变化为零。样本时长、帧数、曲线关键值、通知数量审计通过。FAL 制作目录新增独立实际挂枪预览序列，未替换运行时动画或进行 PIE。最终视觉质量由用户审核。
+
+本次 15 项边界、源 Rig 只读范围、重定向元数据、Slate 作用域及结构化契约测试通过。额外运行的全仓库公共工具登记检查未通过：并行工作区 `BBBGenericEditorToolset` 新增的 inspect_animation_curve_data、process_animation_fingers、copy_animation_float_curves、rename_animation_curve 尚未全部写入其登记清单。该失败不来自本次手部工具；本次新增入口单独核对源码与登记清单一致。

@@ -14912,6 +14912,33 @@
     }
   },
   "BBBRetargetAssetAuditToolset": {
+    "configure_hand_contact_retargeters": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "retargeter_paths": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "明确持枪重定向器 *"
+          },
+          "source_rig_paths": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "只读复用的源 Rig *"
+          },
+          "target_rig_path": {
+            "type": "string",
+            "description": "共用自有目标 Rig *"
+          }
+        },
+        "required": ["retargeter_paths", "source_rig_paths", "target_rig_path"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {"returnValue": {"type": "string"}},
+        "required": ["returnValue"]
+      }
+    },
     "retarget_sequences": {
       "inputSchema": {
         "type": "object",
