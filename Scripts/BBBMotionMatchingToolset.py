@@ -43,6 +43,27 @@ class BBBMotionMatchingToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def start_runtime_probe(duration_seconds: float = 20.0, sample_interval: float = 0.1, file_prefix: str = "MMRuntimeProbe") -> str:
+        """/** @param duration_seconds 最长采样秒数 @param sample_interval 游戏时间采样间隔 @param file_prefix 本任务临时目录 @return 只读 MM 方向探针状态 */"""
+        import BBBMotionMatchingRuntimeProbe
+        return BBBMotionMatchingRuntimeProbe.start(duration_seconds, sample_interval, file_prefix)
+
+    @mcp_tool
+    @staticmethod
+    def inspect_runtime_probe() -> str:
+        """/** @return 只读 MM 探针状态 方向误差汇总与最新命中快照 */"""
+        import BBBMotionMatchingRuntimeProbe
+        return BBBMotionMatchingRuntimeProbe.inspect()
+
+    @mcp_tool
+    @staticmethod
+    def stop_runtime_probe() -> str:
+        """/** @return 停止 MM 采样后的方向误差汇总和最终快照 */"""
+        import BBBMotionMatchingRuntimeProbe
+        return BBBMotionMatchingRuntimeProbe.stop()
+
+    @mcp_tool
+    @staticmethod
     def create_schema(asset_path: str, skeleton_path: str, bone_names: list[str], trajectory_offsets: list[float], sample_rate: int = 30) -> str:
         """
         /**

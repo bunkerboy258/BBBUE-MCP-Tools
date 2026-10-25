@@ -37,6 +37,9 @@ INPUT_SHAPES = {
 
 TOOL_POLICIES = {
     'editor.configure_animation_root_motion_matrix': {'scope': {'fields': ['asset_paths']}},
+    'motion_matching.start_runtime_probe': {'access': 'read', 'world': 'any', 'completion': 'observed'},
+    'motion_matching.inspect_runtime_probe': {'access': 'read', 'world': 'any', 'completion': 'observed'},
+    'motion_matching.stop_runtime_probe': {'access': 'read', 'world': 'any', 'completion': 'observed'},
     'motion_matching.create_schema': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['asset_path']}, 'completion': 'verified_save'},
     'motion_matching.create_database': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['asset_path']}, 'completion': 'verified_save'},
     'motion_matching.inspect_database': {'access': 'read', 'world': 'any', 'completion': 'observed'},

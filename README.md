@@ -680,3 +680,5 @@ Monster 版本只编辑逻辑与表现两份主配置。`monster_gore.inspect_mo
 2026-10-25 士兵运动库重定向准备: `retarget.configure_fk_retargeter` 对脊柱和颈部采用插值映射，保留源 root 轨迹与高度、原名浮点曲线，并从目标实际手脚生成辅助 IK 骨；缺少唯一 FK、根骨或曲线操作时拒绝完成保存。官方 Slate Snapshot 按只读会话处理，Click、Type、PressKey 按 UI 会话处理，可直接切换重定向预览动作。20 项专项与相关契约测试通过，可视 UE5.8 两套源到士兵的配置保存与代表动作预览通过；尚未批量导出或建立 MM 数据库，速度特征须从最终目标骨轨计算。调用和边界见 `Docs/BBBRetargetPreviewMCP.md`。
 
 2026-10-25 士兵双手距离修正: `retarget.configure_hand_contact_retargeters` 只写明确自有重定向器和专用目标 Rig，只读复用源 Rig。以实际源手骨建立全局目标，保留目标手腕骨轴，以右手为锚执行双臂 Limb IK，最后重建辅助骨；保留当前重定向姿态、根运动和曲线。六段样本共 816 帧的源目标双手向量偏差最大 0.02121 cm，根、骨盆及脚九点位置对比未变化。新增实际 FAL 独立挂枪预览，未替换运行时动画或进行 PIE。调用约束、数据证据和视觉审核边界见 `Docs/BBBRetargetPreviewMCP.md`。
+
+2026-10-25 动作匹配运行时探针: motion_matching.start_runtime_probe / inspect_runtime_probe / stop_runtime_probe 有界记录实际查询轨迹 命中动画及根运动方向误差。定位并修复角色与网格相差 90 度时的轨迹坐标错误 空手四向误差由约 90 度降至 0 到 1.11 度 步枪 750 个输入游戏帧复测通过 平均方向误差 0.633 度。UE5.8 编辑器编译 原生十二组坐标回归及 23 项 Python 测试通过。接口和验收边界见 Docs/BBBMotionMatchingRuntimeMCP.md。

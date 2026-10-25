@@ -53,6 +53,7 @@ HELPER_MODULES = (
     "BBBMotionMatchingGraph",
     "BBBMotionMatchingUpdates",
     "BBBMotionMatchingCleanup",
+    "BBBMotionMatchingRuntimeProbe",
     "BBBGraphFormatter",
     "BBBGripCaptureTools",
     "BBBGripGeometryTools",
