@@ -107,8 +107,14 @@ def prepare(recipe, path, project):
     from BBBControlRigAuthoringToolset import BBBControlRigAuthoringToolset as authoring
 
     sequence = _asset(recipe['sequence'], unreal.LevelSequence)
-    asset = _asset(recipe['rig'], unreal.ControlRigBlueprint)
     import importlib
+    import BBBManualActionNative
+    importlib.reload(BBBManualActionNative)
+    timeline = BBBManualActionNative.repair_timeline_range(sequence)
+    if timeline.get('repaired'):
+        return {'status': 'manual_edit_ready', 'sequence': recipe['sequence'],
+                'timeline': timeline, 'runtimeModified': False}
+    asset = _asset(recipe['rig'], unreal.ControlRigBlueprint)
     import BBBWeaponSequencePreview
     importlib.reload(BBBWeaponSequencePreview)
     from BBBWeaponSequencePreview import prepare_grip

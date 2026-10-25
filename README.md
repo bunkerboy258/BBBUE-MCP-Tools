@@ -1,5 +1,7 @@
 # BBBUE MCP Tools
 
+2026-10-25：握持 manual_prepare 在加载 Rig 与准备预览前复用 repair_timeline_range。发现 NaN、无穷或倒置窗口范围时，关闭完整资产编辑器，按原播放区间重建视图与工作范围后保存重开，并立即返回；核验控制通道和播放区间不变，不进入握姿重建或运行配置写入。FAL HandGrip 实测将 NaN 视图结束值恢复为有限范围，两项时间轴回归通过。
+
 2026-10-24 用户取消FAL手指修复，9条角色成品已从正式LS、人工握姿源及完整动作快照恢复并保存；非目标轨、位移缩放和元数据保持。现有指骨入口支持restore_sequences及restore_records明确来源恢复，官方烘焙仅用瞬态副本，不改正式LS或生成备份资产。详见 Docs/BBBFingerAnimationMCP.md。
 
 2026-10-24 正常退出：control_task(action="shutdown_host") 使用宿主身份核验及延后退出小工具，先关闭蓝图窗口，再调用官方 quit_editor。请求失败恢复调度，退出前再次检查 PIE、活动和脏包；inspect_tasks 区分退出安排与实际进程退出。75项针对性检查通过；当前编辑器保持运行，真实退出待新版工具集加载后验证。
