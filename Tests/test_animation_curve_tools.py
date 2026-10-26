@@ -31,6 +31,9 @@ class Sequence:
     def get_class(self):
         return types.SimpleNamespace(get_name=lambda: 'AnimDataModel')
 
+    def get_bone_track_names(self):
+        return []
+
     def get_editor_property(self, name):
         if name == 'CurveData':
             return self

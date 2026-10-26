@@ -257,7 +257,7 @@ def _function_argument(value):
 
 def _load_blueprint_default_object(asset_path):
     blueprint = unreal.EditorAssetLibrary.load_asset(asset_path)
-    if not isinstance(blueprint, unreal.Blueprint):
+    if not isinstance(blueprint, (unreal.Blueprint, unreal.AnimBlueprint)):
         raise RuntimeError("目标不是蓝图资产: {}".format(asset_path))
 
     generated_class = blueprint.generated_class()

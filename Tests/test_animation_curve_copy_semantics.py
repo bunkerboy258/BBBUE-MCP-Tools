@@ -22,6 +22,11 @@ class AnimationCurveCopySemanticsTests(unittest.TestCase):
         source = '(FloatCurve=(Keys=((InterpMode=RCIM_Cubic,Value=1.0,LeaveTangent=2.0))),CurveName="contact_l")'
         self.assertNotEqual(self.normalize(source), self.normalize(source.replace('LeaveTangent=2.0', 'LeaveTangent=3.0')))
 
+    def test_zero_key_linear_tangent_cache_is_ignored(self):
+        source = '(FloatCurve=(Keys=(())),CurveName="contact_l",CurveTypeFlags=4)'
+        copied = '(FloatCurve=(Keys=((LeaveTangent=0.141240))),CurveName="contact_l",CurveTypeFlags=4)'
+        self.assertEqual(self.normalize(source), self.normalize(copied))
+
     def test_key_time_value_and_extrapolation_remain_checked(self):
         source = '(FloatCurve=(Keys=((Time=0.5,Value=1.0)),PreInfinityExtrap=RCCE_Constant),CurveName="phase")'
         for old, new in [('Time=0.5', 'Time=0.6'), ('Value=1.0', 'Value=0.0'), ('RCCE_Constant', 'RCCE_Cycle')]:
