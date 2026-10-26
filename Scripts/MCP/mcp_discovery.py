@@ -75,6 +75,7 @@ SUMMARIES = {
     "editor.configure_niagara_burst_layer": "配置 Niagara 爆发层",
     "editor.inspect_niagara_parameters": "读取 Niagara 参数",
     "editor.reimport_texture": "从已绑定源重新导入纹理",
+    "editor.configure_pie_session": "设置主编辑器进程内 PIE 临时网络模式",
     "editor.get_pie_view_recording_status": "读取玩家视角录像进度",
     "editor.record_pie_player_view": "录制 PIE 玩家视角",
     "editor.get_niagara_capture_status": "读取 Niagara 捕获进度",

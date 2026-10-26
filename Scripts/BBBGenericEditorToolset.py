@@ -727,6 +727,41 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def configure_pie_session(net_mode: str = "standalone", players: int = 1) -> str:
+        """
+        /**
+         * 配置下一次主编辑器进程内 PIE 的临时网络模式
+         * @param net_mode\tstandalone 单机或 listen 监听主机
+         * @param players\t包含房主的玩家数量 一至八
+         * @return 实际网络模式与进程内选项 仅修改当前编辑器内存
+         */
+        """
+        if os.environ.get("BBB_MCP_HOST_ROLE") == "test":
+            raise RuntimeError("此入口使用主编辑器 测试宿主沿用批次配置")
+        if unreal.EditorLevelLibrary.get_pie_worlds(False):
+            raise RuntimeError("请先结束当前 PIE")
+        modes = {"standalone": "PIE_Standalone", "listen": "PIE_ListenServer"}
+        if net_mode not in modes or not isinstance(players, int) or isinstance(players, bool) or not 1 <= players <= 8:
+            raise RuntimeError("PIE 模式或玩家数量无效")
+        if net_mode == "standalone" and players != 1:
+            raise RuntimeError("单机模式使用一名玩家")
+        settings = unreal.get_default_object(unreal.load_class(None, "/Script/UnrealEd.LevelEditorPlaySettings"))
+        properties = {"PlayNetMode": modes[net_mode], "PlayNumberOfClients": players,
+                      "RunUnderOneProcess": True, "bLaunchSeparateServer": False}
+        previous = unreal.ToolsetLibrary.get_object_properties(settings, list(properties))
+        try:
+            if not unreal.ToolsetLibrary.set_object_properties(settings, json.dumps(properties)):
+                raise RuntimeError("PIE 临时设置失败")
+            actual = json.loads(unreal.ToolsetLibrary.get_object_properties(settings, list(properties)))
+            if actual != properties:
+                raise RuntimeError("PIE 临时设置回读不一致")
+        except Exception:
+            unreal.ToolsetLibrary.set_object_properties(settings, previous)
+            raise
+        return json.dumps({"settings": actual, "persisted": False})
+
+    @mcp_tool
+    @staticmethod
     def request_pie_late_join() -> str:
         """
         /**

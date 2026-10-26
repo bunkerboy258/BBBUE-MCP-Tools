@@ -7426,6 +7426,35 @@
           "returnValue"
         ]
       }
+    },
+    "configure_pie_session": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "net_mode": {
+            "type": "string",
+            "default": "standalone",
+            "description": "standalone 单机或 listen 监听主机 *"
+          },
+          "players": {
+            "type": "integer",
+            "default": 1,
+            "description": "包含房主的玩家数量 一至八 *"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "实际网络模式与进程内选项 仅修改当前编辑器内存 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBLevelEditingToolset": {
@@ -12327,6 +12356,16 @@
             "type": "number",
             "description": "每个实体经正式伤害输入增加的躯干伤害 零为完好对照 *",
             "default": 0
+          },
+          "destruction_regions": {
+            "type": "integer",
+            "default": 0,
+            "description": "持久躯干毁伤区域 零至八 *"
+          },
+          "sever_left_arm": {
+            "type": "boolean",
+            "default": false,
+            "description": "同时提交左臂损毁贡献 *"
           }
         },
         "required": [
@@ -12400,6 +12439,16 @@
           "expected_level": {
             "type": "string",
             "description": "完整关卡包路径 必须与当前 PIE 关卡一致 *"
+          },
+          "destruction_regions": {
+            "type": "integer",
+            "default": 0,
+            "description": "持久躯干毁伤区域 零至八 *"
+          },
+          "sever_left_arm": {
+            "type": "boolean",
+            "default": false,
+            "description": "同时提交左臂损毁贡献 *"
           }
         },
         "required": [

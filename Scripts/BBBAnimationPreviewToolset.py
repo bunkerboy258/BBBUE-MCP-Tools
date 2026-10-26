@@ -201,7 +201,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def spawn_mass_inspection_population(config_paths: list[str], center: list[float], spacing: float, expected_level: str) -> str:
+    def spawn_mass_inspection_population(config_paths: list[str], center: list[float], spacing: float, expected_level: str, destruction_regions: int = 0, sever_left_arm: bool = False) -> str:
         """
         /**
          * 在明确关卡的 PIE 中生成每种配置一个真实实体 不修改或保存资产
@@ -209,9 +209,13 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
          * @param center		出生网格中心 三个厘米坐标 包含离地高度
          * @param spacing		网格间距 厘米 至少二百
          * @param expected_level		完整关卡包路径 必须与当前 PIE 关卡一致
+         * @param destruction_regions		本轮正式输入开启的持久毁伤区域 零至八
+         * @param sever_left_arm		同时提交左臂损毁贡献
          * @return 完整实体句柄的实际数量与快照
          */
         """
+        if not isinstance(destruction_regions, int) or isinstance(destruction_regions, bool) or not 0 <= destruction_regions <= 8 or not isinstance(sever_left_arm, bool):
+            raise RuntimeError("毁伤区域必须为零至八的整数 断臂开关必须为布尔值")
         world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
         if world is None:
             raise RuntimeError("检查展示必须在 PIE 中运行")
@@ -255,6 +259,10 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
             mass.destroy_population(world, entities)
             raise
 
+        if destruction_regions or sever_left_arm:
+            if unreal.BBBMonsterDestructionValidationLibrary.set_population_destruction(world, entities, destruction_regions, sever_left_arm, 0.0) != len(entities):
+                mass.destroy_population(world, entities)
+                raise RuntimeError("检查群体毁伤输入投递失败")
         _inspection_population.clear()
         _inspection_population.update({"world": world.get_path_name(), "worldObject": world, "configs": configs, "entities": entities, "configPaths": list(config_paths)})
         unreal.log("Mass 检查群体已生成 数量=" + str(len(entities)) + " 关卡=" + actual_level)
@@ -282,11 +290,13 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
         if pause_game and not unreal.GameplayStatics.set_game_paused(world, True):
             raise RuntimeError("当前 PIE 暂停失败")
 
-        return unreal.BBBMassValidationLibrary.inspect_population(world, _inspection_population["entities"])
+        report = json.loads(unreal.BBBMassValidationLibrary.inspect_population(world, _inspection_population["entities"]))
+        report["destruction"] = json.loads(unreal.BBBMonsterDestructionValidationLibrary.inspect_population_destruction(world, _inspection_population["entities"]))
+        return json.dumps(report, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod
-    def start_mass_population_benchmark(config_paths: list[str], counts: list[int], center: list[float], spacing: float, expected_level: str, file_prefix: str, warmup_seconds: float = 5.0, measurement_seconds: float = 10.0, force_actor_representation: bool = False, quality_level: int = 2, torso_damage: float = 0.0) -> str:
+    def start_mass_population_benchmark(config_paths: list[str], counts: list[int], center: list[float], spacing: float, expected_level: str, file_prefix: str, warmup_seconds: float = 5.0, measurement_seconds: float = 10.0, force_actor_representation: bool = False, quality_level: int = 2, torso_damage: float = 0.0, destruction_regions: int = 0, sever_left_arm: bool = False) -> str:
         """
         /**
          * 在明确验收关卡的真实 PIE Mass 实体上依次测量预算关闭与开启
@@ -301,6 +311,8 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
          * @param force_actor_representation		使用临时全骨骼压力配置 不改正式模板
          * @param quality_level		测量画质档 零至三 使用百分之一百渲染比例 不沿用隐藏宿主降档
          * @param torso_damage		每个实体经正式伤害输入增加的躯干伤害 零为完好对照
+         * @param destruction_regions		本轮测试开启的持久躯干毁伤区域 零至八
+         * @param sever_left_arm		同时测试左臂损毁与躯干毁伤并存
          * @return 异步运行标识 测量完成后回读结果 原始数据始终落盘
          */
         """
@@ -308,6 +320,8 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
             raise RuntimeError("测量画质档必须为零至三的整数")
         if not isinstance(torso_damage, (float, int)) or isinstance(torso_damage, bool) or not math.isfinite(torso_damage) or not 0.0 <= torso_damage <= 10000.0:
             raise RuntimeError("躯干伤害必须为零至一万的有限数值")
+        if not isinstance(destruction_regions, int) or isinstance(destruction_regions, bool) or not 0 <= destruction_regions <= 8 or not isinstance(sever_left_arm, bool):
+            raise RuntimeError("毁伤区域必须为零至八的整数 断臂开关必须为布尔值")
         world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
         if world is None or re.sub(r"UEDPIE_\d+_", "", world.get_path_name().split(".")[0]) != expected_level:
             raise RuntimeError("必须在明确指定的验收关卡 PIE 中测量")
@@ -367,6 +381,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
         unreal.SystemLibrary.execute_console_command(world, "a.Budget.BudgetMs 2.0")
         run_id = str(uuid.uuid4())
         report = {"status": "running", "runId": run_id, "world": world.get_path_name(), "engine": unreal.SystemLibrary.get_engine_version(), "configPaths": list(config_paths), "forceActorRepresentation": force_actor_representation, "warmupSeconds": warmup_seconds, "measurementSeconds": measurement_seconds, "budgetMs": 2.0, "qualityLevel": quality_level, "torsoDamage": float(torso_damage),
+                  "destructionRegions": destruction_regions, "severLeftArm": sever_left_arm,
                   "renderSettings": {name: unreal.SystemLibrary.get_console_variable_float_value(name) for name in quality_names + render_names},
                   "resultPath": result_path, "csvPath": csv_path, "cases": []}
         _population_runs[run_id] = report
@@ -427,7 +442,11 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
                     state["entities"] = mass.spawn_population(world, configs, count, unreal.Vector(*center), spacing)
                     if len(state["entities"]) != count:
                         raise RuntimeError("实际 Mass 创建数量不匹配")
-                    if torso_damage > 0.0 and mass.damage_population(world, state["entities"], float(torso_damage)) != count:
+                    if destruction_regions or sever_left_arm:
+                        submitted = unreal.BBBMonsterDestructionValidationLibrary.set_population_destruction(world, state["entities"], destruction_regions, sever_left_arm, float(torso_damage))
+                        if submitted != count:
+                            raise RuntimeError("毁伤对照的正式输入投递数量不匹配")
+                    if not destruction_regions and not sever_left_arm and torso_damage > 0.0 and mass.damage_population(world, state["entities"], float(torso_damage)) != count:
                         raise RuntimeError("受损对照的正式躯干伤害投递数量不匹配")
 
                     state["phase"] = "warmup"
@@ -445,7 +464,14 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
                 if state["phase"] == "warmup":
                     if now - state["start"] >= warmup_seconds:
                         state["before"] = json.loads(mass.inspect_population(world, state["entities"]))
+                        state["before"]["destruction"] = json.loads(unreal.BBBMonsterDestructionValidationLibrary.inspect_population_destruction(world, state["entities"]))
                         count, enabled = cases[state["case"]]
+                        damage_rows = state["before"]["destruction"].get("entities", [])
+                        expected_regions = [255] * destruction_regions + [0] * (8 - destruction_regions)
+                        if len(damage_rows) != count or any(row.get("regions") != expected_regions for row in damage_rows):
+                            raise RuntimeError("毁伤区域的实际事实与请求不一致")
+                        if sever_left_arm and any(len(row.get("dismemberment", [])) != 5 or row["dismemberment"][1] == 0 for row in damage_rows):
+                            raise RuntimeError("断臂事实尚未形成")
                         if force_actor_representation and state["before"].get("presentationActors") != count:
                             if now - state["start"] > 60.0:
                                 raise RuntimeError("全骨骼预热超时 实际演员数量=" + str(state["before"].get("presentationActors")))

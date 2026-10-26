@@ -143,7 +143,7 @@ class BBBMcpTaskToolset(unreal.ToolsetDefinition):
             visited.add(package)
             dependencies = registry.get_dependencies(package, options)
             if dependencies is None:
-                raise RuntimeError("TEST_INPUT_DEPENDENCIES_REQUIRED")
+                raise RuntimeError("TEST_INPUT_DEPENDENCIES_REQUIRED " + package)
             pending.extend(dependencies)
         files = []
         for package in sorted(visited):

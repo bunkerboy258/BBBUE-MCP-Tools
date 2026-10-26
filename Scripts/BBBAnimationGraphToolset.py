@@ -223,7 +223,10 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
             population = json.loads(unreal.BBBMassValidationLibrary.inspect_population(world, []))
             if population.get("error"):
                 raise RuntimeError(population["error"])
-            results.append({"world": world.get_path_name(), "population": population})
+            destruction = json.loads(unreal.BBBMonsterDestructionValidationLibrary.inspect_population_destruction(world, []))
+            if destruction.get("error"):
+                raise RuntimeError(destruction["error"])
+            results.append({"world": world.get_path_name(), "population": population, "destruction": destruction})
         return json.dumps({"worlds": results, "readOnly": True}, ensure_ascii=False)
 
     @mcp_tool

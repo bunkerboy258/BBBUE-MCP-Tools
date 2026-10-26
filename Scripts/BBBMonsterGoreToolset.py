@@ -6,7 +6,6 @@ from BBBMcpCapabilities import mcp_tool
 from BBBAssetWritePolicy import require_asset_write
 from toolset_registry.registration import Registration
 
-
 @unreal.uclass()
 class BBBMonsterGoreToolset(unreal.ToolsetDefinition):
     """/** 统一血腥资源制作及原生预览 不承担伤害逻辑 */"""
@@ -75,7 +74,10 @@ class BBBMonsterGoreToolset(unreal.ToolsetDefinition):
         existing = list(unreal.EditorAssetLibrary.list_assets(folder, recursive=True, include_folder=False))
         existing.extend(unreal.EditorAssetLibrary.list_assets(material_folder, recursive=True, include_folder=False))
         destinations = [folder, material_folder]
-        for wound in definition.get_editor_property("wounds"):
+        interior = definition.get_editor_property("destruction").get_editor_property("interior")
+        if interior is not None:
+            existing.append(interior.get_path_name())
+        for wound in definition.get_editor_property("dismemberment").get_editor_property("parts"):
             for field in ("tissue", "detached_skin", "detached_mesh"):
                 resource = wound.get_editor_property(field)
                 if resource is not None:
@@ -107,6 +109,7 @@ class BBBMonsterGoreToolset(unreal.ToolsetDefinition):
         if not isinstance(definition, unreal.BBBMonsterPresentationDefinition):
             raise RuntimeError("需要僵尸表现配置")
         return str(unreal.BBBMonsterGoreEditorLibrary.inspect_gore_assets(definition.get_editor_property("gore")))
+
 
 
 _registration = Registration([BBBMonsterGoreToolset])

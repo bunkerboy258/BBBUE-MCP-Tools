@@ -1,5 +1,7 @@
 # BBBUE MCP Tools
 
+2026-10-26 僵尸二级破坏工具迁移为八区躯干毁伤与五处断肢。原生材质构建读取十三份正式配置并生成三档共享组织。群体生成与性能测量接收明确区域数和断臂参数并核对实际事实。跨端只读检查包含同一身份的八区强度和断点。七项伤口与十四项群体工具回归通过。UE 编译与六项原生毁伤回归通过。实际联机 / 截图与性能结果记录于项目 Docs/ZombieDestruction_20261025.md。调用边界见 Docs/BBBMonsterGoreMCP.md。
+
 2026-10-26 动作匹配工具增加原生逐帧采集、独立 GASP 事实回放、固定姿态质量检查、精确旧状态机展开和原地序列索引根速度配置。格式 7 读取实际植足状态及最终骨骼，拒绝缺帧、空轨迹、缺少接触覆盖或全动作排除的假通过。项目空手六组 5526 帧与来源 5544 帧逐帧对照、333 项阶段比较及 FAL 841 帧回归通过；53 项 motion_matching 测试和 5 项曲线/重定向契约检查通过。来源夹具不保存外部资产，工具边界见 `Docs/BBBMotionMatchingRuntimeMCP.md`。
 
 2026-10-25 新增 `motion_matching.inspect_configuration` 与 `motion_matching.migrate_configuration`。原生读取完整 Chooser 结果与配置子对象 按明确映射迁移数据库 Schema 归一化和蓝图标准 MM 函数 保留内部图 搜索后回调与必要编译扩展。运动匹配 Python 回归二十八项通过。调用和部分失败处理见 `Docs/BBBMotionMatchingConfigurationMCP.md`。

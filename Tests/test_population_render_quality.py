@@ -29,6 +29,8 @@ class PopulationRenderQualityTests(unittest.TestCase):
         self.engine.Vector = lambda *values: values
         self.engine.BBBMassValidationLibrary.spawn_population.return_value = ["entity"]
         self.engine.BBBMassValidationLibrary.inspect_population.return_value = json.dumps({"validEntities": 1, "budgetMeshes": 1, "presentationActors": 1})
+        self.engine.BBBMonsterDestructionValidationLibrary.inspect_population_destruction.return_value = json.dumps({"entities": [{"regions": [0] * 8, "dismemberment": [0] * 5}]})
+        self.engine.BBBMonsterDestructionValidationLibrary.set_population_destruction.return_value = 1
         frames = itertools.count()
         self.engine.BBBAnimationGraphEditorLibrary.read_performance_frame_metrics.side_effect = lambda: [next(frames), 1.0, 2.0, 3.0, 16.7]
         self.values = {"t.MaxFPS": 30.0, "r.ScreenPercentage": 35.0, "r.Lumen.DiffuseIndirect.Allow": 0.0, "r.Lumen.Reflections.Allow": 0.0}
@@ -169,6 +171,39 @@ class PopulationRenderQualityTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.start(["/Game/Config"], [1], [0.0, 0.0, 90.0], 200.0, "ValidationWorld", "WoundProbe")
         self.open.assert_not_called()
+
+    def test_destruction_and_severing_use_one_contribution_submission(self):
+        """/** @return 毁伤与断臂共用一次正式输入并记录实际事实 */"""
+        self.engine.BBBMonsterDestructionValidationLibrary.inspect_population_destruction.return_value = json.dumps({"entities": [{"regions": [255] * 4 + [0] * 4, "dismemberment": [0, 20, 0, 0, 0]}]})
+        self.start(["/Game/Config"], [1], [0.0, 0.0, 90.0], 200.0, "/Game/ValidationWorld", "DestructionProbe", destruction_regions=4, sever_left_arm=True)
+        callback = self.engine.register_slate_post_tick_callback.call_args.args[0]
+        for second in range(60):
+            self.clock[0] = float(second)
+            callback(1.0 / 60.0)
+        report = next(iter(self.runs.values()))
+        self.assertEqual(report["status"], "completed")
+        self.assertEqual(report["destructionRegions"], 4)
+        self.assertTrue(report["severLeftArm"])
+        self.engine.BBBMassValidationLibrary.damage_population.assert_not_called()
+        self.assertEqual(self.engine.BBBMonsterDestructionValidationLibrary.set_population_destruction.call_count, 2)
+        self.engine.BBBMonsterDestructionValidationLibrary.set_population_destruction.assert_called_with(self.world, ["entity"], 4, True, 0.0)
+
+    def test_missing_destruction_fact_cannot_pass_measurement(self):
+        """/** @return 投递成功但实际区域缺失时停止测量并清理群体 */"""
+        self.start(["/Game/Config"], [1], [0.0, 0.0, 90.0], 200.0, "/Game/ValidationWorld", "DestructionProbe", destruction_regions=8)
+        callback = self.engine.register_slate_post_tick_callback.call_args.args[0]
+        callback(1.0 / 60.0)
+        self.clock[0] = 6.0
+        callback(1.0 / 60.0)
+        self.assertEqual(next(iter(self.runs.values()))["status"], "failed")
+        self.engine.BBBMassValidationLibrary.destroy_population.assert_called_once_with(self.world, ["entity"])
+
+    def test_invalid_destruction_never_enters_editor(self):
+        """/** @return 错误毁伤参数在世界访问前被拒绝 */"""
+        for regions in (-1, 9, True, 1.5):
+            with self.assertRaises(RuntimeError):
+                self.start(["/Game/Config"], [1], [0.0, 0.0, 90.0], 200.0, "/Game/ValidationWorld", "DestructionProbe", destruction_regions=regions)
+        self.engine.get_editor_subsystem.assert_not_called()
 
 
 if __name__ == "__main__":

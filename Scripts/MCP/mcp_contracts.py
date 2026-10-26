@@ -302,6 +302,7 @@ TOOL_POLICIES = {
     'editor.create_monster_director_assets': {'scope': {'fields': ['asset_paths']}},
     'editor.validate_monster_director_assets': {'access': 'read'},
     'editor.run_automation_tests': {'access': 'pie'},
+    'editor.configure_pie_session': {'access': 'pie', 'world': 'editor', 'scope': {'kind': 'session'}, 'completion': 'observed'},
     'editor.create_channel_sprite_system': {'scope': {'fields': ['channel_path', 'system_path']}},
     'editor.create_primitive_texture_blend_material': {'scope': {'fields': ['material_path']}},
     'editor.create_projectile_sprite_material': {'scope': {'fields': ['material_path']}},
