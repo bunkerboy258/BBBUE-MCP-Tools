@@ -13444,6 +13444,94 @@
           "returnValue"
         ]
       }
+    },
+    "create_weapon_aim_additive": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "neutral_path": {
+            "type": "string"
+          },
+          "target_path": {
+            "type": "string"
+          },
+          "asset_path": {
+            "type": "string"
+          },
+          "reference_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "neutral_path",
+          "target_path",
+          "asset_path",
+          "reference_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_weapon_aim_additives": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "base_path": {
+            "type": "string"
+          },
+          "layer_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "stand_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "crouch_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "dependent_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "base_path",
+          "layer_paths",
+          "stand_paths",
+          "crouch_paths",
+          "dependent_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBHitReactionToolset": {

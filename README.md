@@ -702,3 +702,5 @@ Monster 版本只编辑逻辑与表现两份主配置。`monster_gore.inspect_mo
 2026-10-26 角色生命动作改为蒙太奇：motion_matching.configure_character_montage_graph 仅清理明确主动画图的生命阶段采样与计时分支 保留普通 MM 及内部图 将 FullBody 槽位后置到最终惯性化之前并持续更新源姿态。倒地等待 接受救援 帮扶和站蹲起身使用蒙太奇 引擎 Disable Root Motion 通知屏蔽动作根运动。接受救援自然完成的逻辑通知只向直接角色提交带操作和倒地轮次的内部输入 计时器不再结算成功。旧构图入口删除 无兼容别名。19 项定向工具单元测试通过 原生构建通过 资产与动态验收状态见项目 Docs/Animation/CharacterBasePose.md。
 
 2026-10-26 正式动作库原位重定向：`retarget.retarget_sequences(..., overwrite=True, preserve_target_metadata=True)` 临时烘焙后将包括 Root 的全部骨轨写入既有动画，逐条回读并保存；原曲线、通知、同步标记、根运动及根锁设置保留。Root 差值单独报告。详见 `Docs/BBBRetargetAssetAuditMCP.md`。
+
+2026-10-26 连续举枪:`animation_graph.create_weapon_aim_additive` 制作无曲线静态参考与上半身 Local Space 加法 避免 MM 接触曲线被相减。`animation_graph.configure_weapon_aim_additives` 复用既有 FullBodyAdditives 在原有后震前合成连续举枪 工作线程蓝图制造举枪与独立 IK 权重。主图和接口没有新增调用。八份蓝图无警告编译保存 十六份正式资产从磁盘重载回读 四份加法的下半身及位置缩放差分为零。UE5.8 原生构建与十一项工具边界和结构契约检查通过 两项新增工具参数与基线一致 未运行 PIE。调用约束见 `Docs/BBBWeaponAimMCP.md`。

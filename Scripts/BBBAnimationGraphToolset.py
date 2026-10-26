@@ -19,6 +19,42 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def create_weapon_aim_additive(neutral_path: str, target_path: str, asset_path: str, reference_path: str) -> str:
+        """
+        /**
+         * @param neutral_path\t只读中性持枪基准
+         * @param target_path\t同骨架绝对举枪目标
+         * @param asset_path\t不存在的自有静态加法路径
+         * @param reference_path\t不存在的无曲线静态参考路径
+         * @return 已保存且根骨和下半身无增量的局部空间加法
+         */
+        """
+        import importlib
+        import BBBWeaponAimTools
+        return json.dumps(importlib.reload(BBBWeaponAimTools).create_weapon_aim_additive(
+            neutral_path, target_path, asset_path, reference_path), ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def configure_weapon_aim_additives(base_path: str, layer_paths: list[str], stand_paths: list[str],
+            crouch_paths: list[str], dependent_paths: list[str]) -> str:
+        """
+        /**
+         * @param base_path	已有举枪数据的公共装备层
+         * @param layer_paths	需要举枪配置的直接子层
+         * @param stand_paths	对应站立局部空间加法
+         * @param crouch_paths	对应蹲伏局部空间加法
+         * @param dependent_paths	按父层在前排列的其余依赖子层
+         * @return 复用 FullBodyAdditives 的编译保存结果 不运行 PIE
+         */
+        """
+        import importlib
+        import BBBWeaponAimTools
+        return json.dumps(importlib.reload(BBBWeaponAimTools).configure_weapon_aim_additives(base_path,
+            layer_paths, stand_paths, crouch_paths, dependent_paths), ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def create_aim_offset_from_template(source_path: str, asset_path: str, sequence_paths: list[str]) -> str:
         """
         /**
