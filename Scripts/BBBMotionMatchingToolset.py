@@ -165,53 +165,36 @@ class BBBMotionMatchingToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def consolidate_character_base_pose(main_path: str, base_layer_path: str, ground_pose_path: str,
-                                       recovery_stand_path: str, recovery_crouch_path: str,
-                                       helping_chooser_path: str,
-                                       ground_pose_time: float = 0.0, dry_run: bool = True) -> str:
+    def configure_character_montage_graph(main_path: str, dry_run: bool = True) -> str:
         """
         /**
-         * 统一 GASP 运动 地面姿态和恢复输出并清理旧攀爬接线
+         * 保留普通 MM 并后置全身蒙太奇 清理生命阶段直接采样与帮扶专用搜索
          * @param main_path	明确主动画蓝图
-         * @param base_layer_path	装备动画层共同基类
-         * @param ground_pose_path	同骨架地面姿态来源序列
-         * @param recovery_stand_path	同骨架站立恢复序列
-         * @param recovery_crouch_path	同骨架蹲姿恢复序列
-         * @param helping_chooser_path	帮扶使用的空手 GASP 选择器
-         * @param ground_pose_time	明确的地面姿态采样秒数
          * @param dry_run	仅检查参数和构图前提
          * @return 计划或正式编译保存结果
          */
         """
         from BBBAssetWritePolicy import require_asset_write
-        paths = [main_path, base_layer_path, ground_pose_path, recovery_stand_path, recovery_crouch_path, helping_chooser_path]
-        assets = [unreal.load_asset(path) for path in paths]
-        if any(asset is None for asset in assets):
-            raise RuntimeError("明确的基础姿态蓝图或序列无法加载")
-        if not all(isinstance(asset, unreal.AnimBlueprint) for asset in assets[:2]):
-            raise RuntimeError("主图与基础层必须为动画蓝图")
-        if not all(isinstance(asset, unreal.AnimSequence) for asset in assets[2:5]):
-            raise RuntimeError("地面姿态和恢复素材必须为动画序列")
-        if not isinstance(assets[5], unreal.ChooserTable):
-            raise RuntimeError("帮扶搜索配置必须为选择器表")
+        import BBBMotionMatchingCleanup
+        asset = unreal.load_asset(main_path)
+        if not isinstance(asset, unreal.AnimBlueprint) or not main_path.startswith('/Game/_Project/'):
+            raise RuntimeError("需要明确的自有主动画蓝图")
         if not dry_run:
-            require_asset_write(assets[:2])
+            require_asset_write([asset])
             dirty = {value.get_path_name() for value in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
-            if any(asset.get_outermost().get_path_name() in dirty for asset in assets[:2]):
-                raise RuntimeError("目标有未保存编辑 拒绝混入基础姿态构图")
-        report = json.loads(unreal.BBBAnimationGraphEditorLibrary.consolidate_character_base_pose(
-            *assets, ground_pose_time, not dry_run))
+            if asset.get_outermost().get_path_name() in dirty:
+                raise RuntimeError("目标有未保存编辑 拒绝混入离散动作构图")
+        report = json.loads(unreal.BBBAnimationGraphEditorLibrary.configure_character_montage_graph(asset, not dry_run))
         if report.get("error"):
             raise RuntimeError(report["error"])
         if not dry_run:
-            for asset in [assets[1], assets[0]]:
-                unreal.BlueprintEditorLibrary.compile_blueprint(asset)
-                if asset.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
-                    raise RuntimeError("基础姿态蓝图编译存在错误或警告 禁止保存: " + asset.get_path_name())
-            for asset in [assets[1], assets[0]]:
-                if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
-                    raise RuntimeError("基础姿态蓝图保存失败: " + asset.get_path_name())
-            report["saved"] = [base_layer_path, main_path]
+            importlib.reload(BBBMotionMatchingCleanup)._prune_graph(unreal.BlueprintEditorLibrary.find_graph(asset, 'AnimGraph'))
+            unreal.BlueprintEditorLibrary.compile_blueprint(asset)
+            if asset.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+                raise RuntimeError("主动画图编译存在错误或警告 禁止保存: " + asset.get_path_name())
+            if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
+                raise RuntimeError("主动画图保存失败: " + asset.get_path_name())
+            report["saved"] = [main_path]
         return json.dumps(report, ensure_ascii=False)
 
     @mcp_tool

@@ -55,7 +55,7 @@ TOOL_POLICIES = {
     'motion_matching.configure_main_updates': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['main_path']}, 'completion': 'verified_save'},
     'motion_matching.inspect_animation_blueprints': {'access': 'read', 'world': 'any', 'completion': 'observed'},
     'motion_matching.cleanup_animation_blueprints': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['blueprint_paths']}, 'completion': 'verified_save'},
-    'motion_matching.consolidate_character_base_pose': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['main_path', 'base_layer_path']}, 'completion': 'verified_save'},
+    'motion_matching.configure_character_montage_graph': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['main_path']}, 'completion': 'verified_save'},
     'motion_matching.collapse_animation_states': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['blueprint_path']}, 'completion': 'verified_save'},
     'motion_matching.replace_motion_matching_pose': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['graph_path']}, 'completion': 'verified_save'},
     'blueprint.copy_reference_graph_nodes': {'scope': {'fields': ['target_asset']}},

@@ -15913,56 +15913,22 @@
         }
       }
     },
-    "consolidate_character_base_pose": {
+    "configure_character_montage_graph": {
       "inputSchema": {
         "type": "object",
         "properties": {
           "main_path": {
             "type": "string"
           },
-          "base_layer_path": {
-            "type": "string"
-          },
-          "ground_pose_path": {
-            "type": "string"
-          },
-          "recovery_stand_path": {
-            "type": "string"
-          },
-          "recovery_crouch_path": {
-            "type": "string"
-          },
-          "ground_pose_time": {
-            "type": "number",
-            "default": 0.0
-          },
           "dry_run": {
             "type": "boolean",
             "default": true
-          },
-          "helping_chooser_path": {
-            "type": "string"
           }
         },
         "required": [
-          "main_path",
-          "base_layer_path",
-          "ground_pose_path",
-          "recovery_stand_path",
-          "recovery_crouch_path",
-          "helping_chooser_path"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
+          "main_path"
+        ],
+        "additionalProperties": false
       }
     }
   }

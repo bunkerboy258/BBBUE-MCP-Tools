@@ -19,6 +19,7 @@ class MotionMatchingCleanupTests(unittest.TestCase):
                               row('saved', 'AnimGraphNode_SaveCachedPose', ['mm']),
                               row('mm', 'AnimGraphNode_MotionMatching'),
                               row('implicit_pose', 'AnimGraphNode_RefPose'),
+                              row('orphan_use', 'AnimGraphNode_UseCachedPose'),
                               row('unused', 'K2Node_VariableGet')]}
         objects = {item['guid']: SimpleNamespace(get_path_name=lambda guid=item['guid']: guid) for item in snapshot['nodes']}
         editor = Mock()
@@ -29,7 +30,7 @@ class MotionMatchingCleanupTests(unittest.TestCase):
         namespace = {'unreal': engine, 'json': json}
         exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), 'exec'), namespace)
         namespace['_prune_graph'](object())
-        editor.remove_nodes.assert_called_once_with([objects['unused']])
+        editor.remove_nodes.assert_called_once_with([objects['orphan_use'], objects['unused']])
 
     def test_dead_execution_path_does_not_survive_through_return_input(self):
         source = Path(__file__).resolve().parents[1] / 'Scripts' / 'BBBMotionMatchingCleanup.py'

@@ -51,6 +51,6 @@
 `BBBAssetMaintenanceToolset.configure_monster_blood_residue` 参数为 settings_path channel_path splatter_material_paths droplet_material_paths pool_material_paths。配置独占持有后重建三类环境残留参数并保存回读。现有 Definition 绑定与共享 Niagara 保留 不修改表现蓝图 不提供旧参数或旧工具名称兼容。材质构建与 PIE 只读验收见 BBBHitReactionMCP.md。
 
 拒绝脏包 PIE 每组重复或空材质列表及错误资产类型。工具只编辑已有配置 不创建配置或改写定义绑定。返回 success settings parameters groups 和 particleSystemRebuilt=false。粒子效果必须另外进行真实命中验证。
-# 角色基础姿态生成
+# 角色普通运动与离散动作
 
-角色原有倒地四向状态机、外置入场分支和半蹲帮扶循环构图入口已移除。GASP 运动、地面等待和起身统一在主图基础姿态阶段生成，使用 [运动匹配工具](BBBMotionMatchingMCP.md) 的 `motion_matching.consolidate_character_base_pose`。僵尸事实动画工具保持独立。
+普通运动由 GASP MM 生成 倒地等待 接受救援 帮扶与起身使用后置 FullBody 蒙太奇。主图清理使用 [运动匹配工具](BBBMotionMatchingMCP.md) 的 motion_matching.configure_character_montage_graph 不修改空手库和装备层。僵尸事实动画工具保持独立。

@@ -36,7 +36,8 @@ def _prune_graph(graph, apply=True):
     snapshot = json.loads(unreal.BBBBlueprintEditorLibrary.inspect_blueprint_graph_logical_snapshot(graph))
     rows = {row["guid"]: row for row in snapshot["nodes"]}
     live = set()
-    seeds = [row["guid"] for row in rows.values() if '.AnimGraphNode_' in row['nodeClass']
+    seeds = [row["guid"] for row in rows.values() if ('.AnimGraphNode_' in row['nodeClass']
+             and not row['nodeClass'].endswith('.AnimGraphNode_UseCachedPose'))
              or row["nodeClass"].rsplit(".", 1)[-1] in {"K2Node_FunctionEntry", "K2Node_FunctionResult", "K2Node_Event", "K2Node_CustomEvent"}]
     pending = list(seeds)
     while pending:
