@@ -6,6 +6,22 @@ from BBBMcpCapabilities import mcp_tool
 from toolset_registry.registration import Registration
 
 
+MCP_INPUTS = {
+    "set_retarget_pose_bone_rotations": {
+        "rotations_json": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": {
+                "type": "array",
+                "items": {"type": "number"},
+                "minItems": 4,
+                "maxItems": 4,
+            },
+        },
+    },
+}
+
+
 def _asset(path, expected_type):
     """/** @param path 资产路径 @param expected_type 类型 @return 已核对的资产 */"""
     value = unreal.load_asset(path)

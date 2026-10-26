@@ -6,49 +6,157 @@ from BBBMcpCapabilities import mcp_tool
 from toolset_registry.registration import Registration
 
 
-MCP_INPUTS = {
-    "migrate_configuration": {
-        "request_json": {
-            "type": "object",
-            "properties": {
-                "assets": {"type": "array", "items": {"type": "object", "properties": {"source": {"type": "string"}, "target": {"type": "string"}}, "required": ["source", "target"], "additionalProperties": False}},
-                "objectRemaps": {"type": "array", "items": {"type": "object", "properties": {"source": {"type": "string"}, "target": {"type": "string"}}, "required": ["source", "target"], "additionalProperties": False}},
-                "blueprint": {"type": "object", "properties": {"source": {"type": "string"}, "target": {"type": "string"}, "functions": {"type": "array", "items": {"type": "string"}}, "variables": {"type": "array", "items": {"type": "string"}}, "nodeTemplates": {"type": "array", "items": {"type": "object", "properties": {"source": {"type": "string"}, "target": {"type": "string"}}, "required": ["source", "target"], "additionalProperties": False}}, "historyAtOutput": {"type": "string"}}, "required": ["source", "target", "functions", "variables"], "additionalProperties": False},
-                "overrides": {"type": "array", "items": {"type": "object", "properties": {"object": {"type": "string"}, "property": {"type": "string"}, "value": {"type": "string"}}, "required": ["object", "property", "value"], "additionalProperties": False}},
-                "integration": {"type": "object", "properties": {"baseLayer": {"type": "string"}, "layer": {"type": "string"}, "chooser": {"type": "string"}}, "required": ["baseLayer", "layer", "chooser"], "additionalProperties": False},
-            },
-            "required": ["assets", "objectRemaps"],
-            "additionalProperties": False,
-        },
-    },
-    "cleanup_animation_blueprints": {
-        "requests_json": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "asset": {"type": "string"},
-                    "removeGraphs": {"type": "array", "items": {"type": "string"}},
-                    "bypassFunctions": {"type": "array", "items": {"type": "string"}},
-                    "removeVariables": {"type": "array", "items": {"type": "string"}},
-                    "removeUnusedAliases": {"type": "boolean"},
-                    "pruneGraphs": {"type": "array", "items": {"type": "string"}},
-                    "bypassPoseNodes": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {"graph": {"type": "string"}, "guid": {"type": "string"}, "input": {"type": "string"}, "output": {"type": "string"}},
-                            "required": ["graph", "guid", "input", "output"],
-                            "additionalProperties": False,
-                        },
-                    },
-                },
-                "required": ["asset"],
-                "additionalProperties": False,
-            },
-        },
-    },
-}
+MCP_INPUTS = {'analyze_runtime_probe': {'phases_json': {'type': 'array',
+                                           'items': {'type': 'object',
+                                                     'properties': {'name': {'type': 'string', 'minLength': 1},
+                                                                    'start_frame': {'type': 'integer', 'minimum': 0},
+                                                                    'end_frame': {'type': 'integer', 'minimum': 0},
+                                                                    'motion': {'type': 'string',
+                                                                               'enum': ['idle',
+                                                                                        'steady',
+                                                                                        'transition',
+                                                                                        'turn',
+                                                                                        'airborne',
+                                                                                        'action']}},
+                                                     'required': ['name', 'start_frame', 'end_frame'],
+                                                     'additionalProperties': False}},
+                           'limits_json': {'type': 'object', 'additionalProperties': {'type': 'number'}}},
+ 'migrate_configuration': {'request_json': {'type': 'object',
+                                            'properties': {'assets': {'type': 'array',
+                                                                      'items': {'type': 'object',
+                                                                                'properties': {'source': {'type': 'string'},
+                                                                                               'target': {'type': 'string'}},
+                                                                                'required': ['source', 'target'],
+                                                                                'additionalProperties': False}},
+                                                           'objectRemaps': {'type': 'array',
+                                                                            'items': {'type': 'object',
+                                                                                      'properties': {'source': {'type': 'string'},
+                                                                                                     'target': {'type': 'string'}},
+                                                                                      'required': ['source', 'target'],
+                                                                                      'additionalProperties': False}},
+                                                           'blueprint': {'type': 'object',
+                                                                         'properties': {'source': {'type': 'string'},
+                                                                                        'target': {'type': 'string'},
+                                                                                        'functions': {'type': 'array',
+                                                                                                      'items': {'type': 'string'}},
+                                                                                        'variables': {'type': 'array',
+                                                                                                      'items': {'type': 'string'}},
+                                                                                        'standardFunctions': {'type': 'array',
+                                                                                                              'items': {'type': 'string'}},
+                                                                                        'nodeTemplates': {'type': 'array',
+                                                                                                          'items': {'type': 'object',
+                                                                                                                    'properties': {'source': {'type': 'string'},
+                                                                                                                                   'target': {'type': 'string'}},
+                                                                                                                    'required': ['source',
+                                                                                                                                 'target'],
+                                                                                                                    'additionalProperties': False}},
+                                                                                        'historyAtOutput': {'type': 'string'},
+                                                                                        'graphEdits': {'type': 'array',
+                                                                                                       'items': {'type': 'object',
+                                                                                                                 'properties': {'graph': {'type': 'string'},
+                                                                                                                                'nodes': {'type': 'array',
+                                                                                                                                          'items': {'type': 'object',
+                                                                                                                                                    'properties': {'id': {'type': 'string'},
+                                                                                                                                                                   'class': {'type': 'string'},
+                                                                                                                                                                   'member': {'type': 'string'},
+                                                                                                                                                                   'function': {'type': 'string'},
+                                                                                                                                                                   'properties': {'type': 'object',
+                                                                                                                                                                                  'additionalProperties': {'type': 'string'}},
+                                                                                                                                                                   'pinValues': {'type': 'object',
+                                                                                                                                                                                 'additionalProperties': {'type': 'string'}},
+                                                                                                                                                                   'exposePins': {'type': 'array',
+                                                                                                                                                                                  'items': {'type': 'string'}}},
+                                                                                                                                                    'required': ['id',
+                                                                                                                                                                 'class'],
+                                                                                                                                                    'additionalProperties': False}},
+                                                                                                                                'links': {'type': 'array',
+                                                                                                                                          'items': {'type': 'object',
+                                                                                                                                                    'properties': {'from': {'type': 'string'},
+                                                                                                                                                                   'fromPin': {'type': 'string'},
+                                                                                                                                                                   'to': {'type': 'string'},
+                                                                                                                                                                   'toPin': {'type': 'string'}},
+                                                                                                                                                    'required': ['from',
+                                                                                                                                                                 'fromPin',
+                                                                                                                                                                 'to',
+                                                                                                                                                                 'toPin'],
+                                                                                                                                                    'additionalProperties': False}}},
+                                                                                                                 'required': ['graph',
+                                                                                                                              'links'],
+                                                                                                                 'additionalProperties': False}},
+                                                                                        'newVariables': {'type': 'array',
+                                                                                                         'items': {'type': 'object',
+                                                                                                                   'properties': {'name': {'type': 'string'},
+                                                                                                                                  'category': {'type': 'string'},
+                                                                                                                                  'subcategory': {'type': 'string'},
+                                                                                                                                  'typePath': {'type': 'string'},
+                                                                                                                                  'array': {'type': 'boolean'},
+                                                                                                                                  'default': {'type': 'string'}},
+                                                                                                                   'required': ['name',
+                                                                                                                                'category'],
+                                                                                                                   'additionalProperties': False}}},
+                                                                         'required': ['source',
+                                                                                      'target',
+                                                                                      'functions',
+                                                                                      'variables'],
+                                                                         'additionalProperties': False},
+                                                           'overrides': {'type': 'array',
+                                                                         'items': {'type': 'object',
+                                                                                   'properties': {'object': {'type': 'string'},
+                                                                                                  'property': {'type': 'string'},
+                                                                                                  'value': {'type': 'string'}},
+                                                                                   'required': ['object',
+                                                                                                'property',
+                                                                                                'value'],
+                                                                                   'additionalProperties': False}},
+                                                           'integration': {'type': 'object',
+                                                                           'properties': {'baseLayer': {'type': 'string'},
+                                                                                          'layer': {'type': 'string'},
+                                                                                          'chooser': {'type': 'string'}},
+                                                                           'required': ['baseLayer',
+                                                                                        'layer',
+                                                                                        'chooser'],
+                                                                           'additionalProperties': False},
+                                                           'existingAssets': {'type': 'array',
+                                                                              'items': {'type': 'string'}}},
+                                            'required': ['assets', 'objectRemaps'],
+                                            'additionalProperties': False}},
+ 'cleanup_animation_blueprints': {'requests_json': {'type': 'array',
+                                                    'items': {'type': 'object',
+                                                              'properties': {'asset': {'type': 'string'},
+                                                                             'removeGraphs': {'type': 'array',
+                                                                                              'items': {'type': 'string'}},
+                                                                             'bypassFunctions': {'type': 'array',
+                                                                                                 'items': {'type': 'string'}},
+                                                                             'removeVariables': {'type': 'array',
+                                                                                                 'items': {'type': 'string'}},
+                                                                             'removeUnusedAliases': {'type': 'boolean'},
+                                                                             'flattenStateMachines': {'type': 'array',
+                                                                                                      'items': {'type': 'object',
+                                                                                                                'properties': {'nodeGuid': {'type': 'string'},
+                                                                                                                               'retainedState': {'type': 'string'}},
+                                                                                                                'required': ['nodeGuid',
+                                                                                                                             'retainedState'],
+                                                                                                                'additionalProperties': False}},
+                                                                             'pruneGraphs': {'type': 'array',
+                                                                                             'items': {'type': 'string'}},
+                                                                             'bypassPoseNodes': {'type': 'array',
+                                                                                                 'items': {'type': 'object',
+                                                                                                           'properties': {'graph': {'type': 'string'},
+                                                                                                                          'guid': {'type': 'string'},
+                                                                                                                          'input': {'type': 'string'},
+                                                                                                                          'output': {'type': 'string'}},
+                                                                                                           'required': ['graph',
+                                                                                                                        'guid',
+                                                                                                                        'input',
+                                                                                                                        'output'],
+                                                                                                           'additionalProperties': False}}},
+                                                              'required': ['asset'],
+                                                              'additionalProperties': False}}},
+ 'configure_in_place_root_velocities': {'velocities_json': {'type': 'array',
+                                                            'items': {'type': 'array',
+                                                                      'items': {'type': 'number'},
+                                                                      'minItems': 3,
+                                                                      'maxItems': 3}}}}
 
 
 @unreal.uclass()
@@ -70,7 +178,7 @@ class BBBMotionMatchingToolset(unreal.ToolsetDefinition):
         """/** @param content_directory 参考 Content 目录 @param target_paths 完整写入对象范围 @param request_json 明确资产 对象和函数映射 @param dry_run 仅预检 @return 迁移报告 应用后保存与回读 */"""
         from BBBAssetWritePolicy import require_asset_write
         request = json.loads(request_json)
-        expected = [row["target"] for row in request.get("assets", [])]
+        expected = [row["target"] for row in request.get("assets", [])] + request.get("existingAssets", [])
         if request.get("blueprint"):
             expected.append(request["blueprint"]["target"])
         if request.get("integration"):
@@ -100,10 +208,10 @@ class BBBMotionMatchingToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def start_runtime_probe(duration_seconds: float = 20.0, sample_interval: float = 0.1, file_prefix: str = "MMRuntimeProbe") -> str:
-        """/** @param duration_seconds 最长采样秒数 @param sample_interval 游戏时间采样间隔 @param file_prefix 本任务临时目录 @return 只读 MM 方向探针状态 */"""
+    def start_runtime_probe(duration_seconds: float = 20.0, file_prefix: str = "MMRuntimeProbe", target_actor_path: str = "") -> str:
+        """/** @param duration_seconds 最长游戏采样秒数 @param file_prefix 本任务临时目录 @param target_actor_path 明确的 PIE 角色路径 空值使用本地玩家 @return 原生骨骼完成回调驱动的逐帧姿态采集状态 */"""
         import BBBMotionMatchingRuntimeProbe
-        return BBBMotionMatchingRuntimeProbe.start(duration_seconds, sample_interval, file_prefix)
+        return BBBMotionMatchingRuntimeProbe.start(duration_seconds, file_prefix, target_actor_path)
 
     @mcp_tool
     @staticmethod
@@ -118,6 +226,73 @@ class BBBMotionMatchingToolset(unreal.ToolsetDefinition):
         """/** @return 停止 MM 采样后的方向误差汇总和最终快照 */"""
         import BBBMotionMatchingRuntimeProbe
         return BBBMotionMatchingRuntimeProbe.stop()
+
+    @mcp_tool
+    @staticmethod
+    def prepare_reference_runtime(content_directory: str, blueprint_path: str, mesh_path: str, bridge_function: str, turn_in_strafe: bool = False) -> str:
+        """/** @param content_directory 只读来源目录 @param blueprint_path 来源动画蓝图 @param mesh_path 来源网格 @param bridge_function 原始事实桥接函数 @return 仅替换桥接函数的临时来源夹具编译结果 */"""
+        report = json.loads(unreal.BBBMotionMatchingEditorLibrary.prepare_motion_matching_reference(
+            content_directory, blueprint_path, mesh_path, bridge_function, turn_in_strafe))
+        if report.get("error"):
+            raise RuntimeError(report["error"])
+        return json.dumps(report, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def start_reference_replay(capture_file: str, world_offset_x: float = 0.0, world_offset_y: float = 600.0, world_offset_z: float = 0.0, file_prefix: str = "MMReferenceReplay") -> str:
+        """/** @param capture_file Saved/temp 中基础事实采集 @param world_offset_x 平地 X 偏移 @param world_offset_y 平地 Y 偏移 @param world_offset_z 平地 Z 偏移 @return 固定六十帧来源角色独立运行与逐帧回放状态 */"""
+        report = json.loads(unreal.BBBMotionMatchingEditorLibrary.start_motion_matching_reference_replay(
+            capture_file, unreal.Vector(world_offset_x, world_offset_y, world_offset_z)))
+        if report.get("error"):
+            raise RuntimeError(report["error"])
+        import BBBMotionMatchingRuntimeProbe
+        try:
+            report["probe"] = json.loads(BBBMotionMatchingRuntimeProbe.start(
+                min(120.0, report["frameCount"] / 60.0 + 0.04), file_prefix, report["actorPath"]))
+        except Exception:
+            unreal.BBBMotionMatchingEditorLibrary.stop_motion_matching_reference_replay()
+            raise
+        return json.dumps(report, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def inspect_reference_replay() -> str:
+        """/** @return 来源夹具的事实回放覆盖与失败原因 */"""
+        return unreal.BBBMotionMatchingEditorLibrary.inspect_motion_matching_reference_replay()
+
+    @mcp_tool
+    @staticmethod
+    def stop_reference_replay() -> str:
+        """/** @return 移除回调并销毁临时来源角色后的状态 */"""
+        return unreal.BBBMotionMatchingEditorLibrary.stop_motion_matching_reference_replay()
+
+    @mcp_tool
+    @staticmethod
+    def analyze_runtime_probe(file_path: str, phases_json: str = "[]", limits_json: str = "{}", baseline_path: str = "", contact_curve_mode: str = "plant_speed", reference_facts_path: str = "", reference_offset_y: float = 600.0) -> str:
+        """/** @param file_path Saved/temp 中的完整采集文件 @param phases_json 输入用例帧区间 @param limits_json 修复前固定的阈值 @param baseline_path 可选来源检查结果文件 @param contact_curve_mode plant_speed 或 contact_alpha @return 逐帧异常区间 覆盖和来源对照 */"""
+        from pathlib import Path
+        import BBBMotionMatchingPoseQuality
+        analyze_capture = importlib.reload(BBBMotionMatchingPoseQuality).analyze_capture
+        root = (Path(unreal.Paths.project_saved_dir()) / "temp").resolve()
+        path = Path(file_path).resolve()
+        if not path.is_relative_to(root) or not path.is_file():
+            raise RuntimeError("采集文件必须位于本项目 Saved/temp")
+        baseline = None
+        if baseline_path:
+            reference = Path(baseline_path).resolve()
+            if not reference.is_relative_to(root) or not reference.is_file():
+                raise RuntimeError("来源检查结果必须位于本项目 Saved/temp")
+            baseline = json.loads(reference.read_text(encoding="utf-8"))
+        phases = json.loads(phases_json)
+        if len({item["name"] for item in phases}) != len(phases) or any(
+                item["end_frame"] < item["start_frame"] for item in phases):
+            raise RuntimeError("用例名称必须唯一且帧区间有效")
+        if reference_facts_path:
+            facts_path = Path(reference_facts_path).resolve()
+            if not facts_path.is_relative_to(root) or not facts_path.is_file():
+                raise RuntimeError("回放事实必须位于本项目 Saved/temp")
+        return json.dumps(analyze_capture(path, phases, json.loads(limits_json), baseline, contact_curve_mode,
+            reference_facts_path, (0, reference_offset_y, 0)), ensure_ascii=False)
 
     @mcp_tool
     @staticmethod
@@ -263,6 +438,15 @@ class BBBMotionMatchingToolset(unreal.ToolsetDefinition):
         """
         import BBBMotionMatchingGraph
         return json.dumps(importlib.reload(BBBMotionMatchingGraph).replace_motion_matching_pose(graph_path, source_node_guid, source_output_pin, destination_node_guid, destination_input_pin, database_path, trajectory_variable, remove_node_guids, on_update_function, dry_run, expected_snapshot), ensure_ascii=False)
+
+
+    @mcp_tool
+    @staticmethod
+    def configure_in_place_root_velocities(asset_paths: list[str], velocities_json: str, dry_run: bool = True) -> str:
+        """/** @param asset_paths 明确自有原地动画 @param velocities_json 对应动画局部索引速度 @param dry_run 只校验 @return 保存与非根轨道摘要核验 */"""
+        import BBBAnimationCurveTools
+        return json.dumps(importlib.reload(BBBAnimationCurveTools).configure_in_place_root_velocities(
+            asset_paths, json.loads(velocities_json), dry_run), ensure_ascii=False)
 
 
 _registration = Registration([BBBMotionMatchingToolset])

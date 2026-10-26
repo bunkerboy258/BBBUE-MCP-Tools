@@ -227,6 +227,31 @@ def _function_argument(value):
         if not success:
             raise RuntimeError("Guid 格式无效")
         return guid
+    if isinstance(value, dict) and set(value) == {"$vector"}:
+        components = value["$vector"]
+        if not isinstance(components, list) or len(components) != 3 or any(not math.isfinite(item) for item in components):
+            raise RuntimeError("Vector 标记要求三个有限数值")
+        return unreal.Vector(*components)
+    if isinstance(value, dict) and set(value) == {"$rotator"}:
+        components = value["$rotator"]
+        if not isinstance(components, list) or len(components) != 3 or any(not math.isfinite(item) for item in components):
+            raise RuntimeError("Rotator 标记要求 Pitch Yaw Roll 三个有限数值")
+        return unreal.Rotator(*components)
+    if isinstance(value, dict) and set(value) == {"$object"}:
+        target = unreal.find_object(None, value["$object"]) or unreal.load_asset(value["$object"])
+        if target is None:
+            raise RuntimeError("Object 标记引用不存在")
+        return target
+    if isinstance(value, dict) and set(value) == {"$enum"}:
+        names = value["$enum"]
+        if (not isinstance(names, list) or len(names) != 2
+                or any(not isinstance(name, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", name) for name in names)):
+            raise RuntimeError("Enum 标记要求明确的引擎枚举类型与成员名")
+        enum_type = getattr(unreal, names[0], None)
+        member = getattr(enum_type, names[1], None)
+        if member is None or not isinstance(member, unreal.EnumBase):
+            raise RuntimeError("Enum 标记不能解析为引擎枚举成员")
+        return member
     return value
 
 
@@ -422,11 +447,11 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def copy_animation_float_curves(source_path: str, target_paths: list[str], dry_run: bool = True) -> str:
+    def copy_animation_float_curves(source_path: str, target_paths: list[str], dry_run: bool = True, source_content_directory: str = '') -> str:
         """/** @param source_path 曲线基准 @param target_paths 同源同长目标 @param dry_run 只检查 @return 完整曲线复制回读与保存证据 */"""
         import importlib
         import BBBAnimationCurveTools
-        return importlib.reload(BBBAnimationCurveTools).copy(source_path, target_paths, dry_run)
+        return importlib.reload(BBBAnimationCurveTools).copy(source_path, target_paths, dry_run, source_content_directory)
 
 
     @mcp_tool

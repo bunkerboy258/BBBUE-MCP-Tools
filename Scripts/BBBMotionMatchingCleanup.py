@@ -31,12 +31,13 @@ def inspect_animation_blueprints(blueprint_paths):
     return reports
 
 
-def _prune_graph(graph):
+def _prune_graph(graph, apply=True):
     """/** @param graph 明确待清理图 @return 删除不参与执行或输出的孤立计算 */"""
     snapshot = json.loads(unreal.BBBBlueprintEditorLibrary.inspect_blueprint_graph_logical_snapshot(graph))
     rows = {row["guid"]: row for row in snapshot["nodes"]}
     live = set()
-    seeds = [row["guid"] for row in rows.values() if row["nodeClass"].rsplit(".", 1)[-1] in {"K2Node_FunctionEntry", "K2Node_FunctionResult", "K2Node_Event", "K2Node_CustomEvent", "AnimGraphNode_Root", "AnimGraphNode_StateResult", "AnimGraphNode_LinkedInputPose"}]
+    seeds = [row["guid"] for row in rows.values() if '.AnimGraphNode_' in row['nodeClass']
+             or row["nodeClass"].rsplit(".", 1)[-1] in {"K2Node_FunctionEntry", "K2Node_FunctionResult", "K2Node_Event", "K2Node_CustomEvent"}]
     pending = list(seeds)
     while pending:
         guid = pending.pop()
@@ -55,12 +56,15 @@ def _prune_graph(graph):
         visited.add(guid)
         live.add(guid)
         for pin in rows[guid]["pins"]:
-            if pin["direction"] == "input":
+            if pin["direction"] == "input" and pin.get("kind") != "exec":
                 pending.extend(link["nodeGuid"] for link in pin["links"])
     editor = unreal.BlueprintGraphEditor.get_graph_editor(graph)
     by_path = {node.get_path_name(): node for node in editor.list_all_nodes()}
     removed = [by_path[row["path"]] for row in rows.values() if row["guid"] not in live and not row.get("isComment")]
-    editor.remove_nodes(removed)
+    if apply:
+        editor.remove_nodes(removed)
+    return [{key: row[key] for key in ['guid', 'path', 'nodeClass']} for row in rows.values()
+            if row['guid'] not in live and not row.get('isComment')]
 
 
 def cleanup_animation_blueprints(blueprint_paths, requests_json, dry_run=True):
@@ -77,17 +81,31 @@ def cleanup_animation_blueprints(blueprint_paths, requests_json, dry_run=True):
         raise RuntimeError("清理请求与明确蓝图范围不一致")
     assets = {path: _load(path) for path in blueprint_paths}
     report = {"requests": requests, "dryRun": dry_run}
+    report['pruning'] = []
     for request in requests:
         blueprint = assets[request["asset"]]
         names = set(str(graph.get_name()) for graph in unreal.BlueprintEditorLibrary.list_graphs(blueprint))
         if set(request.get("removeGraphs", [])) - names:
             raise RuntimeError("删除图不存在: " + request["asset"])
+        for graph in unreal.BlueprintEditorLibrary.list_graphs(blueprint):
+            if str(graph.get_name()) in request.get('pruneGraphs', []):
+                report['pruning'].append({'graph': graph.get_path_name(), 'removed': _prune_graph(graph, False)})
+        for item in request.get("flattenStateMachines", []):
+            result = json.loads(unreal.BBBMotionMatchingEditorLibrary.flatten_animation_state_machine(
+                blueprint, item["nodeGuid"], item["retainedState"], False))
+            if result.get("error"):
+                raise RuntimeError(result["error"])
     if dry_run:
         return report
     require_asset_write(list(assets.values()))
     for request in requests:
         blueprint = assets[request["asset"]]
         blueprint.modify()
+        for item in request.get("flattenStateMachines", []):
+            result = json.loads(unreal.BBBMotionMatchingEditorLibrary.flatten_animation_state_machine(
+                blueprint, item["nodeGuid"], item["retainedState"], True))
+            if result.get("error"):
+                raise RuntimeError(result["error"])
         remove_graphs = set(request.get("removeGraphs", []))
         exported = json.loads(unreal.BBBBlueprintEditorLibrary.export_animation_blueprint_graphs(blueprint))
         update_bindings = {(graph["path"], node["guid"]): node.get("nodeFunctions", {}).get("onUpdate") for graph in exported.get("graphs", []) for node in graph.get("nodes", [])}
@@ -135,6 +153,10 @@ def cleanup_animation_blueprints(blueprint_paths, requests_json, dry_run=True):
             raise RuntimeError("动画图批量移除失败")
         for name in request.get("removeVariables", []):
             graph = unreal.BlueprintEditorLibrary.find_graph(blueprint, "AnimGraph")
+            if graph is None:
+                graph = next(iter(unreal.BlueprintEditorLibrary.list_graphs(blueprint)), None)
+            if graph is None:
+                raise RuntimeError("删除成员变量需要蓝图自身的一个编辑图")
             editor = unreal.BlueprintGraphEditor.get_graph_editor(graph)
             editor.remove_member_variable(name)
             if name in {str(value) for value in unreal.BlueprintEditorLibrary.list_member_variable_names(blueprint, False)}:

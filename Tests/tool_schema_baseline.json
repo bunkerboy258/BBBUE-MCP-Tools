@@ -7747,6 +7747,45 @@
           "returnValue"
         ]
       }
+    },
+    "copy_animation_float_curves": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_path": {
+            "type": "string"
+          },
+          "target_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true
+          },
+          "source_content_directory": {
+            "type": "string",
+            "default": ""
+          }
+        },
+        "required": [
+          "source_path",
+          "target_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBLevelEditingToolset": {
@@ -16055,13 +16094,13 @@
             "type": "number",
             "default": 20.0
           },
-          "sample_interval": {
-            "type": "number",
-            "default": 0.1
-          },
           "file_prefix": {
             "type": "string",
             "default": "MMRuntimeProbe"
+          },
+          "target_actor_path": {
+            "type": "string",
+            "default": ""
           }
         }
       },
@@ -16092,6 +16131,202 @@
       "inputSchema": {
         "type": "object",
         "properties": {}
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "prepare_reference_runtime": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "content_directory": {
+            "type": "string"
+          },
+          "blueprint_path": {
+            "type": "string"
+          },
+          "mesh_path": {
+            "type": "string"
+          },
+          "bridge_function": {
+            "type": "string"
+          },
+          "turn_in_strafe": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "content_directory",
+          "blueprint_path",
+          "mesh_path",
+          "bridge_function"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "start_reference_replay": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "capture_file": {
+            "type": "string"
+          },
+          "world_offset_x": {
+            "type": "number",
+            "default": 0.0
+          },
+          "world_offset_y": {
+            "type": "number",
+            "default": 600.0
+          },
+          "world_offset_z": {
+            "type": "number",
+            "default": 0.0
+          },
+          "file_prefix": {
+            "type": "string",
+            "default": "MMReferenceReplay"
+          }
+        },
+        "required": [
+          "capture_file"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_reference_replay": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "stop_reference_replay": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "analyze_runtime_probe": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string"
+          },
+          "phases_json": {
+            "type": "string",
+            "default": "[]"
+          },
+          "limits_json": {
+            "type": "string",
+            "default": "{}"
+          },
+          "baseline_path": {
+            "type": "string",
+            "default": ""
+          },
+          "contact_curve_mode": {
+            "type": "string",
+            "default": "plant_speed"
+          },
+          "reference_facts_path": {
+            "type": "string",
+            "default": ""
+          },
+          "reference_offset_y": {
+            "type": "number",
+            "default": 600.0
+          }
+        },
+        "required": [
+          "file_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_in_place_root_velocities": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "velocities_json": {
+            "type": "string"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "asset_paths",
+          "velocities_json"
+        ]
       },
       "outputSchema": {
         "type": "object",

@@ -36,6 +36,12 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
+    'motion_matching.configure_in_place_root_velocities': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['asset_paths']}, 'completion': 'verified_save'},
+    'motion_matching.analyze_runtime_probe': {'access': 'read', 'world': 'any', 'completion': 'observed'},
+    'motion_matching.prepare_reference_runtime': {'access': 'read', 'world': 'editor', 'completion': 'observed'},
+    'motion_matching.start_reference_replay': {'access': 'write', 'world': 'any', 'completion': 'observed'},
+    'motion_matching.inspect_reference_replay': {'access': 'read', 'world': 'any', 'completion': 'observed'},
+    'motion_matching.stop_reference_replay': {'access': 'write', 'world': 'any', 'completion': 'observed'},
     'motion_matching.migrate_configuration': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['target_paths']}, 'completion': 'verified_save'},
     'motion_matching.inspect_configuration': {'access': 'read', 'world': 'editor', 'completion': 'observed'},
     'editor.configure_animation_root_motion_matrix': {'scope': {'fields': ['asset_paths']}},
