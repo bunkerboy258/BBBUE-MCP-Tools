@@ -686,3 +686,5 @@ Monster 版本只编辑逻辑与表现两份主配置。`monster_gore.inspect_mo
 2026-10-25 士兵双手距离修正: `retarget.configure_hand_contact_retargeters` 只写明确自有重定向器和专用目标 Rig，只读复用源 Rig。以实际源手骨建立全局目标，保留目标手腕骨轴，以右手为锚执行双臂 Limb IK，最后重建辅助骨；保留当前重定向姿态、根运动和曲线。六段样本共 816 帧的源目标双手向量偏差最大 0.02121 cm，根、骨盆及脚九点位置对比未变化。新增实际 FAL 独立挂枪预览，未替换运行时动画或进行 PIE。调用约束、数据证据和视觉审核边界见 `Docs/BBBRetargetPreviewMCP.md`。
 
 2026-10-25 动作匹配运行时探针: motion_matching.start_runtime_probe / inspect_runtime_probe / stop_runtime_probe 有界记录实际查询轨迹 命中动画及根运动方向误差。定位并修复角色与网格相差 90 度时的轨迹坐标错误 空手四向误差由约 90 度降至 0 到 1.11 度 步枪 750 个输入游戏帧复测通过 平均方向误差 0.633 度。UE5.8 编辑器编译 原生十二组坐标回归及 23 项 Python 测试通过。接口和验收边界见 Docs/BBBMotionMatchingRuntimeMCP.md。
+
+2026-10-26 角色基础姿态收敛: `motion_matching.consolidate_character_base_pose` 通过原生入口将 GASP 普通 MM、静态地面姿态和站立／蹲姿起身汇入公共根骨、脚部处理和 Pose History。帮扶显式选择空手 GASP 蹲姿库；装备修正在地面、恢复和帮扶期间绕过。角色只发布生命阶段及经过时间等事实，工作线程派生恢复与打断。删除旧角色攀爬、倒地四向及帮扶状态机构图入口；四个通用 Motion Warping 资产工具保留。48 项 Python 边界与 MM 相关回归通过，资产无警告编译保存；表现与操作由用户执行验收。调用约束见 `Docs/BBBMotionMatchingMCP.md`。

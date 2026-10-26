@@ -102,5 +102,4 @@ SUMMARIES = {
     "retarget.configure_root_motion_retargeter": "配置根运动重定向器",
     "retarget.retarget_sequences": "按重定向器批量生成动画",
     "rigid.inspect_static_mesh_geometry": "读取静态网格几何",
-    "traversal.get_pie_traversal_samples": "读取 PIE 翻越动作采样",
 }

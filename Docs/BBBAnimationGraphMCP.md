@@ -51,24 +51,6 @@
 `BBBAssetMaintenanceToolset.configure_monster_blood_residue` 参数为 settings_path channel_path splatter_material_paths droplet_material_paths pool_material_paths。配置独占持有后重建三类环境残留参数并保存回读。现有 Definition 绑定与共享 Niagara 保留 不修改表现蓝图 不提供旧参数或旧工具名称兼容。材质构建与 PIE 只读验收见 BBBHitReactionMCP.md。
 
 拒绝脏包 PIE 每组重复或空材质列表及错误资产类型。工具只编辑已有配置 不创建配置或改写定义绑定。返回 success settings parameters groups 和 particleSystemRebuilt=false。粒子效果必须另外进行真实命中验证。
-# 角色倒地姿势接入
+# 角色基础姿态生成
 
-`create_directional_blend_space` 为五个同骨架循环创建二维混合资产，输入顺序为待机、前、后、左、右。轴表示角色局部前向和右向实际速度，单位为厘米每秒。创建前检查 Perforce 写入资格，保存后仍需核对新资产的 `binary+l` 添加状态。
-
-`configure_character_downed_state` 接收角色主动画蓝图、现有动画层接口、基础动画层、入场序列、二维混合、直接继承 Base 的装备层清单和角色配置。所有受影响资产与六个动画序列必须已独占签出。拒绝未保存编辑、重复状态、已有倒地曲线和错误继承关系。
-
-主图沿用 `LocomotionSM`。`DownedSources` 别名集中转入 `Downed` 状态，状态只调用 `FullBody_DownedState` 动画层。入场选择导管允许首次展示已倒地角色时直接进入正确状态。状态转换读取 `SourceLifePhase`，不持有生命规则。
-
-接口在 `ItemAnimLayers` 组增加 `FullBody_DownedState`。Base 在该层内实现 `DownedSM`，由 EntrySelector 按 `SourceDownedEntryElapsed` 选择 Entry 或 Crawl。Entry 按角色发布的经过时间采样，Crawl 读取主实例的实际局部速度。Rifle、Unarmed 继承同一实现。负入场时间跳过倒下片段。死亡仍由角色物理表现接管。
-
-主 AnimGraph 保持统一的全身槽位、惯性化、根骨、骨骼控制和脚部控制输出链。六个倒地片段使用 `DisableLegIK`、`DisableAimIK`、`DisableLHandIK`、`DisableLocomotionAdditives` 曲线控制表现修正。原地转身函数在非存活阶段清零根骨朝向偏移。
-
-原生构图精确清理此前错误接入的直接输出分支，拒绝拓扑不匹配，不覆盖其它节点。旧直接接图工具和入场蒙太奇配置已移除，不保留兼容入口。构图或编译失败不保存；全部无警告编译后才逐项保存。完成后必须检查状态机、继承、布局、真实角色四向动作与装备收起，单独播放动画不能替代运行时验收。
-
-## 角色半蹲帮扶状态
-
-`configure_character_rescue_state` 接收已有主动画蓝图、移动层接口、Base、同骨架半蹲帮扶循环和直接继承 Base 的装备层。`recovery_blend_seconds` 默认 0.5，仅表示倒地恢复到正常移动的动画混合时间，不生成站起动画或玩法锁定阶段。
-
-主图节点和输出链保持原样。既有 `LocomotionSM` 内增加 `Rescue` 状态，读取原生事实 `bSourceRescueHelping`。状态调用接口 `FullBody_RescueState`，Base 实现循环序列，装备层沿用继承。首次展示已帮扶角色通过既有入场导管选择当前状态。救援者倒地沿用既有 Downed 转换。
-
-拒绝 PIE、目标脏包、重复接口、不匹配继承和已有禁用曲线。检查写入资格后构图，全部蓝图无警告编译成功才保存显式目标。循环禁用脚 IK、瞄准 IK、左手装备 IK 和移动附加修正。保存后仍须检查主图布局、状态转换与继承，以及角色运行时的装备恢复和控制开放。
+角色原有倒地四向状态机、外置入场分支和半蹲帮扶循环构图入口已移除。GASP 运动、地面等待和起身统一在主图基础姿态阶段生成，使用 [运动匹配工具](BBBMotionMatchingMCP.md) 的 `motion_matching.consolidate_character_base_pose`。僵尸事实动画工具保持独立。
