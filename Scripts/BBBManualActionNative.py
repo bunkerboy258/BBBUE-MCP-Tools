@@ -858,6 +858,8 @@ def apply_baked_animation(path, data, write_paths):
     montage.controller.set_number_of_frames(unreal.FrameNumber(value=output.data_model_interface.get_number_of_keys()-1))
     if abs(montage.get_play_length()-output.get_play_length()) > 1e-5:
         raise RuntimeError('ACTION_APPLY_LENGTH')
+    if not unreal.BBBAssetRepairEditorLibrary.refresh_montage_links(montage):
+        raise RuntimeError('ACTION_APPLY_NOTIFY_LINK_REFRESH')
     if not unreal.EditorAssetLibrary.save_loaded_asset(montage, False):
         raise RuntimeError('ACTION_APPLY_SAVE')
     data.pop('apply_baked_request', None)

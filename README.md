@@ -1,5 +1,7 @@
 # BBBUE MCP Tools
 
+2026-10-26：FAL 已审核装备与换弹 LS 以官方 Sequencer 直接烘焙为 ANI_BBB_Rifle_01_CharacterEquip 与 ANI_BBB_Rifle_01_CharacterReload，并接入对应 UpperBody 蒙太奇。应用动画片段后调用既有原生 RefreshMontageLinks，按当前片段重建区段与通知链接，避免 LinkedSequence 缓存继续引用旧烘焙。两段骨轨回读误差0，既有3/6条通知及时间完全保持。确认旧两条 *_ManualEdit 无硬软引用后，以当前 SHA256 核验和原生删除清理；LS、Rig、原始动作及仍在使用的枪体动画保留。
+
 2026-10-26：ManualAction 支持 sync_weapon_attachment_request=true，通过当前 Definition 的 SpawnOffset 重定基准。保留已有局部运动相对旧基准的残余变换及各通道关键帧时间，只改 Weapon 唯一变换段；默认值与关键帧共同更新，拒绝非九通道或时间不对齐的轨道，比较其它轨道摘要后保存并消费请求。最新手部握姿通过既有 grip_endpoints_request 指定同型号已应用 HandGrip 及左右 finger_sides，在首尾窗口匹配，保留换弹中段。FAL 换弹实际挂接默认值回读与配置一致，原两键时间保留，首尾位置误差0.000064厘米、角度误差0.038度，中段关键帧保留；仅更新制作序列，不烘焙或替换运行蒙太奇。
 
 2026-10-26 僵尸二级破坏工具迁移为八区躯干毁伤与五处断肢。原生材质构建读取十三份正式配置并生成三档共享组织。群体生成与性能测量接收明确区域数和断臂参数并核对实际事实。跨端只读检查包含同一身份的八区强度和断点。七项伤口与十四项群体工具回归通过。UE 编译与六项原生毁伤回归通过。实际联机 / 截图与性能结果记录于项目 Docs/ZombieDestruction_20261025.md。调用边界见 Docs/BBBMonsterGoreMCP.md。

@@ -1,5 +1,7 @@
 # 武器装备与换弹动作的人工制作
 
+2026-10-26：FAL 已审核装备与换弹 LS 以官方 Sequencer 直接烘焙为 ANI_BBB_Rifle_01_CharacterEquip 与 ANI_BBB_Rifle_01_CharacterReload，并接入对应 UpperBody 蒙太奇。应用动画片段后调用既有原生 RefreshMontageLinks，按当前片段重建区段与通知链接，避免 LinkedSequence 缓存继续引用旧烘焙。两段骨轨回读误差0，既有3/6条通知及时间完全保持。确认旧两条 *_ManualEdit 无硬软引用后，以当前 SHA256 核验和原生删除清理；LS、Rig、原始动作及仍在使用的枪体动画保留。
+
 2026-10-26：ManualAction 支持 sync_weapon_attachment_request=true，通过当前 Definition 的 SpawnOffset 重定基准。保留已有局部运动相对旧基准的残余变换及各通道关键帧时间，只改 Weapon 唯一变换段；默认值与关键帧共同更新，拒绝非九通道或时间不对齐的轨道，比较其它轨道摘要后保存并消费请求。最新手部握姿通过既有 grip_endpoints_request 指定同型号已应用 HandGrip 及左右 finger_sides，在首尾窗口匹配，保留换弹中段。FAL 换弹实际挂接默认值回读与配置一致，原两键时间保留，首尾位置误差0.000064厘米、角度误差0.038度，中段关键帧保留；仅更新制作序列，不烘焙或替换运行蒙太奇。
 
 2026-10-25：时间轴新增原生实例核验。项目 UBBBSequencerViewEditorLibrary 按明确序列取得 ILevelSequenceEditorToolkit 的 ISequencer，使用 SetClampRange 与 SetViewRange(Immediate) 同时重置活动视图缓存，回读实际实例范围及播放区间。ManualAction 的 timeline_ui_request="instance_repair" 显式调用并比较通道摘要；inspect 同时报资产范围、实例范围及当前帧。此前只写 MovieScene EditorData 或同进程窗口重开，不能作为彻底修复证据。正式编辑器重启加载后 FAL 拔枪实例及窗口截图核验正常，延后多次回读有限；UE5.8 Editor 编译通过，四项时间轴专项检查通过。
