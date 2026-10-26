@@ -55,16 +55,24 @@ class BBBRetargetAssetAuditToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def retarget_sequences(source_paths: list[str], retargeter_path: str, target_folder: str, overwrite: bool = False) -> str:
+    def retarget_sequences(source_paths: list[str], retargeter_path: str, target_folder: str, overwrite: bool = False,
+                           preserve_target_metadata: bool = False) -> str:
         """
         /**
          * @param source_paths 源动画序列
          * @param retargeter_path 已核验的重定向器
          * @param target_folder 自有资产目标目录
          * @param overwrite 是否重建同名目标 现有目标必须已签出或打开添加
+         * @param preserve_target_metadata 原位更新旧目标骨轨并保留其动画数据
          * @return 官方批量重定向创建并保存的资产
          */
         """
+        if preserve_target_metadata:
+            if not overwrite:
+                raise RuntimeError("原位替换需要 overwrite")
+            import importlib
+            import BBBRetargetInPlaceBatch
+            return importlib.reload(BBBRetargetInPlaceBatch).run(source_paths, retargeter_path, target_folder, False)
         from BBBAssetWritePolicy import require_asset_write
         if not source_paths or len(set(source_paths)) != len(source_paths):
             raise RuntimeError("源动画不能为空或重复")

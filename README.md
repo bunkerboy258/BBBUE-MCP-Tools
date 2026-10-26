@@ -700,3 +700,5 @@ Monster 版本只编辑逻辑与表现两份主配置。`monster_gore.inspect_mo
 2026-10-26 同源裁帧动画曲线复制：`editor.copy_animation_float_curves` 在同采样率且首尾相差最多八帧时，通过原始骨盆逐帧确定时间偏移并独立核对根轨，再平移完整曲线键，保留有效插值、切线和元数据。未核验尾段通过报告交由数据库限制采样范围；骨轨不对应、非有限变换或回读不一致时拒绝保存。蓝图默认对象读取支持 `AnimBlueprint`。29 项曲线与配置定向测试通过，UE5.8 实际完成两组共 1,406 条序列的保存和骨轨不变回读；没有执行动态游戏验收。调用边界见 `Docs/BBBAnimationCurveTransferMCP.md`。
 
 2026-10-26 角色生命动作改为蒙太奇：motion_matching.configure_character_montage_graph 仅清理明确主动画图的生命阶段采样与计时分支 保留普通 MM 及内部图 将 FullBody 槽位后置到最终惯性化之前并持续更新源姿态。倒地等待 接受救援 帮扶和站蹲起身使用蒙太奇 引擎 Disable Root Motion 通知屏蔽动作根运动。接受救援自然完成的逻辑通知只向直接角色提交带操作和倒地轮次的内部输入 计时器不再结算成功。旧构图入口删除 无兼容别名。19 项定向工具单元测试通过 原生构建通过 资产与动态验收状态见项目 Docs/Animation/CharacterBasePose.md。
+
+2026-10-26 正式动作库原位重定向：`retarget.retarget_sequences(..., overwrite=True, preserve_target_metadata=True)` 临时烘焙后将包括 Root 的全部骨轨写入既有动画，逐条回读并保存；原曲线、通知、同步标记、根运动及根锁设置保留。Root 差值单独报告。详见 `Docs/BBBRetargetAssetAuditMCP.md`。

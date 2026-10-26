@@ -14,3 +14,6 @@ Bootstrap 统一注册。通过 `find_tools` 搜索 `retarget`，使用 `describ
 `open_new_assets_for_add(asset_paths)` 仅为明确列出的、尚未纳入版本控制的自有资产打开 Perforce 添加。已打开添加的包直接跳过，受控或存在冲突的包拒绝处理。不提交或操作引用资产。
 
 `retarget_sequences(source_paths, retargeter_path, target_folder, overwrite=False)` 使用官方批量重定向，目标限定在自有目录，不包含引用资产。覆盖必须显式开启，且所有已有目标必须已签出或打开添加。严格核对同名输出，设置目标预览网格并保存；新包打开添加。调用后须对照源动画核验根轨迹、手脚 IK、曲线与通知。
+
+
+`retarget_sequences(..., overwrite=True, preserve_target_metadata=True)` 是正式库原位重定向模式，仅接受项目内来源，每批最多 32 条。它临时烘焙并将包括 Root 的全部骨轨写入既有目标资产，保留原路径、曲线、通知、同步标记、根运动开关、根锁及其他动画设置；保存前后核对骨轨与元数据，随后删除临时资产。Root 轨迹随新重定向结果更新并报告相对旧轨的差值。批次失败时报告已保存数量，调用方从下一条继续。
