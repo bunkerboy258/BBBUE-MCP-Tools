@@ -704,3 +704,5 @@ Monster 版本只编辑逻辑与表现两份主配置。`monster_gore.inspect_mo
 2026-10-26 正式动作库原位重定向：`retarget.retarget_sequences(..., overwrite=True, preserve_target_metadata=True)` 临时烘焙后将包括 Root 的全部骨轨写入既有动画，逐条回读并保存；原曲线、通知、同步标记、根运动及根锁设置保留。Root 差值单独报告。详见 `Docs/BBBRetargetAssetAuditMCP.md`。
 
 2026-10-26 连续举枪:`animation_graph.create_weapon_aim_additive` 制作无曲线静态参考与上半身 Local Space 加法 避免 MM 接触曲线被相减。`animation_graph.configure_weapon_aim_additives` 复用既有 FullBodyAdditives 在原有后震前合成连续举枪 工作线程蓝图制造举枪与独立 IK 权重。主图和接口没有新增调用。八份蓝图无警告编译保存 十六份正式资产从磁盘重载回读 四份加法的下半身及位置缩放差分为零。UE5.8 原生构建与十一项工具边界和结构契约检查通过 两项新增工具参数与基线一致 未运行 PIE。调用约束见 `Docs/BBBWeaponAimMCP.md`。
+
+2026-10-27 毁伤运行美术交付: 人工通过后的制作源通过 ExportTorso.py 生成单槽 / 单 UV / 36536 三角面运行网格与共享 4K 颜色 / 法线 / ORM。十一份组织和十三份表现配置完成主编辑器导入与回读。原生材质整体重建同步清除旧输出引用并复用匹配表面。参考姿势法线区分正背面 深层腔壁使用二值顶点标记 最高胸椎高度保护颈肩连接。UE5.8 编译链接通过 毁伤七项原生回归通过。百只完好与八区加断臂短批次完成 预算开启时整帧 GPU 中位为 17.61 / 20.98 ms。临时 PIE 每轮结束自动停止。调用及制作约束见 Docs/BBBMonsterGoreMCP.md。
