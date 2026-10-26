@@ -186,6 +186,53 @@ def smooth_left_keys(path, data, write_paths):
         unreal.purge_object_references(scope, True)
 
 
+def sync_weapon_attachment(path, data, write_paths):
+    """/** @param path 制作源 @param data 动作配置 @param write_paths 唯一序列 @return 最新挂接基准及原有相对运动保持结果 */"""
+    from BBBControlRigAuthoringToolset import _transform, _read_transform
+    if set(write_paths) != {data['sequence']}:
+        raise RuntimeError('SYNC_ATTACHMENT_SEQUENCE_SCOPE')
+    sequence = _asset(data['sequence'], unreal.LevelSequence)
+    definition = _asset(data['definition'], unreal.DataAsset)
+    old = _transform(data['weapon_preview']['spawn_offset'])
+    new = definition.get_editor_property('spawn_offset')
+    bindings = [b for b in sequence.get_bindings() if b.get_name() == 'Weapon']
+    tracks = bindings[0].find_tracks_by_type(unreal.MovieScene3DTransformTrack) if len(bindings) == 1 else []
+    if len(tracks) != 1 or len(tracks[0].get_sections()) != 1:
+        raise RuntimeError('SYNC_ATTACHMENT_SINGLE_TRANSFORM')
+    section = tracks[0].get_sections()[0]
+    channels = list(section.get_all_channels())
+    keys = [list(c.get_keys()) for c in channels]
+    times = [[(k.get_time(unreal.MovieSceneTimeUnit.DISPLAY_RATE).frame_number.value,
+               k.get_time(unreal.MovieSceneTimeUnit.DISPLAY_RATE).sub_frame) for k in row] for row in keys]
+    if len(channels) != 9 or any(t != times[0] for t in times):
+        raise RuntimeError('SYNC_ATTACHMENT_ALIGNED_TRANSFORM_KEYS_REQUIRED')
+    def convert(values):
+        value = unreal.Transform(location=unreal.Vector(*values[:3]),
+            rotation=unreal.Rotator(roll=values[3], pitch=values[4], yaw=values[5]), scale=unreal.Vector(*values[6:9]))
+        value = value.make_relative(old) * new
+        angles = value.rotation.rotator()
+        return list(value.translation.to_tuple()) + [angles.roll, angles.pitch, angles.yaw] + list(value.scale3d.to_tuple())
+    defaults = convert([float(c.get_default()) for c in channels])
+    rows = [convert([float(row[i].get_value()) for row in keys]) for i in range(len(keys[0]))]
+    protected = _channel_digest(sequence, [section])
+    require_asset_write([sequence])
+    for index, channel in enumerate(channels):
+        channel.set_default(defaults[index])
+        for key, values in zip(keys[index], rows):
+            key.set_value(values[index])
+    if _channel_digest(sequence, [section]) != protected:
+        raise RuntimeError('SYNC_ATTACHMENT_OTHER_TRACKS_CHANGED')
+    if not unreal.EditorAssetLibrary.save_loaded_asset(sequence, False):
+        raise RuntimeError('SYNC_ATTACHMENT_SAVE')
+    data['weapon_preview']['spawn_offset'] = _read_transform(new)
+    data.pop('sync_weapon_attachment_request')
+    data['runtime_applied'] = False
+    _save(path, data)
+    return {'spawn_offset': _read_transform(new), 'relative_motion_preserved': True,
+            'transform_key_times_preserved': True, 'other_tracks_preserved': True, 'keys_per_channel': len(keys[0])}
+
+
+
 def inspect_editor_grip(path, data, write_paths):
     """/** @param path 制作源路径 @param data 制作源 @param write_paths 明确序列范围 @return 当前编辑器实例的真实手枪关系 不创建另一播放器 */"""
     from BBBControlRigAuthoringToolset import _read_transform, _key

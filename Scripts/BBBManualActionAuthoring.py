@@ -745,6 +745,11 @@ def prepare(recipe_path, write_paths):
         import BBBManualActionNative
         importlib.reload(BBBManualActionNative)
         return BBBManualActionNative.smooth_left_keys(path, data, write_paths)
+    if data.get('sync_weapon_attachment_request'):
+        import importlib
+        import BBBManualActionNative
+        importlib.reload(BBBManualActionNative)
+        return BBBManualActionNative.sync_weapon_attachment(path, data, write_paths)
     if data.get('inspect_editor_grip_request'):
         import importlib
         import BBBManualActionNative
