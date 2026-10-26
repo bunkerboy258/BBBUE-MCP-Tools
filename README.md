@@ -690,3 +690,5 @@ Monster 版本只编辑逻辑与表现两份主配置。`monster_gore.inspect_mo
 2026-10-25 动作匹配运行时探针: motion_matching.start_runtime_probe / inspect_runtime_probe / stop_runtime_probe 有界记录实际查询轨迹 命中动画及根运动方向误差。定位并修复角色与网格相差 90 度时的轨迹坐标错误 空手四向误差由约 90 度降至 0 到 1.11 度 步枪 750 个输入游戏帧复测通过 平均方向误差 0.633 度。UE5.8 编辑器编译 原生十二组坐标回归及 23 项 Python 测试通过。接口和验收边界见 Docs/BBBMotionMatchingRuntimeMCP.md。
 
 2026-10-26 角色基础姿态收敛: `motion_matching.consolidate_character_base_pose` 通过原生入口将 GASP 普通 MM、静态地面姿态和站立／蹲姿起身汇入公共根骨、脚部处理和 Pose History。帮扶显式选择空手 GASP 蹲姿库；装备修正在地面、恢复和帮扶期间绕过。角色只发布生命阶段及经过时间等事实，工作线程派生恢复与打断。删除旧角色攀爬、倒地四向及帮扶状态机构图入口；四个通用 Motion Warping 资产工具保留。48 项 Python 边界与 MM 相关回归通过，资产无警告编译保存；表现与操作由用户执行验收。调用约束见 `Docs/BBBMotionMatchingMCP.md`。
+
+2026-10-26 外部参考资源读取使用项目编辑器的独立命名空间与 UE 包实例化映射 动画曲线与配置检查共用加载边界 正式项目的挂载及资源登记在读取前后核对。标准编辑器完整构建及原生十二项隔离断言通过 实际动画检查与曲线复制只读预检前后资源目录一致 脏包为空。
