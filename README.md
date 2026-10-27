@@ -706,3 +706,5 @@ Monster 版本只编辑逻辑与表现两份主配置。`monster_gore.inspect_mo
 2026-10-26 连续举枪:`animation_graph.create_weapon_aim_additive` 制作无曲线静态参考与上半身 Local Space 加法 避免 MM 接触曲线被相减。`animation_graph.configure_weapon_aim_additives` 复用既有 FullBodyAdditives 在原有后震前合成连续举枪 工作线程蓝图制造举枪与独立 IK 权重。主图和接口没有新增调用。八份蓝图无警告编译保存 十六份正式资产从磁盘重载回读 四份加法的下半身及位置缩放差分为零。UE5.8 原生构建与十一项工具边界和结构契约检查通过 两项新增工具参数与基线一致 未运行 PIE。调用约束见 `Docs/BBBWeaponAimMCP.md`。
 
 2026-10-27 毁伤运行美术交付: 人工通过后的制作源通过 ExportTorso.py 生成单槽 / 单 UV / 36536 三角面运行网格与共享 4K 颜色 / 法线 / ORM。十一份组织和十三份表现配置完成主编辑器导入与回读。原生材质整体重建同步清除旧输出引用并复用匹配表面。参考姿势法线区分正背面 深层腔壁使用二值顶点标记 最高胸椎高度保护颈肩连接。UE5.8 编译链接通过 毁伤七项原生回归通过。百只完好与八区加断臂短批次完成 预算开启时整帧 GPU 中位为 17.61 / 20.98 ms。临时 PIE 每轮结束自动停止。调用及制作约束见 Docs/BBBMonsterGoreMCP.md。
+
+2026-10-27 持枪运动承重:`animation_graph.configure_weapon_locomotion_weight` 在现有 MM 及持枪加法链上配置逐枪移动支撑和限幅起停响应 所有派生量由线程安全蓝图制造。持枪连续地面起停及变向混合 0.18 秒 匀速 0.28 秒 非持枪与空中保留原分支。主姿态图 原后坐力 握持和骨骼修正逻辑签名保持。UE5.8 原生构建与 17 项工具边界及结构契约检查通过 不执行 PIE 用户验收观感。详见 `Docs/BBBWeaponLocomotionWeightMCP.md`。
