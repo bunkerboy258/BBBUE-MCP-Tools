@@ -36,7 +36,6 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
-    'animation_graph.configure_weapon_locomotion_weight': {'scope': {'fields': ['main_path', 'base_path', 'layer_paths', 'dependent_paths']}},
     'animation_graph.create_weapon_aim_additive': {'scope': {'fields': ['asset_path', 'reference_path']}},
     'animation_graph.configure_weapon_aim_additives': {'scope': {'fields': ['base_path', 'layer_paths', 'dependent_paths']}},
     'motion_matching.configure_in_place_root_velocities': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['asset_paths']}, 'completion': 'verified_save'},

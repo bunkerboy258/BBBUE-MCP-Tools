@@ -82,14 +82,7 @@ def _build_aim_update(base):
     crouch = g.binary("NotEqual_ObjectObject", g.get("WeaponAimCrouchAdditive"), "None")
     assets = g.binary("BooleanAND", stand, crouch)
     raise_gate = g.binary("BooleanAND", g.binary("BooleanAND", ready, not_running), g.binary("BooleanAND", assets, can_use))
-    velocity = g.get("SourceVelocity", character, "/Script/ABBB_Evac.BBBAnimInstance")
-    speed_2d = g.out(g.call("VSizeXY", inputs={"A": velocity}))
-    moving = g.out(g.call("FClamp", inputs={"Value": g.binary("Divide_DoubleDouble", speed_2d, 80), "Min": 0, "Max": 1}))
-    support = g.binary("Multiply_DoubleDouble", moving, g.get("WeaponCarrySupportAlpha"))
-    support_gate = g.binary("BooleanAND", g.binary("BooleanAND", not_running, assets), can_use)
-    support_gate = g.binary("BooleanAND", support_gate, g.get("bSourceMovingOnGround", character, "/Script/ABBB_Evac.BBBAnimInstance"))
-    support = g.select(support, 0, support_gate)
-    target = g.select(1, support, raise_gate)
+    target = g.select(1, 0, raise_gate)
     speed = g.select(12.5, 10, raise_gate)
     alpha = g.out(g.call("FInterpTo", inputs={"Current": g.get("WeaponAimAlpha"), "Target": target, "DeltaTime": delta, "InterpSpeed": speed}))
     alpha = g.out(g.call("FClamp", inputs={"Value": alpha, "Min": 0, "Max": 1}))
@@ -150,8 +143,6 @@ def configure_weapon_aim_additives(base_path, layer_paths, stand_paths, crouch_p
     original = json.loads(unreal.BBBBlueprintEditorLibrary.inspect_blueprint_graph_logical_snapshot(graph))
     if not unreal.BBBWeaponAimEditorLibrary.configure_aim_additives(base):
         raise RuntimeError("现有加法层举枪合成失败 尚未保存")
-    from BBBWeaponLocomotionWeight import declare_weight_fields
-    declare_weight_fields(base)
     _build_aim_update(base)
     for index, value in enumerate(targets):
         unreal.BlueprintEditorLibrary.compile_blueprint(value)

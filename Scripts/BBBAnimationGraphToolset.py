@@ -19,33 +19,6 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def configure_weapon_locomotion_weight(main_path: str, base_path: str, layer_paths: list[str],
-            carry_support_weights: list[float], motion_pitch_degrees: list[float], motion_yaw_degrees: list[float],
-            dependent_paths: list[str], transition_blend_time: float = 0.18, cruise_blend_time: float = 0.28) -> str:
-        """
-        /**
-         * @param main_path	现有角色主动画蓝图
-         * @param base_path	现有公共装备层
-         * @param layer_paths	逐层匹配承重参数的子层
-         * @param carry_support_weights	移动持枪支撑权重 上限 0.4
-         * @param motion_pitch_degrees	承重俯仰幅度 上限 2 度
-         * @param motion_yaw_degrees	承重侧向幅度 上限 1.5 度
-         * @param dependent_paths	按父层在前排列的其余依赖子层
-         * @param transition_blend_time	持枪地面起停及变向混合秒数
-         * @param cruise_blend_time	持枪地面匀速混合秒数
-         * @return 保存及非目标图不变的回读证据 不执行 PIE
-         */
-        """
-        import importlib
-        import BBBWeaponAimTools
-        import BBBWeaponLocomotionWeight
-        importlib.reload(BBBWeaponAimTools)
-        return json.dumps(importlib.reload(BBBWeaponLocomotionWeight).configure_weapon_locomotion_weight(
-            main_path, base_path, layer_paths, carry_support_weights, motion_pitch_degrees, motion_yaw_degrees,
-            dependent_paths, transition_blend_time, cruise_blend_time), ensure_ascii=False)
-
-    @mcp_tool
-    @staticmethod
     def create_weapon_aim_additive(neutral_path: str, target_path: str, asset_path: str, reference_path: str) -> str:
         """
         /**
