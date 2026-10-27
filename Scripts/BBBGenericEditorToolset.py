@@ -352,6 +352,10 @@ def _materialize_property_value(value):
 
     if 'structType' in value:
         result = getattr(unreal, value['structType'])()
+        if 'structText' in value:
+            if not isinstance(value['structText'], str):
+                raise RuntimeError('结构体文本必须是字符串')
+            result.import_text(value['structText'])
         for name, child in value.get('properties', {}).items():
             _apply_editor_property(result, name, child)
         return result
