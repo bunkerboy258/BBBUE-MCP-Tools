@@ -513,7 +513,8 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def rebuild_monster_blood_system(channel_path: str, system_path: str, spray_material_path: str, splash_material_path: str, mist_material_path: str) -> str:
+    def rebuild_monster_blood_system(channel_path: str, system_path: str, spray_material_path: str, splash_material_path: str,
+                                     mist_material_path: str, flesh_material_path: str, flesh_mesh_path: str) -> str:
         """
         /**
          * 使用指定现有材质重建并保存批量僵尸血效
@@ -522,6 +523,8 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
          * @param spray_material_path	方向血滴材质
          * @param splash_material_path	单张喷溅材质
          * @param mist_material_path	八乘八血雾序列材质
+         * @param flesh_material_path	碎肉网格的粒子材质
+         * @param flesh_mesh_path	用于短时碎肉的低面静态网格
          * @return 原生构建结果
          */
         """
@@ -532,11 +535,14 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
             if not isinstance(asset, asset_type) or not path.startswith("/Game/_Project/"):
                 raise RuntimeError("重建目标必须是现有自有血效资产")
             require_write_access(asset)
-        for path in (spray_material_path, splash_material_path, mist_material_path):
+        for path in (spray_material_path, splash_material_path, mist_material_path, flesh_material_path):
             if not isinstance(unreal.load_asset(path), unreal.MaterialInterface):
                 raise RuntimeError("血效材质不存在")
+        if not isinstance(unreal.load_asset(flesh_mesh_path), unreal.StaticMesh):
+            raise RuntimeError("碎肉静态网格不存在")
         result = unreal.BBBNiagaraEditorLibrary.configure_monster_blood_impact_system(
-            channel_path, system_path, spray_material_path, splash_material_path, mist_material_path)
+            channel_path, system_path, spray_material_path, splash_material_path, mist_material_path,
+            flesh_material_path, flesh_mesh_path)
         if str(result).startswith("失败"):
             raise RuntimeError(str(result))
         return str(result)

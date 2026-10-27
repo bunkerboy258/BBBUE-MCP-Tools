@@ -13915,6 +13915,14 @@
           "mist_material_path": {
             "type": "string",
             "description": "八乘八血雾序列材质 *"
+          },
+          "flesh_material_path": {
+            "type": "string",
+            "description": "碎肉网格的粒子材质 *"
+          },
+          "flesh_mesh_path": {
+            "type": "string",
+            "description": "用于短时碎肉的低面静态网格 *"
           }
         },
         "required": [
@@ -13922,7 +13930,9 @@
           "system_path",
           "spray_material_path",
           "splash_material_path",
-          "mist_material_path"
+          "mist_material_path",
+          "flesh_material_path",
+          "flesh_mesh_path"
         ]
       },
       "outputSchema": {

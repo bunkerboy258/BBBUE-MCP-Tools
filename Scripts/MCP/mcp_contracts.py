@@ -455,7 +455,7 @@ TOOL_POLICIES = {
     'assets.delete_ownerless_external_actor_packages': {'scope': {'fields': ['package_paths']}},
     'animation_graph.configure_actor_animation_blueprint': {'scope': {'fields': ['actor_blueprint_path']}},
     'hit.create_blood_residue_material': {'scope': {'fields': ['material_path']}},
-    'hit.rebuild_monster_blood_system': {'scope': {'fields': ['channel_path', 'system_path', 'spray_material_path', 'splash_material_path', 'mist_material_path']}},
+    'hit.rebuild_monster_blood_system': {'scope': {'fields': ['channel_path', 'system_path', 'spray_material_path', 'splash_material_path', 'mist_material_path', 'flesh_material_path', 'flesh_mesh_path']}},
     'melee.stage_upper_body_blend': {'scope': {'fields': ['blueprint_path']}},
     'melee.register_melee_equipment': {'scope': {'fields': ['catalog_path']}},
     'melee.create_melee_equipment': {'scope': {'fields': ['definition_path', 'blueprint_path', 'animation_blueprint_path', 'character_layer_path', 'catalog_path']}},
