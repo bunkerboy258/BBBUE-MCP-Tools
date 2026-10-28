@@ -27,7 +27,7 @@
 
 `motion_matching.prepare_reference_runtime` 在非 PIE 环境只读载入明确来源动画蓝图与骨骼网格 仅在内存中清空明确的无参数角色事实入口 由回放注入原始事实 直接使用原始叶类 保留原有 CVar 配置更新 工作线程逻辑 标准姿态图 属性存取和 Chooser 上下文类型 不保存来源资产或测试夹具。标准 GASP CMC 使用 `Update_PropertiesFromCharacter` 作为该桥接。
 
-随后在固定 60 FPS PIE 中通过 `motion_matching.start_reference_replay` 回放 Saved/temp 下已采集的角色位置 速度 加速度 CMC 限制 姿态和普通跳落事实。临时普通 Character 不运行项目玩法及 CMC 积分 只承载来源动画蓝图的独立求值。`inspect_reference_replay` 返回覆盖与失败原因 `stop_reference_replay` 销毁角色与控制器并移除回调。PIE 结束也自动清理。对该角色使用现有逐帧探针 可通过 `referenceReplayFrame` 对齐原始输入帧 不能用资产名称相同替代姿态验收。
+随后在 PIE 中通过 `motion_matching.start_reference_replay` 回放 Saved/temp 下已采集的角色位置 速度 加速度 CMC 限制 姿态和普通跳落事实。输入必须包含格式 8 的 `deltaSeconds` 回放临时按每帧原始步长设置固定时钟 并逐帧校验实际 Delta Time 相等 不把可变帧率采样当作固定 60 Hz 数据。结束 失败或 PIE 退出后恢复原固定时钟状态和步长。临时普通 Character 不运行项目玩法及 CMC 积分 只承载来源动画蓝图的独立求值。`inspect_reference_replay` 返回覆盖 时钟状态与失败原因 `stop_reference_replay` 销毁角色与控制器并移除回调。对该角色使用现有逐帧探针 可通过 `referenceReplayFrame` 对齐原始输入帧 不能用资产名称相同替代姿态验收。
 
 `editor.copy_animation_float_curves` 支持 `source_content_directory` 只读来源 Content 目录。先载入自有目标 再作用域挂载外部来源 返回前解除挂载。只允许不同的同长 AnimSequence 复制全部浮点曲线及标记 颜色 说明和外推方式 校验键 插值和有效切线 并对目标全部骨轨道计算前后摘要。引擎会重新生成线性键不参与插值的切线缓存 此缓存不构成语义差异 三次曲线的切线和权重仍严格核对。
 
@@ -58,5 +58,7 @@
 `prepare_reference_runtime.turn_in_strafe=true` 显式将来源 ShouldTurnInPlace 的瞄准限制改为允许当前 Strafe 控制策略 仅在内存改动并在状态中回报 turnInStrafe 以便与非瞄准视角转身的项目比较。未启用时保持来源原有策略。该选项不修改来源动画 数据库或脚部求解。植足滑动按实际 LockType 测量约束点 PivotAroundBall 使用脚掌接触点 不将脚踝绕脚掌旋转视为锁脚滑动。速度和持续时间限制保持不变。
 
 格式 7 额外采集 Foot Placement 每腿的实际 PlantType LastPlantType WantsToPlant 可达标记 输入速度 锁定权重 距离 原始与对齐后的脚变换及脚与脚掌的相对向量。腿状态在骨骼完成后只读取得 使用 UE5.8 编译器检查的成员指针 不修改引擎源码或依赖内存偏移。输入姿态来自引擎已有 ForwardedPose 按 Skeleton 到 CompactPose 映射读取 不将合并网格骨骼索引当作 Skeleton 索引。
+
+格式 8 增加实际 `deltaSeconds` 和双侧锁骨 上臂 前臂 手部的最终变换 同时扩充 `footPlacements.inputBonesWorld` 中脚部修正前的骨骼集合 用于区分基础动作回顿与后置处理。每个 MM 节点通过引擎公开的 `GetMotionMatchingBlendSettings` 读取实际混合时间 Blend Profile 和惯性混合标记 每个活动序列播放器增加时长和未经 Remap Curves 处理的接触与 Phase 曲线。动作时间跳转本身不代表倒放 必须结合播放器身份 权重 原始曲线和前后骨骼运动判断。
 
 接触曲线只表达期望植足。滑动判定要求前后两帧实际处于 Planted 或 Replanted 并且都在同一地面窗口中。PivotAroundBall 比较球关节位置 PivotAroundAnkle 比较脚关节位置 虚拟鞋底点只用于高度检查 避免将脚跟或脚趾围绕约束点的转动当作滑步。原有速度 持续时间与基线容差保持不变。缺少真实腿状态的旧采集不能通过。实际后置 FullBody 和 Traversal 蒙太奇属于动作帧 与基础姿态质量单独计算。

@@ -282,7 +282,7 @@ class BBBMotionMatchingToolset(unreal.ToolsetDefinition):
         import BBBMotionMatchingRuntimeProbe
         try:
             report["probe"] = json.loads(BBBMotionMatchingRuntimeProbe.start(
-                min(120.0, report["frameCount"] / 60.0 + 0.04), file_prefix, report["actorPath"]))
+                min(120.0, report["replayDurationSeconds"] + 0.1), file_prefix, report["actorPath"]))
         except Exception:
             unreal.BBBMotionMatchingEditorLibrary.stop_motion_matching_reference_replay()
             raise

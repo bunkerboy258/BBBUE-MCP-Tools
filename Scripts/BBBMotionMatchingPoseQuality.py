@@ -369,7 +369,7 @@ def compare_reference_facts(reference_samples, fact_samples, world_offset=(0, 60
     mismatches = []
     seen = set()
     vectors = ("velocityWorld", "accelerationWorld", "inputWorld", "lastUpdateVelocity", "meshComponentVelocity", "capsuleComponentVelocity", "floorNormal")
-    scalars = ("maxSpeed", "maxAcceleration", "brakingDeceleration", "groundFriction", "capsuleHalfHeight", "analogInputModifier",
+    scalars = ("deltaSeconds", "maxSpeed", "maxAcceleration", "brakingDeceleration", "groundFriction", "capsuleHalfHeight", "analogInputModifier",
         "gravityZ", "brakingFriction", "brakingFrictionFactor", "brakingSubStepTime", "rotationRateYaw", "floorDistance")
     for sample in reference_samples:
         index = sample.get("referenceReplayFrame", -1)
@@ -399,7 +399,8 @@ def compare_reference_facts(reference_samples, fact_samples, world_offset=(0, 60
             if _rotation_angle(mesh['rotation'], fact_mesh['rotation']) > 0.01:
                 mismatches.append({'kind': 'mesh_rotation_fact', 'index': index})
         for name in scalars:
-            if name not in sample or name not in fact or abs(sample[name] - fact[name]) > 0.01:
+            tolerance = 0.00001 if name == "deltaSeconds" else 0.01
+            if name not in sample or name not in fact or abs(sample[name] - fact[name]) > tolerance:
                 mismatches.append({"kind": "scalar_fact", "index": index, "field": name})
         for name in ("grounded", "crouching", "movementMode", "separateBrakingFriction", "orientRotationToMovement",
                 "useControllerDesiredRotation", "useControllerRotationYaw", "floorBlockingHit", "floorWalkable", "justTeleported"):

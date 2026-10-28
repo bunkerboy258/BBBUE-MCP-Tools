@@ -270,7 +270,7 @@ class PoseQualityTests(unittest.TestCase):
         for item in raw:
             item.update(velocityWorld=[100, 0, 0], accelerationWorld=[1200, 0, 0], inputWorld=[1, 0, 0],
                 maxSpeed=200, maxAcceleration=1200, brakingDeceleration=1400, groundFriction=8,
-                capsuleHalfHeight=86, analogInputModifier=1, gravityZ=-980, brakingFriction=0,
+                deltaSeconds=0.02, capsuleHalfHeight=86, analogInputModifier=1, gravityZ=-980, brakingFriction=0,
                 brakingFrictionFactor=2, brakingSubStepTime=0.016, rotationRateYaw=360,
                 movementMode=1, crouching=False, actorYaw=0, controlYaw=0, gaitRunning=False,
                 separateBrakingFriction=False, orientRotationToMovement=False,
@@ -285,6 +285,11 @@ class PoseQualityTests(unittest.TestCase):
             item['meshTransform']['position'][1] += 600
             item['context']['Gait'] = 'NewEnumerator0'
         self.assertTrue(QUALITY.compare_reference_facts(source, raw)['passed'])
+        source[1]['deltaSeconds'] = 1 / 60
+        checked = QUALITY.compare_reference_facts(source, raw)
+        self.assertFalse(checked['passed'])
+        self.assertEqual(checked['mismatches'][0]['field'], 'deltaSeconds')
+        source[1]['deltaSeconds'] = 0.02
         source[1]['analogInputModifier'] = 0
         checked = QUALITY.compare_reference_facts(source, raw)
         self.assertFalse(checked['passed'])
