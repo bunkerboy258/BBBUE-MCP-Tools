@@ -324,6 +324,8 @@ TOOL_POLICIES = {
     'editor.inspect_control_rig_graphs': {'access': 'read'},
     'editor.inspect_dirty_packages': {'access': 'read'},
     'editor.inspect_material_statistics': {'access': 'read'},
+    'editor.open_projectile_preview': {'access': 'write', 'world': 'editor', 'scope': {'kind': 'session'}, 'completion': 'observed'},
+    'editor.inspect_projectile_preview': {'access': 'read', 'world': 'editor', 'completion': 'observed'},
     'editor.inspect_niagara_graphs': {'access': 'read'},
     'editor.inspect_pie_actor_properties': {'access': 'read'},
     'editor.inspect_pie_actor_skeletal_bones': {'access': 'read'},

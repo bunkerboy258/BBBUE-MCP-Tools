@@ -3469,6 +3469,18 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def open_projectile_preview() -> str:
+        """/** @return 打开项目子弹表现预览并返回窗口状态 */"""
+        return unreal.BBBProjectilePreviewLibrary.open_preview()
+
+    @mcp_tool
+    @staticmethod
+    def inspect_projectile_preview() -> str:
+        """/** @return 读取项目子弹表现预览窗口及数据通道状态 */"""
+        return unreal.BBBProjectilePreviewLibrary.inspect_preview()
+
+    @mcp_tool
+    @staticmethod
     def inspect_niagara_graphs(system_path: str) -> str:
         """只读导出系统内节点引脚与连接"""
         return unreal.BBBNiagaraEditorLibrary.inspect_graphs(system_path)

@@ -87,6 +87,8 @@ PIE 混音导出完成检查同时核对 WAV 文件头与有效采样 导出完�
 仅在无 PIE 且目标资产没有未保存改动时调用 要求已独占签出 不修改其它资产
 读取当前帧时 调用方必须保证通道发布先于光效模拟 工具不会替运行时代码建立 Tick 依赖
 
+`open_projectile_preview()` 打开项目的非 PIE 子弹表现窗口 `inspect_projectile_preview()` 回读窗口 预览世界 正式配置及 Niagara 数据通道状态。预览不修改关卡或结算伤害。
+
 ## inspect_niagara_graphs 与 set_niagara_pin_default
 
 inspect_niagara_graphs 使用 system_path 读取系统内部节点 引脚 默认值与连接
