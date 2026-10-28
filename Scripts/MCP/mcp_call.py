@@ -308,6 +308,8 @@ class McpSession:
             if value["status"] in {"completed", "rejected", "failed", "cancelled", "closed"} and not value.get("recovering") and value.get("assets", {}).get("phase") != "fault":
                 return value
             action = value.get("next")
+            if isinstance(action, dict) and action.get("tool") == "control_task" and action.get("arguments") == {"action": "recover", "batch": batch}:
+                return value
             if not isinstance(action, dict) or action.get("tool") != "inspect_tasks" or action.get("arguments", {}).get("batch") != batch:
                 raise RuntimeError("BATCH_CONTINUATION_INVALID")
             arguments = dict(action["arguments"])

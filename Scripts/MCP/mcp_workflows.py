@@ -46,6 +46,12 @@ ROUTES = {
 }
 
 PURPOSES = {
+    "data_table.list_rows": "列出指定数据表的行名",
+    "data_table.get_schema": "读取指定数据表的字段类型",
+    "data_table.get_rows": "按行名读取指定数据表的行",
+    "external.data_table.get_rows_as_json": "一次读取指定数据表的全部行",
+    "external.animation.list_curves": "列出动画的浮点曲线名称",
+    "editor.inspect_animation_float_curves": "读取指定动画浮点曲线的时间和值",
     "control_rig.build_hand_retarget_sequences": "按接触区间生成左手握持重定向序列",
     "control_rig.bake_hand_retarget_sequences": "只烘焙左臂并保留其它动画数据",
     "editor.inspect_animation_notifies": "读取通知事件及时间位置",
@@ -65,8 +71,9 @@ def guidance(contract, available):
     import copy
     identity = contract["id"]
     access = contract["access"]
-    result = {"use_when": PURPOSES.get(identity, {"read": "读取目标当前状态", "write": "修改明确目标并核验结果", "pie": "在所属测试世界执行操作"}[access]),
-              "complete_when": {"read": "返回目标状态", "write": "批次完成并交付回读与保存证据", "pie": "批次与活动达到对应完成状态"}[access]}
+    result = {"complete_when": {"read": "返回目标状态", "write": "批次完成并交付回读与保存证据", "pie": "批次与活动达到对应完成状态"}[access]}
+    if identity in PURPOSES:
+        result["use_when"] = PURPOSES[identity]
     if "dry_run" in contract["parameters"].get("properties", {}):
         result["complete_when"] = "预览返回计划；正式应用交付回读与保存证据"
     route = ROUTES.get(identity)

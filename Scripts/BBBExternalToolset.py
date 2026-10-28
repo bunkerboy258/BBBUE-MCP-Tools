@@ -54,7 +54,6 @@ _DOMAIN_ACTIONS = {
         "does_row_exist",
         "export_to_csv",
         "get_column_names",
-        "get_row_names",
         "get_rows_as_json",
         "remove_row",
         "replace_rows",

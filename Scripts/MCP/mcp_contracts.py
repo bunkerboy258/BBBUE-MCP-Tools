@@ -368,7 +368,6 @@ TOOL_POLICIES = {
     'external.control_rig.get_control_rig_info': {'access': 'read'},
     'external.data_table.does_row_exist': {'access': 'read'},
     'external.data_table.get_column_names': {'access': 'read'},
-    'external.data_table.get_row_names': {'access': 'read'},
     'external.data_table.get_rows_as_json': {'access': 'read'},
     'external.data_table.replace_rows': {'scope': {'fields': ['asset_path']}},
     'external.editor.close_asset_editor': {'scope': {'kind': 'session'}},

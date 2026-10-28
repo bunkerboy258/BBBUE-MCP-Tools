@@ -40,6 +40,18 @@ FULL_DISCOVERY_CASES = [
 ]
 
 NATURAL_CASES = [
+    ("列出数据表所有行名", ["data_table.list_rows"]),
+    ("查看数据表所有字段", ["data_table.get_schema"]),
+    ("读取数据表的所有行", ["external.data_table.get_rows_as_json"]),
+    ("查询一个蓝图的父类", ["blueprint_base.get_parent"]),
+    ("查找名为FAL的资产", ["asset.find_assets"]),
+    ("检查静态网格LOD三角面数", ["editor.inspect_mesh_lod_statistics"]),
+    ("编辑器当前状态", ["inspect_tasks"]),
+    ("当前任务与占用", ["inspect_tasks"]),
+    ("切换编辑器帧率为60", ["runtime.configure_mcp_resources"]),
+    ("检查动画蓝图逻辑", ["blueprint.inspect_blueprint_graph"]),
+    ("查看动画曲线", ["external.animation.list_curves"]),
+    ("保存指定蓝图", ["asset.save_assets"]),
     ("查看蓝图逻辑连线", ["blueprint.inspect_blueprint_graph"]),
     ("把蓝图节点摆整齐", ["blueprint.format_blueprint_graph"]),
     ("给蓝图加分组说明", ["blueprint.add_blueprint_comment_node"]),

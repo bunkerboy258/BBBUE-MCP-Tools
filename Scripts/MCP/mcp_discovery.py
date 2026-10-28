@@ -25,9 +25,17 @@ ALIASES = {
     "创建": ("create",), "参数": ("parameter", "parameters"), "分组说明": ("annotate", "comment"),
     "摆整齐": ("layout", "optimize"), "排整齐": ("layout", "optimize"),
     "声音": ("sound", "audio"), "音频": ("audio",), "约束": ("constraints",),
+    "数据表": ("data", "table"), "行名": ("row", "rows"), "曲线": ("curve", "curves"),
+    "父类": ("parent",), "切换": ("set", "configure"),
 }
 
 HINTS = {
+    "data_table.list_rows": "data table list row names 数据表 行名",
+    "data_table.get_schema": "data table schema columns fields 数据表 字段 列",
+    "data_table.get_rows": "data table rows values 数据表 行 数据",
+    "external.data_table.get_rows_as_json": "data table rows values inspect 数据表 所有行 全部行",
+    "editor.inspect_animation_float_curves": "animation float curves 动画 曲线 浮点",
+    "external.animation.list_curves": "animation float curve list inspect 动画 曲线 列出 名称",
     "runtime.inspect_scene_frame_metrics": "scene performance bottleneck 帧耗时 性能 瓶颈 场景 GPU CPU",
     "runtime.inspect_mcp_resources": "inspect host performance profile fps priority 宿主 性能 档位 帧率 优先级",
     "runtime.configure_mcp_resources": "configure host performance profile fps priority 宿主 性能 档位 帧率 优先级",

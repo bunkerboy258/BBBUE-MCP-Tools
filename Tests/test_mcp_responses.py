@@ -133,6 +133,15 @@ class ResponseTests(unittest.TestCase):
             session.wait_batch("a", 1)
 
 
+    def test_wait_batch_returns_paused_recovery_without_executing_it(self):
+        """/** @return 暂停恢复时保留批次证据与明确动作 */"""
+        session = object.__new__(McpSession)
+        fault = response({"batch": "a", "status": "failed", "assets": {"phase": "fault", "retry_at": None}, "recovery_failure": {"code": "MOVE_HOST_CHANGED"}})
+        session.inspect_tasks = lambda **arguments: fault
+        result = session.wait_batch("a", 1)
+        self.assertEqual(result["recovery_failure"]["code"], "MOVE_HOST_CHANGED")
+        self.assertEqual(result["next"], {"tool": "control_task", "arguments": {"action": "recover", "batch": "a"}})
+
     def test_owned_activity_wait_uses_revision_and_verified_host(self):
         """/** @return 所属采样结束后继续 外部活动保留且失联状态继续等待 */"""
         session = object.__new__(McpSession)

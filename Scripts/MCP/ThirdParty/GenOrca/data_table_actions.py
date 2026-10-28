@@ -47,18 +47,6 @@ def ue_create_data_table(asset_path: str = None, row_struct_path: str = None) ->
         return json.dumps({"success": False, "message": str(e), "traceback": traceback.format_exc()})
 
 
-def ue_get_row_names(asset_path: str = None) -> str:
-    """Lists the row names of a DataTable."""
-    if asset_path is None:
-        return json.dumps({"success": False, "message": "Required parameter 'asset_path' is missing."})
-    try:
-        dt = _load_data_table(asset_path)
-        names = [str(n) for n in DFL.get_data_table_row_names(dt)]
-        return json.dumps({"success": True, "asset_path": asset_path, "count": len(names), "row_names": names})
-    except Exception as e:
-        return json.dumps({"success": False, "message": str(e), "traceback": traceback.format_exc()})
-
-
 def ue_get_column_names(asset_path: str = None) -> str:
     """Lists the column (property) names of a DataTable's row struct."""
     if asset_path is None:

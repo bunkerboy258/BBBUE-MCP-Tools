@@ -1,5 +1,107 @@
 # BBBUE MCP Tools
 
+UE5.8 编辑器操作与任务调度。AI 使用六个入口；工具契约按当前目标读取。
+
+2026-10-28：精简发现契约、修复等待恢复动作，合并数据表行名重复入口。工作树及当前缓存目录下，87 条既有查询首项命中 85→87；扩展查询共 99 条全部首项命中；20 项隔离流水线通过。具体工具契约按任务查询。
+
+## 调用
+
+- 会话开始：`manage_operator(task="整理蓝图")`；默认二级，任务说明单行二十字以内。
+- 当前同事：`inspect_tasks(operators=True)` 返回干员、等级、任务和状态。
+- 会话结束：`manage_operator(action="finish")`。
+
+- 已知工具：直接 `submit_batch`。
+- 新目标：`find_tools(query)` 返回最多三项，首项附带参数、默认值和完成条件。
+- 参数细节：`describe_tool(tool)`；SDK 复用同版发现契约，目录版本变化时更新缓存。
+- 短调用：提交响应包含结果和证据。
+- 长调用：`next` 为完整的 `{tool, arguments}` 调用或 `null`；按业务版本等待。
+- 补充参数：`needs` 给出操作序号、字段路径与准确类型。
+- 执行证据：终态保留结果、保存和回读；普通进度仅返回紧凑状态。
+
+```python
+from MCP.mcp_call import McpSession
+
+with McpSession(task="核对资产") as session:
+    result = session.submit_batch([
+        {"tool": "editor.inspect_dirty_packages", "arguments": {}}
+    ])
+    if result["status"] in {"queued", "running"}:
+        result = session.wait_batch(result["batch"])
+    print(result)
+```
+
+`BBB_MCP_URL` 由启动器返回，默认固定入口为 `http://127.0.0.1:8000/mcp`。连接层维护客户端归属、心跳、服务自动启动和请求重放。
+
+## 干员与调度
+
+零级最高，一级次之，二级默认。同级按提交顺序执行。零级可主动登记 `level=0`，面板也可授予；等级持续到逻辑会话结束。最后一个所属连接关闭时，干员进入收尾并在工作交接后释放。SDK 通过同一个 `conversation_id` 或私有 `client_key` 恢复所属批次，重新登记后开始新任务。每个聊天使用独立标识。Codex 中提供 `task` 时自动采用当前 `CODEX_THREAD_ID`，其它客户端可传入自己的 `conversation_id`。
+
+高等级排队任务在可执行的操作边界优先进行。编辑批次先保存和回读再让行；同一资产的连续操作保持顺序。无关资产继续执行。运行中的原生调用在返回后进入调度边界。
+
+零级控制：
+
+```python
+session.control_task("pause_operator", operator="干员ID", lease_seconds=60)
+session.control_task("resume_operator", operator="干员ID")
+session.control_task("cancel_blocker", batch="批次ID")
+session.control_task("terminate_host", host="inspect_tasks 返回的宿主ID")
+```
+
+暂停默认六十秒，最多三百秒，到期自动恢复。定向终止由常驻服务核验进程代际并记录审计；宿主内存中的未保存修改随进程终止丢失。正常任务采用自动保存与回读交接。
+
+## 编辑与测试
+
+编辑批次自动完成验证、保存、回读和资产释放。异常结果由网关自动核实；保存故障按资产后台恢复，独立资产继续执行。结果记录独立保留。参数使用对象、数组和路径字符串；源控检查维护真实资产归属。
+
+测试使用原项目的已保存资产：
+
+```python
+result = session.submit_batch(
+    operations,
+    environment="test",
+    test_options={"map": "/Game/Maps/Acceptance"},
+)
+```
+
+首次测试返回 `test_host`，后续批次携带该身份继续。默认容量两组；测试输出交付后使用 `control_task(action="close", batch=...)` 清理所属目录。共享宿主在任务、活动与资产交接完成后使用 `shutdown_host` 退出。
+
+## 启动
+
+环境：Windows、UE5.8、接入项目的编辑器模块、Python 与 `requests`。
+
+首次配置常驻服务：
+
+```powershell
+.\Scripts\MCP\Start-BBBMcpService.ps1 -ProjectPath '<uproject 绝对路径>' -InstallAtLogon
+```
+
+之后手动打开项目即可自动接入。`inspect_tasks` 显示服务、编辑器连接和进程清单；编辑器关闭后服务持续在线。已有服务切换安排在任务交接完成后。
+
+```powershell
+$hostInfo = & .\Scripts\MCP\Start-UE58OfficialMcpEditor.ps1 `
+    -ProjectPath '<uproject 绝对路径>' `
+    -EnginePath '<UE5.8 根目录>' `
+    -PerformanceProfile Balanced
+$env:BBB_MCP_URL = $hostInfo.Endpoint
+```
+
+默认资源档位 `Balanced`：60 FPS、Normal 优先级。渲染与音频通过启动参数选择。
+
+## 验收与维护
+
+- [公开契约](Docs/UnrealMcpCanonical.md)
+- [调度与恢复](Docs/BBBMcpTaskProtection.md)
+- [项目依赖](Docs/ProjectDependencies.md)
+- [第三方来源](Docs/BBBExternalMcp.md)
+
+```powershell
+python -B -m unittest discover -s Tests -p 'test_mcp*.py'
+python -B Tests/benchmark_mcp_workflows.py --report '<本任务目录>/discovery.json'
+python -B Tests/verify_mcp_workflows.py --url $hostInfo.Endpoint --project-root '<项目根>' --task-directory '<本任务新目录>'
+```
+
+## 更新
+
 2026-10-27 僵尸血肉工具：`hit.rebuild_monster_blood_system` 增加碎肉网格及材质输入，生成近视点筛选的共享碎肉粒子层，保留已有血效公开参数。UE5.8 编辑器目标编译链接通过，重建后十个系统及发射脚本均为 UpToDate；未运行 PIE、自动化或视觉听感验收。接口见 `Docs/BBBHitReactionMCP.md`。
 
 2026-10-26：FAL 已审核装备与换弹 LS 以官方 Sequencer 直接烘焙为 ANI_BBB_Rifle_01_CharacterEquip 与 ANI_BBB_Rifle_01_CharacterReload，并接入对应 UpperBody 蒙太奇。应用动画片段后调用既有原生 RefreshMontageLinks，按当前片段重建区段与通知链接，避免 LinkedSequence 缓存继续引用旧烘焙。两段骨轨回读误差0，既有3/6条通知及时间完全保持。确认旧两条 *_ManualEdit 无硬软引用后，以当前 SHA256 核验和原生删除清理；LS、Rig、原始动作及仍在使用的枪体动画保留。
@@ -9,8 +111,6 @@
 2026-10-26 僵尸二级破坏工具迁移为八区躯干毁伤与五处断肢。原生材质构建读取十三份正式配置并生成三档共享组织。群体生成与性能测量接收明确区域数和断臂参数并核对实际事实。跨端只读检查包含同一身份的八区强度和断点。七项伤口与十四项群体工具回归通过。UE 编译与六项原生毁伤回归通过。实际联机 / 截图与性能结果记录于项目 Docs/ZombieDestruction_20261025.md。调用边界见 Docs/BBBMonsterGoreMCP.md。
 
 2026-10-26 动作匹配工具增加原生逐帧采集、独立 GASP 事实回放、固定姿态质量检查、精确旧状态机展开和原地序列索引根速度配置。格式 7 读取实际植足状态及最终骨骼，拒绝缺帧、空轨迹、缺少接触覆盖或全动作排除的假通过。项目空手六组 5526 帧与来源 5544 帧逐帧对照、333 项阶段比较及 FAL 841 帧回归通过；53 项 motion_matching 测试和 5 项曲线/重定向契约检查通过。来源夹具不保存外部资产，工具边界见 `Docs/BBBMotionMatchingRuntimeMCP.md`。
-
-2026-10-25 新增 `motion_matching.inspect_configuration` 与 `motion_matching.migrate_configuration`。原生读取完整 Chooser 结果与配置子对象 按明确映射迁移数据库 Schema 归一化和蓝图标准 MM 函数 保留内部图 搜索后回调与必要编译扩展。运动匹配 Python 回归二十八项通过。调用和部分失败处理见 `Docs/BBBMotionMatchingConfigurationMCP.md`。
 
 2026-10-25 修正步枪 MM 动画的锁根位置为 Zero。原动画首帧含数米偏移及不同朝向 使用 Anim First Frame 会在检索切片时造成网格跳变。372 个序列通过原生矩阵统一锁零点并保留根轨道 装备步枪的 PIE 静止采样 31.27 秒胶囊和根骨位移均为零 未新增原 PoseJump 警告。
 
@@ -47,8 +147,6 @@
 
 2026-10-23 指骨工具已完成前台注册和两条动画的原生只读采样、候选彩色三视图；未烘焙或修改人物动画。视觉检查后补入参考固定偏置保留、共同展开中心和检查方案摘要约束，八项离线边界通过；实际保存及最终观感仍待用户指定动画验收。用户明确后续由其指名动画，处理后打开前台窗口并根据其反馈修正，已取消额外排队校准。见 Docs/BBBFingerAnimationMCP.md。
 
-2026-10-23 新增 `editor.process_animation_fingers`，提供明确骨架校准、批量绝对动画检查和按源摘要修复。四指中末节约束校准屈曲轴，指根独立约束展开角，拇指使用显式独立规则；保留例外采样、非目标骨轨、位移缩放和动画元数据，复用原生蒙皮彩色三视图输出原始及候选。七项离线算法边界检查通过，用户要求暂不重启共享编辑器，因此新入口注册、代表动画原生实测、保存回读和视觉验收尚待完成，未修改人物动画。见 [BBBFingerAnimationMCP.md](Docs/BBBFingerAnimationMCP.md)。
-
 
 2026-10-23 新增 animation_finish 事实动画变体配置 同骨架地面约束过渡烘焙和 PIE 骨骼数值采样 结构化分段只创建临时表现演员 不生成图片或视频 原生编译及三项 Mass 自动化通过 17 项针对性离线检查通过 最终移动复查 2037 帧 详细契约与边界见 [BBBAnimationFinishMCP.md](Docs/BBBAnimationFinishMCP.md)
 
@@ -58,10 +156,6 @@
 2026-10-23 增加动画曲线原始数据与骨轨道摘要读取 原位名称迁移及同长动画完整曲线复制工具 蓝图名称引用通过项目编辑器库同步 不创建备份 UE5.8 编译通过 22 项离线测试通过 已保存 230 份自有资产改名及 50 份同源动作曲线同步 52 份基准与目标的骨轨道摘要保持不变 共用动画层严格编译通过
 
 2026-10-23 例行效率优化：保存按最多128包分组读取、编译核验、批量重存与回读；参数一次返回最多16项字段问题；所有终态交付已完成结果；到期资产恢复按干员等级与原提交顺序参与调度。性能和干员目标可直接发现，启动默认60 FPS、Normal。验证通过98项独立提交隔离检查、87条发现语料和228个Python文件语法检查；现用服务沿原进程运行。
-
-2026-10-22 `grip.author_weapon` 增加 `manual_prepare_fire` 与 `manual_apply_fire`，按每把未开火先编辑并应用、开火从已应用结果起步的顺序制作。开火仅写手指姿势引用，共用未开火挂接、右腕与左手 IK；不符合该边界或基准已变更时拒绝应用。人工静态烘焙改为官方瞬态导出并原位写骨轨，保留正式 AS 的曲线、通知和采样设置。Base 手部层接入两套静态握姿和已有开火意图，主图仍只调用一次手部 Layer。当前验证边界及人工操作见 [BBBGripAuthoringMCP.md](Docs/BBBGripAuthoringMCP.md)，不将制作工具准备完成标为人体自然度或运行验收。
-
-2026-10-20 新增 `control_rig.process_dual_arm_body_pose`：人工六控制器样板采纳、实际公共层清单、逐帧生产Rig烘焙、加法重基准及正式配置/握姿底稿同步。141项原生保存回读和四项离线边界/契约检查通过，装备换弹末帧位置误差低于0.00004厘米；后台NullRHI低功耗执行，未运行PIE。见 Docs/BBBDualArmBodyPoseMCP.md。
 
 2026-10-19 新增 `hit.rebuild_zombie_debug_gore_cuts` 以实际湿血材质参数原位重建调试靶九组无骨头断面 皮肤接缝不移动 内部生成非对称两层褶皱 保留物理与既有图集 不创建烘焙中间资产。八项工具边界检查与 32 项受击公共入口基线匹配通过。用户停止测试后仅继续静态编辑和保存 最终资源不标记为经过运行或画面验收。见 Docs/BBBHitReactionMCP.md。
 
@@ -169,106 +263,6 @@ SMG03唯一弹匣预览的单项真实自动迁移已完整成功 新目标与�
 2026-10-14 新增通用 PIE Actor 定时反射调用 按游戏时间触发公开 API 并回读实际时刻 用于准确验证动画阶段中断 不将网络往返延迟计入玩法阶段
 
 2026-10-14 PIE 对象反射调用先确认所有者类型 再与 PIE World 比较 避免动画实例与组件被错误转换成 World 可用于只读核对实际蒙太奇
-
-UE5.8 编辑器操作与任务调度。AI 使用六个入口；工具契约按当前目标读取。
-
-## 调用
-
-- 会话开始：`manage_operator(task="整理蓝图")`；默认二级，任务说明单行二十字以内。
-- 当前同事：`inspect_tasks(operators=True)` 返回干员、等级、任务和状态。
-- 会话结束：`manage_operator(action="finish")`。
-
-- 已知工具：直接 `submit_batch`。
-- 新目标：`find_tools(query)` 返回最多三项，首项附带参数、默认值和完成条件。
-- 参数细节：`describe_tool(tool)`；SDK 复用同版发现契约，目录版本变化时更新缓存。
-- 短调用：提交响应包含结果和证据。
-- 长调用：`next` 为完整的 `{tool, arguments}` 调用或 `null`；按业务版本等待。
-- 补充参数：`needs` 给出操作序号、字段路径与准确类型。
-- 执行证据：终态保留结果、保存和回读；普通进度仅返回紧凑状态。
-
-```python
-from MCP.mcp_call import McpSession
-
-with McpSession(task="核对资产") as session:
-    result = session.submit_batch([
-        {"tool": "editor.inspect_dirty_packages", "arguments": {}}
-    ])
-    if result["status"] in {"queued", "running"}:
-        result = session.wait_batch(result["batch"])
-    print(result)
-```
-
-`BBB_MCP_URL` 由启动器返回，默认固定入口为 `http://127.0.0.1:8000/mcp`。连接层维护客户端归属、心跳、服务自动启动和请求重放。
-
-## 干员与调度
-
-零级最高，一级次之，二级默认。同级按提交顺序执行。零级可主动登记 `level=0`，面板也可授予；等级持续到逻辑会话结束。最后一个所属连接关闭时，干员进入收尾并在工作交接后释放。SDK 通过同一个 `conversation_id` 或私有 `client_key` 恢复所属批次，重新登记后开始新任务。每个聊天使用独立标识。Codex 中提供 `task` 时自动采用当前 `CODEX_THREAD_ID`，其它客户端可传入自己的 `conversation_id`。
-
-高等级排队任务在可执行的操作边界优先进行。编辑批次先保存和回读再让行；同一资产的连续操作保持顺序。无关资产继续执行。运行中的原生调用在返回后进入调度边界。
-
-零级控制：
-
-```python
-session.control_task("pause_operator", operator="干员ID", lease_seconds=60)
-session.control_task("resume_operator", operator="干员ID")
-session.control_task("cancel_blocker", batch="批次ID")
-session.control_task("terminate_host", host="inspect_tasks 返回的宿主ID")
-```
-
-暂停默认六十秒，最多三百秒，到期自动恢复。定向终止由常驻服务核验进程代际并记录审计；宿主内存中的未保存修改随进程终止丢失。正常任务采用自动保存与回读交接。
-
-## 编辑与测试
-
-编辑批次自动完成验证、保存、回读和资产释放。异常结果由网关自动核实；保存故障按资产后台恢复，独立资产继续执行。结果记录独立保留。参数使用对象、数组和路径字符串；源控检查维护真实资产归属。
-
-测试使用原项目的已保存资产：
-
-```python
-result = session.submit_batch(
-    operations,
-    environment="test",
-    test_options={"map": "/Game/Maps/Acceptance"},
-)
-```
-
-首次测试返回 `test_host`，后续批次携带该身份继续。默认容量两组；测试输出交付后使用 `control_task(action="close", batch=...)` 清理所属目录。共享宿主在任务、活动与资产交接完成后使用 `shutdown_host` 退出。
-
-## 启动
-
-环境：Windows、UE5.8、接入项目的编辑器模块、Python 与 `requests`。
-
-首次配置常驻服务：
-
-```powershell
-.\Scripts\MCP\Start-BBBMcpService.ps1 -ProjectPath '<uproject 绝对路径>' -InstallAtLogon
-```
-
-之后手动打开项目即可自动接入。`inspect_tasks` 显示服务、编辑器连接和进程清单；编辑器关闭后服务持续在线。已有服务切换安排在任务交接完成后。
-
-```powershell
-$hostInfo = & .\Scripts\MCP\Start-UE58OfficialMcpEditor.ps1 `
-    -ProjectPath '<uproject 绝对路径>' `
-    -EnginePath '<UE5.8 根目录>' `
-    -PerformanceProfile Balanced
-$env:BBB_MCP_URL = $hostInfo.Endpoint
-```
-
-默认资源档位 `Balanced`：60 FPS、Normal 优先级。渲染与音频通过启动参数选择。
-
-## 验收与维护
-
-- [公开契约](Docs/UnrealMcpCanonical.md)
-- [调度与恢复](Docs/BBBMcpTaskProtection.md)
-- [项目依赖](Docs/ProjectDependencies.md)
-- [第三方来源](Docs/BBBExternalMcp.md)
-
-```powershell
-python -B -m unittest discover -s Tests -p 'test_mcp*.py'
-python -B Tests/benchmark_mcp_workflows.py --report '<本任务目录>/discovery.json'
-python -B Tests/verify_mcp_workflows.py --url $hostInfo.Endpoint --project-root '<项目根>' --task-directory '<本任务新目录>'
-```
-
-## 更新
 
 - 2026-10-15：独立常驻服务、进程登记与自动重连；客户端自动启动服务；保留原测试进程并核验恢复归属。正式入口在任务交接窗口切换。
 

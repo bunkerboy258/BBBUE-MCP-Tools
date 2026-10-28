@@ -6,6 +6,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "Scripts"))
 from BBBMcpCapabilities import ToolCatalog
+from MCP.mcp_workflows import PURPOSES, ROUTES
 
 
 DISCOVERY_CASES = [
@@ -65,6 +66,31 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertLessEqual(len(result), 3)
                 self.assertIn("parameters", result[0])
                 self.assertLessEqual(len(json.dumps(result[0], ensure_ascii=False).encode()), 4096)
+
+    def test_external_action_name_does_not_make_entire_domain_an_exact_match(self):
+        """/** @return 外部动作按自身名称匹配 */"""
+        catalog = fixture_catalog()
+        contract = {"id": "external.data_table.get_column_names", "name": "data_table", "action": "get_column_names", "toolset": "test", "definition": "BBBExternalToolset", "parameters": {"type": "object", "properties": {}}, "summary": "List table columns", "access": "read", "world": "any"}
+        catalog.add(contract)
+        catalog.add({"id": "data_table.list_rows", "name": "list_rows", "toolset": "test", "definition": "DataTableTools", "parameters": {"type": "object", "properties": {}}, "summary": "List data table rows", "access": "read", "world": "any"})
+        self.assertEqual(catalog.find("get_column_names")[0]["id"], "external.data_table.get_column_names")
+        self.assertNotEqual(catalog.find("data_table")[0]["id"], "external.data_table.get_column_names")
+
+    def test_blueprint_layout_prefers_graph_formatter(self):
+        """/** @return 蓝图整理优先返回图表级工具 */"""
+        catalog = fixture_catalog()
+        for query in ("整理蓝图节点布局", "把蓝图节点摆整齐"):
+            self.assertEqual(catalog.find(query)[0]["id"], "blueprint.format_blueprint_graph")
+
+    def test_only_specific_use_guidance_is_returned(self):
+        """/** @return 省略重复用途并保留专用路线与完成条件 */"""
+        catalog = fixture_catalog()
+        named = catalog.describe("blueprint.inspect_blueprint_graph")
+        self.assertIn("use_when", named)
+        other = next(item for item in catalog.tools.values() if item["id"] not in PURPOSES and item["id"] not in ROUTES)
+        compact = catalog.describe(other["id"])
+        self.assertNotIn("use_when", compact)
+        self.assertIn("complete_when", compact)
 
 
 if __name__ == "__main__":

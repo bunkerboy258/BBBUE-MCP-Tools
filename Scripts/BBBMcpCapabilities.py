@@ -648,10 +648,14 @@ class ToolCatalog:
             result["arguments"] = {"operators": True}
             result["call"] = {"tool": "inspect_tasks", "arguments": {"operators": True}}
             return [result]
+        if any(word in normalized for word in ("当前任务与占用", "编辑器当前状态")):
+            return [self.describe("inspect_tasks")]
+        if "保存" in normalized and "蓝图" in normalized and not any(word in normalized for word in ("不保存", "未保存", "无需保存")) and "asset.save_assets" in self.tools:
+            return [self.describe("asset.save_assets")]
         groups = [values for word, values in ALIASES.items() if word in normalized]
         tokens = set(re.findall(r"[a-z]+", normalized))
         reading = any(word in normalized for word in ("读取", "查询", "检查", "获取", "查看", "列出", "查一下")) or bool(tokens & {"inspect", "get", "read", "list", "check", "show"})
-        writing = any(word in normalized for word in ("修改", "改一下", "设置", "添加", "增加", "创建", "删除", "保存", "导入", "导出", "移动", "重建", "调整", "注释", "布局", "排版", "整理", "摆整齐", "排整齐")) or bool(tokens & {"set", "edit", "add", "create", "delete", "configure", "annotate", "layout", "write", "save", "resave", "import", "export", "move", "rebuild"})
+        writing = any(word in normalized for word in ("修改", "改一下", "设置", "切换", "添加", "增加", "创建", "删除", "保存", "导入", "导出", "移动", "重建", "调整", "注释", "布局", "排版", "整理", "摆整齐", "排整齐")) or bool(tokens & {"set", "edit", "add", "create", "delete", "configure", "annotate", "layout", "write", "save", "resave", "import", "export", "move", "rebuild"})
         groups.extend((token,) for token in re.findall(r"[a-z][a-z0-9]*(?:\.[a-z_]+)*", normalized) if token not in {"the", "a", "of", "for", "to", "and"} and not re.search(r"\d", token))
         cache = getattr(self, "_search_cache", None)
         if cache is None or cache[0] is not self.tools:
@@ -667,7 +671,8 @@ class ToolCatalog:
             self._search_cache = cache
         candidates = []
         for contract, identity, words, text in cache[1]:
-            score = 1000 if normalized == identity or normalized == contract["name"].casefold() else 0
+            exact_name = contract.get("action", contract["name"]).casefold()
+            score = 1000 if normalized == identity or normalized == exact_name else 0
             matched = 0
             for values in groups:
                 weight = max((12 if value in words else 6 if value in text else 0 for value in values), default=0)
@@ -686,8 +691,18 @@ class ToolCatalog:
                 score += 8 if contract["access"] == "read" else 0
             if any(word in normalized for word in ("注释", "comment", "annotate", "区块")) or any("annotate" in group for group in groups):
                 score += 18 if "annotate" in words else 0
-            if any(word in normalized for word in ("布局", "排版", "layout", "整理")) and not any(word in normalized for word in ("注释", "comment", "annotate", "区块")):
+            if any(word in normalized for word in ("布局", "排版", "layout", "整理", "摆整齐", "排整齐")) and not any(word in normalized for word in ("注释", "comment", "annotate", "区块")):
                 score += 18 if "layout" in words else 0
+            if ("蓝图" in normalized or "blueprint" in tokens) and "父类" not in normalized and identity.startswith("blueprint."):
+                score += 20
+            if "蓝图" in normalized and "父类" in normalized and identity == "blueprint_base.get_parent":
+                score += 35
+            if "数据表" in normalized and identity.startswith("data_table."):
+                score += 24
+            if "数据表" in normalized and "行" in normalized and any(word in normalized for word in ("所有", "全部")) and "行名" not in normalized and identity == "external.data_table.get_rows_as_json":
+                score += 50
+            if "动画" in normalized and "曲线" in normalized and not any(word in normalized for word in ("骨", "关键帧", "曲线值", "数据")) and identity == "external.animation.list_curves":
+                score += 35
             if "通知" in normalized and not any(word in normalized for word in ("添加", "修改", "删除", "设置", "创建")):
                 score += 16 if contract["access"] == "read" else -16
             if "验收" in normalized and "换弹" in normalized:
