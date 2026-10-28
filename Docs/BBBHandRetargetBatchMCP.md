@@ -27,3 +27,9 @@
 2026-10-17 最终制作完成 Rifle01 的 67 条基础动作和 4 条专属动作，每条保留独立正式 Sequencer 并完成烘焙。基础动作共 5178 帧独立握持回读、214 个同步标记核对通过，21 项针对性单元检查通过。上述旧四项工具链样本已在确认无引用后删除；正式输出归 Rifle_01/Animation/Character，正式序列归 Rifle_01/Animation/Sequencer。用户负责其余运行时和实际画面验收，无截图采样修正后未再次执行 PIE 验证。
 
 `animation.replace_animation_bone_tracks` 可提供 `source_animation_path`，直接读取已烘焙源的完整原始轨道并写入现有 `animation_path`；此模式省略 `tracks`，与显式轨道模式互斥。目标对象和路径保留，不删除或重建资产。要求源与目标骨架、帧数、帧率、Root Motion、Additive 参考、通知时间、浮点曲线和同步标记一致，骨骼轨道集合完全相同；支持最多 1200 帧与 128 条轨道。所有轨道先准备和校验，再通过动画控制器写入，逐帧回读位置、四元数、缩放并检查元数据未变化后保存。不创建备份或修改源动画。
+
+## 当前库原位左臂样板
+
+control_rig.process_dual_arm_body_pose接受以_LeftHandMotion.json.source结尾的制作源，action=bake，write_paths精确列出jobs的animation及sequence。制作源指定mesh、reference、template及jobs；从当前正式握姿读取右手局部左手目标，复用既有源姿态控制器与左手Rig求解。官方导出仅在瞬态LS和动画副本执行，不调用CurveSnapshot路径；正式动画只写七根左臂骨旋转，保留全部原平移缩放、其他骨轨和元数据，回读后保存。
+
+2026-10-28三条MM1700样板的制作源为角色Source/Animation/MM1700_FAL_LeftHandMotion.json.source。待机LS已建立、求解和原位轨道回读完成，但原动画保存遇到Windows共享锁Error32；调度器四次恢复均失败，批次a7fa8c3acfdbacab处于SAVE_FAILED。待机只在编辑宿主内存中修改，未确认落盘；步行跑步尚未执行。另一个空手回顿测试宿主PID9624仍在运行，不能将候选或工具语法检查写成三条已保存或视觉通过。释放锁后先recover原批次，再重新调用，正式LS可复用，烘焙结果不叠加修正。
