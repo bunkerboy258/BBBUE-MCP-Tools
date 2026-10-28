@@ -25,6 +25,10 @@
 验证: UE5.8 Development Editor 编译成功。原生 `BBB.Animation.MotionMatching.TrajectoryCoordinateSpace` 测试通过 覆盖三个角色朝向各四个移动方向。23 项 Python 探针及相关 MM 工具测试通过。以上证据验证坐标和方向匹配 起停转身细节及整体观感仍由实际游戏画面验收。
 # 来源回放与曲线恢复
 
+2026-10-28 急转诊断补充: 快照的 `turnDecision` 只读输出 Mannequin 根骨世界朝向加 90 度后的 `rootFacingYaw` 以及 `rootToActorYaw` 和 `rootToControlYaw`。可用时附加角色原始 `CharacterInputState` 与实例 `Gait` 的反射文本。空结构体或枚举空文本不代表已核实控制模式 应结合实际 CMC 朝向标志与动画上下文判断。该部分不调用正式选库谓词 不重新计算或写入玩法状态。
+
+需要排查角色控制适配时 应在来源完整角色和控制器上注入实际 Enhanced Input 并核对实际控制朝向变化。`start_reference_replay` 原始事实回放适合隔离动画层 无法证明来源角色控制链正确。GASP CMC 的视角输入增益为本次项目输入的 2.5 倍 本次夹具按目标角除以 2.5 注入并核对实际角差。来源角色默认已处于 Strafe 不能无条件再切换一次。测试前必须断言 `useControllerDesiredRotation=true` 与 `orientRotationToMovement=false`。原版默认 GameMode 的 Mover Pawn 与本次选用的原版 CMC Pawn也应分开记录。来源蓝图与资产只能在临时独立宿主中求值 来源 Content 不保存。
+
 `motion_matching.prepare_reference_runtime` 在非 PIE 环境只读载入明确来源动画蓝图与骨骼网格 仅在内存中清空明确的无参数角色事实入口 由回放注入原始事实 直接使用原始叶类 保留原有 CVar 配置更新 工作线程逻辑 标准姿态图 属性存取和 Chooser 上下文类型 不保存来源资产或测试夹具。标准 GASP CMC 使用 `Update_PropertiesFromCharacter` 作为该桥接。
 
 随后在 PIE 中通过 `motion_matching.start_reference_replay` 回放 Saved/temp 下已采集的角色位置 速度 加速度 CMC 限制 姿态和普通跳落事实。输入必须包含格式 8 的 `deltaSeconds` 回放临时按每帧原始步长设置固定时钟 并逐帧校验实际 Delta Time 相等 不把可变帧率采样当作固定 60 Hz 数据。结束 失败或 PIE 退出后恢复原固定时钟状态和步长。临时普通 Character 不运行项目玩法及 CMC 积分 只承载来源动画蓝图的独立求值。`inspect_reference_replay` 返回覆盖 时钟状态与失败原因 `stop_reference_replay` 销毁角色与控制器并移除回调。对该角色使用现有逐帧探针 可通过 `referenceReplayFrame` 对齐原始输入帧 不能用资产名称相同替代姿态验收。

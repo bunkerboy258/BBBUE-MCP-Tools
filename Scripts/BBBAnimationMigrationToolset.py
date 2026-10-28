@@ -59,6 +59,7 @@ MCP_INPUTS = {
                 'runId': {'type': 'string'},
                 'targetController': {'type': 'string'},
                 'timingMode': {'type': 'string', 'const': 'game_frames'},
+                'fixedDeltaSeconds': {'type': 'number', 'minimum': 0.004166666666666667, 'maximum': 0.06666666666666667},
                 'steps': {
                     'type': 'array',
                     'items': {
