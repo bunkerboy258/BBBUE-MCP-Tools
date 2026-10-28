@@ -66,7 +66,8 @@ def run(recipe_path, action, write_paths):
                 for name in bones:
                     old = before[name]
                     values = tracks[name]
-                    if not controller.set_bone_track_keys(name, [v.translation for v in old], [v.rotation for v in values], [v.scale3d for v in old], False):
+                    positions = [v.translation for v in values] if name == 'ik_hand_l' else [v.translation for v in old]
+                    if not controller.set_bone_track_keys(name, positions, [v.rotation for v in values], [v.scale3d for v in old], False):
                         raise RuntimeError('LEFT_HAND_MOTION_WRITE')
             finally:
                 controller.close_bracket(False)
@@ -78,7 +79,8 @@ def run(recipe_path, action, write_paths):
                     raise RuntimeError('LEFT_HAND_MOTION_COUNT')
                 for i, (a,b) in enumerate(zip(old,actual[name])):
                     expected_rotation = tracks[name][i].rotation if name in bones else a.rotation
-                    if a.translation != b.translation or a.scale3d != b.scale3d or distance(list(expected_rotation.to_tuple()),list(b.rotation.to_tuple())) > 0.01:
+                    expected_position = tracks[name][i].translation if name == 'ik_hand_l' else a.translation
+                    if expected_position != b.translation or a.scale3d != b.scale3d or distance(list(expected_rotation.to_tuple()),list(b.rotation.to_tuple())) > 0.01:
                         raise RuntimeError('LEFT_HAND_MOTION_READBACK: '+name)
             if not unreal.EditorAssetLibrary.save_loaded_asset(animation, False):
                 raise RuntimeError('LEFT_HAND_MOTION_SAVE')
