@@ -62,12 +62,10 @@ def run(recipe_path, action, write_paths):
     if set(write_paths) != expected or unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
         raise ValueError('LEFT_HAND_MOTION_WRITE_SCOPE_OR_PIE')
     mesh = unreal.load_asset(data['mesh'])
-    reference = unreal.load_asset(data['reference'])
-    pose = _pose(reference, mesh, 0.0)
-    left = unreal.AnimPoseExtensions.get_bone_pose(pose, 'hand_l', unreal.AnimPoseSpaces.WORLD)
-    right = unreal.AnimPoseExtensions.get_bone_pose(pose, 'hand_r', unreal.AnimPoseSpaces.WORLD)
-    relative = left.make_relative(right)
-    grip = {'position':list(relative.translation.to_tuple()), 'rotation':list(relative.rotation.to_tuple()), 'scale':[1,1,1]}
+    grip = data.get('grip_in_hand_r')
+    if not isinstance(grip, dict):
+        raise RuntimeError('LEFT_HAND_AUTHORED_GRIP_MISSING: ' + recipe_path)
+    batch._transform(grip, '正式制作源右手空间握持目标')
     results = []
     for job in jobs:
         animation = unreal.load_asset(job['animation'])
