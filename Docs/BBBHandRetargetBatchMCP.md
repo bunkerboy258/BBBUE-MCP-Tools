@@ -35,3 +35,5 @@ control_rig.process_dual_arm_body_pose接受以_LeftHandMotion.json.source结尾
 2026-10-29 三条MM1700样板已原位烘焙保存：待机299采样、步行119采样、跑步74采样。制作源为角色Source/Animation/MM1700_FAL_LeftHandMotion.json.source。原文件共享锁已解除；左手辅助IK同步完成，非左臂骨轨与元数据回读保持。三个正式LS的枪体挂接已同步当前FAL配置，前台打开动画及待机制作序列供用户播放审核。没有执行PIE或自动化验收，尚未批量处理其余动画。瞬态烘焙对象不落盘，不创建备份。
 
 2026-10-29 批量原位烘焙中，Sequencer 临时对象累计触发编辑器 UObject 上限。原位左臂入口现在在每条保存后释放瞬态烘焙引用，收集 Python 和 UE 临时对象，再继续下一条；故障批次必须先确认宿主终止及资产恢复状态，复用已有制作序列的源控制器重烘，不能依靠失败状态推断每条是否保存。非目标轨道和已覆盖元数据仍在单条保存前回读核对。
+
+2026-10-29 原位烘焙在瞬态候选上验证后才写正式动画；检查全部源姿势、手和肘控制通道的逐帧键数，拒绝复用失败后的空底稿。左手辅助骨从最终 hand_l 与辅助骨实际父节点逐帧计算局部轨道，并验证全帧组件空间位置与角度。制作源 mode=ik_sync 只修复既有动画的辅助骨，mode=restore_original 从明确第三方来源和重定向器恢复受损左臂，仅写左臂旋转和左手辅助骨；恢复输出挂载到 Saved/temp/BBBLeftIKRetarget，执行完毕清理并卸载。两模式仍使用同一 process_dual_arm_body_pose 入口，需明确列出 animation 与 sequence 写入路径。原始设置检查包含根锁、速率、插值及压缩设置。864 条有效动作完成；15 条不可达的极端瞄准姿势保留恢复后的原左臂，记录见项目 Docs/Animation/MM1700_Rifle01_LeftHandCalibration20261029.md。

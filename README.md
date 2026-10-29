@@ -716,3 +716,5 @@ Monster 版本只编辑逻辑与表现两份主配置。`monster_gore.inspect_mo
 2026-10-27 内嵌曲线编辑: `editor.configure_data_asset` 的结构体值支持 `structType` 与 `structText` 组合 使用 UE 原生结构文本导入后保存目标资产。目标仍须通过资产写入权限检查 可用 `object.get_properties` 回读键值。已在 30 份枪械配置上写入并逐键核对内嵌连续曲线 未进行 PIE 表现验收。
 
 2026-10-29 左臂原位烘焙逐条保存后释放 Sequencer 瞬态对象并执行垃圾收集，避免长批次耗尽编辑器 UObject 数量。实际批处理多组完成；全库处理及引用核验仍在进行。详见 Docs/BBBHandRetargetBatchMCP.md。
+
+2026-10-29 左手原位烘焙修复辅助骨与最终手骨不一致的问题，以逐帧父空间重建并校验；对候选动画先验证并拒绝未完成的控制关键帧底稿。864 条校准完成，15 条锁骨不可达的瞄准动作恢复原左臂；879 条各五点辅助骨回读最大误差 0.00903 cm。具体边界见 Docs/BBBHandRetargetBatchMCP.md。
