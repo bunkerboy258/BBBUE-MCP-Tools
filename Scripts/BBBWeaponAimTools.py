@@ -203,6 +203,22 @@ def configure_stable_aim_pose(base_path, layer_paths, dependent_paths):
             raise RuntimeError("静态端枪混合构图失败")
         unreal.BlueprintEditorLibrary.compile_blueprint(base)
     _build_aim_update(base, stable_pose=True)
+    overlays = [node for node in unreal.BlueprintGraphEditor.get_graph_editor(graph).list_all_nodes()
+                if isinstance(node, unreal.AnimGraphNode_LayeredBoneBlend)]
+    if len(overlays) != 1:
+        raise RuntimeError("稳定端枪分支必须唯一")
+    overlay = overlays[0]
+    settings = overlay.get_editor_property("node")
+    filters = []
+    for bone, depth in (("spine_01", 5), ("hand_l", -1), ("hand_r", -1)):
+        branch = unreal.BranchFilter()
+        branch.set_editor_property("bone_name", bone)
+        branch.set_editor_property("blend_depth", depth)
+        filters.append(branch)
+    layer = unreal.InputBlendPose()
+    layer.set_editor_property("branch_filters", filters)
+    settings.set_editor_property("layer_setup", [layer])
+    overlay.set_editor_property("node", settings)
     for value in targets:
         unreal.BlueprintEditorLibrary.compile_blueprint(value)
         if value.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:

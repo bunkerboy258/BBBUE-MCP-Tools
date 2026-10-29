@@ -19,6 +19,38 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def restore_saved_grip_pose(weapon_root: str, recipe_path: str) -> str:
+        """
+        /**
+         * 从型号正式握姿制作源恢复缺失的静态骨轨
+         * @param weapon_root\t明确型号根
+         * @param recipe_path\t项目相对制作源
+         * @return 全骨轨保存回读结果
+         */
+        """
+        import importlib
+        import BBBAnimationPoseRecovery
+        return json.dumps(importlib.reload(BBBAnimationPoseRecovery).restore_saved_grip_pose(
+            weapon_root, recipe_path), ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def restore_animation_bone_tracks(source_path: str, animation_path: str) -> str:
+        """/** @param source_path\t完整制作输入 @param animation_path\t空骨轨目标 @return 原位恢复回读 */"""
+        import importlib
+        import BBBAnimationPoseRecovery
+        return json.dumps(importlib.reload(BBBAnimationPoseRecovery).restore_animation_bone_tracks(source_path,animation_path),ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def rebuild_weapon_aim_additive(neutral_path: str, target_path: str, asset_path: str, reference_path: str) -> str:
+        """/** @param neutral_path\t中性源 @param target_path\t瞄准源 @param asset_path\t加法 @param reference_path\t参考 @return 原位重建回读 */"""
+        import importlib
+        import BBBAnimationPoseRecovery
+        return json.dumps(importlib.reload(BBBAnimationPoseRecovery).rebuild_weapon_aim_additive(neutral_path,target_path,asset_path,reference_path),ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def create_weapon_aim_additive(neutral_path: str, target_path: str, asset_path: str, reference_path: str) -> str:
         """
         /**

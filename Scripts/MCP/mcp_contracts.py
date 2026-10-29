@@ -36,6 +36,9 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
+    'animation_graph.restore_animation_bone_tracks': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['animation_path']}, 'completion': 'verified_save'},
+    'animation_graph.rebuild_weapon_aim_additive': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['asset_path', 'reference_path']}, 'completion': 'verified_save'},
+    'animation_graph.restore_saved_grip_pose': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['weapon_root']}, 'completion': 'verified_save'},
     'animation_graph.create_weapon_aim_additive': {'scope': {'fields': ['asset_path', 'reference_path']}},
     'animation_graph.configure_weapon_aim_additives': {'scope': {'fields': ['base_path', 'layer_paths', 'dependent_paths']}},
     'animation_graph.configure_stable_aim_pose': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['base_path', 'layer_paths', 'dependent_paths']}, 'completion': 'verified_save'},

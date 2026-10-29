@@ -1331,6 +1331,11 @@ def _export(sequence, source, mesh, scope, name, duplicate=True):
         raise RuntimeError('NATIVE_ACTION_EXPORT_BINDING: ' + copied.get_path_name() + ' mesh=' + mesh.get_path_name()) from error
     if not unreal.SequencerTools.export_anim_sequence(world, copied, result, options, binding, False):
         raise RuntimeError('NATIVE_ACTION_EXPORT_FAILED')
+    expected_bones = set(source.data_model_interface.get_bone_track_names())
+    exported_bones = set(result.data_model_interface.get_bone_track_names())
+    if not expected_bones or not expected_bones.issubset(exported_bones):
+        raise RuntimeError('NATIVE_ACTION_EXPORT_MISSING_BONES: expected=' + str(len(expected_bones))
+            + ' exported=' + str(len(exported_bones)))
     encoded = unreal.EditorAssetLibrary.get_metadata_tag(sequence, 'BBB_RuntimeRightWristPreview')
     if encoded:
         inverse = unreal.Quat(*json.loads(encoded)).inversed()
@@ -1348,6 +1353,8 @@ def _export(sequence, source, mesh, scope, name, duplicate=True):
 def _compare(first, second):
     """/** @param first\t预期输出 @param second\t实际输出 @return\t全轨最大位置误差 */"""
     maximum = 0.0
+    if not first.data_model_interface.get_bone_track_names():
+        raise RuntimeError('NATIVE_ACTION_COMPARE_EMPTY_POSE')
     for name in first.data_model_interface.get_bone_track_names():
         a = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(first, name)
         b = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(second, name)

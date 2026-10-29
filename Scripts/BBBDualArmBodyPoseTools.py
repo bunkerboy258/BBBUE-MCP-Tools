@@ -288,9 +288,14 @@ def _bake(path, recipe, index, write_paths):
         require_asset_write([animation])
     else:
         if unreal.EditorAssetLibrary.does_asset_exist(output_path):
-            raise RuntimeError('BODY_POSE_OUTPUT_ALREADY_EXISTS')
-        require_asset_write([], destinations=[output_path])
-        animation = unreal.EditorAssetLibrary.duplicate_asset(job['source'], output_path)
+            animation = _asset(output_path, unreal.AnimSequence)
+            if animation.data_model_interface.get_bone_track_names() or _track_metadata(animation) != metadata:
+                raise RuntimeError('BODY_POSE_OUTPUT_ALREADY_EXISTS')
+            from BBBAnimationPoseRecovery import restore_animation_bone_tracks
+            restore_animation_bone_tracks(job['source'], output_path)
+        if not unreal.EditorAssetLibrary.does_asset_exist(output_path):
+            require_asset_write([], destinations=[output_path])
+            animation = unreal.EditorAssetLibrary.duplicate_asset(job['source'], output_path)
         if not isinstance(animation, unreal.AnimSequence):
             raise RuntimeError('BODY_POSE_DUPLICATE_FAILED')
         if source.get_editor_property('ref_pose_seq') == source:
