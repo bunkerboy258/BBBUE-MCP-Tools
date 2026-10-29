@@ -33,3 +33,5 @@
 control_rig.process_dual_arm_body_pose接受以_LeftHandMotion.json.source结尾的制作源，action=bake，write_paths精确列出jobs的animation及sequence。制作源指定mesh、reference、template及jobs；从当前正式握姿读取右手局部左手目标，复用既有源姿态控制器与左手Rig求解。官方导出仅在瞬态LS和动画副本执行，不调用CurveSnapshot路径；正式动画只写七根左臂及辅助骨旋转，并同步 ik_hand_l 平移；保留真实手臂骨的原平移、全部缩放、其他骨轨和元数据，回读后保存。
 
 2026-10-29 三条MM1700样板已原位烘焙保存：待机299采样、步行119采样、跑步74采样。制作源为角色Source/Animation/MM1700_FAL_LeftHandMotion.json.source。原文件共享锁已解除；左手辅助IK同步完成，非左臂骨轨与元数据回读保持。三个正式LS的枪体挂接已同步当前FAL配置，前台打开动画及待机制作序列供用户播放审核。没有执行PIE或自动化验收，尚未批量处理其余动画。瞬态烘焙对象不落盘，不创建备份。
+
+2026-10-29 批量原位烘焙中，Sequencer 临时对象累计触发编辑器 UObject 上限。原位左臂入口现在在每条保存后释放瞬态烘焙引用，收集 Python 和 UE 临时对象，再继续下一条；故障批次必须先确认宿主终止及资产恢复状态，复用已有制作序列的源控制器重烘，不能依靠失败状态推断每条是否保存。非目标轨道和已覆盖元数据仍在单条保存前回读核对。

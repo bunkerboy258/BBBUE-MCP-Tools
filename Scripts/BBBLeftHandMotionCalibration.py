@@ -1,3 +1,4 @@
+import gc
 import json
 import uuid
 from pathlib import Path
@@ -88,6 +89,11 @@ def run(recipe_path, action, write_paths):
                             'nonLeftArmPreserved':True, 'metadataPreserved':True, 'bones':bones})
         finally:
             unreal.purge_object_references(scope, True)
+        # Sequencer scripting creates many temporary UObject wrappers per sampled key.
+        # Release those between saved animations instead of accumulating across a batch.
+        del copied, baked, binding, options, scope, sequence, animation, before, tracks, actual, controller
+        gc.collect()
+        unreal.SystemLibrary.collect_garbage()
     data['grip_in_hand_r'] = grip
     data['results'] = results
     data['acceptance'] = 'pending_user_review'

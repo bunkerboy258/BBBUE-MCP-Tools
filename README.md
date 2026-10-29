@@ -714,3 +714,5 @@ Monster 版本只编辑逻辑与表现两份主配置。`monster_gore.inspect_mo
 2026-10-27 持枪地面过渡: 重量感调校的三项改动现已全部撤销。Get_MMBlendTime 恢复原有 15 个节点 连续地面返回 0.5 秒 刚落地与空中时间保持原值。额外支撑 承重响应及专用工具已移除。仅清理指定函数 没有覆盖后续角色动画改动。记录见项目 Docs/Animation/WeaponWeight20261027.md。
 
 2026-10-27 内嵌曲线编辑: `editor.configure_data_asset` 的结构体值支持 `structType` 与 `structText` 组合 使用 UE 原生结构文本导入后保存目标资产。目标仍须通过资产写入权限检查 可用 `object.get_properties` 回读键值。已在 30 份枪械配置上写入并逐键核对内嵌连续曲线 未进行 PIE 表现验收。
+
+2026-10-29 左臂原位烘焙逐条保存后释放 Sequencer 瞬态对象并执行垃圾收集，避免长批次耗尽编辑器 UObject 数量。实际批处理多组完成；全库处理及引用核验仍在进行。详见 Docs/BBBHandRetargetBatchMCP.md。
