@@ -9,3 +9,7 @@
 `UpdateWeaponAimData` 在工作线程内制造举枪权重及独立的 `LocomotionAimIKAlpha`。瞄准 持续开火或最近发射后 0.5 秒提供举枪意图 跑步及 `UpperBody` 或 `FullBody` 离散动作覆盖时退出。加法开火与受击槽位不阻止举枪 瞄准跟随允许正常腰射 不与举枪权重捆绑。代码只读事实不增加玩法或网络状态。
 
 写入前检查 PIE 未保存编辑 继承关系 骨架与局部空间加法类型。全部引用者无警告编译后保存。工具不会启动 PIE 动态验收由用户执行。新动画序列按项目版本规则作为本机美术依赖保存。
+
+## 稳定端枪姿势
+
+animation_graph.configure_stable_aim_pose 接收公共装备层、直接子层与其余依赖子层路径。在 FullBody_SkeletalControls 的 AimIK 输入前，现有站立和蹲伏静态参考加举枪加法组成绝对端枪姿势，通过 spine_01 渐进分支混合到 MM 输入姿势；骨盆和腿保留基础姿势。权重使用 WeaponAimAlpha，曲线取基础姿势。工具读取各子层加法素材的静态参考，编译并保存目标蓝图，不运行 PIE。

@@ -38,6 +38,7 @@ INPUT_SHAPES = {
 TOOL_POLICIES = {
     'animation_graph.create_weapon_aim_additive': {'scope': {'fields': ['asset_path', 'reference_path']}},
     'animation_graph.configure_weapon_aim_additives': {'scope': {'fields': ['base_path', 'layer_paths', 'dependent_paths']}},
+    'animation_graph.configure_stable_aim_pose': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['base_path', 'layer_paths', 'dependent_paths']}, 'completion': 'verified_save'},
     'motion_matching.configure_in_place_root_velocities': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['asset_paths']}, 'completion': 'verified_save'},
     'motion_matching.analyze_runtime_probe': {'access': 'read', 'world': 'any', 'completion': 'observed'},
     'motion_matching.prepare_reference_runtime': {'access': 'read', 'world': 'editor', 'completion': 'observed'},

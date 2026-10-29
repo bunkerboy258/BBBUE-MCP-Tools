@@ -163,3 +163,41 @@ def configure_weapon_aim_additives(base_path, layer_paths, stand_paths, crouch_p
     return {"saved": [value.get_path_name() for value in targets], "configuredLayers": layer_paths,
             "layer": "FullBodyAdditives", "nodesBefore": len(original["nodes"]),
             "nodesAfter": len(snapshot["nodes"]), "runtimeAcceptance": "user"}
+
+
+def configure_stable_aim_pose(base_path, layer_paths, dependent_paths):
+    """Build the static reference plus additive pose before AimIK in the shared skeletal control layer."""
+    paths = [base_path] + list(layer_paths) + list(dependent_paths)
+    if len(paths) != len(set(paths)) or not layer_paths:
+        raise RuntimeError("瞄准稳定层目标列表无效")
+    if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+        raise RuntimeError("PIE 期间禁止修改瞄准稳定层")
+    targets = [unreal.load_asset(path) for path in paths]
+    if not all(isinstance(value, unreal.AnimBlueprint) for value in targets):
+        raise RuntimeError("目标必须是现有动画蓝图")
+    require_asset_write(targets)
+    dirty = {value.get_path_name() for value in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
+    if any(value.get_outermost().get_path_name() in dirty for value in targets):
+        raise RuntimeError("目标含未保存编辑")
+    base = targets[0]
+    graph = unreal.BlueprintEditorLibrary.find_graph(base, "FullBody_SkeletalControls")
+    before = json.loads(unreal.BBBBlueprintEditorLibrary.inspect_blueprint_graph_logical_snapshot(graph))
+    if not unreal.BBBWeaponAimEditorLibrary.configure_stable_aim_pose(base):
+        raise RuntimeError("静态端枪混合构图失败")
+    for value in targets:
+        unreal.BlueprintEditorLibrary.compile_blueprint(value)
+        if value.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+            raise RuntimeError("动画蓝图编译失败 " + value.get_path_name())
+        defaults = unreal.get_default_object(value.generated_class())
+        stand = defaults.get_editor_property("WeaponAimStandAdditive")
+        crouch = defaults.get_editor_property("WeaponAimCrouchAdditive")
+        defaults.set_editor_property("WeaponAimStandReference", stand.get_editor_property("ref_pose_seq") if stand else None)
+        defaults.set_editor_property("WeaponAimCrouchReference", crouch.get_editor_property("ref_pose_seq") if crouch else None)
+    after = json.loads(unreal.BBBBlueprintEditorLibrary.inspect_blueprint_graph_logical_snapshot(graph))
+    if len(after["nodes"]) <= len(before["nodes"]):
+        raise RuntimeError("静态端枪混合图节点未增加")
+    for value in targets:
+        if not unreal.EditorAssetLibrary.save_loaded_asset(value, False):
+            raise RuntimeError("保存失败 " + value.get_path_name())
+    return {"saved": paths, "graph": "FullBody_SkeletalControls", "nodesBefore": len(before["nodes"]),
+            "nodesAfter": len(after["nodes"]), "runtimeAcceptance": "user"}

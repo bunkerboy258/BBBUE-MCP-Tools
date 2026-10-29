@@ -55,6 +55,15 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def configure_stable_aim_pose(base_path: str, layer_paths: list[str], dependent_paths: list[str]) -> str:
+        """Build static weapon aim pose blended over MM before AimIK, then compile and save affected layers."""
+        import importlib
+        import BBBWeaponAimTools
+        return json.dumps(importlib.reload(BBBWeaponAimTools).configure_stable_aim_pose(
+            base_path, layer_paths, dependent_paths), ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def create_aim_offset_from_template(source_path: str, asset_path: str, sequence_paths: list[str]) -> str:
         """
         /**
