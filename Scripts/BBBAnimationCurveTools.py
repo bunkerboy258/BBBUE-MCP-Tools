@@ -1,5 +1,6 @@
 import hashlib
 import json
+import math
 import re
 import unreal
 
@@ -75,6 +76,54 @@ def configure_in_place_root_velocities(asset_paths, velocities, dry_run):
     return reports
 
 
+def _animation_metadata(animation):
+    """/** @param animation 已载入动画 @return 只读设置与经原生时间接口核对的通知元数据 */"""
+    names = ('loop', 'enable_root_motion', 'force_root_lock', 'root_motion_root_lock',
+             'rate_scale', 'interpolation', 'additive_anim_type', 'ref_pose_type', 'ref_pose_seq',
+             'ref_frame_index', 'compression_error_threshold_scale', 'curve_compression_settings',
+             'bone_compression_settings', 'skeleton')
+    settings = {}
+    for name in names:
+        value = animation.get_editor_property(name)
+        if isinstance(value, unreal.Object):
+            value = value.get_path_name()
+        if value is not None and not isinstance(value, (str, bool, int, float)):
+            value = str(value)
+        settings[name] = value
+
+    events = list(unreal.AnimationLibrary.get_animation_notify_events(animation))
+    timing = json.loads(unreal.BBBHandPoseLayerEditorLibrary.inspect_animation_notify_timing(animation))
+    if timing.get('error') or not timing.get('readOnly') or len(events) != len(timing.get('events', [])):
+        raise RuntimeError('ANIMATION_METADATA_TIMING_INVALID ' + animation.get_path_name())
+    costs = {'/Script/PoseSearch.AnimNotifyState_PoseSearchModifyCost',
+             '/Script/PoseSearch.AnimNotifyState_PoseSearchOverrideContinuingPoseCostBias'}
+    records = []
+    for index, (event, row) in enumerate(zip(events, timing['events'])):
+        instance = event.get_editor_property('notify')
+        if instance is None:
+            instance = event.get_editor_property('notify_state_class')
+        instance_path = ''
+        class_path = ''
+        properties = {}
+        if instance is not None:
+            instance_path = instance.get_path_name()
+            class_path = instance.get_class().get_path_name()
+        if row.get('sourceIndex') != index or row.get('notifyInstance') != instance_path:
+            raise RuntimeError('ANIMATION_METADATA_NOTIFY_IDENTITY_MISMATCH')
+        start = row['nativeTriggerTime'] - row['triggerTimeOffset']
+        duration = row['nativeDuration']
+        if not math.isfinite(start) or not math.isfinite(duration):
+            raise RuntimeError('ANIMATION_METADATA_TIME_NOT_FINITE')
+        if class_path in costs:
+            value = float(instance.get_editor_property('cost_addend'))
+            if not math.isfinite(value):
+                raise RuntimeError('ANIMATION_METADATA_COST_NOT_FINITE')
+            properties['cost_addend'] = value
+        records.append({'class_path': class_path, 'name': str(event.get_editor_property('notify_name')),
+                        'time': start, 'duration': duration, 'properties': properties})
+    return {'settings': settings, 'notifies': records}
+
+
 def inspect(asset_paths, bone_names):
     """/** @param asset_paths 动画序列 @param bone_names 同源比对骨骼 @return 原始曲线与完整局部骨轨道摘要 */"""
     results = []
@@ -95,6 +144,7 @@ def inspect(asset_paths, bone_names):
             signatures[bone] = {'keys': len(values), 'digest': hashlib.sha256(json.dumps(values).encode()).hexdigest()}
         results.append({'asset': animation.get_path_name(), 'length': animation.get_play_length(),
                         'rate': [rate.numerator, rate.denominator], 'bone_signatures': signatures,
+                        'animation_metadata': _animation_metadata(animation),
                         'curves': {str(n): c.export_text() for n, c in zip(
                             unreal.AnimationLibrary.get_animation_curve_names(animation, unreal.RawCurveTrackTypes.RCT_FLOAT),
                             _curves(animation))}})
