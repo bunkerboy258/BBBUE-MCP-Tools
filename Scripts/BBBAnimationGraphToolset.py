@@ -56,7 +56,15 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
     @mcp_tool
     @staticmethod
     def configure_stable_aim_pose(base_path: str, layer_paths: list[str], dependent_paths: list[str]) -> str:
-        """Build static weapon aim pose blended over MM before AimIK, then compile and save affected layers."""
+        """
+        /**
+         * 在 AimIK 前混合静态端枪姿势并保存引用者
+         * @param base_path\t公共装备动画层
+         * @param layer_paths\t直接装备子层路径
+         * @param dependent_paths\t其他依赖子层路径
+         * @return 已保存的图表与引用者摘要
+         */
+        """
         import importlib
         import BBBWeaponAimTools
         return json.dumps(importlib.reload(BBBWeaponAimTools).configure_stable_aim_pose(

@@ -718,3 +718,7 @@ Monster 版本只编辑逻辑与表现两份主配置。`monster_gore.inspect_mo
 2026-10-29 左臂原位烘焙逐条保存后释放 Sequencer 瞬态对象并执行垃圾收集，避免长批次耗尽编辑器 UObject 数量。实际批处理多组完成；全库处理及引用核验仍在进行。详见 Docs/BBBHandRetargetBatchMCP.md。
 
 2026-10-29 左手原位烘焙修复辅助骨与最终手骨不一致的问题，以逐帧父空间重建并校验；对候选动画先验证并拒绝未完成的控制关键帧底稿。864 条校准完成，15 条锁骨不可达的瞄准动作恢复原左臂；879 条各五点辅助骨回读最大误差 0.00903 cm。具体边界见 Docs/BBBHandRetargetBatchMCP.md。
+
+## AimIK 前端枪姿势稳定工具（2026-10-29）
+
+新增 animation_graph.configure_stable_aim_pose。它在公共装备层的 AimIK 输入前组合既有静态参考与举枪加法，按 spine_01 分支与 MM 输入姿势混合，使用现有 WeaponAimAlpha，并编译保存公共层和装备子层。项目 UE5.8 Development Editor 构建成功；工具批次保存 6 份动画蓝图，磁盘重载后公共层 BS_UpToDate、图表 54 节点，步枪/手枪/霰弹枪站蹲引用回读正确。动态观感由用户验收。

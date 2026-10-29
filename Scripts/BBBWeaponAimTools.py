@@ -166,7 +166,15 @@ def configure_weapon_aim_additives(base_path, layer_paths, stand_paths, crouch_p
 
 
 def configure_stable_aim_pose(base_path, layer_paths, dependent_paths):
-    """Build the static reference plus additive pose before AimIK in the shared skeletal control layer."""
+    """
+    /**
+     * 在共享骨骼控制层的 AimIK 前构建静态参考与举枪加法混合
+     * @param base_path\t公共装备动画层
+     * @param layer_paths\t直接装备子层路径
+     * @param dependent_paths\t其他依赖子层路径
+     * @return 编译保存与图表节点摘要
+     */
+    """
     paths = [base_path] + list(layer_paths) + list(dependent_paths)
     if len(paths) != len(set(paths)) or not layer_paths:
         raise RuntimeError("瞄准稳定层目标列表无效")
