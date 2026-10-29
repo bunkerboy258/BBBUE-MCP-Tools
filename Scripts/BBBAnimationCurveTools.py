@@ -127,28 +127,84 @@ def _animation_metadata(animation):
 def inspect(asset_paths, bone_names):
     """/** @param asset_paths 动画序列 @param bone_names 同源比对骨骼 @return 原始曲线与完整局部骨轨道摘要 */"""
     results = []
+    import pathlib
+    import importlib
+    import BBBAnimationTrajectoryTools
+    import BBBAnimationRecoveryTools
+    importlib.reload(BBBAnimationTrajectoryTools)
+    importlib.reload(BBBAnimationRecoveryTools)
+    source_files = [path for path in asset_paths if pathlib.Path(path).is_absolute() and not path.startswith('/Game/')]
+    sources = {}
+    source_errors = {}
+    for source_file in source_files:
+        try:
+            sources[source_file] = BBBAnimationRecoveryTools.load_reference_file(source_file)
+        except Exception as error:
+            source_errors[source_file] = str(error).splitlines()[0][:400]
     for path in asset_paths:
-        animation = unreal.load_asset(path)
+        if path in source_errors:
+            results.append({'asset': path, 'error': source_errors[path]})
+            continue
+        animation = sources[path] if path in sources else unreal.load_asset(path)
         if not isinstance(animation, unreal.AnimSequence):
             raise RuntimeError('需要动画序列 ' + path)
         model = animation.data_model_interface
         rate = model.get_frame_rate()
         tracks = set(str(n) for n in model.get_bone_track_names())
         signatures = {}
-        for bone in bone_names:
+        requested_bones = sorted(tracks) if bone_names == ['*'] else bone_names
+        raw_tracks = {}
+        for bone in requested_bones:
             if bone not in tracks:
                 continue
             transforms = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, bone)
+            if bone_names == ['*']:
+                raw_tracks[bone] = [[*t.translation.to_tuple(), *t.rotation.to_tuple(), *t.scale3d.to_tuple()] for t in transforms]
             values = [[round(float(v), 3) for v in (
                 *t.translation.to_tuple(), *t.rotation.to_tuple(), *t.scale3d.to_tuple())] for t in transforms]
             signatures[bone] = {'keys': len(values), 'digest': hashlib.sha256(json.dumps(values).encode()).hexdigest()}
         results.append({'asset': animation.get_path_name(), 'length': animation.get_play_length(),
-                        'rate': [rate.numerator, rate.denominator], 'bone_signatures': signatures,
+                        'keys': model.get_number_of_keys(),
+                        'rate': [rate.numerator, rate.denominator], 'bone_signatures': signatures, 'bone_track_names': sorted(tracks),
                         'animation_metadata': _animation_metadata(animation),
                         'curves': {str(n): c.export_text() for n, c in zip(
                             unreal.AnimationLibrary.get_animation_curve_names(animation, unreal.RawCurveTrackTypes.RCT_FLOAT),
                             _curves(animation))}})
+        if raw_tracks:
+            results[-1]['bone_track_keys'] = raw_tracks
+            results[-1]['raw_bone_digest'] = _bone_digest(animation)
+        if not tracks and bone_names and bone_names != ['*']:
+            results[-1]['compressed_probe'] = _compressed_probe(animation, bone_names)
     return json.dumps(results, ensure_ascii=False)
+
+
+def _compressed_probe(animation, bone_names):
+    """/** @param animation 原始骨轨缺失的动画 @param bone_names 明确骨名 @return 只读压缩姿态候选诊断 不作为恢复证据 */"""
+    try:
+        options = unreal.AnimPoseEvaluationOptions()
+        options.evaluation_type = unreal.AnimDataEvalType.COMPRESSED
+        options.should_retarget = False
+        skeleton = animation.get_editor_property('skeleton')
+        reference = unreal.AnimPoseExtensions.get_reference_pose(skeleton)
+        rows = []
+        non_reference = False
+        length = animation.get_play_length()
+        for seconds in (0.0, length * 0.5, length):
+            pose = unreal.AnimPoseExtensions.get_anim_pose_at_time(animation, seconds, options)
+            available = {str(name) for name in unreal.AnimPoseExtensions.get_bone_names(pose)}
+            values = {}
+            for name in bone_names[:24]:
+                if name not in available:
+                    continue
+                actual = unreal.AnimPoseExtensions.get_bone_pose(pose, name, unreal.AnimPoseSpaces.LOCAL)
+                initial = unreal.AnimPoseExtensions.get_bone_pose(reference, name, unreal.AnimPoseSpaces.LOCAL)
+                values[name] = actual.export_text()
+                non_reference = non_reference or (actual.translation - initial.translation).length() > 0.00001
+                non_reference = non_reference or abs(abs(sum(a * b for a, b in zip(actual.rotation.to_tuple(), initial.rotation.to_tuple()))) - 1) > 0.00001
+            rows.append({'seconds': seconds, 'bones': values})
+        return {'non_reference_pose_detected': non_reference, 'samples': rows}
+    except Exception as error:
+        return {'error': str(error).splitlines()[0][:400]}
 
 
 def rename(asset_paths, old_name, new_name, dry_run):

@@ -145,6 +145,10 @@ def _replace_tracks(target, prepared):
 
 def run(source_paths, retargeter_path, target_folder, dry_run=False):
     from BBBAssetWritePolicy import require_asset_write
+    from pathlib import Path
+
+    recovery_file = Path(unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_saved_dir())) / 'temp/AnimationRecoverySources/expected-signatures.json'
+    recovery_paths = set(json.loads(recovery_file.read_text(encoding='utf-8'))) if recovery_file.is_file() else set()
 
     if not source_paths or len(source_paths) > 32 or len(set(source_paths)) != len(source_paths):
         raise RuntimeError("每批必须提供一至三十二条互不重复的源动画")
@@ -179,6 +183,10 @@ def run(source_paths, retargeter_path, target_folder, dry_run=False):
         if source.get_editor_property("additive_anim_type") != target.get_editor_property("additive_anim_type"):
             raise RuntimeError("源与目标加法模式不同: " + target_path)
         _, source_root = _root_track(source)
+        if target_path in recovery_paths or {'root','ik_hand_l'} - {str(name).casefold() for name in target.data_model_interface.get_bone_track_names()}:
+            import importlib
+            import BBBAnimationRecoveryTools
+            return json.dumps(importlib.reload(BBBAnimationRecoveryTools).preview_retarget(source_paths, retargeter_path, target_path, not dry_run), ensure_ascii=False)
         _, target_root = _root_track(target)
         if len(source_root) != len(target_root):
             raise RuntimeError("源与目标 Root 帧数不同: " + target_path)

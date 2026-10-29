@@ -2,7 +2,18 @@
 
 ## 局部骨骼轨道制作
 
-`animation.replace_animation_bone_tracks` 接收 `animation_path` 与 `tracks` 字典。每个显式骨骼必须提供与当前数据模型相同帧数的 `position` 三维位置、`rotation` XYZW 单位四元数和 `scale` 正缩放。单次最多 128 条轨道、每条 600 帧；先校验所有请求，再通过动画数据控制器写入，仅处理已有轨道，拒绝目标骨骼仍有变换修正曲线的情况。其它轨道、通知、曲线、时长与叠加设置保持；逐帧回读后保存。PIE 期间拒绝修改。
+`animation.replace_animation_bone_tracks` 接收 `animation_path` 与 `tracks` 字典。每个显式骨骼必须提供与当前数据模型相同帧数的 `position` 三维位置、`rotation` XYZW 单位四元数和 `scale` 正缩放。单次最多 128 条轨道、每条 1200 帧；先校验所有请求，再通过动画数据控制器写入，允许补回目标骨架中存在而动画数据模型缺失的轨道，拒绝目标骨骼仍有变换修正曲线的情况。其它轨道、通知、曲线、时长与叠加设置保持；逐帧回读后保存。PIE 期间拒绝修改。
+
+
+损坏动画的 `retarget.retarget_sequences(overwrite=true, preserve_target_metadata=true)` 分支在隔离参考挂载中临时烘焙，每次最多八条同目录来源。`dry_run=true` 返回候选摘要；正式写入要求 `Saved/temp/AnimationRecoverySources/expected-signatures.json` 含明确目标路径的故障前 `length`、`rate` 与至少十条 `bone_signatures`，且候选全部匹配。缺少证据或任何摘要不同均不写入。通过后只写骨轨，保留目标曲线、通知、同步标记、叠加设置及压缩配置，回读数值后保存。隔离烘焙资产在会话结束前删除，任务负责人清理所属临时源硬链接目录。该路径不替代视觉或玩法验收。
+
+恢复也接受明确的外部 `reference_content_directory` 和 `reference_skeleton_path`，不修改来源。单条候选允许重放目标正式 `*LeftHandMotion.json.source` 所列唯一制作序列，使用目标原数据模型的隔离副本复现旋转转换与辅助 IK；最终仍需通过故障前摘要。三位小数量化边界只在距边界不超过 `1e-6` 或旋转有符号零不超过 `1e-7` 时进行有限枚举，必须精确重现已存整轨 SHA256 并记录分量位置及原值，不能把一般近似视为匹配。
+
+原生 `BBBBlueprintEditorLibrary.copy_animation_bone_tracks` 用于同骨架、同帧率和同关键帧数的骨轨复制；空骨名数组代表全部源轨道。最多 128 轨、1200 帧，先校验源变换，再统一写入并原生回读，失败恢复调用前的轨道。此函数不保存、不复制曲线和事件；上层入口负责故障前证据与元数据保持检查。
+
+存在上述恢复证据文件时，其中明确列出的目标始终走恢复核验分支，包括已恢复的目标，以避免批次重试进入普通重定向覆盖流程。单个短批次仍至多八条；调用方按总关键帧预算拆分，任务结束删除自己的恢复证据文件。
+
+根轨 SHA256 因数值表达不一致时，可使用 `root-alignments.json` 中故障前已核验的逐帧同源对齐记录；参考根轨须先通过其故障前摘要。完整覆盖的帧用三角不等式合并旧误差与候选误差，最多遗漏的首帧还须在不变原始源上验证统一缩放关系。位置误差上界不超过 `0.02 cm`、旋转上界不超过 `0.02` 度才通过，输出实际误差上界、参考路径、首帧来源和缩放拟合残差。其他骨轨仍须逐项通过摘要或有界舍入检查，不能用整段的平均误差代替。
 
 `animation.export_animation_motion_context` 的报告统一写到 `Saved/temp/<文件名去扩展名>/<文件名>`，用于离线计算制作数据。输入仍为单个文件名；调用方完成任务后清理自己的目录。
 
@@ -221,7 +232,7 @@ IK 重建通过网格查询真实父骨名，使用 FK 脚组件变换相对于�
 
 ## UA 骨架与接口迁移
 
-- `copy_animation_skeleton_metadata(source_skeleton_path, target_skeleton_path, target_to_source_bones)`：只修改目标骨架，按骨名复制混合描述文件、虚拟骨骼、插槽及蒙太奇分组。UE4 脊柱映射使用 `spine_01:spine_01, spine_02:spine_03, spine_03:spine_05`。目标不存在的虚拟骨骼端点或插槽骨骼会报警并返回失败。
+- `copy_animation_skeleton_metadata(source_skeleton_path, target_skeleton_path, target_to_source_bones, translation_modes_only=false)`：只修改目标骨架，按骨名复制混合描述文件、虚拟骨骼、插槽及蒙太奇分组。`translation_modes_only=true` 仅恢复平移模式，保留层级、参考姿势、遮罩、插槽和分组。UE4 脊柱映射使用 `spine_01:spine_01, spine_02:spine_03, spine_03:spine_05`。目标不存在的必要源骨名、虚拟骨骼端点或插槽骨骼会报警并返回失败。
 - `rebind_animation_blueprint_interface(blueprint_path, source_interface_path, target_interface_path)`：替换 `ImplementedInterfaces` 的接口类，保留现有动画覆盖图；节点内 `Interface` 引用需同步修改。
 - `UA_RepointRefs.py`：先 `APPLY=False` 输出 `Saved/UA_RepointPreview.json`；节点通过完整对象路径去重，结构体使用 `export_text/import_text`，类默认值通过官方 `ToolsetLibrary` 枚举与回读。禁止用 `consolidate_assets` 替换引用。
 `remap_animation_blueprint_class_references(blueprint_path, class_paths)`：在目标蓝图及所属图对象内统一替换类引用，包含转换节点、函数返回类型及引脚类型；用于避免复制动画层后仍转换到旧主蓝图而导致运行时读取失败。
@@ -322,3 +333,5 @@ IK 重建通过网格查询真实父骨名，使用 FK 脚组件变换相对于�
 枪口方向冲击和回零倍率由角色方向冲击输入包根据实际下蹲事实选择 不在动画快照 getter 内计算
 
 新增原生入口必须先编译并加载到编辑器后才能运行此工具 工具执行会编译蓝图 禁止在不允许编译的任务中执行
+
+只缺少根轨证据时允许只补回其他已核验骨轨，返回 `partial_missing_root` 和 `unverified_tracks`；保留任何已有根轨，不将局部恢复标为完整恢复。

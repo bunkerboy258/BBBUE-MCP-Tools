@@ -60,6 +60,7 @@ HELPER_MODULES = (
     "BBBHandPoseLayerTools",
     "BBBAnimationMotionTools",
     "BBBAnimationTrajectoryTools", "BBBArmTwistTools", "BBBWeaponHandlingTools", "BBBRecoilProbeTools",
+    "BBBAnimationRecoveryTools",
     "BBBAnimationViewTools",
     "BBBFactAnimationCaptureTools",
     "BBBAnimationPoseBaking",

@@ -3386,11 +3386,11 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def copy_animation_skeleton_metadata(source_skeleton_path: str, target_skeleton_path: str, target_to_source_bones: dict[str, str]) -> str:
+    def copy_animation_skeleton_metadata(source_skeleton_path: str, target_skeleton_path: str, target_to_source_bones: dict[str, str], translation_modes_only: bool = False) -> str:
         """按目标骨名复制混合遮罩、虚拟骨骼、插槽与蒙太奇分组"""
         source = unreal.load_asset(source_skeleton_path)
         target = unreal.load_asset(target_skeleton_path)
-        if not unreal.BBBBlueprintEditorLibrary.copy_animation_skeleton_metadata(source, target, target_to_source_bones):
+        if not unreal.BBBBlueprintEditorLibrary.copy_animation_skeleton_metadata(source, target, target_to_source_bones, translation_modes_only):
             raise RuntimeError("骨架元数据复制失败")
         if not unreal.EditorAssetLibrary.save_loaded_asset(target, False):
             raise RuntimeError("目标骨架保存失败")
