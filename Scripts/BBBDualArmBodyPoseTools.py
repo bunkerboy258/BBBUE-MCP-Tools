@@ -525,7 +525,7 @@ def process(recipe_path, action, write_paths, job_index):
     if recipe_path.endswith('_LeftHandMotion.json.source'):
         import importlib
         import BBBLeftHandMotionCalibration
-        return importlib.reload(BBBLeftHandMotionCalibration).run(recipe_path, action, write_paths)
+        return importlib.reload(BBBLeftHandMotionCalibration).run(recipe_path, action, write_paths, job_index)
     if recipe_path.endswith('_RetargetActions.json.source'):
         import importlib
         import BBBActionRetargetTools

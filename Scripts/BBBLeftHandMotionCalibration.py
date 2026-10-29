@@ -46,7 +46,36 @@ def _sync_left_ik(animation, mesh, count, rate):
     return keys, max_position, max_angle
 
 
-def run(recipe_path, action, write_paths):
+def _configure_preview(sequence, preview):
+    mesh = unreal.load_asset(preview['mesh'])
+    definition = unreal.load_asset(preview['definition'])
+    if not isinstance(mesh, unreal.SkeletalMesh) or not definition:
+        raise RuntimeError('LEFT_HAND_PREVIEW_ASSET')
+    bindings = [b for b in sequence.get_bindings() if b.get_name() in (preview['label'], 'Rifle_01')]
+    if len(bindings) != 1:
+        raise RuntimeError('LEFT_HAND_PREVIEW_BINDING')
+    binding = bindings[0]
+    actor = binding.get_object_template()
+    if not isinstance(actor, unreal.SkeletalMeshActor):
+        raise RuntimeError('LEFT_HAND_PREVIEW_ACTOR')
+    actor.skeletal_mesh_component.set_skeletal_mesh_asset(mesh)
+    binding.set_name(preview['label'])
+    transform = definition.get_editor_property('spawn_offset')
+    rotation = transform.rotation.rotator()
+    values = list(transform.translation.to_tuple()) + [rotation.roll, rotation.pitch, rotation.yaw] + list(transform.scale3d.to_tuple())
+    tracks = binding.find_tracks_by_type(unreal.MovieScene3DTransformTrack)
+    if len(tracks) != 1 or len(tracks[0].get_sections()) != 1:
+        raise RuntimeError('LEFT_HAND_PREVIEW_TRACK')
+    channels = tracks[0].get_sections()[0].get_all_channels()
+    if len(channels) != 9 or any(c.get_keys() for c in channels):
+        raise RuntimeError('LEFT_HAND_PREVIEW_KEYS')
+    for channel, value in zip(channels, values):
+        channel.set_default(value)
+    if not unreal.EditorAssetLibrary.save_loaded_asset(sequence, False):
+        raise RuntimeError('LEFT_HAND_PREVIEW_SAVE')
+
+
+def run(recipe_path, action, write_paths, job_index=-1):
     """/** @param recipe_path 正式制作源 @param action bake @param write_paths 明确序列与动画 @return 瞬态烘焙后原位左臂写入结果 */"""
     project = Path(unreal.Paths.project_dir()).resolve()
     path = (project / recipe_path).resolve()
@@ -58,6 +87,10 @@ def run(recipe_path, action, write_paths):
         import importlib
         return importlib.reload(BBBLeftHandRestore).run(path, data, write_paths)
     jobs = data['jobs']
+    if job_index != -1:
+        if job_index < 0 or job_index >= len(jobs):
+            raise ValueError('LEFT_HAND_MOTION_JOB_INDEX')
+        jobs = [jobs[job_index]]
     expected = {j[k] for j in jobs for k in ('animation', 'sequence')}
     if set(write_paths) != expected or unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
         raise ValueError('LEFT_HAND_MOTION_WRITE_SCOPE_OR_PIE')
@@ -95,6 +128,8 @@ def run(recipe_path, action, write_paths):
                               'mesh_path':data['mesh'], 'sequence_path':job['sequence'], 'grip_in_hand_r':grip,
                               'weight':job.get('weight', 1.0), 'contacts':[{'start_frame':0, 'end_frame':count-1, 'fade_in_frames':0, 'fade_out_frames':0}]})
         sequence = unreal.load_asset(job['sequence'])
+        if data.get('preview'):
+            _configure_preview(sequence, data['preview'])
         rig_binding = batch._binding_for_mesh(sequence, mesh)
         rig_tracks = rig_binding.find_tracks_by_type(unreal.MovieSceneControlRigParameterTrack)
         if len(rig_tracks) != 1:
@@ -174,7 +209,12 @@ def run(recipe_path, action, write_paths):
         gc.collect()
         unreal.SystemLibrary.collect_garbage()
     data['grip_in_hand_r'] = grip
-    data['results'] = results
+    if job_index == -1:
+        data['results'] = results
+    else:
+        updated = {r['animation']: r for r in data.get('results', [])}
+        updated.update({r['animation']: r for r in results})
+        data['results'] = list(updated.values())
     data['acceptance'] = 'pending_user_review'
     path.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
     return json.dumps(results,ensure_ascii=False)
