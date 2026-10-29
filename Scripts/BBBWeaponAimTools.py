@@ -48,7 +48,7 @@ def create_weapon_aim_additive(neutral_path, target_path, asset_path, reference_
             "keys": animation.data_model_interface.get_number_of_keys(), "curveDelta": curves, "saved": True}
 
 
-def _build_aim_update(base):
+def _build_aim_update(base, stable_pose=False):
     """/** @param base 公共装备层 @return 线程安全举枪与独立 IK 门控更新已重建 */"""
     g = _function(base, "UpdateWeaponAimData")
     g.editor.set_is_thread_safe_function(True)
@@ -81,11 +81,17 @@ def _build_aim_update(base):
     stand = g.binary("NotEqual_ObjectObject", g.get("WeaponAimStandAdditive"), "None")
     crouch = g.binary("NotEqual_ObjectObject", g.get("WeaponAimCrouchAdditive"), "None")
     assets = g.binary("BooleanAND", stand, crouch)
+    if stable_pose:
+        references = g.binary("BooleanAND",
+            g.binary("NotEqual_ObjectObject", g.get("WeaponAimStandReference"), "None"),
+            g.binary("NotEqual_ObjectObject", g.get("WeaponAimCrouchReference"), "None"))
+        assets = g.binary("BooleanAND", assets, references)
     raise_gate = g.binary("BooleanAND", g.binary("BooleanAND", ready, not_running), g.binary("BooleanAND", assets, can_use))
     target = g.select(1, 0, raise_gate)
     speed = g.select(12.5, 10, raise_gate)
     alpha = g.out(g.call("FInterpTo", inputs={"Current": g.get("WeaponAimAlpha"), "Target": target, "DeltaTime": delta, "InterpSpeed": speed}))
     alpha = g.out(g.call("FClamp", inputs={"Value": alpha, "Min": 0, "Max": 1}))
+    alpha = g.select(alpha, 0, g.binary("BooleanAND", assets, can_use))
     execute = g.set("WeaponAimAlpha", alpha, branch.find_then_pin())
     ik_gate = g.binary("BooleanAND", g.binary("BooleanOR", not_running, ready), can_use)
     ik = g.out(g.call("FInterpTo", inputs={"Current": g.get("LocomotionAimIKAlpha"), "Target": g.select(1, 0, ik_gate),
@@ -190,8 +196,13 @@ def configure_stable_aim_pose(base_path, layer_paths, dependent_paths):
     base = targets[0]
     graph = unreal.BlueprintEditorLibrary.find_graph(base, "FullBody_SkeletalControls")
     before = json.loads(unreal.BBBBlueprintEditorLibrary.inspect_blueprint_graph_logical_snapshot(graph))
-    if not unreal.BBBWeaponAimEditorLibrary.configure_stable_aim_pose(base):
-        raise RuntimeError("静态端枪混合构图失败")
+    configured = "WeaponAimStandReference" in {
+        str(name) for name in unreal.BlueprintEditorLibrary.list_member_variable_names(base, False)}
+    if not configured:
+        if not unreal.BBBWeaponAimEditorLibrary.configure_stable_aim_pose(base):
+            raise RuntimeError("静态端枪混合构图失败")
+        unreal.BlueprintEditorLibrary.compile_blueprint(base)
+    _build_aim_update(base, stable_pose=True)
     for value in targets:
         unreal.BlueprintEditorLibrary.compile_blueprint(value)
         if value.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
@@ -202,7 +213,7 @@ def configure_stable_aim_pose(base_path, layer_paths, dependent_paths):
         defaults.set_editor_property("WeaponAimStandReference", stand.get_editor_property("ref_pose_seq") if stand else None)
         defaults.set_editor_property("WeaponAimCrouchReference", crouch.get_editor_property("ref_pose_seq") if crouch else None)
     after = json.loads(unreal.BBBBlueprintEditorLibrary.inspect_blueprint_graph_logical_snapshot(graph))
-    if len(after["nodes"]) <= len(before["nodes"]):
+    if not configured and len(after["nodes"]) <= len(before["nodes"]):
         raise RuntimeError("静态端枪混合图节点未增加")
     for value in targets:
         if not unreal.EditorAssetLibrary.save_loaded_asset(value, False):
