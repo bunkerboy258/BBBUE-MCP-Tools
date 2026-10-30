@@ -7,6 +7,7 @@ import time
 import traceback
 
 import unreal
+import BBBPresentationProbe
 
 
 OUTPUT_PATH = os.path.join(
@@ -482,6 +483,7 @@ class BBBLocomotionSyncRuntimeProbe:
                 pose["actual_displacement_speed"],
             ),
             "native_runtime": runtime,
+            "presentation": BBBPresentationProbe.snapshot(mesh, anim_instance, runtime),
             "camera": {
                 "location": self.vector_to_dict(
                     unreal.GameplayStatics.get_player_camera_manager(world, 0).get_camera_location(),
