@@ -18,7 +18,7 @@ def apply_curves(animation, curves):
         if item['name'].casefold() != name.casefold():
             raise RuntimeError('METADATA_CURVE_NAME_MISMATCH')
         prepared.append(item)
-        expected[name.casefold()] = _curve_semantics(text)
+        expected[name.casefold()] = _curve_semantics(curve.export_text())
     for name in unreal.AnimationLibrary.get_animation_curve_names(animation, unreal.RawCurveTrackTypes.RCT_FLOAT):
         identifier = unreal.AnimationCurveIdentifier()
         identifier.set_curve_identifier(name, unreal.RawCurveTrackTypes.RCT_FLOAT)

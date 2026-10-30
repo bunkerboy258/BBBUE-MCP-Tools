@@ -291,12 +291,18 @@ def finalize(recipe_path, write_paths):
         if data.get('preserve_curves') and _curve_values(animation) != curves_before:
             raise RuntimeError('RETARGET_ACTION_AUTHORED_CURVES_CHANGED')
         maximum = 0.0
+        maximum_rotation = 0.0
         for name, before in original.items():
             after = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, name)
             for frame in unchanged_frames:
                 maximum = max(maximum, (before[frame].translation - after[frame].translation).length())
-                if maximum > 0.0001 or (before[frame].scale3d - after[frame].scale3d).length() > 0.00001 or abs(sum(x * y for x, y in zip(before[frame].rotation.to_tuple(), after[frame].rotation.to_tuple()))) < 0.999999:
-                    raise RuntimeError('RETARGET_ACTION_MIDDLE_CHANGED')
+                left = before[frame].rotation.to_tuple()
+                right = after[frame].rotation.to_tuple()
+                norm = math.sqrt(sum(x * x for x in left) * sum(x * x for x in right))
+                cosine = min(1.0, abs(sum(x * y for x, y in zip(left, right))) / norm)
+                maximum_rotation = max(maximum_rotation, math.degrees(2 * math.acos(cosine)))
+                if maximum > 0.001 or maximum_rotation > 0.001 or (before[frame].scale3d - after[frame].scale3d).length() > 0.00001:
+                    raise RuntimeError('RETARGET_ACTION_MIDDLE_CHANGED: %s:%d cm=%f degrees=%f' % (name, frame, maximum, maximum_rotation))
         endpoint_error = 0.0
         expected = _pose(reference, mesh, 0)
         endpoint_times = []
@@ -317,6 +323,7 @@ def finalize(recipe_path, write_paths):
         job['aligned_digest'] = _digest(animation)
         job['validation'] = {'animation': job['animation'], 'reference': data['reference_animation'],
                              'endpoint_position_error_cm': endpoint_error, 'middle_position_error_cm': maximum,
+                             'middle_rotation_error_degrees': maximum_rotation,
                              'entry_frames': job['entry_frames'], 'exit_frames': job['exit_frames'],
                              'stable_tail_frames': count - 1 - exit_window[1] if exit_window is not None else 0,
                              'preserved_frames': [unchanged_frames.start, unchanged_frames.stop - 1],
@@ -340,7 +347,7 @@ def inspect(recipe_path, write_paths):
              'validation': job.get('validation'),
              'finger_entry': _finger_entry(_asset(job['animation'], unreal.AnimSequence), reference),
              'trajectory': _metrics(_asset(job['animation'], unreal.AnimSequence), reference, mesh,
-                                    sorted(set([0, job['length']] + ([job['exit_frames'][1] / 30] if job['exit_frames'] is not None else []))))} for job in data['jobs']]}
+                                    sorted(set([0, job['length']] + ([job['exit_frames'][1] * job['length'] / (job['frames'] - 1)] if job['exit_frames'] is not None else []))))} for job in data['jobs']]}
 
 
 def _finger_entry(animation, reference):
@@ -354,7 +361,7 @@ def _finger_entry(animation, reference):
         keys = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, bone)
         ref = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(reference, bone)[0]
         samples = []
-        for frame in (0, 2, 4, 6, 8, 10, 12, 15, 20, 30, len(keys) - 1):
+        for frame in sorted({value for value in (0, 2, 4, 6, 8, 10, 12, 15, 20, 30, len(keys) - 1) if value < len(keys)}):
             value = keys[frame]
             dot = min(1.0, abs(sum(x*y for x,y in zip(value.rotation.to_tuple(), ref.rotation.to_tuple()))))
             samples.append({'frame': frame, 'degrees_from_reference': math.degrees(2*math.acos(dot)),
@@ -448,6 +455,7 @@ def _repair_fingers(path, data, job):
                    'other_tracks_unchanged': True, 'translation_scale_unchanged': True})
     job['aligned_digest'] = _digest(animation)
     job['validation']['finger_entry_repaired'] = True
+    job['validation']['animation_digest'] = job['aligned_digest']
     _save(path, data)
     return policy
 
