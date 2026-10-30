@@ -201,6 +201,15 @@ def _bake(path, recipe, index, write_paths):
         if _digest_tracks(current) != job['result']['output_digest']:
             raise RuntimeError('BODY_POSE_OUTPUT_CHANGED_AFTER_BAKE')
         return dict(job['result'], skipped=True)
+    if job.get('role') == 'scaled_additive':
+        import importlib
+        import BBBScaledAdditiveTools
+        result = importlib.reload(BBBScaledAdditiveTools).rebuild(source, output_path, job['base_animation'],
+            job['source_reference_frame'], job['amplitude'], recipe['mesh'], job.get('rotation_space', 'source'))
+        result['output_digest'] = _digest_tracks(_asset(output_path, unreal.AnimSequence))
+        job['result'] = result
+        _save(path, recipe)
+        return result
     count = source.data_model_interface.get_number_of_keys()
     if count < 2 or count > 1200:
         raise RuntimeError('BODY_POSE_FRAME_RANGE')
