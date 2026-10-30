@@ -312,6 +312,8 @@ UE5.8 以 `DefaultKeyMappings` 为实际映射来源 工具调用引擎的 `unma
 
 `render_asset_thumbnails(requests)` 接收显式列表 每项为 `source` 网格包路径 `destination` 纹理包路径以及可选 `yaw` 观察方向 默认七十五度 一次最多一百项
 
+单项 `scene_options` 支持 `custom_primitive_data` 数字索引字典 `secondary_skeletal_meshes` 最多六个同骨架跟随网格 `animation` 与 `animation_time` 固定动作姿态 `lod` 明确显示档位 `focus_center` 与 `focus_extent` 局部取景 `cast_shadows` 与 `ambient_occlusion`。仅作用于临时预览场景 不运行 PIE 不修改正式网格或动画。`diagnostic_only=true` 时只输出 PNG 不创建目标纹理。适用于组合身体与内部组织的伤口制作检查。
+
 工具由 `BBBAssetThumbnailEditorLibrary` 在临时独立场景按真实顶点边界生成 512 方形 PNG 再导入普通 UI Texture2D 每项立即保存 已有目标必须独占签出成功 失败项明确返回 不修改源网格或当前关卡 需要启用渲染的宿主 不支持 NullRHI 组合预设需另行提供实际组合网格
 
 输出源图位于项目 Saved/Diagnostics/AssetThumbnails 纹理不生成 mip 且不流送 用于解决衣物共用骨架导致取景过远的问题

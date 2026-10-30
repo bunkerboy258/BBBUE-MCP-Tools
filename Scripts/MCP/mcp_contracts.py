@@ -493,15 +493,22 @@ TOOL_POLICIES = {
     'editor.sample_hand_handling_surface': {'access': 'read'},
     'editor.reparent_skeletal_mesh_socket': {'scope': {'fields': ['mesh_path']}, 'world': 'editor', 'completion': 'verified_save'},
     'control_rig.replace_sequence_animation_references': {'scope': {'fields': ['sequence_path']}},
-    'editor.inspect_mesh_lod_statistics': {'access': 'read'},
+    'editor.inspect_mesh_lod_statistics': {'access': 'read', 'world': 'editor'},
+    'editor.export_skeletal_mesh_fbx': {'access': 'read', 'world': 'editor', 'completion': 'observed'},
 }
 
-@lru_cache(maxsize=None)
 def source_inputs(definition):
     """/** @param definition\t领域模块 @return 同源结构化输入定义 */"""
     path = Path(__file__).resolve().parents[1] / (definition + ".py")
     if not path.is_file():
         return {}
+    return _source_inputs_at_revision(str(path), path.stat().st_mtime_ns)
+
+
+@lru_cache(maxsize=64)
+def _source_inputs_at_revision(filename, revision):
+    """/** @param filename\t工具定义文件 @param revision\t文件修改代次 @return 对应代次的输入结构 */"""
+    path = Path(filename)
     tree = ast.parse(path.read_text(encoding="utf-8-sig"))
     for node in tree.body:
         if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "MCP_INPUTS" for target in node.targets):

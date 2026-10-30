@@ -73,6 +73,21 @@ MCP_INPUTS = {
                     'diagnostic_only': {'type': 'boolean'},
                     'scalar_parameters': {'type': 'object', 'additionalProperties': {'type': 'number'}},
                     'material_overrides': {'$ref': '#/$defs/StringMap'},
+                    'scene_options': {
+                        'type': 'object',
+                        'properties': {
+                            'custom_primitive_data': {'type': 'object', 'additionalProperties': {'type': 'number'}},
+                            'secondary_skeletal_meshes': {'type': 'array', 'items': {'type': 'string'}, 'maxItems': 6},
+                            'animation': {'type': 'string'},
+                            'animation_time': {'type': 'number', 'minimum': 0},
+                            'lod': {'type': 'integer', 'minimum': 0, 'maximum': 7},
+                            'focus_center': {'$ref': '#/$defs/Vector3'},
+                            'focus_extent': {'$ref': '#/$defs/Vector3'},
+                            'cast_shadows': {'type': 'boolean'},
+                            'ambient_occlusion': {'type': 'boolean'},
+                        },
+                        'additionalProperties': False,
+                    },
                     'yaw': {'type': 'number'},
                     'excluded_material_slots': {'type': 'string'},
                     'output_directory': {'type': 'string'},
@@ -1895,13 +1910,16 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             material_overrides = request.get("material_overrides", {})
             if not isinstance(material_overrides, dict):
                 raise RuntimeError("预览材质替换必须是 JSON 对象")
+            scene_options = request.get("scene_options", {})
+            if not isinstance(scene_options, dict):
+                raise RuntimeError("离屏场景参数必须是 JSON 对象")
 
             image_path = unreal.BBBAssetThumbnailEditorLibrary.render_mesh_thumbnail(
                 source, file_name, float(request.get("yaw", 75.0)),
                 str(request.get("excluded_material_slots", "")),
                 str(request.get("output_directory", "AssetThumbnails")), bool(request.get("orthographic", False)),
                 bool(request.get("pack_sides", False)), json.dumps(scalar_parameters, ensure_ascii=False),
-                json.dumps(material_overrides, ensure_ascii=False))
+                json.dumps(material_overrides, ensure_ascii=False), json.dumps(scene_options, ensure_ascii=False, allow_nan=False))
             if not image_path:
                 results.append({"destination": destination, "error": "网格渲染失败"})
                 continue
@@ -5200,7 +5218,8 @@ return saturate(edge*3)*smoothstep(0.18,0.7,n)*0.8;
                     reason = None
                     section_slots = None
                 lods.append({'lod': index, 'triangles': triangles, 'triangleUnavailableReason': reason,
-                             'renderVertices': vertices, 'sections': sections, 'sectionMaterialSlots': section_slots})
+                             'renderVertices': vertices, 'sections': sections, 'sectionMaterialSlots': section_slots,
+                             'uvChannels': native_lod.get('uvChannels') if skeletal and reason is None else None})
             rows.append({'asset': path, 'type': 'SkeletalMesh' if skeletal else 'StaticMesh',
                          'materialSlots': slots, 'lods': lods})
         return json.dumps({'readOnly': True, 'geometrySource': 'RenderData', 'meshes': rows}, ensure_ascii=False)

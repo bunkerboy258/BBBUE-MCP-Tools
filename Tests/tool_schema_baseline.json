@@ -14676,11 +14676,24 @@
           "source_file": {
             "type": "string",
             "description": "已存在的 FBX 绝对路径 *"
+          },
+          "import_uniform_scale": {
+            "type": "number",
+            "description": "相对源文件的统一导入缩放 *",
+            "default": 1
+          },
+          "lod_source_files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "按 LOD1 起顺序导入的明确 FBX 文件 传入时完整替换细节档位 *"
           }
         },
         "required": [
           "asset_path",
-          "source_file"
+          "source_file",
+          "lod_source_files"
         ]
       },
       "outputSchema": {
