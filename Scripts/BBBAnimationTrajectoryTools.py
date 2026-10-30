@@ -25,11 +25,11 @@ def replace_tracks(animation_path, tracks_json, source_animation_path=""):
     if not isinstance(requests, dict) or not requests or len(requests) > 128 or count > 1200:
         raise RuntimeError("轨道请求范围无效")
     existing = {str(name) for name in animation.data_model_interface.get_bone_track_names()}
-    skeleton_bones = {str(name) for name in animation.get_skeleton().get_reference_pose().get_bone_names()}
+    skeleton_bones = {str(name).casefold() for name in animation.get_skeleton().get_reference_pose().get_bone_names()}
     corrections = {str(name).casefold() for name in unreal.AnimationLibrary.get_animation_curve_names(animation, unreal.RawCurveTrackTypes.RCT_TRANSFORM)}
     prepared = {}
     for name, keys in requests.items():
-        if name not in skeleton_bones or name.casefold() in corrections or len(keys) != count:
+        if name.casefold() not in skeleton_bones or name.casefold() in corrections or len(keys) != count:
             raise RuntimeError("轨道不存在 帧数不符或存在变换修正 " + name)
         positions = []
         rotations = []
@@ -54,7 +54,7 @@ def replace_tracks(animation_path, tracks_json, source_animation_path=""):
     controller.open_bracket("替换指定骨骼局部轨道", False)
     try:
         for name, values in prepared.items():
-            if name not in existing and not controller.add_bone_curve(name, False):
+            if name.casefold() not in {item.casefold() for item in existing} and not controller.add_bone_curve(name, False):
                 raise RuntimeError("新增缺失骨轨失败 " + name)
             if not controller.set_bone_track_keys(name, *values, False):
                 raise RuntimeError("骨骼轨道替换失败 " + name)

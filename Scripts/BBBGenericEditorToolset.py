@@ -4587,7 +4587,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             raise RuntimeError("蒙皮检查拒绝重复网格路径")
 
         if any(
-            re.fullmatch(r"/Game/(?:[A-Za-z0-9_]+/)*[A-Za-z0-9_]+", path) is None
+            re.fullmatch(r"/Game/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+", path) is None
             for path in mesh_paths
         ):
             raise RuntimeError("蒙皮检查只接受明确的 Game 包路径")
