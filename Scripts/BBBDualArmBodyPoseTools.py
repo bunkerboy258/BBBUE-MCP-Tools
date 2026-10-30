@@ -536,6 +536,10 @@ def _finalize(path, recipe, write_paths):
 
 
 def process(recipe_path, action, write_paths, job_index):
+    if recipe_path.endswith('_GripMargin.json.source'):
+        import importlib
+        import BBBGripMarginTools
+        return importlib.reload(BBBGripMarginTools).process(recipe_path, action, write_paths, job_index)
     if recipe_path.endswith('_AnimationMetadata.json.source'):
         import importlib
         import BBBAnimationMetadataRecovery
