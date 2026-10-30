@@ -3,6 +3,7 @@ import json
 import unreal
 from BBBAssetWritePolicy import require_asset_write
 from BBBWeaponHandlingTools import _function, _weapon_get
+from editor_toolset.toolsets.blueprint import BlueprintTools
 
 
 def create_weapon_aim_additive(neutral_path, target_path, asset_path, reference_path):
@@ -50,6 +51,9 @@ def create_weapon_aim_additive(neutral_path, target_path, asset_path, reference_
 
 def _build_aim_update(base):
     """/** @param base 公共装备层 @return 线程安全举枪与独立 IK 门控更新已重建 */"""
+    fields = set(BlueprintTools.list_variables(base))
+    if "WeaponAimBlendPhase" not in fields:
+        BlueprintTools.add_variable(base, "WeaponAimBlendPhase", "float")
     g = _function(base, "UpdateWeaponAimData")
     g.editor.set_is_thread_safe_function(True)
     entry = next(node for node in g.editor.list_all_nodes() if isinstance(node, unreal.K2Node_FunctionEntry))
@@ -62,7 +66,8 @@ def _build_aim_update(base):
     branch = g.place(g.editor.add_branch_node())
     g.link(g.editor.find_graph_entry_pin(), branch.find_execute_pin())
     g.link(valid, branch.find_input_pin("Condition"))
-    invalid = g.set("WeaponAimAlpha", 0, branch.find_else_pin())
+    invalid = g.set("WeaponAimBlendPhase", 0, branch.find_else_pin())
+    invalid = g.set("WeaponAimAlpha", 0, invalid)
     g.set("LocomotionAimIKAlpha", 0, invalid)
 
     aiming = g.out(g.call("/Script/ABBB_Evac.BBBAnimInstance.IsAiming", character))
@@ -87,11 +92,13 @@ def _build_aim_update(base):
     assets = g.binary("BooleanAND", assets, references)
     raise_gate = g.binary("BooleanAND", g.binary("BooleanAND", ready, not_running), g.binary("BooleanAND", assets, can_use))
     target = g.select(1, 0, raise_gate)
-    speed = g.select(12.5, 10, raise_gate)
-    alpha = g.out(g.call("FInterpTo", inputs={"Current": g.get("WeaponAimAlpha"), "Target": target, "DeltaTime": delta, "InterpSpeed": speed}))
+    speed = g.select(4, 1 / 0.3, raise_gate)
+    phase = g.out(g.call("FInterpTo_Constant", inputs={"Current": g.get("WeaponAimBlendPhase"), "Target": target, "DeltaTime": delta, "InterpSpeed": speed}))
+    execute = g.set("WeaponAimBlendPhase", phase, branch.find_then_pin())
+    alpha = g.out(g.call("FInterpEaseInOut", inputs={"A": 0, "B": 1, "Alpha": g.get("WeaponAimBlendPhase"), "Exponent": 2}))
     alpha = g.out(g.call("FClamp", inputs={"Value": alpha, "Min": 0, "Max": 1}))
     alpha = g.select(alpha, 0, g.binary("BooleanAND", assets, can_use))
-    execute = g.set("WeaponAimAlpha", alpha, branch.find_then_pin())
+    execute = g.set("WeaponAimAlpha", alpha, execute)
     g.set("LocomotionAimIKAlpha", g.get("WeaponAimAlpha"), execute)
 
 

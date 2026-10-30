@@ -89,6 +89,14 @@ def active_activities():
             value = {"status": "unknown"}
         if isinstance(value, bool):
             value = {"status": "running" if value else "completed"}
+        if identity == "input:sequence" and value.get("state") in {"failed", "cancelled"} \
+                and value.get("releaseError") and value.get("clockOverridden") is False:
+            import unreal
+            if not unreal.EditorLevelLibrary.get_pie_worlds(False) \
+                    and not unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+                unreal.log_warning("[BBBMcpActivity] 回收已销毁 PIE 的失败输入活动 保留失败状态: " + str(value))
+                records.pop(identity, None)
+                continue
         if value.get("status") in {"pending", "running", "unknown"} or value.get("running") or value.get("state") in {"waiting", "running"} or value.get("releaseError") or value.get("cleanupError"):
             item = {"id": identity, "status": value.get("status", value.get("state", "running"))}
             if not blocking:

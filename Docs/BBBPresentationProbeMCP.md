@@ -1,5 +1,7 @@
 # 持枪表现只读采样
 
+2026-10-30：正式运行验收先确认目标武器实际装备，再检查动画库切换。默认 DoNotInterrupt 可让空手 continuing pose 在换装备后继续保留，不能只核对候选库；需对比当前命中库。端枪相位与显示权重分开存储，0.25/0.30 秒线性相位经 EaseInOut 后共同驱动姿势及 AimIK，每帧仅推进一次。因 PIE 销毁而取消的输入回放不计通过；当世界已不存在且 clockOverridden=false 时，只回收失效的输入活动登记，保留原回放的取消和释放错误供查询。
+
 2026-10-30：沿用 `animation.start_locomotion_runtime_probe` 与 `animation.stop_locomotion_runtime_probe`。不增加独立启动入口。实现位于 `Scripts/BBBPresentationProbe.py`，由现有移动探针调用。
 
 每条 `runtime_sample` 增加 `presentation`：

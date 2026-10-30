@@ -2926,9 +2926,9 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             if not asset_path:
                 raise RuntimeError("资产路径不能包含空值")
 
-            asset = unreal.EditorAssetLibrary.load_asset(asset_path)
+            asset = unreal.load_object(None, asset_path)
             if asset is None:
-                raise RuntimeError("资产不存在: {}".format(asset_path))
+                raise RuntimeError("对象不存在: {}".format(asset_path))
 
             properties = {}
             property_errors = {}

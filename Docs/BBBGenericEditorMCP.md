@@ -1,3 +1,7 @@
+# 2026-10-30 只读对象属性路径
+
+`editor.inspect_asset_properties` 使用明确 UObject 路径解析对象，支持资产、蓝图内部动画节点及有效 PIE 实例；仍仅回读指定属性，受保护或不存在的字段返回 propertyErrors，不改变对象。可用于同时核对主动画实例的 SourceLocomotionDatabaseChooser、MMSelectedDatabases 与实际链接层配置，避免仅从类默认值推断运行事实。
+
 # BBB 通用编辑器 MCP
 
 ## 动画根运动属性矩阵
