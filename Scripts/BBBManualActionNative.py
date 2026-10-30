@@ -1536,6 +1536,11 @@ def bake_animation(recipe_path, write_paths):
         raise RuntimeError('NATIVE_ACTION_SOURCE_CHANGED')
     sequence = _asset(data['sequence'], unreal.LevelSequence)
     output = unreal.load_asset(destination)
+    existing_output = output is not None
+    authored_curves = None
+    if data.get('animation_metadata_source') and existing_output:
+        from BBBAnimationCurveTools import _curve_values
+        authored_curves = _curve_values(output)
     if output is None:
         require_asset_write([], destinations=[destination])
         output = unreal.EditorAssetLibrary.duplicate_asset(data['finger_animation'], destination)
@@ -1577,10 +1582,18 @@ def bake_animation(recipe_path, write_paths):
                     raise RuntimeError('NATIVE_ACTION_WRITE_BONE: ' + str(name))
         finally:
             controller.close_bracket(False)
-        if unreal.BBBBlueprintEditorLibrary.copy_animation_float_curves(export_source, output) < 0:
-            raise RuntimeError('NATIVE_ACTION_CURVES')
+        if data.get('animation_metadata_source') and not existing_output:
+            import importlib
+            import BBBAnimationMetadataRecovery
+            importlib.reload(BBBAnimationMetadataRecovery).apply_profile(output, data['animation_metadata_source'])
+        if authored_curves is not None and _curve_values(output) != authored_curves:
+            raise RuntimeError('NATIVE_ACTION_AUTHORED_CURVES_CHANGED')
+        if not data.get('animation_metadata_source'):
+            if unreal.BBBBlueprintEditorLibrary.copy_animation_float_curves(export_source, output) < 0:
+                raise RuntimeError('NATIVE_ACTION_CURVES')
         error = _compare(baked, output)
-        output.set_preview_skeletal_mesh(_asset(data['mesh'], unreal.SkeletalMesh))
+        if not data.get('animation_metadata_source'):
+            output.set_preview_skeletal_mesh(_asset(data['mesh'], unreal.SkeletalMesh))
         if not unreal.EditorAssetLibrary.save_loaded_asset(output, False):
             raise RuntimeError('NATIVE_ACTION_SAVE')
         result = {'animation': destination, 'bake_mode': 'official_sequencer_direct', 'custom_interpolation': False,
