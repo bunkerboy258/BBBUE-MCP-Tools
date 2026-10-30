@@ -47,3 +47,16 @@ control_rig.process_dual_arm_body_pose 的 bake 在输出已存在但骨轨为�
 稳定端枪配置排除 hand_l/hand_r 分支，脊柱混合不覆盖已经应用的专属腕部及手指姿势。
 
 2026-10-29 实际静态编辑：恢复 14 装备、16 换弹、28 静态握姿、14 后坐力，重建 8 举枪资产和手枪/重物基础姿势。85 份目标磁盘重载回读无空轨；另外 45 份 Lyra AimOffsets 采样重定向恢复后各 68 条骨轨。手枪 49 帧后坐力原有静态求值器通过；公共及五个装备子层编译保存。未执行自动化动态验收。
+
+
+## 13 武器统一 FAL 基准的原位制作
+
+2026-10-30 用户通过 SG550 样例后批量应用。BBBNativeRetargetActions 的 capture 支持明确 in_place_alignment 输入，记录非空骨轨指纹，不重新重定向；finalize 先完成全部未对齐输出，再执行已批准的定向手指修复，重复调用核对最终指纹。
+
+分段装填使用单侧 entry_frames / exit_frames；preserve_internal_pose 允许两侧都为空以保持插入段。finger_repair 的 repair_boundary_extension 只用于相邻分段：将反向翘曲边界按同一参考上限桥接，正常骨节、局部位置和缩放保持，必须额外核对接缝。无异常时记录 checked_no_anomaly，不改骨轨。
+
+job 可明确 reference_animation 与 reference_frame。局部加法副层回到自身参考帧使增量归零，绝对主层仍回到统一 FAL；不能把 FAL 绝对姿势直接写入以另一姿势为参考的加法层。
+
+playback_frame_range 仅支持从零开始的明确实际播放范围，拒绝含曲线或通知的裁切。运行 UseReturn 蒙太奇只播放 0～0.2 秒，正式输出保留七键并在实际出口对齐，完整制作 LS 不裁切。
+
+AnimationMetadata 曲线按目标 AnimationSequencerDataModel 的原生 tick_resolution 量化时间，再导入、逐项比较键和有效插值；允许序列化一微秒误差，不忽略有效值或切线差异。2026-10-30 已对 68 份角色成品执行完整元数据保存回读，未运行 PIE 或自动化验收。

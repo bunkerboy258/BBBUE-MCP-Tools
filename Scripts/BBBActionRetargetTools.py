@@ -49,6 +49,25 @@ def capture(recipe_path, write_paths):
     if unreal.EditorLevelLibrary.get_pie_worlds(False):
         raise RuntimeError('RETARGET_ACTION_PIE_FORBIDDEN')
     path, data = _read(recipe_path, write_paths)
+    if all(job.get('in_place_alignment') and job['source'] == job['animation'] for job in data['jobs']):
+        reports = []
+        for job in data['jobs']:
+            animation = _asset(job['animation'], unreal.AnimSequence)
+            count = animation.data_model_interface.get_number_of_keys()
+            if count < 2 or not animation.data_model_interface.get_bone_track_names():
+                raise RuntimeError('IN_PLACE_ALIGNMENT_NONEMPTY_TRACKS_REQUIRED')
+            signature = _digest(animation)
+            expected = job.get('aligned_digest', job.get('retarget_digest'))
+            if expected and signature != expected:
+                raise RuntimeError('IN_PLACE_ALIGNMENT_INPUT_CHANGED: ' + job['animation'])
+            job.setdefault('retarget_digest', signature)
+            job.setdefault('source_digest', signature)
+            job['frames'] = count
+            job['length'] = animation.get_play_length()
+            reports.append({'animation': job['animation'], 'frames': count, 'already_aligned': bool(job.get('aligned_digest'))})
+        data['state'] = 'prepared'
+        _save(path, data)
+        return {'state': data['state'], 'jobs': reports}
     if any('source_frame_ranges' in job for job in data['jobs']):
         return _capture_frame_ranges(path, data, write_paths)
     retargeter = _asset(data['retargeter'], unreal.IKRetargeter)
@@ -207,7 +226,7 @@ def _endpoint_windows(job, count):
     """/** @param job\t明确单侧或双侧窗口 @param count\t采样数 @return\t合法窗口与不变区间 */"""
     entry = job['entry_frames']
     exit_window = job['exit_frames']
-    if entry is None and exit_window is None:
+    if entry is None and exit_window is None and not job.get('preserve_internal_pose'):
         raise RuntimeError('RETARGET_ACTION_ENDPOINT_REQUIRED')
     if entry is not None and (len(entry) != 2 or entry[0] != 0 or not 0 < entry[1] < count):
         raise RuntimeError('RETARGET_ACTION_ENTRY_WINDOW')
@@ -226,7 +245,7 @@ def finalize(recipe_path, write_paths):
     from BBBGenericEditorToolset import _set_flat_cubic_curve
     path, data = _read(recipe_path, write_paths)
     from BBBAnimationCurveTools import _curve_values
-    if any(job.get('finger_repair') for job in data['jobs']):
+    if all(job.get('aligned_digest') for job in data['jobs']) and any(job.get('finger_repair') for job in data['jobs']):
         return {'finger_repairs': [_repair_fingers(path, data, job) for job in data['jobs'] if job.get('finger_repair')]}
     reference = _asset(data['reference_animation'], unreal.AnimSequence)
     mesh = _asset(data['target_mesh'], unreal.SkeletalMesh)
@@ -246,11 +265,24 @@ def finalize(recipe_path, write_paths):
             continue
         if _digest(animation) != job['retarget_digest']:
             raise RuntimeError('RETARGET_ACTION_RAW_ASSET_CHANGED')
+        reference = _asset(job.get('reference_animation', data['reference_animation']), unreal.AnimSequence)
+        reference_rate = reference.data_model_interface.get_frame_rate()
+        reference_time = job.get('reference_frame', 0) * reference_rate.denominator / reference_rate.numerator
+        reference_pose = unreal.AnimPoseExtensions.get_anim_pose_at_time(reference, reference_time, options)
         count = animation.data_model_interface.get_number_of_keys()
-        entry, exit_window, unchanged_frames = _endpoint_windows(job, count)
         original = {str(n): list(unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, n))
                     for n in animation.data_model_interface.get_bone_track_names()}
         curves_before = _curve_values(animation)
+        playback_range = job.get('playback_frame_range')
+        if playback_range is not None:
+            if len(playback_range) != 2 or playback_range[0] != 0 or not 1 < playback_range[1] < count:
+                raise RuntimeError('RETARGET_ACTION_PLAYBACK_RANGE')
+            if curves_before or unreal.AnimationLibrary.get_animation_notify_events(animation):
+                raise RuntimeError('RETARGET_ACTION_TRIM_HAS_METADATA')
+            job['input_frames'] = count
+            count = playback_range[1] + 1
+            original = {name: keys[:count] for name, keys in original.items()}
+        entry, exit_window, unchanged_frames = _endpoint_windows(job, count)
         values = {}
         for name, transforms in original.items():
             target = unreal.AnimPoseExtensions.get_bone_pose(reference_pose, name, unreal.AnimPoseSpaces.LOCAL)
@@ -268,6 +300,8 @@ def finalize(recipe_path, write_paths):
         controller = animation.controller
         controller.open_bracket('新重定向动作首尾衔接正确参考姿势', False)
         try:
+            if playback_range is not None:
+                controller.set_number_of_frames(unreal.FrameNumber(value=count - 1), False)
             for name, keys in values.items():
                 if not controller.set_bone_track_keys(name, [v.translation for v in keys], [v.rotation for v in keys], [v.scale3d for v in keys], False):
                     raise RuntimeError('RETARGET_ACTION_WRITE_BONE: ' + name)
@@ -304,7 +338,7 @@ def finalize(recipe_path, write_paths):
                 if maximum > 0.001 or maximum_rotation > 0.001 or (before[frame].scale3d - after[frame].scale3d).length() > 0.00001:
                     raise RuntimeError('RETARGET_ACTION_MIDDLE_CHANGED: %s:%d cm=%f degrees=%f' % (name, frame, maximum, maximum_rotation))
         endpoint_error = 0.0
-        expected = _pose(reference, mesh, 0)
+        expected = _pose(reference, mesh, reference_time)
         endpoint_times = []
         if entry is not None:
             endpoint_times.append(0.0)
@@ -321,6 +355,8 @@ def finalize(recipe_path, write_paths):
         if not unreal.EditorAssetLibrary.save_loaded_asset(animation, False):
             raise RuntimeError('RETARGET_ACTION_ALIGNED_SAVE')
         job['aligned_digest'] = _digest(animation)
+        job['frames'] = count
+        job['length'] = animation.get_play_length()
         job['validation'] = {'animation': job['animation'], 'reference': data['reference_animation'],
                              'endpoint_position_error_cm': endpoint_error, 'middle_position_error_cm': maximum,
                              'middle_rotation_error_degrees': maximum_rotation,
@@ -402,28 +438,37 @@ def _repair_fingers(path, data, job):
         if policy.get('extension_limit_basis') == 'reference_pose':
             limit = max(0.0, ref.rotation.rotator().yaw)
         flexions = [key.rotation.rotator().yaw for key in keys]
-        frame = 1
+        repair_boundary = bool(policy.get('repair_boundary_extension'))
+        frame = 0 if repair_boundary else 1
         changed = []
         ranges = []
         updates = list(keys)
-        while frame < job['exit_frames'][1]:
+        repair_end = job['exit_frames'][1] if job['exit_frames'] is not None else len(keys) - 1
+        if repair_boundary:
+            repair_end = len(keys)
+        while frame < repair_end:
             if flexions[frame] <= limit:
                 frame += 1
                 continue
             start = frame
-            while frame < job['exit_frames'][1] and flexions[frame] > limit:
+            while frame < repair_end and flexions[frame] > limit:
                 frame += 1
             end = frame - 1
             if max(flexions[start:end + 1]) <= limit + float(policy.get('minimum_excess_degrees', 5.0)):
                 continue
-            left, right = start - 1, frame
-            if flexions[right] > limit + 0.01:
+            left, right = max(0, start - 1), min(frame, len(keys) - 1)
+            left_value = flexions[left]
+            right_value = flexions[right]
+            if repair_boundary:
+                left_value = min(left_value, limit)
+                right_value = min(right_value, limit)
+            if right_value > limit + 0.01:
                 raise RuntimeError('FINGER_REPAIR_NO_SAFE_BOUNDARY: ' + name)
             ranges.append([start, end])
             for f in range(start, end + 1):
-                progress = (f - left) / (right - left)
+                progress = (f - left) / max(1, right - left)
                 weight = progress * progress * (3 - 2 * progress)
-                flexion = flexions[left] + (flexions[right] - flexions[left]) * weight
+                flexion = left_value + (right_value - left_value) * weight
                 rotation = keys[f].rotation.rotator()
                 value = unreal.Transform(location=keys[f].translation, scale=keys[f].scale3d)
                 value.rotation = unreal.Rotator(pitch=rotation.pitch, yaw=flexion, roll=rotation.roll).quaternion()
@@ -433,7 +478,10 @@ def _repair_fingers(path, data, job):
             replacements[name] = updates
             reports.append({'bone': name, 'limit_degrees': limit, 'ranges': ranges, 'keys': changed})
     if not reports:
-        raise RuntimeError('FINGER_REPAIR_NO_ANOMALY')
+        policy.update({'applied': True, 'status': 'checked_no_anomaly', 'tracks': [],
+                       'other_tracks_unchanged': True, 'translation_scale_unchanged': True})
+        _save(path, data)
+        return policy
     require_asset_write([animation])
     controller = animation.controller
     controller.open_bracket('修复现有装备动画反向伸展指节', False)

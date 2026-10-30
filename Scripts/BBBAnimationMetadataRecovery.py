@@ -4,14 +4,20 @@ from pathlib import Path
 
 import unreal
 from BBBAssetWritePolicy import require_asset_write
-from BBBAnimationCurveTools import _curve_values, _curve_semantics, _shifted_curve, _write_shifted_curves, _bone_digest, _animation_metadata
+from BBBAnimationCurveTools import _curve_values, _curve_semantics, _shifted_curve, _write_shifted_curves, _bone_digest, _animation_metadata, _aligned_curve_equal
 
 
 def apply_curves(animation, curves):
     """/** @param animation	明确目标 @param curves	正式完整浮点曲线文本 @return 全键与插值回读 */"""
     prepared = []
     expected = {}
+    tick_rate = None
+    if animation.data_model_interface.get_class().get_name() == 'AnimationSequencerDataModel':
+        tick_rate = unreal.MovieSceneSequenceExtensions.get_tick_resolution(animation.data_model_interface)
     for name, text in curves.items():
+        if tick_rate:
+            frequency = tick_rate.numerator / tick_rate.denominator
+            text = re.sub(r'Time=([-+\deE.]+)', lambda match: 'Time=%.9f' % (round(float(match[1]) * frequency) / frequency), text)
         curve = unreal.FloatCurve()
         curve.import_text(text)
         item = _shifted_curve(curve, 0)
@@ -34,8 +40,10 @@ def apply_curves(animation, curves):
         comment = re.search(r'Comment=("(?:\\.|[^"\\])*")', text)
         if comment:
             animation.controller.set_curve_comment(identifier, json.loads(comment.group(1)), False)
-    if _curve_values(animation) != expected:
-        raise RuntimeError('METADATA_CURVE_READBACK_FAILED')
+    actual = _curve_values(animation)
+    if actual.keys() != expected.keys() or any(not _aligned_curve_equal(value, actual[name]) for name, value in expected.items()):
+        differences = {name: {'expected': value, 'actual': actual.get(name)} for name, value in expected.items() if name not in actual or not _aligned_curve_equal(value, actual[name])}
+        raise RuntimeError('METADATA_CURVE_READBACK_FAILED: ' + json.dumps(differences, ensure_ascii=False))
     return expected
 
 
