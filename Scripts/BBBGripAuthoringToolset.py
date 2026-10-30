@@ -25,7 +25,7 @@ def _digest(value):
 
 def _safe_file(project, weapon_root, recipe_path):
     """/** @param project 项目根 @param weapon_root 明确型号根 @param recipe_path 项目相对制作文件 @return 型号Source内无链接正式制作路径 */"""
-    if re.fullmatch(r'/Game/_Project/(?:[A-Za-z0-9_]+/)+[A-Za-z0-9_]+', weapon_root) is None:
+    if re.fullmatch(r'/Game/_Project/(?:[A-Za-z0-9_-]+/)+[A-Za-z0-9_-]+', weapon_root) is None:
         raise RuntimeError('WEAPON_ROOT_REQUIRED: 必须明确自有武器型号根')
     expected = project / 'Content' / weapon_root.removeprefix('/Game/') / 'Source' / 'Animation'
     candidate = Path(recipe_path)
@@ -46,7 +46,7 @@ def _safe_file(project, weapon_root, recipe_path):
 
 def _asset(path, expected):
     """/** @param path 明确包路径 @param expected 正式资产类型 @return 类型正确的资产 */"""
-    if not isinstance(path, str) or re.fullmatch(r'/Game/(?:[A-Za-z0-9_]+/)*[A-Za-z0-9_]+', path) is None:
+    if not isinstance(path, str) or re.fullmatch(r'/Game/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+', path) is None:
         raise RuntimeError('ASSET_PATH_REQUIRED: ' + str(path))
     asset = unreal.load_asset(path)
     if not isinstance(asset, expected):

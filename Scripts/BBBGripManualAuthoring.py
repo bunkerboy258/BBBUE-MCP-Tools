@@ -299,16 +299,32 @@ def apply(recipe, path, project):
         if recipe['hold_signature'] != hold_signature(hold, project):
             raise RuntimeError('FIRE_GRIP_BASE_CHANGED')
         baseline = _pose(_asset(hold['animation'], unreal.AnimSequence), names, character_mesh)
+        wrist_chain = {'hand_r', 'upperarm_l', 'lowerarm_l', 'hand_l', 'ik_hand_gun', 'ik_hand_r', 'ik_hand_l'}
         for name in names:
             if name in _FINGERS:
                 continue
+            if name in wrist_chain:
+                if (local[name].scale3d - baseline[name]['local'].scale3d).length() > 0.00001:
+                    raise RuntimeError('FIRE_GRIP_BONE_SCALE_CHANGED: ' + name)
+                if not name.startswith('ik_') and (local[name].translation - baseline[name]['local'].translation).length() > 0.02:
+                    raise RuntimeError('FIRE_GRIP_BONE_TRANSLATED: ' + name)
+                continue
             if (local[name].translation - baseline[name]['local'].translation).length() > 0.02 or abs((local[name].rotation * baseline[name]['local'].rotation.inversed()).w) < 0.99999:
-                raise RuntimeError('FIRE_GRIP_ONLY_FINGERS: 开火握姿只允许编辑指骨 ' + name)
+                raise RuntimeError('FIRE_GRIP_BODY_CHANGED: 开火握姿只允许指骨 右腕与左臂握持求解 ' + name)
         definition, current = _definition(hold)
         expected_spawn = _transform(current['spawn_offset'])
         if (spawn.translation - expected_spawn.translation).length() > 0.01 or abs((spawn.rotation * expected_spawn.rotation.inversed()).w) < 0.99999:
             raise RuntimeError('FIRE_GRIP_SHARED_ATTACHMENT: 请在未开火阶段调整武器位置')
-        calibration = hold['solution']['calibration']
+        if (spawn.scale3d - expected_spawn.scale3d).length() > 0.00001:
+            raise RuntimeError('FIRE_GRIP_ATTACHMENT_SCALE_CHANGED')
+        if (unreal.Vector(*calibration['left_ik_offset']) - unreal.Vector(*current['left_ik_offset'])).length() > 0.02:
+            raise RuntimeError('FIRE_GRIP_CONTACT_CHANGED: 左手必须保持正式握点')
+        if abs((unreal.Quat(*calibration['left_ik_rotation']) * unreal.Quat(*current['left_ik_rotation']).inversed()).w) < 0.99999:
+            raise RuntimeError('FIRE_GRIP_CONTACT_ROTATION_CHANGED: 左手必须保持正式握持方向')
+        wrist_delta = calibration['right_wrist_delta']
+        calibration = dict(current)
+        calibration['mode'] = 'fixed'
+        calibration['right_wrist_delta'] = wrist_delta
     for name, value in control_values.items():
         for frame in (0, 1):
             unreal.ControlRigSequencerLibrary.set_local_control_rig_euler_transform(sequence, rig, name, unreal.FrameNumber(value=frame), value, set_key=True)

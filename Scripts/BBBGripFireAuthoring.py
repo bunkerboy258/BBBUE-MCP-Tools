@@ -70,7 +70,7 @@ def _rebase(hold, hold_path, fire_path, project, signature):
     names = list(hold['solution']['local_pose'])
     pose = manual._pose(animation, names, mesh)
     # 同步新握姿 保留原开火右食指的扳机姿势
-    preserved = {f'index_{joint:02}_r' for joint in (1, 2, 3)}
+    preserved = set(_FINGERS)
     count = animation.data_model_interface.get_number_of_keys()
     tracks = {}
     for name in animation.data_model_interface.get_bone_track_names():
@@ -120,7 +120,7 @@ def _open(recipe, fire_path, project, seed):
         for name in ('fk_hand_r', 'hand_l_ik_ctrl', 'elbow_l_pv_ctrl'):
             key = manual._key(name, 'CONTROL')
             settings = hierarchy.get_control_settings(key)
-            settings.shape_visible = False
+            settings.shape_visible = True
             hierarchy.set_control_settings(key, settings, False, True, False)
     unreal.EditorAssetLibrary.save_loaded_asset(asset, False)
     unreal.LevelSequenceEditorBlueprintLibrary.refresh_current_level_sequence()
