@@ -17,6 +17,8 @@ _acceptance_population = {}
 
 
 MCP_INPUTS = {
+    'configure_hit_reaction_profile': {'tuning_json': {'type': 'object', 'additionalProperties': True}},
+    'configure_hit_reaction_physics_asset': {'tuning_json': {'type': 'object', 'additionalProperties': True}},
     'preview_blood_residue': {'positions_json': {'type': 'array', 'items': {'$ref': '#/$defs/Vector3'}, 'minItems': 1, 'maxItems': 64}},
 }
 
@@ -216,7 +218,7 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
             if scenario == "accumulation":
                 positions = [[-400.0, 0.0, 20100.0]] * 8
             data["start"] = unreal.GameplayStatics.get_time_seconds(world)
-            BBBHitReactionToolset.preview_blood_residue(settings_path, json.dumps(positions), [1, 0, 0], [1, 0, 0], seed)
+            BBBHitReactionToolset.preview_blood_residue(settings.get_path_name(), json.dumps(positions), [1, 0, 0], [1, 0, 0], seed)
         except Exception:
             for actor in actors:
                 actor.destroy_actor()
@@ -257,7 +259,7 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
                     data["accelerated"] = True
                 if scenario == "accumulation" and data["burst"] < 8 and elapsed >= (data["burst"] + 1) * .3:
                     data["burst"] += 1
-                    BBBHitReactionToolset.preview_blood_residue(settings_path, json.dumps(positions), [1, 0, 0], [1, 0, 0], seed + data["burst"] * 31)
+                    BBBHitReactionToolset.preview_blood_residue(settings.get_path_name(), json.dumps(positions), [1, 0, 0], [1, 0, 0], seed + data["burst"] * 31)
                 interval = .2 if elapsed < 4.0 else 10.0
                 if not data["finishing"] and (elapsed - data["lastImage"] >= interval or elapsed >= duration_seconds):
                     if elapsed >= 1.8:
@@ -573,24 +575,102 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def configure_hit_reaction_physics_asset(asset_path: str, orientation_strength: float = 200.0, angular_velocity_strength: float = 12.0) -> str:
+    def configure_hit_reaction_physics_asset(asset_path: str, orientation_strength: float = 200.0, angular_velocity_strength: float = 12.0, mesh_path: str = "", tuning_json: str = "") -> str:
         """
         /**
          * 修改已经独占签出的自有物理资产 不保存
          * @param asset_path\t明确的自有物理资产
          * @param orientation_strength\t角度恢复强度
          * @param angular_velocity_strength\t角速度恢复强度
+         * @param mesh_path\t精确配置使用的参考身体
+         * @param tuning_json\t已验证轨迹中的物理配置 与原生采样共用应用函数
          * @return 刚体与约束配置报告
          */
         """
         asset = unreal.EditorAssetLibrary.load_asset(asset_path)
         if not isinstance(asset, unreal.PhysicsAsset) or not asset_path.startswith("/Game/_Project/"):
             raise RuntimeError("需要明确的自有物理资产")
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止修改正式物理资产")
+        if any(not math.isfinite(value) or value <= 0 for value in (orientation_strength, angular_velocity_strength)):
+            raise RuntimeError("基础物理参数必须为有限正数")
+        tuning = json.loads(tuning_json) if tuning_json else {}
+        if not isinstance(tuning, dict):
+            raise RuntimeError("精确物理配置必须为对象")
+        ranges = {"orientation": (1, 5000), "driveDamping": (0, 500), "linearDamping": (0, 100),
+                  "angularDamping": (0, 100), "positionIterations": (1, 255), "velocityIterations": (1, 255),
+                  "projectionIterations": (1, 255), "inertiaScale": (.01, 100), "maxAngularVelocity": (1, 10000),
+                  "linearProjection": (0, 1), "angularProjection": (0, 1), "linearTolerance": (0, 100),
+                  "angularTolerance": (0, 180)}
+        switches = {"parentDominates", "linearSolver"}
+        if set(tuning) - set(ranges) - switches - {"limits", "anchorBones"}:
+            raise RuntimeError("物理配置包含不支持的字段")
+        for key, value in tuning.items():
+            if key in ranges:
+                minimum, maximum = ranges[key]
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not minimum <= value <= maximum:
+                    raise RuntimeError("物理数值超出范围 " + key)
+                if key.endswith("Iterations") and int(value) != value:
+                    raise RuntimeError("求解次数必须为整数")
+            if key in switches and not isinstance(value, bool):
+                raise RuntimeError("物理开关必须为布尔值")
+        limits = tuning.get("limits", {})
+        if not isinstance(limits, dict) or any(not isinstance(key, str) or not isinstance(value, list) or len(value) != 3
+                or any(isinstance(angle, bool) or not isinstance(angle, (int, float)) or not math.isfinite(angle) or not 0 < angle <= 170 for angle in value)
+                for key, value in limits.items()):
+            raise RuntimeError("关节角度需要一至一百七十度的三个分量")
+        anchors = tuning.get("anchorBones", [])
+        if not isinstance(anchors, list) or any(not isinstance(value, str) or not value for value in anchors):
+            raise RuntimeError("关节原点列表必须为骨骼名称")
+        mesh = unreal.load_asset(mesh_path) if mesh_path else None
+        if tuning and not isinstance(mesh, unreal.SkeletalMesh):
+            raise RuntimeError("精确配置需要当前身体参考网格")
         require_write_access(asset)
-        result = unreal.BBBHitReactionEditorLibrary.configure_physics_asset(asset, orientation_strength, angular_velocity_strength)
+        result = unreal.BBBHitReactionEditorLibrary.configure_physics_asset(asset, orientation_strength, angular_velocity_strength,
+            mesh, json.dumps(tuning) if tuning else "")
         if str(result).startswith("失败"):
             raise RuntimeError(str(result))
         return str(result)
+
+    @mcp_tool
+    @staticmethod
+    def configure_hit_reaction_profile(asset_path: str, tuning_json: str) -> str:
+        """
+        /**
+         * 配置正式局部混合与骨骼权重 禁止在 PIE 修改资产
+         * @param asset_path	自有配置或内嵌配置路径
+         * @param tuning_json	有界混合配置
+         * @return 实际混合值
+         */
+        """
+        profile = unreal.load_object(None, asset_path)
+        if not asset_path.startswith("/Game/_Project/") or not isinstance(profile, unreal.HitReactProfile):
+            raise RuntimeError("需要明确的自有受击配置")
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError("PIE 期间禁止修改正式受击配置")
+        tuning = json.loads(tuning_json)
+        ranges = {"weight": (0, 1), "rate": (0, 120), "in": (0, 1), "hold": (0, 1), "out": (0, 1)}
+        if not isinstance(tuning, dict) or set(tuning) - set(ranges) - {"cleanOverrides", "boneWeights"}:
+            raise RuntimeError("混合配置包含不支持的字段")
+        for name, bounds in ranges.items():
+            if name in tuning and (isinstance(tuning[name], bool) or not isinstance(tuning[name], (int, float))
+                    or not math.isfinite(tuning[name]) or not bounds[0] <= tuning[name] <= bounds[1]):
+                raise RuntimeError("混合数值超出范围 " + name)
+        if "cleanOverrides" in tuning and not isinstance(tuning["cleanOverrides"], bool):
+            raise RuntimeError("清除覆盖必须为布尔值")
+        weights = tuning.get("boneWeights", {})
+        if not isinstance(weights, dict) or len(weights) > 64 or any(not isinstance(name, str) or not name
+                or isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 1
+                for name, value in weights.items()):
+            raise RuntimeError("骨骼权重需要零至一的有限数值")
+        require_write_access(profile)
+        result = str(unreal.BBBHitReactionEditorLibrary.configure_reaction_profile(profile, json.dumps(tuning)))
+        if result.startswith("失败"):
+            raise RuntimeError(result)
+        return json.dumps({"profile": profile.get_path_name(), "weight": profile.max_blend_weight,
+            "rate": profile.bone_blend_rate, "in": profile.blend_params.blend_in.blend_time,
+            "hold": profile.blend_params.blend_hold_time, "out": profile.blend_params.blend_out.blend_time,
+            "boneWeights": {str(name): value.blend_weight_scalar for name, value in profile.bone_overrides.items()}}, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod
@@ -691,7 +771,62 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def start_skeletal_hit_reaction_capture(actor_blueprint_path: str, region: int, direction: list[float], file_prefix: str, shots: int = 1, interval_seconds: float = 0.1, speed: float = 0.0, capture_images: bool = False, interrupt: str = "none", actor_count: int = 1) -> str:
+    def configure_pie_hit_tuning(actor_path: str, presentation_path: str, region: int, linear_scale: float = 1.0, angular_scale: float = 1.0) -> str:
+        """
+        /**
+         * 在调参靶上使用仅存在于 PIE 的表现副本调整单部位冲量 不修改正式资产
+         * @param actor_path\t\t当前 PIE 调参靶路径
+         * @param presentation_path\t\t对应僵尸版本的正式表现配置
+         * @param region\t\t零至五的命中部位
+         * @param linear_scale\t\t直线冲量倍率 零至四
+         * @param angular_scale\t\t角冲量倍率 零至四
+         * @return 瞬态配置路径与实际冲量
+         */
+        """
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        actor = unreal.find_object(None, actor_path)
+        if world is None or not isinstance(actor, unreal.BBBZombieHitReactionTarget) or actor.get_world() != world:
+            raise RuntimeError("需要当前 PIE 的僵尸受击调参靶")
+        if not isinstance(region, int) or isinstance(region, bool) or region not in range(6):
+            raise RuntimeError("命中部位必须为零至五的整数")
+        if any(not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value) or not 0.0 <= value <= 4.0 for value in (linear_scale, angular_scale)):
+            raise RuntimeError("冲量倍率必须为零至四的有限数值")
+        status = json.loads(actor.call_method("GetHitTrajectoryStatus", ()))
+        if status.get("status") == "running":
+            raise RuntimeError("轨迹采样期间不能更换表现配置")
+        source = unreal.load_asset(presentation_path)
+        if not isinstance(source, unreal.BBBMonsterPresentationDefinition) or not presentation_path.startswith("/Game/_Project/"):
+            raise RuntimeError("需要项目内正式僵尸表现配置")
+        previous_override = actor.get_editor_property("presentation_override")
+        previous_enabled = actor.get_editor_property("override_presentation")
+        temporary = unreal.SystemLibrary.duplicate_object(source, actor, "HitTuning_" + uuid.uuid4().hex)
+        if not isinstance(temporary, unreal.BBBMonsterPresentationDefinition) or temporary.get_outer() != actor:
+            raise RuntimeError("无法建立调参靶所属的瞬态表现配置")
+        region_name = ("torso", "head", "left_arm", "right_arm", "left_leg", "right_leg")[region]
+        hit = temporary.get_editor_property("hit_reaction")
+        part = hit.get_editor_property(region_name)
+        part.set_editor_property("linear_impulse", part.get_editor_property("linear_impulse") * float(linear_scale))
+        part.set_editor_property("angular_impulse", part.get_editor_property("angular_impulse") * float(angular_scale))
+        hit.set_editor_property(region_name, part)
+        temporary.set_editor_property("hit_reaction", hit)
+        try:
+            actor.set_editor_property("presentation_override", temporary)
+            actor.set_editor_property("override_presentation", True)
+            if not actor.call_method("ApplyConfiguration", ()):
+                raise RuntimeError("临时表现配置与当前僵尸版本不匹配")
+        except Exception as error:
+            actor.set_editor_property("presentation_override", previous_override)
+            actor.set_editor_property("override_presentation", previous_enabled)
+            if not actor.call_method("ApplyConfiguration", ()):
+                raise RuntimeError("调参失败且无法恢复原表现配置") from error
+            raise
+        return json.dumps({"actor": actor_path, "source": presentation_path, "temporary": temporary.get_path_name(),
+                           "region": region, "linearImpulse": part.get_editor_property("linear_impulse"),
+                           "angularImpulse": part.get_editor_property("angular_impulse"), "saved": False}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def start_skeletal_hit_reaction_capture(actor_blueprint_path: str, region: int, direction: list[float], file_prefix: str, shots: int = 1, interval_seconds: float = 0.1, speed: float = 0.0, capture_images: bool = False, interrupt: str = "none", actor_count: int = 1, preview_version_path: str = "", preview_distance_cm: float = 500.0, preview_view_yaw: float = 0.0, preview_projectile_path: str = "", preview_animation_path: str = "", preview_wound_strength: float = 1.0, preview_allow_severing: bool = False) -> str:
         """
         /**
          * 在临时表现对象上跨真实游戏帧验证局部物理回弹 不产生玩法伤害
@@ -709,6 +844,12 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
          */
         """
         world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if preview_version_path:
+            import importlib
+            import BBBZombieImpactPreview
+            importlib.reload(BBBZombieImpactPreview)
+            return BBBZombieImpactPreview.start_capture(world, preview_version_path, region, direction, file_prefix, shots,
+                interval_seconds, capture_images, actor_count, preview_distance_cm, preview_view_yaw, _captures, preview_projectile_path, preview_animation_path, preview_wound_strength, preview_allow_severing)
         if world is None or region not in range(6) or len(direction) != 3 or not all(math.isfinite(value) for value in direction):
             raise RuntimeError("需要运行中的 PIE 和有效受击参数")
         if sum(value * value for value in direction) < 0.001 or not 0 <= shots <= 12 or not 1 <= actor_count <= 64 or not 0.05 <= interval_seconds <= 0.5 or not 0.0 <= speed <= 300.0:
@@ -789,7 +930,7 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
             capture.set_editor_property("post_process_settings", settings)
         bones = ["head", "spine_03", "upperarm_l", "upperarm_r", "thigh_l", "thigh_r", "hand_l", "hand_r", "foot_l", "foot_r"]
         start_time = unreal.GameplayStatics.get_time_seconds(world)
-        data = {"baseline": None, "start": None, "last": -1.0, "shots": 0, "samples": [], "images": [], "imageSeconds": [], "handle": None, "interrupted": False, "lastImage": -1.0}
+        data = {"baseline": None, "initialSerial": 0, "start": None, "last": -1.0, "shots": 0, "samples": [], "images": [], "imageSeconds": [], "handle": None, "interrupted": False, "lastImage": -1.0}
 
         def pose(component=mesh):
             result = {}
@@ -802,6 +943,8 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
 
         def complete(error=None):
             unreal.unregister_slate_post_tick_callback(data["handle"])
+            if error is None and shots > 0 and interrupt == "none" and max((sample["physics"]["serial"] for sample in data["samples"]), default=0) - data["initialSerial"] < shots:
+                error = RuntimeError("临时演员未消费全部命中 采样不能作为受击通过证据")
             if error is not None:
                 record.update({"status": "failed", "error": str(error)})
             if error is None:
@@ -846,6 +989,7 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
                         mesh.set_editor_property("pause_anims", True)
                     record["animationPausedForMeasurement"] = frozen_pose
                     data["baseline"] = pose()
+                    data["initialSerial"] = json.loads(physics.inspect_physics_state(mesh))["serial"]
                     data["start"] = now
                 elapsed = now - data["start"]
                 if speed > 0.0:

@@ -7487,6 +7487,34 @@
           "returnValue"
         ]
       }
+    },
+    "prepare_temporary_test_level": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "default": "begin"
+          }
+        },
+        "required": [
+          "asset_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBLevelEditingToolset": {
@@ -13723,6 +13751,34 @@
             "type": "integer",
             "description": "临时全骨骼表现数量 一至六十四 *",
             "default": 1
+          },
+          "preview_version_path": {
+            "type": "string",
+            "default": ""
+          },
+          "preview_distance_cm": {
+            "type": "number",
+            "default": 500
+          },
+          "preview_view_yaw": {
+            "type": "number",
+            "default": 0
+          },
+          "preview_projectile_path": {
+            "type": "string",
+            "default": ""
+          },
+          "preview_animation_path": {
+            "type": "string",
+            "default": ""
+          },
+          "preview_wound_strength": {
+            "type": "number",
+            "default": 1.0
+          },
+          "preview_allow_severing": {
+            "type": "boolean",
+            "default": false
           }
         },
         "required": [
@@ -13845,6 +13901,14 @@
             "type": "number",
             "description": "角速度恢复强度 *",
             "default": 12
+          },
+          "mesh_path": {
+            "type": "string",
+            "default": ""
+          },
+          "tuning_json": {
+            "type": "string",
+            "default": ""
           }
         },
         "required": [
@@ -14274,6 +14338,77 @@
           "returnValue": {
             "type": "string",
             "description": "当前真实 PIE 世界碎片池的模拟 静止与分配数 不改变池状态 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_pie_hit_tuning": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "actor_path": {
+            "type": "string"
+          },
+          "presentation_path": {
+            "type": "string"
+          },
+          "region": {
+            "type": "integer"
+          },
+          "linear_scale": {
+            "type": "number",
+            "default": 1.0
+          },
+          "angular_scale": {
+            "type": "number",
+            "default": 1.0
+          }
+        },
+        "required": [
+          "actor_path",
+          "presentation_path",
+          "region"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_hit_reaction_profile": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string",
+            "description": "自有配置或内嵌配置路径 *"
+          },
+          "tuning_json": {
+            "type": "string",
+            "description": "有界混合配置 *"
+          }
+        },
+        "required": [
+          "asset_path",
+          "tuning_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "实际混合值 */"
           }
         },
         "required": [

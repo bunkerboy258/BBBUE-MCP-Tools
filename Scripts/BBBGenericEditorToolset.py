@@ -18,6 +18,7 @@ from toolset_registry.registration import Registration
 _pie_audio_capture = None
 _pie_scheduled_actor_call = None
 _pie_view_camera = None
+_temporary_test_level = None
 
 
 
@@ -2515,6 +2516,48 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
         result = unreal.GameplayStatics.apply_damage(target, damage, source.get_controller(), source, unreal.DamageType)
         return json.dumps({"target": target_path, "source": source_path, "submittedDamage": result})
+
+    @mcp_tool
+    @staticmethod
+    def prepare_temporary_test_level(asset_path: str, action: str = "begin") -> str:
+        """
+        /**
+         * 创建仅运行期的空白测试关卡或恢复原关卡
+         * @param asset_path	明确的原项目关卡包路径 用于范围核验
+         * @param action	begin 创建 restore 恢复 两项均要求已退出 PIE 且没有未保存资产
+         * @return 当前与原始关卡路径 所有测试对象只在 PIE 内创建
+         */
+        """
+        global _temporary_test_level
+        if action not in {"begin", "restore"} or unreal.EditorLevelLibrary.get_pie_worlds(False):
+            raise RuntimeError("必须退出 PIE 并选择 begin 或 restore")
+        dirty = list(unreal.EditorLoadingAndSavingUtils.get_dirty_map_packages()) + list(unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages())
+        if dirty:
+            raise RuntimeError("切换临时关卡前需要保存当前资产")
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+        current = world.get_path_name().split(".", 1)[0]
+        if not asset_path.startswith("/Game/"):
+            raise RuntimeError("原关卡必须为项目内已保存的地图")
+        if action == "restore":
+            if _temporary_test_level is None:
+                raise RuntimeError("当前宿主没有本工具建立的临时关卡")
+            state = _temporary_test_level
+            if asset_path != state["original"]:
+                raise RuntimeError("恢复范围与原关卡不一致")
+            if current not in {state["temporary"], state["original"]}:
+                raise RuntimeError("关卡已被外部切换 禁止覆盖新的编辑世界")
+            if current != state["original"] and not unreal.EditorLevelLibrary.load_level(state["original"]):
+                raise RuntimeError("恢复原关卡失败")
+            _temporary_test_level = None
+            return json.dumps({"restored": True, "level": state["original"]}, ensure_ascii=False)
+        if _temporary_test_level is not None or current != asset_path:
+            raise RuntimeError("需要已保存的项目关卡且不能嵌套临时关卡")
+        temporary = unreal.EditorLoadingAndSavingUtils.new_blank_map(False)
+        if temporary is None or not unreal.BBBBlueprintEditorLibrary.mark_temporary_editor_world(temporary):
+            unreal.EditorLevelLibrary.load_level(current)
+            raise RuntimeError("未能建立仅运行期的空白关卡")
+        _temporary_test_level = {"original": current, "temporary": temporary.get_path_name().split(".", 1)[0]}
+        return json.dumps(dict(_temporary_test_level, saved=False), ensure_ascii=False)
 
     @mcp_tool
     @staticmethod
