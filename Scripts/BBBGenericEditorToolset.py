@@ -4269,13 +4269,14 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def export_skeletal_mesh_fbx(mesh_path: str, export_name: str, task_name: str = "") -> str:
+    def export_skeletal_mesh_fbx(mesh_path: str, export_name: str, task_name: str = "", include_lods: bool = False) -> str:
         """
         /**
          * 导出骨骼蒙皮网格和参考姿势供离线动画制作 拒绝覆盖现有交付目录
          * @param mesh_path		骨骼网格资产路径
          * @param export_name		Saved Exports 下的新目录名称
          * @param task_name		本次临时制作任务名 指定后写入 Saved/temp/任务名/导出名
+         * @param include_lods		是否导出全部真实档位供离线密度制作
          * @return FBX 与骨骼清单路径及导出统计
          */
         """
@@ -4332,7 +4333,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             "ascii": False,
             "fbx_export_compatibility": unreal.FbxExportCompatibility.FBX_2013,
             "force_front_x_axis": True,
-            "level_of_detail": False,
+            "level_of_detail": include_lods,
             "collision": False,
             "export_morph_targets": True,
             "bake_material_inputs": unreal.FbxMaterialBakeMode.DISABLED,
@@ -5119,6 +5120,90 @@ return saturate(edge*3)*smoothstep(0.18,0.7,n)*0.8;
                     raise RuntimeError("根运动设置保存失败 " + asset.get_path_name())
         result["saved"] = not dry_run
         return json.dumps(result, ensure_ascii=False)
+
+
+    @mcp_tool
+    @staticmethod
+    def inspect_mesh_lod_statistics(mesh_paths: list[str]) -> str:
+        """
+        /**
+         * 只读检查明确网格的各渲染档几何与材质槽
+         * @param mesh_paths	一至八个明确网格包路径
+         * @return 各档三角面 顶点 区段与材质槽 JSON
+         */
+        """
+        if isinstance(mesh_paths, unreal.Array):
+            mesh_paths = list(mesh_paths)
+
+        if not isinstance(mesh_paths, list) or not 1 <= len(mesh_paths) <= 8:
+            raise RuntimeError('网格统计需要一至八个明确路径')
+        if any(not isinstance(path, str) or re.fullmatch(r'/Game/(?:[\w-]+/)*[\w-]+', path) is None for path in mesh_paths):
+            raise RuntimeError('网格统计只接受明确的 Game 包路径')
+        if len(set(mesh_paths)) != len(mesh_paths):
+            raise RuntimeError('网格统计拒绝重复路径')
+
+        assets = []
+        for path in mesh_paths:
+            asset = unreal.load_asset(path)
+            if not isinstance(asset, (unreal.SkeletalMesh, unreal.StaticMesh)):
+                raise RuntimeError('目标不是静态或骨骼网格: ' + path)
+            assets.append((path, asset))
+        dirty = {package.get_path_name() for package in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
+        for path, asset in assets:
+            if asset.get_outermost().get_path_name() in dirty:
+                raise RuntimeError('目标网格存在未保存修改: ' + path)
+
+        subsystem = unreal.get_editor_subsystem(unreal.SkeletalMeshEditorSubsystem)
+        rows = []
+        for path, asset in assets:
+            skeletal = isinstance(asset, unreal.SkeletalMesh)
+            count = subsystem.get_lod_count(asset) if skeletal else asset.get_num_lods()
+            if count < 1:
+                raise RuntimeError('目标网格没有有效渲染档: ' + path)
+            materials = asset.get_editor_property('materials' if skeletal else 'static_materials')
+            slots = []
+            for index, material in enumerate(materials):
+                interface = material.get_editor_property('material_interface')
+                slots.append({'index': index, 'name': str(material.get_editor_property('material_slot_name')),
+                              'material': interface.get_path_name() if interface else None})
+            native_lods, native_reason = {}, None
+            if skeletal:
+                library = getattr(unreal, 'BBBBlueprintEditorLibrary', None)
+                inspector = getattr(library, 'inspect_skeletal_mesh_render_data', None)
+                if not callable(inspector):
+                    native_reason = 'RENDER_INSPECTOR_UNAVAILABLE'
+                else:
+                    try:
+                        native = json.loads(str(inspector([asset])))['meshes'][0]
+                        native_reason = native.get('unavailableReason')
+                        native_lods = {row['lod']: row for row in native['lods']}
+                    except (KeyError, IndexError, TypeError, ValueError) as error:
+                        native_reason = 'RENDER_INSPECTION_FAILED: ' + str(error)
+            lods = []
+            for index in range(count):
+                sections = subsystem.get_num_sections(asset, index) if skeletal else asset.get_num_sections(index)
+                vertices = subsystem.get_num_verts(asset, index) if skeletal else asset.get_num_vertices(index)
+                if sections < 0 or vertices < 0:
+                    raise RuntimeError('渲染档区段或顶点数量无效: ' + path + ' LOD ' + str(index))
+                if skeletal:
+                    triangles, reason = None, native_reason
+                    section_slots = [subsystem.get_lod_material_slot(asset, index, section) for section in range(sections)]
+                    native_lod = native_lods.get(index)
+                    if reason is None and native_lod is None:
+                        reason = 'RENDER_LOD_UNAVAILABLE'
+                    if reason is None and (native_lod['renderVertices'] != vertices or len(native_lod['sections']) != sections):
+                        reason = 'RENDER_LOD_MISMATCH'
+                    if reason is None:
+                        triangles = native_lod['triangles']
+                else:
+                    triangles = asset.get_num_triangles(index)
+                    reason = None
+                    section_slots = None
+                lods.append({'lod': index, 'triangles': triangles, 'triangleUnavailableReason': reason,
+                             'renderVertices': vertices, 'sections': sections, 'sectionMaterialSlots': section_slots})
+            rows.append({'asset': path, 'type': 'SkeletalMesh' if skeletal else 'StaticMesh',
+                         'materialSlots': slots, 'lods': lods})
+        return json.dumps({'readOnly': True, 'geometrySource': 'RenderData', 'meshes': rows}, ensure_ascii=False)
 
 
 _registration = Registration([BBBGenericEditorToolset])

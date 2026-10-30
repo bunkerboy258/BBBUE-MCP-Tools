@@ -111,4 +111,5 @@ SUMMARIES = {
     "retarget.configure_root_motion_retargeter": "配置根运动重定向器",
     "retarget.retarget_sequences": "按重定向器批量生成动画",
     "rigid.inspect_static_mesh_geometry": "读取静态网格几何",
+    "editor.inspect_mesh_lod_statistics": "只读检查网格各档三角面 顶点 区段与材质槽",
 }

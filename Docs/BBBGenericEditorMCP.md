@@ -437,3 +437,7 @@ PIE 反射调用中的 Guid 返回值按标准字符串序列化 位置参数可
 - 此入口同时返回 `keys` 与 `bone_track_names`；`bone_names=["*"]` 显式读取全部骨轨与完整关键帧，并返回完整原始骨轨摘要 `raw_bone_digest`。现有项目自动保存 `.uasset` 的绝对路径及本任务带 SHA256 清单的暂存参考包通过隔离参考挂载只读检查，无法加载的外部来源逐项返回错误，不作为有效候选。任务阶段的参考硬链接留在所属 `Saved/temp`，完成后由调用方清理。
 
 原始骨轨为空时附带三个时间点的 `compressed_probe`，区分是否仍存在压缩姿态候选。该诊断不改资产，也不把非参考姿态自动视为可用恢复来源。
+
+## 骨骼网格生产密度读取
+
+`editor.export_skeletal_mesh_fbx` 的 `include_lods=true` 通过官方 FBX 导出器输出全部真实档位 默认保持零档导出。`editor.inspect_mesh_lod_statistics` 接受官方桥接产生的 `unreal.Array` 并统一转换后验证路径。Connor 的三档实际读取及完整 FBX 导出已执行 未修改源资产 未运行自动化测试。

@@ -493,6 +493,7 @@ TOOL_POLICIES = {
     'editor.sample_hand_handling_surface': {'access': 'read'},
     'editor.reparent_skeletal_mesh_socket': {'scope': {'fields': ['mesh_path']}, 'world': 'editor', 'completion': 'verified_save'},
     'control_rig.replace_sequence_animation_references': {'scope': {'fields': ['sequence_path']}},
+    'editor.inspect_mesh_lod_statistics': {'access': 'read'},
 }
 
 @lru_cache(maxsize=None)

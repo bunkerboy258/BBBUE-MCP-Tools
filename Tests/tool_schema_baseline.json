@@ -3811,6 +3811,11 @@
             "type": "string",
             "description": "本次临时制作任务名 指定后写入 Saved/temp/任务名/导出名",
             "default": ""
+          },
+          "include_lods": {
+            "type": "boolean",
+            "description": "是否导出全部真实档位供离线密度制作",
+            "default": false
           }
         },
         "required": [
@@ -7449,6 +7454,33 @@
           "returnValue": {
             "type": "string",
             "description": "实际网络模式与进程内选项 仅修改当前编辑器内存 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_mesh_lod_statistics": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mesh_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "mesh_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
           }
         },
         "required": [
