@@ -51,6 +51,9 @@ def _load_autosaves(paths):
         if skeleton_paths:
             unreal.BBBMotionMatchingEditorLibrary.inspect_configuration(str(content_root), skeleton_paths)
     assets = unreal.BBBMotionMatchingEditorLibrary.load_reference_animation_sequences(str(content_root), object_paths)
+    packages = [asset.get_outer() for asset in assets if isinstance(asset, unreal.AnimSequence)]
+    if packages:
+        unreal.EditorLoadingAndSavingUtils.fully_load_packages(packages)
     if len(assets) != len(paths) or any(not isinstance(asset, unreal.AnimSequence) for asset in assets):
         raise RuntimeError('自动保存包不是可读动画 ' + str(paths))
     return dict(zip(paths, assets))

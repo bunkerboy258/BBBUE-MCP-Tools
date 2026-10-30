@@ -1,5 +1,13 @@
 # 动画原始骨轨恢复
 
+## 已有动作首尾对齐保留曲线
+
+`BBBNativeRetargetActions` 正式源可设置 `preserve_curves=true`。现有 `control_rig.process_dual_arm_body_pose` 的 `finalize` 仍按明确首尾窗口对齐参考姿势并验证中段不变，但不创建或重写四条动作接管曲线；写入前后检查完整曲线语义，异常则拒绝保存。用于用户已手调曲线的正式动作，不能为姿态对齐覆盖曲线。
+
+自动保存参考读取在返回前调用引擎 `fully_load_packages`，让包完成加载并释放原文件的读取锁，便于清理任务自身建立的只读参考硬链接。没有删除原自动保存或保存参考资产。
+
+2026-10-30 实际应用：两份手雷动画由历史目标骨架自动保存恢复，各 68 骨轨、30 键，曲线与加法配置保持。持枪投掷以当前公共 Rifle01 持枪基准首尾对齐，入口 0～4 帧、出口 22～29 帧，中段保持；组件空间首尾位置误差小于 0.000069 cm。磁盘重载后的曲线完整文本保持。九份历史包重新读取后临时硬链接全部可移除，原自动保存保留。未运行 PIE 或自动化验收。
+
 ## 动画手调曲线与预览元数据
 
 `control_rig.process_dual_arm_body_pose` 接收型号 `Source/Animation/*_AnimationMetadata.json.source` 正式制作源，格式 `BBBAnimationMetadata`。逐项使用 `job_index`、唯一 `write_paths` 与 `inspect` 或 `bake`。每项明确 `animation`，可选完整 `float_curves` 字典及同骨架 `preview_mesh`。省略曲线字段表示保持现有曲线，空字典表示明确清空，不能把缺失历史数据填成统一曲线。

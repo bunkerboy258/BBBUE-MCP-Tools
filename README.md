@@ -746,3 +746,7 @@ Monster 版本只编辑逻辑与表现两份主配置。`monster_gore.inspect_mo
 ## 2026-10-30 FAL 手调曲线与双臂预览
 
 现有双臂制作入口支持明确的 AnimationMetadata 正式源，以完整 UE FloatCurve 文本恢复曲线与同骨架预览，逐项验证骨轨和通知等设置保持。配置元数据源的 ManualAction 已有成品导出保留当前手调曲线及预览，新建输出才从正式元数据源初始化，避免公共输入曲线覆盖。FAL 装备四条历史曲线与换弹两条有证据曲线已恢复；换弹左右姿势覆盖保留现值并标明历史缺口。十二份动画磁盘重载回读通过，九份角色动画按用户澄清使用完整角色 Sk_CombinedMesh 预览，空轨收枪成品从正式 LS 恢复。未执行 PIE 或自动化验收，正常再烘焙分支仅语法和代码检查。见 Docs/BBBAnimationPoseRecoveryMCP.md。
+
+## 2026-10-30 投掷姿态对齐保留手调曲线
+
+现有首尾参考对齐入口支持正式源 preserve_curves，保持用户当前曲线并在保存前核对完整语义；自动保存参考读取在返回前完全加载包以释放文件读取锁。用于本次手雷投掷恢复与 Rifle01 参考衔接，具体静态保存及回读证据见项目 Docs/Animation/GrenadeTossRecovery20261030.md，未运行 PIE 或自动化验收。

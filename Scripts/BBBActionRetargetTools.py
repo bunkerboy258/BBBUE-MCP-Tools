@@ -225,6 +225,7 @@ def finalize(recipe_path, write_paths):
     from BBBManualActionAuthoring import _digest
     from BBBGenericEditorToolset import _set_flat_cubic_curve
     path, data = _read(recipe_path, write_paths)
+    from BBBAnimationCurveTools import _curve_values
     if any(job.get('finger_repair') for job in data['jobs']):
         return {'finger_repairs': [_repair_fingers(path, data, job) for job in data['jobs'] if job.get('finger_repair')]}
     reference = _asset(data['reference_animation'], unreal.AnimSequence)
@@ -249,6 +250,7 @@ def finalize(recipe_path, write_paths):
         entry, exit_window, unchanged_frames = _endpoint_windows(job, count)
         original = {str(n): list(unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, n))
                     for n in animation.data_model_interface.get_bone_track_names()}
+        curves_before = _curve_values(animation)
         values = {}
         for name, transforms in original.items():
             target = unreal.AnimPoseExtensions.get_bone_pose(reference_pose, name, unreal.AnimPoseSpaces.LOCAL)
@@ -282,10 +284,12 @@ def finalize(recipe_path, write_paths):
                            {'time': exit_window[1] * rate.denominator / rate.numerator, 'value': 0.0}]
         if curve_keys[-1]['time'] < duration:
             curve_keys.append({'time': duration, 'value': curve_keys[-1]['value']})
-        for curve in ('DisableLeftHandIK', 'DisableAimIK', 'DisableLeftHandPoseOverride', 'DisableRightHandPoseOverride'):
+        for curve in (() if data.get('preserve_curves') else ('DisableLeftHandIK', 'DisableAimIK', 'DisableLeftHandPoseOverride', 'DisableRightHandPoseOverride')):
             if not unreal.AnimationLibrary.does_curve_exist(animation, curve, unreal.RawCurveTrackTypes.RCT_FLOAT):
                 unreal.AnimationLibrary.add_curve(animation, curve, unreal.RawCurveTrackTypes.RCT_FLOAT, False)
             _set_flat_cubic_curve(animation, curve, curve_keys)
+        if data.get('preserve_curves') and _curve_values(animation) != curves_before:
+            raise RuntimeError('RETARGET_ACTION_AUTHORED_CURVES_CHANGED')
         maximum = 0.0
         for name, before in original.items():
             after = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, name)
