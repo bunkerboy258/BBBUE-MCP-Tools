@@ -62,3 +62,12 @@ playback_frame_range 仅支持从零开始的明确实际播放范围，拒绝�
 AnimationMetadata 曲线按目标 AnimationSequencerDataModel 的原生 tick_resolution 量化时间，再导入、逐项比较键和有效插值；允许序列化一微秒误差，不忽略有效值或切线差异。2026-10-30 已对 68 份角色成品执行完整元数据保存回读，未运行 PIE 或自动化验收。
 
 分段内部接缝可单独制作源显式引用插入段的首帧或末帧。保存验证和 inspect 都记录实际 reference_animation / reference_frame，手指比较与腕部轨迹使用同一指定参考帧，不把加法归零或内部接缝误报成FAL绝对端点。
+
+
+## 角色动作按曲线对齐
+
+BBBNativeRetargetActions 的 finalize 逐采样调用 AnimationLibrary.get_float_value_at_time，以现有 DisableLeftHandIK（或明确 blend_curve）读取真实插值值。原动作权重为 clamp(curve,0,1)，参考权重为一减该值；不再读取固定 entry_frames / exit_frames，也不另外使用 SmoothStep。原曲线、有效切线、颜色、通知及动画设置保持。曲线满权重样本回读核对原动作；无此曲线时保留原输入，不合成过渡。加法层混合自身有效参考姿势，使增量归零，不能把绝对FAL姿势写进另一加法基准。
+
+输入必须先从正式LS或有完整骨姿的制作记录恢复，再 capture 登记指纹后 finalize；旧输出指纹或曲线发生变化会明确拒绝，避免对已处理成品二次混合。inspect 回读骨轨及曲线摘要。没有额外的全段手指角度压制阶段。
+
+同型号的完整组件姿态记录可由 job.component_snapshot 明确指定 record、record_sha256、group、expected_target_digest；只接受本型号 Source/Animation 里的唯一同名动画、全部连续采样和完整骨名。使用记录网格的父骨层级原生转回局部姿态，保持元数据，写后回读。此阶段只在未登记 retarget_digest 时执行，不接受其他型号的动作替代。

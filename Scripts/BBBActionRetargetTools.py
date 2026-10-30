@@ -44,6 +44,74 @@ def _metrics(animation, reference, mesh, times, reference_frame=0):
     return rows
 
 
+def _restore_component_snapshot(job):
+    """/** @param job 同型号正式完整姿态记录与明确目标 @return 保留元数据的原位恢复证据 */"""
+    import hashlib
+    from BBBManualActionAuthoring import _digest
+    from BBBAnimationCurveTools import _curve_values, _animation_metadata
+    request = job['component_snapshot']
+    project = Path(unreal.Paths.project_dir()).resolve()
+    record = (project / request['record']).resolve()
+    owner = job['animation'].split('/Animation/')[0].removeprefix('/Game/')
+    if record.parent != (project / 'Content' / owner / 'Source/Animation').resolve():
+        raise RuntimeError('COMPONENT_SNAPSHOT_OWNER_SCOPE')
+    encoded = record.read_bytes()
+    if hashlib.sha256(encoded).hexdigest() != request['record_sha256']:
+        raise RuntimeError('COMPONENT_SNAPSHOT_RECORD_CHANGED')
+    saved = json.loads(encoded.decode('utf-8-sig'))['source_motion']
+    candidates = [row for row in saved[request['group']] if row['asset'] == job['animation']]
+    if len(candidates) != 1:
+        raise RuntimeError('COMPONENT_SNAPSHOT_UNIQUE_ASSET')
+    animation = _asset(job['animation'], unreal.AnimSequence)
+    if _digest(animation) != request['expected_target_digest']:
+        raise RuntimeError('COMPONENT_SNAPSHOT_TARGET_CHANGED')
+    count = animation.data_model_interface.get_number_of_keys()
+    samples = candidates[0]['samples']
+    if len(samples) != count or [row['frame'] for row in samples] != list(range(count)):
+        raise RuntimeError('COMPONENT_SNAPSHOT_COMPLETE_SAMPLES')
+    names = [str(name) for name in animation.data_model_interface.get_bone_track_names()]
+    mesh = _asset(saved['mesh'], unreal.SkeletalMesh)
+    if mesh.get_editor_property('skeleton') != animation.get_skeleton():
+        raise RuntimeError('COMPONENT_SNAPSHOT_SKELETON')
+    subsystem = unreal.get_editor_subsystem(unreal.SkeletalMeshEditorSubsystem)
+    parents = {name: str(subsystem.get_bone_parent(mesh, name)).casefold() for name in names}
+    values = {name: [] for name in names}
+    for sample in samples:
+        components = {}
+        for name, row in sample['bones'].items():
+            value = unreal.Transform(location=unreal.Vector(*[row['translation'][axis] for axis in ('x','y','z')]),
+                scale=unreal.Vector(*[row['scale'][axis] for axis in ('x','y','z')]))
+            value.rotation = unreal.Quat(*row['quaternion']).normalized()
+            components[name.casefold()] = value
+        if {name.casefold() for name in names} != set(components):
+            raise RuntimeError('COMPONENT_SNAPSHOT_COMPLETE_BONES')
+        for name in names:
+            value = components[name.casefold()]
+            if parents[name] in components:
+                value = value.make_relative(components[parents[name]])
+            values[name].append(value)
+    metadata = _animation_metadata(animation)
+    curves = _curve_values(animation)
+    require_asset_write([animation])
+    controller = animation.controller
+    controller.open_bracket('从同型号完整制作姿态记录恢复原始骨轨', False)
+    try:
+        for name, keys in values.items():
+            if not controller.set_bone_track_keys(name, [v.translation for v in keys], [v.rotation for v in keys], [v.scale3d for v in keys], False):
+                raise RuntimeError('COMPONENT_SNAPSHOT_WRITE: ' + name)
+    finally:
+        controller.close_bracket(False)
+    for name, expected in values.items():
+        actual = list(unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, name))
+        if len(actual) != count or any((a.translation-b.translation).length() > 0.001 or abs((a.rotation.normalized()*b.rotation.normalized().inversed()).w) < 0.999999 for a,b in zip(actual,expected)):
+            raise RuntimeError('COMPONENT_SNAPSHOT_READBACK: ' + name)
+    if _animation_metadata(animation) != metadata or _curve_values(animation) != curves:
+        raise RuntimeError('COMPONENT_SNAPSHOT_METADATA_CHANGED')
+    if not unreal.EditorAssetLibrary.save_loaded_asset(animation, False):
+        raise RuntimeError('COMPONENT_SNAPSHOT_SAVE')
+    return {'record': request['record'], 'record_sha256': request['record_sha256'], 'frames': count, 'bones': len(names), 'restored_digest': _digest(animation)}
+
+
 def capture(recipe_path, write_paths):
     """/** @param recipe_path\t原始动作重定向要求 @param write_paths\t输出包 @return\t新重定向动作与轨迹核对 */"""
     from BBBManualActionAuthoring import _digest
@@ -53,6 +121,8 @@ def capture(recipe_path, write_paths):
     if all(job.get('in_place_alignment') and job['source'] == job['animation'] for job in data['jobs']):
         reports = []
         for job in data['jobs']:
+            if job.get('component_snapshot') and not job.get('retarget_digest'):
+                job['snapshot_restore_result'] = _restore_component_snapshot(job)
             animation = _asset(job['animation'], unreal.AnimSequence)
             count = animation.data_model_interface.get_number_of_keys()
             if count < 2 or not animation.data_model_interface.get_bone_track_names():
@@ -223,150 +293,135 @@ def _blend(a, b, weight):
     return result
 
 
-def _endpoint_windows(job, count):
-    """/** @param job\t明确单侧或双侧窗口 @param count\t采样数 @return\t合法窗口与不变区间 */"""
-    entry = job['entry_frames']
-    exit_window = job['exit_frames']
-    if entry is None and exit_window is None and not job.get('preserve_internal_pose'):
-        raise RuntimeError('RETARGET_ACTION_ENDPOINT_REQUIRED')
-    if entry is not None and (len(entry) != 2 or entry[0] != 0 or not 0 < entry[1] < count):
-        raise RuntimeError('RETARGET_ACTION_ENTRY_WINDOW')
-    if exit_window is not None and (len(exit_window) != 2 or not 0 <= exit_window[0] < exit_window[1] < count):
-        raise RuntimeError('RETARGET_ACTION_EXIT_WINDOW')
-    if entry is not None and exit_window is not None and entry[1] >= exit_window[0]:
-        raise RuntimeError('RETARGET_ACTION_ENDPOINT_OVERLAP')
-    first = entry[1] if entry is not None else 0
-    last = exit_window[0] if exit_window is not None else count - 1
-    return entry, exit_window, range(first, last + 1)
-
-
 def finalize(recipe_path, write_paths):
     """/** @param recipe_path\t明确首尾窗口的制作源 @param write_paths\t公共动作输出 @return\t首尾参考和中段保留核验 */"""
+    import hashlib
     from BBBManualActionAuthoring import _digest
-    from BBBGenericEditorToolset import _set_flat_cubic_curve
+    from BBBAnimationCurveTools import _curve_values, _animation_metadata
+    if unreal.EditorLevelLibrary.get_pie_worlds(False):
+        raise RuntimeError('CURVE_ALIGNMENT_PIE_FORBIDDEN')
     path, data = _read(recipe_path, write_paths)
-    from BBBAnimationCurveTools import _curve_values
-    if all(job.get('aligned_digest') for job in data['jobs']) and any(job.get('finger_repair') for job in data['jobs']):
-        return {'finger_repairs': [_repair_fingers(path, data, job) for job in data['jobs'] if job.get('finger_repair')]}
+    curve_name = data.get('blend_curve', 'DisableLeftHandIK')
     reference = _asset(data['reference_animation'], unreal.AnimSequence)
-    mesh = _asset(data['target_mesh'], unreal.SkeletalMesh)
-    options = unreal.AnimPoseEvaluationOptions()
-    options.optional_skeletal_mesh = mesh
-    options.should_retarget = False
-    options.evaluation_type = unreal.AnimDataEvalType.RAW
-    reference_pose = unreal.AnimPoseExtensions.get_anim_pose_at_time(reference, 0, options)
     reports = []
     for job in data['jobs']:
         animation = _asset(job['animation'], unreal.AnimSequence)
-        require_asset_write([animation])
+        curves_before = _curve_values(animation)
+        curve_digest = hashlib.sha256(json.dumps(curves_before, sort_keys=True).encode()).hexdigest()
         if job.get('aligned_digest'):
-            if _digest(animation) != job['aligned_digest']:
-                raise RuntimeError('RETARGET_ACTION_ALIGNED_ASSET_CHANGED')
-            reports.append(job['validation'])
+            validation = job.get('validation', {})
+            if validation.get('mode') != 'curve_driven':
+                raise RuntimeError('CURVE_ALIGNMENT_REBAKE_REQUIRED: ' + job['animation'])
+            if _digest(animation) != job['aligned_digest'] or validation['curve_digest'] != curve_digest:
+                raise RuntimeError('CURVE_ALIGNMENT_SAVED_ASSET_CHANGED: ' + job['animation'])
+            reports.append(validation)
             continue
         if _digest(animation) != job['retarget_digest']:
-            raise RuntimeError('RETARGET_ACTION_RAW_ASSET_CHANGED')
-        reference = _asset(job.get('reference_animation', data['reference_animation']), unreal.AnimSequence)
-        reference_rate = reference.data_model_interface.get_frame_rate()
-        reference_time = job.get('reference_frame', 0) * reference_rate.denominator / reference_rate.numerator
-        reference_pose = unreal.AnimPoseExtensions.get_anim_pose_at_time(reference, reference_time, options)
-        count = animation.data_model_interface.get_number_of_keys()
-        original = {str(n): list(unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, n))
-                    for n in animation.data_model_interface.get_bone_track_names()}
-        curves_before = _curve_values(animation)
-        playback_range = job.get('playback_frame_range')
-        if playback_range is not None:
-            if len(playback_range) != 2 or playback_range[0] != 0 or not 1 < playback_range[1] < count:
-                raise RuntimeError('RETARGET_ACTION_PLAYBACK_RANGE')
-            if curves_before or unreal.AnimationLibrary.get_animation_notify_events(animation):
-                raise RuntimeError('RETARGET_ACTION_TRIM_HAS_METADATA')
-            job['input_frames'] = count
-            count = playback_range[1] + 1
+            raise RuntimeError('CURVE_ALIGNMENT_RAW_ASSET_CHANGED: ' + job['animation'])
+        model = animation.data_model_interface
+        count = model.get_number_of_keys()
+        rate = model.get_frame_rate()
+        original = {str(n): list(unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, n)) for n in model.get_bone_track_names()}
+        if not original or any(len(keys) != count for keys in original.values()):
+            raise RuntimeError('CURVE_ALIGNMENT_COMPLETE_TRACKS_REQUIRED')
+        metadata = _animation_metadata(animation)
+        playback = job.get('playback_frame_range')
+        if playback is not None:
+            if playback[0] != 0 or not 1 < playback[1] < count or curves_before or metadata['notifies']:
+                raise RuntimeError('CURVE_ALIGNMENT_PLAYBACK_RANGE_OR_METADATA')
+            count = playback[1] + 1
             original = {name: keys[:count] for name, keys in original.items()}
-        entry, exit_window, unchanged_frames = _endpoint_windows(job, count)
-        values = {}
-        for name, transforms in original.items():
-            target = unreal.AnimPoseExtensions.get_bone_pose(reference_pose, name, unreal.AnimPoseSpaces.LOCAL)
-            keys = []
-            for frame, transform in enumerate(transforms):
-                weight = 0.0
-                if entry is not None and frame < entry[1]:
-                    progress = frame / entry[1]
-                    weight = 1 - progress * progress * (3 - 2 * progress)
-                if exit_window is not None and frame > exit_window[0]:
-                    progress = min(1.0, (frame - exit_window[0]) / (exit_window[1] - exit_window[0]))
-                    weight = progress * progress * (3 - 2 * progress)
-                keys.append(_blend(transform, target, weight))
-            values[name] = keys
-        controller = animation.controller
-        controller.open_bracket('新重定向动作首尾衔接正确参考姿势', False)
-        try:
-            if playback_range is not None:
-                controller.set_number_of_frames(unreal.FrameNumber(value=count - 1), False)
-            for name, keys in values.items():
-                if not controller.set_bone_track_keys(name, [v.translation for v in keys], [v.rotation for v in keys], [v.scale3d for v in keys], False):
-                    raise RuntimeError('RETARGET_ACTION_WRITE_BONE: ' + name)
-        finally:
-            controller.close_bracket(False)
-        rate = animation.data_model_interface.get_frame_rate()
-        duration = animation.get_play_length()
-        curve_keys = [{'time': 0.0, 'value': 1.0}]
-        if entry is not None:
-            curve_keys = [{'time': 0.0, 'value': 0.0},
-                          {'time': entry[1] * rate.denominator / rate.numerator, 'value': 1.0}]
-        if exit_window is not None:
-            curve_keys += [{'time': exit_window[0] * rate.denominator / rate.numerator, 'value': 1.0},
-                           {'time': exit_window[1] * rate.denominator / rate.numerator, 'value': 0.0}]
-        if curve_keys[-1]['time'] < duration:
-            curve_keys.append({'time': duration, 'value': curve_keys[-1]['value']})
-        for curve in (() if data.get('preserve_curves') else ('DisableLeftHandIK', 'DisableAimIK', 'DisableLeftHandPoseOverride', 'DisableRightHandPoseOverride')):
-            if not unreal.AnimationLibrary.does_curve_exist(animation, curve, unreal.RawCurveTrackTypes.RCT_FLOAT):
-                unreal.AnimationLibrary.add_curve(animation, curve, unreal.RawCurveTrackTypes.RCT_FLOAT, False)
-            _set_flat_cubic_curve(animation, curve, curve_keys)
-        if data.get('preserve_curves') and _curve_values(animation) != curves_before:
-            raise RuntimeError('RETARGET_ACTION_AUTHORED_CURVES_CHANGED')
-        maximum = 0.0
+        names = unreal.AnimationLibrary.get_animation_curve_names(animation, unreal.RawCurveTrackTypes.RCT_FLOAT)
+        stored_curve = next((name for name in names if str(name).casefold() == curve_name.casefold()), None)
+        raw_weights = [1.0] * count
+        if stored_curve is not None:
+            raw_weights = [unreal.AnimationLibrary.get_float_value_at_time(animation, stored_curve, frame * rate.denominator / rate.numerator) for frame in range(count)]
+        if any(not math.isfinite(value) for value in raw_weights):
+            raise RuntimeError('CURVE_ALIGNMENT_NONFINITE_WEIGHT')
+        action_weights = [min(1.0, max(0.0, value)) for value in raw_weights]
+        mix_reference = any(weight < 1.0 for weight in action_weights)
+        neutral = reference
+        neutral_frame = 0
+        target_kind = 'common_fal'
+        additive = animation.get_editor_property('additive_anim_type') != unreal.AdditiveAnimationType.AAT_NONE
+        reference_pose = None
+        if not mix_reference:
+            neutral = animation
+            target_kind = 'authored_unchanged'
+        if additive and mix_reference:
+            target_kind = 'additive_neutral'
+            pose_type = animation.get_editor_property('ref_pose_type')
+            neutral_frame = animation.get_editor_property('ref_frame_index')
+            neutral = animation.get_editor_property('ref_pose_seq')
+            if pose_type == unreal.AdditiveBasePoseType.ABPT_LOCAL_ANIM_FRAME:
+                neutral = animation
+            if pose_type == unreal.AdditiveBasePoseType.ABPT_REF_POSE:
+                neutral = None
+                reference_pose = unreal.AnimPoseExtensions.get_reference_pose(animation.get_skeleton())
+            if neutral is None and reference_pose is None:
+                raise RuntimeError('CURVE_ALIGNMENT_ADDITIVE_REFERENCE_REQUIRED')
+        targets = {}
+        for name in original:
+            if not mix_reference:
+                targets[name] = original[name][0]
+                continue
+            if reference_pose is not None:
+                targets[name] = unreal.AnimPoseExtensions.get_bone_pose(reference_pose, name, unreal.AnimPoseSpaces.LOCAL)
+                continue
+            keys = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(neutral, name)
+            if not keys or not 0 <= neutral_frame < len(keys):
+                raise RuntimeError('CURVE_ALIGNMENT_REFERENCE_TRACK: ' + name)
+            targets[name] = keys[neutral_frame]
+        prepared = {name: [_blend(value, targets[name], 1.0 - action_weights[frame]) for frame, value in enumerate(keys)] for name, keys in original.items()}
+        modified = playback is not None or any(weight < 1.0 for weight in action_weights)
+        if modified:
+            require_asset_write([animation])
+            controller = animation.controller
+            controller.open_bracket('按左手IK曲线同步原动作与基准姿势', False)
+            try:
+                if playback is not None:
+                    controller.set_number_of_frames(unreal.FrameNumber(value=count - 1), False)
+                for name, keys in prepared.items():
+                    if not controller.set_bone_track_keys(name, [v.translation for v in keys], [v.rotation for v in keys], [v.scale3d for v in keys], False):
+                        raise RuntimeError('CURVE_ALIGNMENT_WRITE_TRACK: ' + name)
+            finally:
+                controller.close_bracket(False)
+        maximum_position = 0.0
         maximum_rotation = 0.0
-        for name, before in original.items():
-            after = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, name)
-            for frame in unchanged_frames:
-                maximum = max(maximum, (before[frame].translation - after[frame].translation).length())
-                left = before[frame].rotation.to_tuple()
-                right = after[frame].rotation.to_tuple()
-                norm = math.sqrt(sum(x * x for x in left) * sum(x * x for x in right))
-                cosine = min(1.0, abs(sum(x * y for x, y in zip(left, right))) / norm)
-                maximum_rotation = max(maximum_rotation, math.degrees(2 * math.acos(cosine)))
-                if maximum > 0.001 or maximum_rotation > 0.001 or (before[frame].scale3d - after[frame].scale3d).length() > 0.00001:
-                    raise RuntimeError('RETARGET_ACTION_MIDDLE_CHANGED: %s:%d cm=%f degrees=%f' % (name, frame, maximum, maximum_rotation))
-        endpoint_error = 0.0
-        expected = _pose(reference, mesh, reference_time)
-        endpoint_times = []
-        if entry is not None:
-            endpoint_times.append(0.0)
-        if exit_window is not None:
-            endpoint_times.append(duration)
-        for time in endpoint_times:
-            actual = _pose(animation, mesh, time)
-            for bone in original:
-                a = unreal.AnimPoseExtensions.get_bone_pose(actual, bone, unreal.AnimPoseSpaces.WORLD)
-                b = unreal.AnimPoseExtensions.get_bone_pose(expected, bone, unreal.AnimPoseSpaces.WORLD)
-                endpoint_error = max(endpoint_error, (a.translation - b.translation).length())
-                if endpoint_error > 0.001 or abs(sum(x * y for x, y in zip(a.rotation.to_tuple(), b.rotation.to_tuple()))) < 0.999999:
-                    raise RuntimeError('RETARGET_ACTION_ENDPOINT: ' + bone + ' cm=' + str(endpoint_error))
-        if not unreal.EditorAssetLibrary.save_loaded_asset(animation, False):
-            raise RuntimeError('RETARGET_ACTION_ALIGNED_SAVE')
+        full_action_position = 0.0
+        full_action_rotation = 0.0
+        for name, expected in prepared.items():
+            actual = list(unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, name))
+            if len(actual) != count:
+                raise RuntimeError('CURVE_ALIGNMENT_SAMPLE_COUNT')
+            for frame, (a, b) in enumerate(zip(actual, expected)):
+                position = (a.translation - b.translation).length()
+                left, right = a.rotation.to_tuple(), b.rotation.to_tuple()
+                cosine = abs(sum(x*y for x,y in zip(left,right))) / math.sqrt(sum(x*x for x in left) * sum(x*x for x in right))
+                angle = math.degrees(2 * math.acos(min(1.0, cosine)))
+                maximum_position = max(maximum_position, position)
+                maximum_rotation = max(maximum_rotation, angle)
+                if action_weights[frame] >= 1.0:
+                    full_action_position = max(full_action_position, position)
+                    full_action_rotation = max(full_action_rotation, angle)
+                if position > 0.001 or angle > 0.001 or (a.scale3d-b.scale3d).length() > 0.00001:
+                    raise RuntimeError('CURVE_ALIGNMENT_POSE_READBACK: %s:%d' % (name, frame))
+        if _curve_values(animation) != curves_before or _animation_metadata(animation) != metadata:
+            raise RuntimeError('CURVE_ALIGNMENT_CURVE_OR_METADATA_CHANGED')
+        if modified and not unreal.EditorAssetLibrary.save_loaded_asset(animation, False):
+            raise RuntimeError('CURVE_ALIGNMENT_SAVE_FAILED')
         job['aligned_digest'] = _digest(animation)
         job['frames'] = count
         job['length'] = animation.get_play_length()
-        job['validation'] = {'animation': job['animation'], 'reference': reference.get_path_name().split('.')[0],
-                             'reference_frame': job.get('reference_frame', 0),
-                             'endpoint_position_error_cm': endpoint_error, 'middle_position_error_cm': maximum,
-                             'middle_rotation_error_degrees': maximum_rotation,
-                             'entry_frames': job['entry_frames'], 'exit_frames': job['exit_frames'],
-                             'stable_tail_frames': count - 1 - exit_window[1] if exit_window is not None else 0,
-                             'preserved_frames': [unchanged_frames.start, unchanged_frames.stop - 1],
-                             'animation_digest': job['aligned_digest'], 'frames': count,
-                             'original_source_unchanged': _digest(_asset(job['source'], unreal.AnimSequence)) == job['source_digest']}
+        job['validation'] = {'mode': 'curve_driven', 'animation': job['animation'], 'curve': str(stored_curve) if stored_curve is not None else None,
+            'curve_digest': curve_digest, 'weight_formula': 'reference=1-clamp(curve,0,1); missing_curve=preserve_authored',
+            'reference_kind': target_kind, 'reference': neutral.get_path_name().split('.')[0] if neutral is not None else 'skeleton_reference',
+            'reference_frame': neutral_frame, 'raw_curve_range': [min(raw_weights), max(raw_weights)],
+            'action_weights': action_weights, 'full_action_frames': sum(value >= 1.0 for value in action_weights),
+            'pose_position_error_cm': maximum_position, 'pose_rotation_error_degrees': maximum_rotation,
+            'full_action_position_error_cm': full_action_position, 'full_action_rotation_error_degrees': full_action_rotation,
+            'frames': count, 'bones': len(original), 'curves_and_metadata_preserved': True, 'bone_tracks_rewritten': modified,
+            'animation_digest': job['aligned_digest']}
         reports.append(job['validation'])
         _save(path, data)
     data['state'] = 'aligned'
@@ -376,142 +431,19 @@ def finalize(recipe_path, write_paths):
 
 def inspect(recipe_path, write_paths):
     """/** @param recipe_path\t正式重定向源 @param write_paths\t明确输出范围 @return\t保存后首尾轨迹 */"""
+    import hashlib
     from BBBManualActionAuthoring import _digest
+    from BBBAnimationCurveTools import _curve_values
     _, data = _read(recipe_path, write_paths)
-    reference = _asset(data['reference_animation'], unreal.AnimSequence)
-    mesh = _asset(data['target_mesh'], unreal.SkeletalMesh)
-    return {'state': data['state'], 'jobs': [{'animation': job['animation'],
-             'saved_digest_matches': _digest(_asset(job['animation'], unreal.AnimSequence)) == job.get('aligned_digest', job['retarget_digest']),
-             'validation': job.get('validation'),
-             'reference': job.get('reference_animation', data['reference_animation']),
-             'reference_frame': job.get('reference_frame', 0),
-             'finger_entry': _finger_entry(_asset(job['animation'], unreal.AnimSequence),
-                                          _asset(job.get('reference_animation', data['reference_animation']), unreal.AnimSequence), job.get('reference_frame', 0)),
-             'trajectory': _metrics(_asset(job['animation'], unreal.AnimSequence),
-                                    _asset(job.get('reference_animation', data['reference_animation']), unreal.AnimSequence), mesh,
-                                    sorted(set([0, job['length']] + ([job['exit_frames'][1] * job['length'] / (job['frames'] - 1)] if job['exit_frames'] is not None else []))), job.get('reference_frame', 0))} for job in data['jobs']]}
-
-
-def _finger_entry(animation, reference, reference_frame=0):
-    """/** @param animation\t现有装备动作 @param reference\t握持参考 @return\t手指前段逐帧局部旋转 */"""
-    from BBBCommonActionSources import is_finger
-    result = []
-    neutral = unreal.AnimPoseExtensions.get_reference_pose(animation.get_editor_property('skeleton'))
-    for bone in animation.data_model_interface.get_bone_track_names():
-        if not is_finger(bone):
-            continue
-        keys = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, bone)
-        ref = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(reference, bone)[reference_frame]
-        samples = []
-        for frame in sorted({value for value in (0, 2, 4, 6, 8, 10, 12, 15, 20, 30, len(keys) - 1) if value < len(keys)}):
-            value = keys[frame]
-            dot = min(1.0, abs(sum(x*y for x,y in zip(value.rotation.to_tuple(), ref.rotation.to_tuple()))))
-            samples.append({'frame': frame, 'degrees_from_reference': math.degrees(2*math.acos(dot)),
-                            'rotation': value.rotation.rotator().to_tuple(),
-                            'named_rotation': {axis: getattr(value.rotation.rotator(), axis) for axis in ('roll', 'pitch', 'yaw')}})
-        rest = unreal.AnimPoseExtensions.get_bone_pose(neutral, bone, unreal.AnimPoseSpaces.LOCAL)
-        result.append({'bone': str(bone), 'neutral': rest.rotation.rotator().to_tuple(), 'reference': ref.rotation.rotator().to_tuple(), 'max_yaw': max((k.rotation.rotator().yaw, f) for f,k in enumerate(keys)), 'samples': samples})
-    return result
-
-
-def _repair_fingers(path, data, job):
-    """/** @param path\t正式源 @param data\t批准的现有装备指节修正 @return\t异常区间及未变骨轨核验 */"""
-    from BBBManualActionAuthoring import _digest
-    policy = job['finger_repair']
-    if not policy.get('approval') or policy.get('mode') != 'bridge_hyperextended_finger_yaw':
-        raise RuntimeError('FINGER_REPAIR_APPROVAL')
-    animation = _asset(job['animation'], unreal.AnimSequence)
-    if policy.get('applied'):
-        if _digest(animation) != job['aligned_digest']:
-            raise RuntimeError('FINGER_REPAIR_ASSET_CHANGED')
-        return policy
-    if _digest(animation) != job['aligned_digest']:
-        raise RuntimeError('FINGER_REPAIR_SOURCE_CHANGED')
-    if unreal.EditorLevelLibrary.get_pie_worlds(False):
-        raise RuntimeError('FINGER_REPAIR_PIE_FORBIDDEN')
-    reference = _asset(data['reference_animation'], unreal.AnimSequence)
-    neutral = unreal.AnimPoseExtensions.get_reference_pose(animation.get_editor_property('skeleton'))
-    original = {str(n): list(unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, n))
-                for n in animation.data_model_interface.get_bone_track_names()}
-    replacements = {}
     reports = []
-    for name, keys in original.items():
-        if name not in policy['bones']:
-            continue
-        ref = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(reference, name)[0]
-        rest = unreal.AnimPoseExtensions.get_bone_pose(neutral, name, unreal.AnimPoseSpaces.LOCAL)
-        limit = max(0.0, rest.rotation.rotator().yaw, ref.rotation.rotator().yaw)
-        if policy.get('extension_limit_basis') == 'reference_pose':
-            limit = max(0.0, ref.rotation.rotator().yaw)
-        flexions = [key.rotation.rotator().yaw for key in keys]
-        repair_boundary = bool(policy.get('repair_boundary_extension'))
-        frame = 0 if repair_boundary else 1
-        changed = []
-        ranges = []
-        updates = list(keys)
-        repair_end = job['exit_frames'][1] if job['exit_frames'] is not None else len(keys) - 1
-        if repair_boundary:
-            repair_end = len(keys)
-        while frame < repair_end:
-            if flexions[frame] <= limit:
-                frame += 1
-                continue
-            start = frame
-            while frame < repair_end and flexions[frame] > limit:
-                frame += 1
-            end = frame - 1
-            if max(flexions[start:end + 1]) <= limit + float(policy.get('minimum_excess_degrees', 5.0)):
-                continue
-            left, right = max(0, start - 1), min(frame, len(keys) - 1)
-            left_value = flexions[left]
-            right_value = flexions[right]
-            if repair_boundary:
-                left_value = min(left_value, limit)
-                right_value = min(right_value, limit)
-            if right_value > limit + 0.01:
-                raise RuntimeError('FINGER_REPAIR_NO_SAFE_BOUNDARY: ' + name)
-            ranges.append([start, end])
-            for f in range(start, end + 1):
-                progress = (f - left) / max(1, right - left)
-                weight = progress * progress * (3 - 2 * progress)
-                flexion = left_value + (right_value - left_value) * weight
-                rotation = keys[f].rotation.rotator()
-                value = unreal.Transform(location=keys[f].translation, scale=keys[f].scale3d)
-                value.rotation = unreal.Rotator(pitch=rotation.pitch, yaw=flexion, roll=rotation.roll).quaternion()
-                updates[f] = value
-                changed.append({'frame': f, 'before_yaw': flexions[f], 'after_yaw': flexion})
-        if changed:
-            replacements[name] = updates
-            reports.append({'bone': name, 'limit_degrees': limit, 'ranges': ranges, 'keys': changed})
-    if not reports:
-        policy.update({'applied': True, 'status': 'checked_no_anomaly', 'tracks': [],
-                       'other_tracks_unchanged': True, 'translation_scale_unchanged': True})
-        _save(path, data)
-        return policy
-    require_asset_write([animation])
-    controller = animation.controller
-    controller.open_bracket('修复现有装备动画反向伸展指节', False)
-    try:
-        for name, keys in replacements.items():
-            if not controller.set_bone_track_keys(name, [k.translation for k in keys], [k.rotation for k in keys], [k.scale3d for k in keys], False):
-                raise RuntimeError('FINGER_REPAIR_WRITE: ' + name)
-    finally:
-        controller.close_bracket(False)
-    for name, before in original.items():
-        after = list(unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, name))
-        expected = replacements.get(name, before)
-        for f, (a, b) in enumerate(zip(after, expected)):
-            if (a.translation - b.translation).length() > 0.0001 or (a.scale3d-b.scale3d).length() > 0.0001 or abs(sum(x*y for x,y in zip(a.rotation.to_tuple(), b.rotation.to_tuple()))) < 0.999999:
-                raise RuntimeError('FINGER_REPAIR_READBACK: %s:%d' % (name, f))
-    if not unreal.EditorAssetLibrary.save_loaded_asset(animation, False):
-        raise RuntimeError('FINGER_REPAIR_SAVE')
-    policy.update({'applied': True, 'previous_digest': job['aligned_digest'], 'tracks': reports,
-                   'other_tracks_unchanged': True, 'translation_scale_unchanged': True})
-    job['aligned_digest'] = _digest(animation)
-    job['validation']['finger_entry_repaired'] = True
-    job['validation']['animation_digest'] = job['aligned_digest']
-    _save(path, data)
-    return policy
+    for job in data['jobs']:
+        animation = _asset(job['animation'], unreal.AnimSequence)
+        validation = job.get('validation', {})
+        curves = _curve_values(animation)
+        digest = hashlib.sha256(json.dumps(curves, sort_keys=True).encode()).hexdigest()
+        reports.append({'animation': job['animation'], 'saved_digest_matches': _digest(animation) == job.get('aligned_digest', job.get('retarget_digest')),
+            'curve_digest_matches': digest == validation.get('curve_digest'), 'validation': validation})
+    return {'state': data['state'], 'jobs': reports}
 
 
 def sync_finger_repair(path, data, sequence):
