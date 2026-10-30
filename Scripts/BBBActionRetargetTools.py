@@ -27,9 +27,10 @@ def _save(path, data):
         raise RuntimeError('RETARGET_ACTION_SOURCE_SAVE')
 
 
-def _metrics(animation, reference, mesh, times):
+def _metrics(animation, reference, mesh, times, reference_frame=0):
     """/** @param animation\t待查动作 @param reference\t正确参考 @param mesh\t目标网格 @param times\t采样时间 @return\t腕姿轨迹误差 */"""
-    target = _pose(reference, mesh, 0)
+    rate = reference.data_model_interface.get_frame_rate()
+    target = _pose(reference, mesh, reference_frame * rate.denominator / rate.numerator)
     rows = []
     for time in times:
         pose = _pose(animation, mesh, time)
@@ -357,7 +358,8 @@ def finalize(recipe_path, write_paths):
         job['aligned_digest'] = _digest(animation)
         job['frames'] = count
         job['length'] = animation.get_play_length()
-        job['validation'] = {'animation': job['animation'], 'reference': data['reference_animation'],
+        job['validation'] = {'animation': job['animation'], 'reference': reference.get_path_name().split('.')[0],
+                             'reference_frame': job.get('reference_frame', 0),
                              'endpoint_position_error_cm': endpoint_error, 'middle_position_error_cm': maximum,
                              'middle_rotation_error_degrees': maximum_rotation,
                              'entry_frames': job['entry_frames'], 'exit_frames': job['exit_frames'],
@@ -381,12 +383,16 @@ def inspect(recipe_path, write_paths):
     return {'state': data['state'], 'jobs': [{'animation': job['animation'],
              'saved_digest_matches': _digest(_asset(job['animation'], unreal.AnimSequence)) == job.get('aligned_digest', job['retarget_digest']),
              'validation': job.get('validation'),
-             'finger_entry': _finger_entry(_asset(job['animation'], unreal.AnimSequence), reference),
-             'trajectory': _metrics(_asset(job['animation'], unreal.AnimSequence), reference, mesh,
-                                    sorted(set([0, job['length']] + ([job['exit_frames'][1] * job['length'] / (job['frames'] - 1)] if job['exit_frames'] is not None else []))))} for job in data['jobs']]}
+             'reference': job.get('reference_animation', data['reference_animation']),
+             'reference_frame': job.get('reference_frame', 0),
+             'finger_entry': _finger_entry(_asset(job['animation'], unreal.AnimSequence),
+                                          _asset(job.get('reference_animation', data['reference_animation']), unreal.AnimSequence), job.get('reference_frame', 0)),
+             'trajectory': _metrics(_asset(job['animation'], unreal.AnimSequence),
+                                    _asset(job.get('reference_animation', data['reference_animation']), unreal.AnimSequence), mesh,
+                                    sorted(set([0, job['length']] + ([job['exit_frames'][1] * job['length'] / (job['frames'] - 1)] if job['exit_frames'] is not None else []))), job.get('reference_frame', 0))} for job in data['jobs']]}
 
 
-def _finger_entry(animation, reference):
+def _finger_entry(animation, reference, reference_frame=0):
     """/** @param animation\t现有装备动作 @param reference\t握持参考 @return\t手指前段逐帧局部旋转 */"""
     from BBBCommonActionSources import is_finger
     result = []
@@ -395,7 +401,7 @@ def _finger_entry(animation, reference):
         if not is_finger(bone):
             continue
         keys = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, bone)
-        ref = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(reference, bone)[0]
+        ref = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(reference, bone)[reference_frame]
         samples = []
         for frame in sorted({value for value in (0, 2, 4, 6, 8, 10, 12, 15, 20, 30, len(keys) - 1) if value < len(keys)}):
             value = keys[frame]

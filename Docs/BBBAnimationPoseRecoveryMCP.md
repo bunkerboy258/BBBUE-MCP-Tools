@@ -60,3 +60,5 @@ job 可明确 reference_animation 与 reference_frame。局部加法副层回到
 playback_frame_range 仅支持从零开始的明确实际播放范围，拒绝含曲线或通知的裁切。运行 UseReturn 蒙太奇只播放 0～0.2 秒，正式输出保留七键并在实际出口对齐，完整制作 LS 不裁切。
 
 AnimationMetadata 曲线按目标 AnimationSequencerDataModel 的原生 tick_resolution 量化时间，再导入、逐项比较键和有效插值；允许序列化一微秒误差，不忽略有效值或切线差异。2026-10-30 已对 68 份角色成品执行完整元数据保存回读，未运行 PIE 或自动化验收。
+
+分段内部接缝可单独制作源显式引用插入段的首帧或末帧。保存验证和 inspect 都记录实际 reference_animation / reference_frame，手指比较与腕部轨迹使用同一指定参考帧，不把加法归零或内部接缝误报成FAL绝对端点。
