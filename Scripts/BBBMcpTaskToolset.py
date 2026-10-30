@@ -113,8 +113,9 @@ class BBBMcpTaskToolset(unreal.ToolsetDefinition):
          * @return 实际阶段及路径核验结果
          */
         """
-        from BBBAssetMaintenanceToolset import _resume_asset_moves
-        return json.dumps(_resume_asset_moves(json.loads(report_json)), ensure_ascii=False)
+        import BBBAssetMoveRecovery
+        import importlib
+        return json.dumps(importlib.reload(BBBAssetMoveRecovery).resume(json.loads(report_json)), ensure_ascii=False)
 
     @mcp_tool
     @staticmethod

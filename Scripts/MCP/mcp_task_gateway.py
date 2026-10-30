@@ -257,7 +257,22 @@ class UnrealBackend:
         selected = [item for item in report["assets"] if item["source"] in renamed]
         if not selected:
             raise McpBusinessError({"code": "MOVE_RECOVERY_INVALID", "next": None})
-        verification = self.invoke(self.catalog.tools["assets.verify_asset_moves"], {"moves": selected})
+        try:
+            verification = self.invoke(self.catalog.tools["assets.verify_asset_moves"], {"moves": selected})
+        except Exception as error:
+            # A negative read-only verification is evidence that recovery is needed,
+            # not a failure of the recovery request itself.
+            verification = getattr(error, "value", None)
+            message = verification.get("error", "") if isinstance(verification, dict) else str(error)
+            if isinstance(message, str) and message.startswith("MCP 业务失败: "):
+                try:
+                    verification = json.loads(message[len("MCP 业务失败: "):])
+                except ValueError:
+                    raise error
+            if not (isinstance(verification, dict) and verification.get("read_only") is True
+                    and verification.get("success") is False and verification.get("asset_count") == len(selected)
+                    and isinstance(verification.get("results"), list)):
+                raise
         scope = {item[key] for item in selected for key in ("source", "destination")}
         scope.update(report["referencer_packages"])
         if verification.get("success") is True and verification.get("asset_count") == len(selected):
