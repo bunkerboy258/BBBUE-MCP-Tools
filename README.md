@@ -778,3 +778,5 @@ Monster 版本只编辑逻辑与表现两份主配置。`monster_gore.inspect_mo
 动作原位对齐现在直接采样 DisableLeftHandIK 的引擎曲线值，满权重保留原姿势，无曲线保留原输入，加法层回到自身中性参考。固定帧窗口与独立平滑算法已移除。支持从同型号完整组件姿态记录恢复输入，回读骨轨、原曲线与满权重样本；接口见 Docs/BBBAnimationPoseRecoveryMCP.md。
 
 实际角色成品的骨轨与曲线写后回读已通过，满权重采样按原姿态核对；未运行自动化测试验收。
+
+2026-10-30 换弹瞄准门控修正：`UpdateWeaponAimData` 中的 `LocomotionAimIKAlpha` 改为独立插值，动作槽接管仅控制稳定端枪，AimIK 退出与恢复继续由原动画 `DisableAimIK` 曲线控制。现有工具原位更新、编译保存并磁盘重载；回读确认主图及其余公共层图表未改，FAL 手动 PIE 诊断捕获的 547 个换弹采样中基础 IK 权重保持 1。未重烘焙动作、修改作者曲线或运行自动化验收。接口说明见 `Docs/BBBWeaponAimMCP.md`。

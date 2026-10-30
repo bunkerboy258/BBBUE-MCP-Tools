@@ -99,7 +99,10 @@ def _build_aim_update(base):
     alpha = g.out(g.call("FClamp", inputs={"Value": alpha, "Min": 0, "Max": 1}))
     alpha = g.select(alpha, 0, g.binary("BooleanAND", assets, can_use))
     execute = g.set("WeaponAimAlpha", alpha, execute)
-    g.set("LocomotionAimIKAlpha", g.get("WeaponAimAlpha"), execute)
+    ik_gate = g.binary("BooleanAND", g.binary("BooleanOR", not_running, ready), muzzle)
+    ik = g.out(g.call("FInterpTo", inputs={"Current": g.get("LocomotionAimIKAlpha"),
+        "Target": g.select(1, 0, ik_gate), "DeltaTime": delta, "InterpSpeed": 10}))
+    g.set("LocomotionAimIKAlpha", ik, execute)
 
 
 def configure_upper_body_pose(interface_path, base_path, main_path, layer_paths):
