@@ -105,35 +105,6 @@ def _build_aim_update(base):
     g.set("LocomotionAimIKAlpha", ik, execute)
 
 
-def _configure_upper_body_action_blend(main):
-    """/** @param main 主动画蓝图 @return 动作胸肩双臂完整接管 骨盆和双腿继续使用基础姿势 */"""
-    graph = unreal.BlueprintEditorLibrary.find_graph(main, 'AnimGraph')
-    snapshot = json.loads(unreal.BBBBlueprintEditorLibrary.inspect_blueprint_graph_logical_snapshot(graph))
-    rows = [row for row in snapshot['nodes'] if row['guid'] == 'EDD24A9F4287807A762E0EB8CE581F94']
-    if len(rows) != 1:
-        raise RuntimeError('动作上半身混合入口不唯一')
-    node = unreal.load_object(None, rows[0]['path'])
-    if not isinstance(node, unreal.AnimGraphNode_LayeredBoneBlend):
-        raise RuntimeError('动作入口不是分层骨骼混合')
-    settings = node.get_editor_property('node')
-    layers = settings.get_editor_property('layer_setup')
-    if settings.get_editor_property('blend_mode') != unreal.LayeredBoneBlendMode.BRANCH_FILTER or len(layers) != 1:
-        raise RuntimeError('动作上半身混合结构与预期不一致')
-    filters = list(layers[0].get_editor_property('branch_filters'))
-    current = [(str(branch.get_editor_property('bone_name')), branch.get_editor_property('blend_depth')) for branch in filters]
-    if current not in [[('spine_01', 5), ('ik_hand_root', 1)], [('spine_01', 0), ('ik_hand_root', 1)]]:
-        raise RuntimeError('动作上半身蒙版与预期不一致 拒绝覆盖')
-    main.modify()
-    node.modify()
-    filters[0].set_editor_property('blend_depth', 0)
-    layer = unreal.InputBlendPose()
-    layer.set_editor_property('branch_filters', filters)
-    settings.set_editor_property('layer_setup', [layer])
-    node.set_editor_property('node', settings)
-    unreal.log('[BBB][UpperBodyPose] 动作分支 spine_01 深度=0 胸肩双臂完整接管 骨盆双腿不覆盖')
-    return {'node': rows[0]['guid'], 'before': current, 'after': [('spine_01', 0), ('ik_hand_root', 1)]}
-
-
 def configure_upper_body_pose(interface_path, base_path, main_path, layer_paths):
     """
     /**
@@ -179,7 +150,6 @@ def configure_upper_body_pose(interface_path, base_path, main_path, layer_paths)
         raise RuntimeError("UpperBodyPose 接口编译失败 未保存")
     if not unreal.BBBWeaponAimEditorLibrary.configure_upper_body_pose(interface, base, main):
         raise RuntimeError("UpperBodyPose 迁移检查失败 未保存")
-    action_blend = _configure_upper_body_action_blend(main)
     _build_aim_update(base)
     for value in targets[1:]:
         unreal.BlueprintEditorLibrary.compile_blueprint(value)
@@ -197,5 +167,5 @@ def configure_upper_body_pose(interface_path, base_path, main_path, layer_paths)
     for value in targets:
         if not unreal.EditorAssetLibrary.save_loaded_asset(value, False):
             raise RuntimeError("上半身层保存失败 " + value.get_path_name())
-    return {"saved": paths, "graphs": snapshots, "poseReferencesUnchanged": True, "actionBlend": action_blend,
+    return {"saved": paths, "graphs": snapshots, "poseReferencesUnchanged": True,
             "runtimeAcceptance": "user"}
