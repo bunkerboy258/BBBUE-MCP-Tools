@@ -304,6 +304,8 @@ IK 重建通过网格查询真实父骨名，使用 FK 脚组件变换相对于�
 
 `bind_backward_recoil_additive_inputs` 维护已合并层的时间和权重绑定，不重建落地状态机。`configure_weapon_handling_graphs` 同样维护原有层，不再创建 `FullBodyRecoil`。
 
+角色后坐力倍率支持 0 到 2。`FullBodyAdditives` 用两个同步的序列评估器读取当前武器专属动画和 `WeaponRecoilTime`。两次加法权重分别为 `Clamp(WeaponBackwardRecoilAlpha, 0, 1)` 和 `Clamp(WeaponBackwardRecoilAlpha - 1, 0, 1)` 避免单个加法节点把大于 1 的幅度截断。两个节点沿用 80/40 的权重插值速度。1.5 实际分解为 1 与 0.5 叠加 1.2 分解为 1 与 0.2。低于 1 的配置不启用第二份叠加。工具检查双播放器共享动画与时间绑定 并拒绝未识别结构 不修改相机贡献或后坐力动画骨轨。
+
 `hold_animation_bone_tracks` 同时删除被固定骨骼同名的变换修正曲线 其它骨骼曲线与通知保留 若存在同名浮点曲线则拒绝模糊删除 调用后必须回读实际求值姿势 不能只验证原始轨道
 
 `validate_backward_recoil_animation` 审计全部关键帧、双手受力轴、朝向、握持距离、首尾恢复及下半身，并计算 Alpha 为 0、0.5、1 的实际局部旋转混合。中间权重存在微小非线性误差，容差为偏轴 0.3 厘米、朝向 0.15 度和握持距离 0.35 厘米。

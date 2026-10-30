@@ -642,7 +642,7 @@ def configure_animation_handling(blueprint_path, animation_path):
 
     follow = g.binary("Multiply_DoubleDouble", field("AimFollowSpeed"), scale("AimFollowScale"))
     recoil = g.binary("Multiply_DoubleDouble", field("BackwardRecoilAlpha"), scale("BackwardRecoilScale"))
-    recoil = g.out(g.call("FClamp", inputs={"Value": recoil, "Min": 0, "Max": 1}))
+    recoil = g.out(g.call("FClamp", inputs={"Value": recoil, "Min": 0, "Max": 2}))
     sequence = _weapon_get(g, weapon, "GetFireSequence")
     fired = g.binary("Greater_IntInt", sequence, 0)
     reloading = _weapon_get(g, weapon, "IsReloading")
@@ -710,14 +710,12 @@ def configure_animation_handling(blueprint_path, animation_path):
     additive_graph = unreal.BlueprintEditorLibrary.find_graph(blueprint, "FullBodyAdditives")
     additive_editor = unreal.BlueprintGraphEditor.get_graph_editor(additive_graph)
     evaluators = [node for node in additive_editor.list_all_nodes() if node.get_class().get_name() == "AnimGraphNode_SequenceEvaluator"]
-    if len(evaluators) != 1:
-        raise RuntimeError("后坐力序列播放器数量不为一")
-    evaluator = evaluators[0]
-    data = evaluator.get_editor_property("node")
-    data.set_editor_property("sequence", None)
-    evaluator.set_editor_property("node", data)
-    if not library.bind_animation_node_input(evaluator, "Sequence", ["WeaponRecoilAnimation"]):
-        raise RuntimeError("装备专属后坐力序列绑定失败")
+    if len(evaluators) != 2:
+        raise RuntimeError("后坐力序列播放器数量不为二")
+    for evaluator in evaluators:
+        data = evaluator.get_editor_property("node")
+        data.set_editor_property("sequence", None)
+        evaluator.set_editor_property("node", data)
     if "RecoilAdditiveAnimation" in variables:
         BlueprintTools.remove_variable(blueprint, "RecoilAdditiveAnimation")
     _replace_rifle_snapshot_casts(blueprint)

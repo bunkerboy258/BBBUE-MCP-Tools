@@ -281,21 +281,75 @@ def bind_recoil_additive_inputs(blueprint, animation):
     if graph is None:
         raise RuntimeError("原有 FullBodyAdditives 层不存在")
     editor = unreal.BlueprintGraphEditor.get_graph_editor(graph)
-    evaluator = _unique(list(editor.list_all_nodes()), lambda node: node.get_class().get_name() == "AnimGraphNode_SequenceEvaluator", "后坐力时间播放器")
+    nodes = list(editor.list_all_nodes())
+    root = _unique(nodes, lambda node: node.get_class().get_name() == "AnimGraphNode_Root", "后坐力输出")
+    identity = _unique(nodes, lambda node: node.get_class().get_name() == "AnimGraphNode_IdentityPose", "后坐力零姿势")
+    connected = list(identity.find_output_pin("Pose").list_connected_pins())
+    if len(connected) != 1 or str(connected[0].get_pin_name()) != "Base":
+        raise RuntimeError("后坐力首层基础姿势异常 尚未保存")
+    blend = connected[0].get_owning_node()
+    additive = list(blend.find_input_pin("Additive").list_connected_pins())
+    if len(additive) != 1:
+        raise RuntimeError("后坐力首层序列输入异常 尚未保存")
+    evaluator = additive[0].get_owning_node()
     connected = list(evaluator.find_output_pin("Pose").list_connected_pins())
     if len(connected) != 1 or str(connected[0].get_pin_name()) != "Additive":
         raise RuntimeError("后坐力播放器必须接入唯一加法输入")
-    blend = connected[0].get_owning_node()
     if blend.get_class().get_name() != "AnimGraphNode_ApplyAdditive":
         raise RuntimeError("后坐力权重节点类型错误")
-    data = evaluator.get_editor_property("node")
-    data.set_editor_property("sequence", animation)
-    evaluator.set_editor_property("node", data)
     library = unreal.BBBBlueprintEditorLibrary
-    if not library.bind_animation_node_input(evaluator, "ExplicitTime", ["WeaponRecoilTime"]):
-        raise RuntimeError("后坐力时间重新绑定失败")
-    if not library.bind_animation_node_input(blend, "Alpha", ["WeaponBackwardRecoilAlpha"]):
-        raise RuntimeError("后坐力权重重新绑定失败")
+    if len(nodes) not in (7, 12):
+        raise RuntimeError("后坐力层包含未识别结构 尚未保存")
+    if len(nodes) == 7:
+        from BBBWeaponHandlingTools import _Graph
+        g = _Graph(graph)
+        sources = {}
+        for pin_name, source_node in (("Sequence", evaluator), ("ExplicitTime", evaluator), ("Alpha", blend)):
+            links = list(source_node.find_input_pin(pin_name).list_connected_pins())
+            if len(links) != 1:
+                raise RuntimeError("后坐力输入必须具有唯一属性访问 " + pin_name)
+            sources[pin_name] = links[0]
+        extra_evaluator = library.create_native_animation_node(graph, unreal.AnimGraphNode_SequenceEvaluator.static_class(), unreal.IntPoint(2200, 500))
+        extra_blend = library.create_native_animation_node(graph, unreal.AnimGraphNode_ApplyAdditive.static_class(), unreal.IntPoint(2800, 0))
+        if extra_evaluator is None or extra_blend is None:
+            raise RuntimeError("超额后坐力节点创建失败 尚未保存")
+        extra_evaluator.set_editor_property("node", evaluator.get_editor_property("node"))
+        extra_blend.set_editor_property("node", blend.get_editor_property("node"))
+        for pin_name, path in (("Sequence", ["WeaponRecoilAnimation"]), ("ExplicitTime", ["WeaponRecoilTime"])):
+            if not library.bind_animation_node_input(extra_evaluator, pin_name, path):
+                raise RuntimeError("超额后坐力输入展开失败 " + pin_name)
+            pin = extra_evaluator.find_input_pin(pin_name)
+            generated = [link.get_owning_node() for link in pin.list_connected_pins()]
+            pin.break_pin_links()
+            _link(sources[pin_name], pin)
+            editor.remove_nodes(generated)
+        first = g.call("FClamp", inputs={"Value": sources["Alpha"], "Min": 0, "Max": 1})
+        residual = g.call("Subtract_DoubleDouble", inputs={"A": sources["Alpha"], "B": 1})
+        second = g.call("FClamp", inputs={"Value": g.out(residual), "Min": 0, "Max": 1})
+        blend.find_input_pin("Alpha").break_pin_links()
+        _link(g.out(first), blend.find_input_pin("Alpha"))
+        _link(g.out(second), extra_blend.find_input_pin("Alpha"))
+        root.find_input_pin("Result").break_pin_links()
+        _link(blend.find_output_pin("Pose"), extra_blend.find_input_pin("Base"))
+        _link(extra_evaluator.find_output_pin("Pose"), extra_blend.find_input_pin("Additive"))
+        _link(extra_blend.find_output_pin("Pose"), root.find_input_pin("Result"))
+        for node, position in ((first, (1600, 750)), (residual, (2000, 900)), (second, (2400, 900)), (root, (3200, 0))):
+            node.set_node_pos(unreal.IntPoint(*position))
+    evaluators = [node for node in editor.list_all_nodes() if node.get_class().get_name() == "AnimGraphNode_SequenceEvaluator"]
+    if len(evaluators) != 2 or len(list(editor.list_all_nodes())) != 12:
+        raise RuntimeError("后坐力双层倍率结构不完整 尚未保存")
+    for player in evaluators:
+        for name, path in (("Sequence", ["WeaponRecoilAnimation"]), ("ExplicitTime", ["WeaponRecoilTime"])):
+            links = list(player.find_input_pin(name).list_connected_pins())
+            if len(links) != 1 or list(library.get_property_access_path(links[0].get_owning_node())) != path:
+                raise RuntimeError("后坐力播放器绑定不一致 尚未保存 " + name)
+    handling = unreal.BlueprintEditorLibrary.find_graph(blueprint, "UpdateWeaponHandling")
+    if handling is None:
+        raise RuntimeError("持枪更新函数缺失 尚未保存")
+    handling_editor = unreal.BlueprintGraphEditor.get_graph_editor(handling)
+    clamp = _unique(list(handling_editor.list_all_nodes()), lambda node: {"Value", "Min", "Max"}.issubset({str(pin.get_pin_name()) for pin in node.list_input_pins()}), "角色后坐力倍率限幅")
+    if not clamp.find_input_pin("Max").set_pin_value("2.0"):
+        raise RuntimeError("角色后坐力倍率上限更新失败 尚未保存")
 
 
 def _create_node(editor, ending, position):

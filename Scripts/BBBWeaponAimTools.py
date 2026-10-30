@@ -158,7 +158,7 @@ def configure_upper_body_pose(interface_path, base_path, main_path, layer_paths)
     if before != references():
         raise RuntimeError("端枪素材引用意外变化 未保存")
     snapshots = {}
-    for graph_name, expected in (("UpperBodyPose", 16), ("FullBodyAdditives", 7), ("FullBody_SkeletalControls", 40)):
+    for graph_name, expected in (("UpperBodyPose", 16), ("FullBodyAdditives", 12), ("FullBody_SkeletalControls", 40)):
         graph = unreal.BlueprintEditorLibrary.find_graph(base, graph_name)
         snapshot = json.loads(unreal.BBBBlueprintEditorLibrary.inspect_blueprint_graph_logical_snapshot(graph))
         if len(snapshot["nodes"]) != expected:
