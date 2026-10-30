@@ -15,7 +15,7 @@ class WeaponAimWriteBoundaryTests(unittest.TestCase):
         """/** @return 提取入口并注入受控引擎替身 */"""
         tree = ast.parse((ROOT / "Scripts/BBBWeaponAimTools.py").read_text(encoding="utf-8-sig"))
         methods = [node for node in tree.body if isinstance(node, ast.FunctionDef)
-                   and node.name in {"create_weapon_aim_additive", "configure_weapon_aim_additives"}]
+                   and node.name in {"create_weapon_aim_additive", "configure_upper_body_pose"}]
         self.engine = Mock()
         self.engine.EditorAssetLibrary.does_asset_exist.return_value = False
         self.engine.AnimSequence = Mock
@@ -44,7 +44,7 @@ class WeaponAimWriteBoundaryTests(unittest.TestCase):
         namespace = {"json": json, "unreal": self.engine, "require_asset_write": self.access}
         exec(compile(ast.Module(body=methods, type_ignores=[]), "weapon_aim_test", "exec"), namespace)
         self.create = namespace["create_weapon_aim_additive"]
-        self.configure = namespace["configure_weapon_aim_additives"]
+        self.configure = namespace["configure_upper_body_pose"]
         self.arguments = ("/Game/Neutral", "/Game/Target", "/Game/_Project/Aim", "/Game/_Project/AimReference")
 
     def test_creation_claims_only_destination_and_preserves_sources(self):
@@ -88,10 +88,10 @@ class WeaponAimWriteBoundaryTests(unittest.TestCase):
 
     def test_incomplete_or_duplicate_layer_mapping_rejected_before_load(self):
         """/** @return 映射长度和重复写入范围提前拒绝 */"""
-        for layers, stand, crouch, dependencies in [([], [], [], []), (["R"], [], ["C"], []),
-                (["R"], ["S"], ["C"], ["R"])]:
+        for interface, base, main, layers in [("I", "B", "M", []), ("I", "B", "M", ["B"]),
+                ("I", "B", "I", ["R"]), ("I", "B", "M", ["R", "R"])]:
             with self.assertRaises(RuntimeError):
-                self.configure("B", layers, stand, crouch, dependencies)
+                self.configure(interface, base, main, layers)
         self.engine.load_asset.assert_not_called()
 
 

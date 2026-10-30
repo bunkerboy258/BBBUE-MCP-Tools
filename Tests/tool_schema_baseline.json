@@ -13481,11 +13481,17 @@
         ]
       }
     },
-    "configure_weapon_aim_additives": {
+    "configure_upper_body_pose": {
       "inputSchema": {
         "type": "object",
         "properties": {
+          "interface_path": {
+            "type": "string"
+          },
           "base_path": {
+            "type": "string"
+          },
+          "main_path": {
             "type": "string"
           },
           "layer_paths": {
@@ -13493,32 +13499,13 @@
             "items": {
               "type": "string"
             }
-          },
-          "stand_paths": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "crouch_paths": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "dependent_paths": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
           }
         },
         "required": [
+          "interface_path",
           "base_path",
-          "layer_paths",
-          "stand_paths",
-          "crouch_paths",
-          "dependent_paths"
+          "main_path",
+          "layer_paths"
         ]
       },
       "outputSchema": {

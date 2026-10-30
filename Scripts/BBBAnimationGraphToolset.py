@@ -68,39 +68,20 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def configure_weapon_aim_additives(base_path: str, layer_paths: list[str], stand_paths: list[str],
-            crouch_paths: list[str], dependent_paths: list[str]) -> str:
+    def configure_upper_body_pose(interface_path: str, base_path: str, main_path: str, layer_paths: list[str]) -> str:
         """
         /**
-         * @param base_path	已有举枪数据的公共装备层
-         * @param layer_paths	需要举枪配置的直接子层
-         * @param stand_paths	对应站立局部空间加法
-         * @param crouch_paths	对应蹲伏局部空间加法
-         * @param dependent_paths	按父层在前排列的其余依赖子层
-         * @return 复用 FullBodyAdditives 的编译保存结果 不运行 PIE
+         * @param interface_path	装备动画层接口
+         * @param base_path	公共装备层
+         * @param main_path	主动画蓝图
+         * @param layer_paths	按父层在前排列的全部装备引用者
+         * @return 上半身端枪迁移与旧分支清除的编译保存结果
          */
         """
         import importlib
         import BBBWeaponAimTools
-        return json.dumps(importlib.reload(BBBWeaponAimTools).configure_weapon_aim_additives(base_path,
-            layer_paths, stand_paths, crouch_paths, dependent_paths), ensure_ascii=False)
-
-    @mcp_tool
-    @staticmethod
-    def configure_stable_aim_pose(base_path: str, layer_paths: list[str], dependent_paths: list[str]) -> str:
-        """
-        /**
-         * 在 AimIK 前混合静态端枪姿势并保存引用者
-         * @param base_path\t公共装备动画层
-         * @param layer_paths\t直接装备子层路径
-         * @param dependent_paths\t其他依赖子层路径
-         * @return 已保存的图表与引用者摘要
-         */
-        """
-        import importlib
-        import BBBWeaponAimTools
-        return json.dumps(importlib.reload(BBBWeaponAimTools).configure_stable_aim_pose(
-            base_path, layer_paths, dependent_paths), ensure_ascii=False)
+        return json.dumps(importlib.reload(BBBWeaponAimTools).configure_upper_body_pose(
+            interface_path, base_path, main_path, layer_paths), ensure_ascii=False)
 
     @mcp_tool
     @staticmethod
