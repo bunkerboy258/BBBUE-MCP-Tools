@@ -11984,6 +11984,47 @@
     }
   },
   "BBBAnimationPreviewToolset": {
+    "probe_mass_behavior": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "description": "start 开始 status 查询 stop 停止 *"
+          },
+          "file_prefix": {
+            "type": "string",
+            "description": "Saved/temp 内唯一任务目录和文件前缀 *",
+            "default": ""
+          },
+          "duration_seconds": {
+            "type": "number",
+            "description": "采样游戏秒数 一至一百二十 *",
+            "default": 30
+          },
+          "sample_interval": {
+            "type": "number",
+            "description": "采样游戏秒数间隔 至少零点二 *",
+            "default": 0.2
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "状态 路径 样本数量及探针自身耗时 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
     "submit_monster_hit_ray": {
       "inputSchema": {
         "type": "object",
@@ -12426,6 +12467,11 @@
             "type": "boolean",
             "default": false,
             "description": "同时提交左臂损毁贡献 *"
+          },
+          "capture_trace": {
+            "type": "boolean",
+            "description": "额外记录 CPU GPU 帧与日志的 Insights 跟踪 用于定位卡顿 *",
+            "default": false
           }
         },
         "required": [

@@ -6,6 +6,8 @@
 
 # BBB 通用编辑器 MCP
 
+PIE 函数参数 `{"$rotator": [Pitch, Yaw, Roll]}` 按俯仰 偏航 滚转的命名轴构造引擎 Rotator 不依赖结构体的位置参数次序.例如 `[-15, 0, 0]` 只向下俯视 不产生滚转.
+
 ## 动画根运动属性矩阵
 
 `editor.configure_animation_root_motion_matrix` 对明确且不重复的自有 AnimSequence 列表使用原生 `PropertyEditor` 属性矩阵编辑 `bEnableRootMotion` `bForceRootLock` 和 `RootMotionRootLock`。默认仅预检。正式应用通过矩阵单元格写入 保存并回读 同时核对动画数据模型指纹不变。`show_matrix=true` 显示矩阵供人工查看。单次最多 512 个序列。

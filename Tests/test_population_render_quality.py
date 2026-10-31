@@ -77,6 +77,28 @@ class PopulationRenderQualityTests(unittest.TestCase):
         self.assertEqual(self.values["r.Lumen.DiffuseIndirect.Allow"], 0.0)
         self.engine.unregister_slate_post_tick_callback.assert_called_once()
 
+    def test_existing_trace_is_not_replaced(self):
+        """/** @return 已有跟踪时不创建输出 不修改画质 */"""
+        self.engine.TraceUtilLibrary.is_tracing.return_value = True
+        with self.assertRaises(RuntimeError):
+            self.start(["/Game/Config"], [1], [0.0, 0.0, 90.0], 200.0, "/Game/ValidationWorld", "TraceProbe", capture_trace=True)
+        self.open.assert_not_called()
+        self.engine.SystemLibrary.execute_console_command.assert_not_called()
+
+    def test_owned_trace_is_stopped_on_pie_end(self):
+        """/** @return 自有跟踪随中断结束 原通道与画质得到恢复 */"""
+        trace = self.engine.TraceUtilLibrary
+        trace.is_tracing.return_value = False
+        trace.get_enabled_channels.side_effect = [["log"], ["cpu", "frame", "log"]]
+        trace.start_trace_to_file.return_value = True
+        self.start(["/Game/Config"], [1], [0.0, 0.0, 90.0], 200.0, "/Game/ValidationWorld", "TraceProbe", capture_trace=True)
+        self.engine.get_editor_subsystem.return_value.get_game_world.return_value = None
+        self.engine.register_slate_post_tick_callback.call_args.args[0](0.1)
+        trace.stop_tracing.assert_called_once()
+        trace.toggle_channel.assert_any_call("cpu", False)
+        trace.toggle_channel.assert_any_call("log", True)
+        self.assertEqual(self.values["t.MaxFPS"], 30.0)
+
     def test_pie_interruption_restores_quality_and_frame_limit(self):
         """/** @return 外部结束 PIE 也恢复实际画质和帧率 */"""
         self.start(["/Game/Config"], [1], [0.0, 0.0, 90.0], 200.0, "/Game/ValidationWorld", "QualityProbe", quality_level=1)

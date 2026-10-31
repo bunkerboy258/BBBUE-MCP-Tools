@@ -421,6 +421,7 @@ TOOL_POLICIES = {
     'object.list_properties': {'access': 'read', 'input_rules': {'properties': {'query': {'type': 'string', 'default': ''}, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 128, 'default': 24}, 'offset': {'type': 'integer', 'minimum': 0, 'default': 0}, 'expected_version': {'type': 'string', 'default': ''}}, 'if': {'required': ['offset'], 'properties': {'offset': {'minimum': 1}}}, 'then': {'required': ['expected_version'], 'properties': {'expected_version': {'minLength': 1}}}}},
     'object.search_subclasses': {'access': 'read'},
     'preview.inspect_animation_transition_capture': {'access': 'read'},
+    'preview.probe_mass_behavior': {'access': 'read', 'world': 'pie', 'scope': {'kind': 'session'}},
     'preview.inspect_mass_population_benchmark': {'access': 'read'},
     'retarget.inspect_animation_poses': {'access': 'read'},
     'retarget.inspect_retargeter': {'access': 'read'},

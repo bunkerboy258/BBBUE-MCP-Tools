@@ -252,7 +252,7 @@ def _function_argument(value):
         components = value["$rotator"]
         if not isinstance(components, list) or len(components) != 3 or any(not math.isfinite(item) for item in components):
             raise RuntimeError("Rotator 标记要求 Pitch Yaw Roll 三个有限数值")
-        return unreal.Rotator(*components)
+        return unreal.Rotator(pitch=components[0], yaw=components[1], roll=components[2])
     if isinstance(value, dict) and set(value) == {"$object"}:
         target = unreal.find_object(None, value["$object"]) or unreal.load_asset(value["$object"])
         if target is None:

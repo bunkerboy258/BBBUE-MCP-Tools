@@ -15,6 +15,7 @@ from toolset_registry.registration import Registration
 _transition_captures = {}
 _population_runs = {}
 _inspection_population = {}
+_behavior_probe = {}
 
 
 
@@ -38,6 +39,86 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
      * 在临时对象上渲染明确动画的多个采样姿势 不修改源资产
      */
     """
+
+    @mcp_tool
+    @staticmethod
+    def probe_mass_behavior(action: str, file_prefix: str = "", duration_seconds: float = 30.0, sample_interval: float = 0.2) -> str:
+        """
+        /**
+         * 连续读取正式尸群事实 不改变目标 状态或配置 支持无渲染宿主
+         * @param action\t\tstart 开始 status 查询 stop 停止
+         * @param file_prefix\t\tSaved/temp 内唯一任务目录和文件前缀
+         * @param duration_seconds\t\t采样游戏秒数 一至一百二十
+         * @param sample_interval\t\t采样游戏秒数间隔 至少零点二
+         * @return 状态 路径 样本数量及探针自身耗时
+         */
+        """
+        if action not in ("start", "status", "stop"):
+            raise RuntimeError("action 必须为 start status 或 stop")
+        if action == "status":
+            return json.dumps(_behavior_probe.get("report", {"status": "idle"}), ensure_ascii=False)
+        if action == "stop":
+            cleanup = _behavior_probe.get("cleanup")
+            if cleanup:
+                cleanup("stopped")
+            return json.dumps(_behavior_probe.get("report", {"status": "idle"}), ensure_ascii=False)
+        if _behavior_probe.get("report", {}).get("status") == "running":
+            raise RuntimeError("当前行为采样尚未结束")
+        if not re.fullmatch(r"[A-Za-z0-9_-]+/[A-Za-z0-9_-]+", file_prefix):
+            raise RuntimeError("前缀必须为任务目录/采样名称 仅允许英文数字下划线和短横线")
+        if not math.isfinite(duration_seconds) or not 1.0 <= duration_seconds <= 120.0 or not math.isfinite(sample_interval) or not 0.2 <= sample_interval <= 2.0:
+            raise RuntimeError("采样时长或间隔超出范围")
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if world is None:
+            raise RuntimeError("行为采样要求当前 PIE 世界")
+        root = os.path.realpath(os.path.join(unreal.Paths.project_saved_dir(), "temp"))
+        path = os.path.realpath(os.path.join(root, file_prefix + ".jsonl"))
+        if os.path.commonpath([root, path]) != root:
+            raise RuntimeError("采样路径必须位于 Saved/temp")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        output = open(path, "x", encoding="utf-8")
+        report = {"status": "running", "path": path, "samples": 0, "probeTotalMs": 0.0, "probeMaxMs": 0.0}
+        state = {"handle": None, "start": unreal.GameplayStatics.get_time_seconds(world), "next": 0.0, "wallStart": time.monotonic()}
+
+        def cleanup(status):
+            if state["handle"] is not None:
+                unreal.unregister_slate_post_tick_callback(state["handle"])
+                state["handle"] = None
+            output.close()
+            report["status"] = status
+
+        def tick(delta_seconds):
+            try:
+                current = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+                if current != world or not unreal.SystemLibrary.is_valid(world):
+                    raise RuntimeError("采样所在 PIE 已结束")
+                now = unreal.GameplayStatics.get_time_seconds(world)
+                if time.monotonic() - state["wallStart"] > duration_seconds * 4.0 + 30.0:
+                    raise RuntimeError("游戏时间未推进 采样超时")
+                if now < state["next"]:
+                    return
+                started = time.perf_counter()
+                snapshot = json.loads(unreal.BBBMassValidationLibrary.inspect_population(world, [], False))
+                snapshot["probeElapsedMs"] = (time.perf_counter() - started) * 1000.0
+                output.write(json.dumps(snapshot, ensure_ascii=False, separators=(",", ":")) + "\n")
+                report["samples"] += 1
+                report["worldSeconds"] = now
+                callback_ms = (time.perf_counter() - started) * 1000.0
+                report["probeTotalMs"] += callback_ms
+                report["probeMaxMs"] = max(report["probeMaxMs"], callback_ms)
+                state["next"] = now + sample_interval
+                if now - state["start"] >= duration_seconds:
+                    cleanup("completed")
+            except Exception as error:
+                report["error"] = str(error)
+                cleanup("failed")
+
+        _behavior_probe.clear()
+        _behavior_probe.update({"report": report, "cleanup": cleanup})
+        state["handle"] = unreal.register_slate_post_tick_callback(tick)
+        from BBBMcpCapabilities import register_activity
+        register_activity("monster:behavior", lambda: report, blocking=False, wait=False)
+        return json.dumps(report, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod
@@ -296,7 +377,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def start_mass_population_benchmark(config_paths: list[str], counts: list[int], center: list[float], spacing: float, expected_level: str, file_prefix: str, warmup_seconds: float = 5.0, measurement_seconds: float = 10.0, force_actor_representation: bool = False, quality_level: int = 2, torso_damage: float = 0.0, destruction_regions: int = 0, sever_left_arm: bool = False) -> str:
+    def start_mass_population_benchmark(config_paths: list[str], counts: list[int], center: list[float], spacing: float, expected_level: str, file_prefix: str, warmup_seconds: float = 5.0, measurement_seconds: float = 10.0, force_actor_representation: bool = False, quality_level: int = 2, torso_damage: float = 0.0, destruction_regions: int = 0, sever_left_arm: bool = False, capture_trace: bool = False) -> str:
         """
         /**
          * 在明确验收关卡的真实 PIE Mass 实体上依次测量预算关闭与开启
@@ -313,6 +394,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
          * @param torso_damage		每个实体经正式伤害输入增加的躯干伤害 零为完好对照
          * @param destruction_regions		本轮测试开启的持久躯干毁伤区域 零至八
          * @param sever_left_arm		同时测试左臂损毁与躯干毁伤并存
+         * @param capture_trace		额外记录 CPU GPU 帧与日志的 Insights 跟踪 用于定位卡顿
          * @return 异步运行标识 测量完成后回读结果 原始数据始终落盘
          */
         """
@@ -337,6 +419,11 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
 
         if any(item.get("status") == "running" for item in _population_runs.values()):
             raise RuntimeError("已有群体测量正在运行")
+
+        trace = getattr(unreal, "TraceUtilLibrary", None) if capture_trace else None
+        if capture_trace and (trace is None or trace.is_tracing()):
+            raise RuntimeError("Insights 跟踪不可用或已由其它操作启动")
+        original_channels = list(trace.get_enabled_channels()) if trace else []
 
         configs = [unreal.load_asset(path) for path in config_paths]
         if not configs or any(not isinstance(config, unreal.MassEntityConfigAsset) for config in configs):
@@ -387,7 +474,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
         _population_runs[run_id] = report
         from BBBMcpCapabilities import register_activity
         register_activity("population:" + run_id, lambda: report)
-        state = {"case": -1, "entities": [], "phase": "next", "samples": [], "start": 0.0, "handle": None, "lastFrame": -1}
+        state = {"case": -1, "entities": [], "phase": "next", "samples": [], "start": 0.0, "handle": None, "lastFrame": -1, "traceStarted": False}
         cases = [(count, enabled) for count in counts for enabled in (False, True)]
 
         def save_report():
@@ -396,6 +483,14 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
             output.flush()
 
         def cleanup():
+            if state["traceStarted"]:
+                trace.stop_tracing()
+                state["traceStarted"] = False
+                for channel in trace.get_enabled_channels():
+                    if channel not in original_channels:
+                        trace.toggle_channel(channel, False)
+                for channel in original_channels:
+                    trace.toggle_channel(channel, True)
             if state["handle"] is not None:
                 unreal.unregister_slate_post_tick_callback(state["handle"])
                 state["handle"] = None
@@ -463,7 +558,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
 
                 if state["phase"] == "warmup":
                     if now - state["start"] >= warmup_seconds:
-                        state["before"] = json.loads(mass.inspect_population(world, state["entities"]))
+                        state["before"] = json.loads(mass.inspect_population(world, state["entities"], False))
                         state["before"]["destruction"] = json.loads(unreal.BBBMonsterDestructionValidationLibrary.inspect_population_destruction(world, state["entities"]))
                         count, enabled = cases[state["case"]]
                         damage_rows = state["before"]["destruction"].get("entities", [])
@@ -477,6 +572,13 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
                                 raise RuntimeError("全骨骼预热超时 实际演员数量=" + str(state["before"].get("presentationActors")))
                             return
                         state["samples"] = []
+                        state["start"] = time.perf_counter()
+                        state["phase"] = "settle"
+                    return
+
+                if state["phase"] == "settle":
+                    # 数量核验完成后让帧流水线稳定 不把探针自己的耗时计入首个样本
+                    if now - state["start"] >= 0.25:
                         state["start"] = now
                         state["phase"] = "measure"
                     return
@@ -490,7 +592,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
 
                 if now - state["start"] >= measurement_seconds:
                     count, enabled = cases[state["case"]]
-                    snapshot = json.loads(mass.inspect_population(world, state["entities"]))
+                    snapshot = json.loads(mass.inspect_population(world, state["entities"], False))
                     rows = state["samples"]
                     result = {"count": count, "budgetEnabled": enabled, "sampleFrames": len(rows), "measuredSeconds": now - state["start"], "before": state["before"], "after": snapshot}
                     for name, column in (("gameThreadMs", 1), ("renderThreadMs", 2), ("gpuMs", 3), ("engineDeltaMs", 4), ("slateDeltaMs", 5)):
@@ -508,6 +610,14 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
                 unreal.log_error("[BBBPopulationBenchmark] " + str(error))
 
         try:
+            if trace:
+                trace_path = os.path.join(directory, file_prefix + ".utrace")
+                if os.path.exists(trace_path):
+                    raise RuntimeError("Insights 输出已存在 拒绝覆盖")
+                if not trace.start_trace_to_file(trace_path, ["cpu", "gpu", "frame", "bookmark", "log"]):
+                    raise RuntimeError("Insights 跟踪启动失败")
+                state["traceStarted"] = True
+                report["tracePath"] = trace_path
             state["handle"] = unreal.register_slate_post_tick_callback(tick)
             save_report()
         except Exception:
