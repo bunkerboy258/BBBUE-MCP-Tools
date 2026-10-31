@@ -78,7 +78,7 @@ class BBBMonsterGoreToolset(unreal.ToolsetDefinition):
         if interior is not None:
             existing.append(interior.get_path_name())
         for wound in definition.get_editor_property("dismemberment").get_editor_property("parts"):
-            for field in ("tissue", "detached_skin", "detached_mesh"):
+            for field in ("tissue", "detached_skin", "detached_mesh", "remaining_skin", "remaining_mesh"):
                 resource = wound.get_editor_property(field)
                 if resource is not None:
                     if not resource.get_path_name().startswith("/Game/_Project/Mass/Monster/Zombie/Shared/Injury/"):

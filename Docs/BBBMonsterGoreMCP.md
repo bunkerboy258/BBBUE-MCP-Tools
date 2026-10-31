@@ -9,6 +9,7 @@
 - Destruction 保存正面左胸 / 右胸 / 左腹 / 右腹及背面左上背 / 右上背 / 左腰背 / 右腰背八处范围。区域允许交叠并覆盖侧腰。
 - Destruction.Interior 是一份共用的蒙皮内部组织。运行时共用身体姿态。三档网格由制作流程分别导入 每档单材质槽。材质配置工具核对三档齐全 不自动减面或覆盖制作结果。
 - Dismemberment.Parts 保存九个离线断点资源。当前结果分别为头 / 左臂 / 右臂 / 左腿 / 右腿选定一个断点。
+- 上臂和大腿断点通过 RemainingSkin / RemainingMesh 配对提供远端已经缺失后的剩余段。配置工具同时校验写入和保存这些明确资源。当前断点只能沿骨骼链向近端推进 同一命中不连续推进两个断点。
 - 身体保留原拓扑。材质按参考空间裁剪外皮并还原血层。内部组织由 Blender 制作并传递身体邻域的四骨权重。
 - 组织由外皮开口自然露出 不再按顶点颜色拆成八套肉壁。颜色 / DirectX 法线 / ORM 通过共享图集与一个烘焙 UV 通道还原。
 - T_DestructionRegions 将八区制作遮罩按四列两行打包。通道依次为开口 / 血液 / 凝血 / 边界距离。身体保留原 UV0 与 UV2 UV1 保存破损许可与衣料标记 UV3 保存认可源的圆周和高度制作坐标。制作结果符合骨骼网格的四通道导入限制。适配前遍历原材质及函数中的坐标节点与纹理默认坐标 拒绝覆盖仍被原表面使用的 UV1 或 UV3。材质直接读取制作坐标 不再用正弦扰动椭圆替代制作轮廓。
@@ -27,6 +28,10 @@
 | 10 至 17 | 八区归一化毁伤强度 |
 
 共享材质实例的 InjuryStyle 前三项保存粗糙度 / 湿润度 / 开口阈值。正式身体的破损许可由制作标记控制 颈肩连续范围直接来自认可源 不再按统一胸椎高度截断创口。内部组织的烘焙颜色 法线与粗糙度受现有 TissueTint Roughness Wetness 配置调节 不增加独立运行时配置。
+
+八处创口分别累积并可全部同时打开 同一区域达到满值后不再增长状态容量。活体和保留期间的尸体共用当前毁伤数据 尸体射线读取倒地后的骨骼和包围盒 死后命中不重启死亡计时。命中查询排除当前断面远端 保留尚未脱落的近端肢体。
+
+躯干内部与断面共用 M_Injury_M_AnatomySource 母材质及 T_AnatomyColor / Normal / ORM 图集。MI_Tissue 通过 InjuryCapSurface=1 使用相同血肉表面并跳过身体裁剪 内部组织为零。断面 UV0 指向共享血肉图集中的明确区域 掉落件保留原皮肤和衣物表面 并限制为四个 UV 通道。
 
 第一次受损时才切换身体的破坏材质。开口后才创建一份共享躯干组织组件。五个断点组织加躯干组织最多六份跟随组件。跟随组件关闭独立动画更新与碰撞。显示档位跟随身体。组件复用时清除本代参数与组织可见性。
 
@@ -57,6 +62,8 @@ BBB.Monster.Gore 保留贡献合并 / 正背面选区 / 当前结果恢复 / 真
 preview.spawn_mass_inspection_population 使用正式配置创建本轮实体。destruction_regions=0..8 和 sever_left_arm 建立明确外观对照。测试辅助库经正式伤害输入投递当前贡献。实际子弹命中另行验证。
 
 preview.inspect_mass_inspection_population 回读本轮群体及每只实体的八区强度 / 断点 / 实际组织组件。animation_graph.inspect_mass_variation_network 同时回读各 PIE 世界的个体状态与破坏结果。可比较主客机和迟加入的同一网络身份。
+
+当前群体探针额外回读 hitSerial / hitAge / destructionStrengths / dismembermentPresets 与 goreContacts。接触点和法线从网格当前骨骼变换计算 供真实子弹射击倒地尸体时选择机位 不写入玩法或骨骼状态。
 
 editor.configure_pie_session 在 PIE 结束后临时设置下一次主进程 PIE 的网络模式。listen 与 players=2 创建同一编辑器内的主客机。editor.request_pie_late_join 增加真实迟加入客机。测试结束后用 standalone 与 players=1 恢复普通单窗口模式。工具核对实际设置且仅修改编辑器内存。
 
