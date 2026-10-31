@@ -242,7 +242,7 @@ class UnrealBackend:
         definition = self._call("describe_toolset", {"toolset_name": self.task_name})
         if isinstance(definition, str):
             definition = json.loads(definition)
-        if not any(item["name"] == "request_editor_shutdown" for item in definition["tools"]):
+        if not any(item["name"].rsplit(".", 1)[-1] == "request_editor_shutdown" for item in definition["tools"]):
             raise McpBusinessError({"code": "EDITOR_TOOLSET_RELOAD_REQUIRED",
                 "hint": "当前编辑器加载了旧工具集；交接后启动新版编辑器加载正常退出工具", "next": next_call("inspect_tasks")})
         result = self._call("call_tool", {"toolset_name": self.task_name, "tool_name": "request_editor_shutdown",
