@@ -516,7 +516,7 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
     @mcp_tool
     @staticmethod
     def rebuild_monster_blood_system(channel_path: str, system_path: str, spray_material_path: str, splash_material_path: str,
-                                     mist_material_path: str, flesh_material_path: str, flesh_mesh_path: str) -> str:
+                                     mist_material_path: str) -> str:
         """
         /**
          * 使用指定现有材质重建并保存批量僵尸血效
@@ -525,8 +525,6 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
          * @param spray_material_path	方向血滴材质
          * @param splash_material_path	单张喷溅材质
          * @param mist_material_path	八乘八血雾序列材质
-         * @param flesh_material_path	碎肉网格的粒子材质
-         * @param flesh_mesh_path	用于短时碎肉的低面静态网格
          * @return 原生构建结果
          */
         """
@@ -537,14 +535,11 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
             if not isinstance(asset, asset_type) or not path.startswith("/Game/_Project/"):
                 raise RuntimeError("重建目标必须是现有自有血效资产")
             require_write_access(asset)
-        for path in (spray_material_path, splash_material_path, mist_material_path, flesh_material_path):
+        for path in (spray_material_path, splash_material_path, mist_material_path):
             if not isinstance(unreal.load_asset(path), unreal.MaterialInterface):
                 raise RuntimeError("血效材质不存在")
-        if not isinstance(unreal.load_asset(flesh_mesh_path), unreal.StaticMesh):
-            raise RuntimeError("碎肉静态网格不存在")
         result = unreal.BBBNiagaraEditorLibrary.configure_monster_blood_impact_system(
-            channel_path, system_path, spray_material_path, splash_material_path, mist_material_path,
-            flesh_material_path, flesh_mesh_path)
+            channel_path, system_path, spray_material_path, splash_material_path, mist_material_path)
         if str(result).startswith("失败"):
             raise RuntimeError(str(result))
         return str(result)
@@ -826,7 +821,7 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def start_skeletal_hit_reaction_capture(actor_blueprint_path: str, region: int, direction: list[float], file_prefix: str, shots: int = 1, interval_seconds: float = 0.1, speed: float = 0.0, capture_images: bool = False, interrupt: str = "none", actor_count: int = 1, preview_version_path: str = "", preview_distance_cm: float = 500.0, preview_view_yaw: float = 0.0, preview_projectile_path: str = "", preview_animation_path: str = "", preview_wound_strength: float = 1.0, preview_allow_severing: bool = False) -> str:
+    def start_skeletal_hit_reaction_capture(actor_blueprint_path: str, region: int, direction: list[float], file_prefix: str, shots: int = 1, interval_seconds: float = 0.1, speed: float = 0.0, capture_images: bool = False, interrupt: str = "none", actor_count: int = 1, preview_version_path: str = "", preview_distance_cm: float = 500.0, preview_view_yaw: float = 0.0, preview_projectile_path: str = "", preview_animation_path: str = "", preview_wound_strength: float = 1.0, preview_allow_severing: bool = False, preview_residue_seconds: float = 0.0) -> str:
         """
         /**
          * 在临时表现对象上跨真实游戏帧验证局部物理回弹 不产生玩法伤害
@@ -840,6 +835,7 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
          * @param capture_images\t是否输出真实渲染帧
          * @param interrupt\t无中断 死亡或隐藏 none dead hidden
          * @param actor_count	临时全骨骼表现数量 一至六十四
+         * @param preview_residue_seconds	落地残留采样秒数 零关闭 最多三十五秒
          * @return 跨帧诊断编号
          */
         """
@@ -849,7 +845,7 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
             import BBBZombieImpactPreview
             importlib.reload(BBBZombieImpactPreview)
             return BBBZombieImpactPreview.start_capture(world, preview_version_path, region, direction, file_prefix, shots,
-                interval_seconds, capture_images, actor_count, preview_distance_cm, preview_view_yaw, _captures, preview_projectile_path, preview_animation_path, preview_wound_strength, preview_allow_severing)
+                interval_seconds, capture_images, actor_count, preview_distance_cm, preview_view_yaw, _captures, preview_projectile_path, preview_animation_path, preview_wound_strength, preview_allow_severing, preview_residue_seconds)
         if world is None or region not in range(6) or len(direction) != 3 or not all(math.isfinite(value) for value in direction):
             raise RuntimeError("需要运行中的 PIE 和有效受击参数")
         if sum(value * value for value in direction) < 0.001 or not 0 <= shots <= 12 or not 1 <= actor_count <= 64 or not 0.05 <= interval_seconds <= 0.5 or not 0.0 <= speed <= 300.0:

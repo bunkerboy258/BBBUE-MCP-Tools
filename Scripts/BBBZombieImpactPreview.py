@@ -9,7 +9,7 @@ import unreal
 
 
 def start_capture(world, version_path, region, direction, file_prefix, shots, interval_seconds,
-                  capture_images, actor_count, distance_cm, view_yaw, captures, projectile_path="", animation_path="", wound_strength=1.0, allow_severing=False):
+                  capture_images, actor_count, distance_cm, view_yaw, captures, projectile_path="", animation_path="", wound_strength=1.0, allow_severing=False, residue_seconds=0.0):
     """
     /**
      * @param world	当前模拟世界
@@ -28,6 +28,7 @@ def start_capture(world, version_path, region, direction, file_prefix, shots, in
      * @param animation_path	可选兼容动画序列 用于行走 跑步与攻击联检
      * @param wound_strength	大于零且不超过十的创口累计强度 不改变物理冲量
      * @param allow_severing	是否允许本次预览触发正式断离表现
+     * @param residue_seconds	落地残留采样秒数 零关闭 最多三十五秒
      * @return 独立机位及中性照明的临时场景采样编号
      */
     """
@@ -43,6 +44,8 @@ def start_capture(world, version_path, region, direction, file_prefix, shots, in
         raise RuntimeError("任务目录无效或已有采样尚未结束")
     if capture_images and "-nullrhi" in unreal.SystemLibrary.get_command_line().lower():
         raise RuntimeError("画面采样需要渲染宿主")
+    if not math.isfinite(residue_seconds) or not 0 <= residue_seconds <= 35:
+        raise RuntimeError("落地跟踪需要零至三十五秒")
     version = unreal.load_asset(version_path)
     if not isinstance(version, unreal.MassEntityConfigAsset):
         raise RuntimeError("需要正式僵尸实体模板")
@@ -63,14 +66,16 @@ def start_capture(world, version_path, region, direction, file_prefix, shots, in
     actors = []
     restored_lights = []
     original_view = controller.get_view_target()
+    editor = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem)
+    original_editor_view = editor.get_level_viewport_camera_info()
     record = {"status": "pending", "captureId": identifier, "version": version_path, "region": region,
               "direction": list(direction), "shots": shots, "actorCount": actor_count, "distanceCm": distance_cm,
               "viewYaw": view_yaw, "imagePaths": [], "imageSeconds": [], "imagePhases": [], "samples": [], "shotSeconds": [],
               "lighting": "neutral_key_fill_rim_front_area_gray_ambient_manual_exposure", "usesGameplayCharacter": False,
               "projectile": projectile_path, "timeDilation": unreal.GameplayStatics.get_global_time_dilation(world),
-              "wallSeconds": [], "infection": 255, "animation": animation_path, "woundStrength": wound_strength, "allowSevering": allow_severing}
+              "wallSeconds": [], "infection": 255, "animation": animation_path, "woundStrength": wound_strength, "allowSevering": allow_severing, "residueSeconds": residue_seconds}
     data = {"handle": None, "start": None, "last": -1.0, "shot": 0, "lastImage": -1.0,
-            "prewarmed": False, "reset": False, "initialHits": [], "groundView": False}
+            "prewarmed": False, "reset": False, "initialHits": [], "groundView": False, "lookAway": False, "lookBack": False}
 
     def spawn(kind, location, rotation=unreal.Rotator(), scale=unreal.Vector(1, 1, 1)):
         """/** @return 只存在当前模拟世界的对象 */"""
@@ -85,6 +90,8 @@ def start_capture(world, version_path, region, direction, file_prefix, shots, in
         """/** @return 恢复当前模拟世界并销毁本次所有临时对象 */"""
         same_world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() == world
         if same_world:
+            if original_editor_view:
+                editor.set_level_viewport_camera_info(*original_editor_view)
             if unreal.SystemLibrary.is_valid(original_view):
                 controller.set_view_target_with_blend(original_view, 0.0)
             for component, visible in restored_lights:
@@ -171,6 +178,8 @@ def start_capture(world, version_path, region, direction, file_prefix, shots, in
         view = spawn(unreal.CameraActor, location, rotation)
         view.get_component_by_class(unreal.CameraComponent).set_field_of_view(80.0)
         controller.set_view_target_with_blend(view, 0.0)
+        if original_editor_view:
+            editor.set_level_viewport_camera_info(location, rotation)
         camera = spawn(unreal.SceneCapture2D, location, rotation)
         target = unreal.RenderingLibrary.create_render_target2d(world, 960, 540, unreal.TextureRenderTargetFormat.RTF_RGBA8)
         capture = camera.capture_component2d
@@ -192,7 +201,8 @@ def start_capture(world, version_path, region, direction, file_prefix, shots, in
             options.set_editor_property("overwrite_file", False)
             options.set_editor_property("compression_quality", 0)
         record["renderResolution"] = [960, 540]
-        record["performanceRendering"] = "independent_scene_capture"
+        record["performanceRendering"] = "scene_capture_and_editor_viewport" if original_editor_view else "independent_scene_capture"
+        record["editorViewportControlled"] = bool(original_editor_view)
         record["targetPaths"] = [subject.get_path_name() for subject in subjects]
         warmup = unreal.GameplayStatics.get_time_seconds(world)
     except Exception:
@@ -276,23 +286,55 @@ def start_capture(world, version_path, region, direction, file_prefix, shots, in
                 data["shot"] += 1
             sample = {"seconds": elapsed, "performance": list(unreal.BBBAnimationGraphEditorLibrary.read_performance_frame_metrics())}
             tail = .25 + max(0, shots - 1) * interval_seconds
+            if residue_seconds > 0:
+                sample["gibs"] = json.loads(unreal.BBBMonsterGoreEditorLibrary.inspect_gib_presentation(world))
             if capture_images and camera and elapsed >= tail + 1.5 and not data["groundView"]:
-                residue = json.loads(unreal.BBBBloodResidueEditorLibrary.inspect_residue(world))
-                surfaces = residue["visibleResidues"]
-                if surfaces:
-                    largest = max(surfaces, key=lambda item: math.prod(float(value) for value in re.findall(r"[YZ]=(-?\d+(?:\.\d+)?)", item["size"])))
-                    coordinates = [float(value) for value in re.findall(r"[XYZ]=(-?\d+(?:\.\d+)?)", largest["position"])]
-                    if len(coordinates) == 3:
-                        focus = unreal.Vector(*coordinates)
-                        location = focus + unreal.Vector(-180, -240, 400)
-                        camera.set_actor_location_and_rotation(location, unreal.MathLibrary.find_look_at_rotation(location, focus), False, True)
-                        capture.set_editor_property("fov_angle", 50.0)
+                coordinates = None
+                if residue_seconds > 0:
+                    pieces = sample["gibs"]["fleshPieces"]
+                    if pieces:
+                        coordinates = pieces[0]["location"]
+                if coordinates is None:
+                    residue = json.loads(unreal.BBBBloodResidueEditorLibrary.inspect_residue(world))
+                    surfaces = residue["visibleResidues"]
+                    if surfaces:
+                        largest = max(surfaces, key=lambda item: math.prod(float(value) for value in re.findall(r"[YZ]=(-?\d+(?:\.\d+)?)", item["size"])))
+                        coordinates = [float(value) for value in re.findall(r"[XYZ]=(-?\d+(?:\.\d+)?)", largest["position"])]
                         record["groundResidue"] = residue
-                        data["groundView"] = True
-            if capture_images and camera and elapsed < tail + 2.75:
+                if coordinates and len(coordinates) == 3:
+                    focus = unreal.Vector(*coordinates)
+                    location = focus + unreal.Vector(-100, -160, 170)
+                    rotation = unreal.MathLibrary.find_look_at_rotation(location, focus)
+                    camera.set_actor_location_and_rotation(location, rotation, False, True)
+                    view.set_actor_location_and_rotation(location, rotation, False, True)
+                    if original_editor_view:
+                        editor.set_level_viewport_camera_info(location, rotation)
+                    capture.set_editor_property("fov_angle", 50.0)
+                    data["groundView"] = True
+                    data["groundFocus"] = focus
+                    data["groundLocation"] = location
+            if residue_seconds > 12 and data["groundView"]:
+                if elapsed >= tail + 6 and not data["lookAway"]:
+                    rotation = unreal.MathLibrary.find_look_at_rotation(data["groundLocation"], data["groundFocus"] + unreal.Vector(-2000, 0, 0))
+                    camera.set_actor_rotation(rotation, True)
+                    view.set_actor_rotation(rotation, True)
+                    if original_editor_view:
+                        editor.set_level_viewport_camera_info(data["groundLocation"], rotation)
+                    data["lookAway"] = True
+                    record["lookAwaySeconds"] = elapsed
+                if elapsed >= tail + 9 and not data["lookBack"]:
+                    rotation = unreal.MathLibrary.find_look_at_rotation(data["groundLocation"], data["groundFocus"])
+                    camera.set_actor_rotation(rotation, True)
+                    view.set_actor_rotation(rotation, True)
+                    if original_editor_view:
+                        editor.set_level_viewport_camera_info(data["groundLocation"], rotation)
+                    data["lookBack"] = True
+                    record["lookBackSeconds"] = elapsed
+            if capture_images and camera and elapsed < tail + max(2.75, residue_seconds):
                 actual_view = unreal.GameplayStatics.get_player_camera_manager(world, 0).get_camera_location()
                 sample["viewLocation"] = [actual_view.x, actual_view.y, actual_view.z]
-                if elapsed - data["lastImage"] >= 1.0 / 60.0 - .0001:
+                image_interval = 1.0 / 60.0 if elapsed < tail + 2.75 else .5
+                if elapsed - data["lastImage"] >= image_interval - .0001:
                     capture.capture_scene()
                     path = os.path.join(directory, "frame_" + str(len(record["imagePaths"])).zfill(4) + ".png")
                     unreal.ImageWriteBlueprintLibrary.export_to_disk(target, path, options)
@@ -305,7 +347,7 @@ def start_capture(world, version_path, region, direction, file_prefix, shots, in
                     "/Game/_Project/Mass/Monster/Zombie/Effects/NS_BBBZombieBloodImpact"))
                 sample["physics"] = json.loads(unreal.BBBHitReactionEditorLibrary.inspect_physics_state(subjects[0].target_mesh))
             record["samples"].append(sample)
-            end = .25 + max(0, shots - 1) * interval_seconds + 3.0
+            end = .25 + max(0, shots - 1) * interval_seconds + max(3.0, residue_seconds)
             if elapsed >= end:
                 if not all(os.path.isfile(path) and os.path.getsize(path) > 1024 for path in record["imagePaths"]):
                     if elapsed > end + 5.0:

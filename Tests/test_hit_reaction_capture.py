@@ -56,7 +56,7 @@ class HitReactionCaptureTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.scope["normalize_hit_reaction_arm_bodies"]("/Game/_Project/PA", "/Game/Mesh")
         with self.assertRaises(RuntimeError):
-            self.scope["rebuild_monster_blood_system"](*["/Game/_Project/A"] * 7)
+            self.scope["rebuild_monster_blood_system"](*["/Game/_Project/A"] * 5)
         self.engine.load_asset.assert_not_called()
         self.access.assert_not_called()
 
