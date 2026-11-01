@@ -64,6 +64,7 @@ HELPER_MODULES = (
     "BBBAnimationViewTools",
     "BBBFactAnimationCaptureTools",
     "BBBAnimationPoseBaking",
+    "BBBTraversalAnimationBaking",
     "BBBSoundAssetAudit", "BBBRecoilAnimationTools", "BBBDisplayAssetCaptureTools", "BBBBlueprintMigration",
 )
 SCRIPTS_ROOT = Path(__file__).resolve().parent

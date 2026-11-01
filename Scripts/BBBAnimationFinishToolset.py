@@ -138,6 +138,33 @@ class BBBAnimationFinishToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def bake_traversal_action(source_path: str, retargeter_path: str, idle_path: str,
+                              sequence_path: str, montage_path: str, start_frame: int = 30,
+                              end_frame: int = 96, enter_seconds: float = 0.3,
+                              exit_seconds: float = 0.4) -> str:
+        """
+        /**
+         * 将原始攀爬重定向并烘焙为首尾站姿连续的全身蒙太奇
+         * @param source_path\t原始动作序列
+         * @param retargeter_path\t保留源根运动的独立重定向器
+         * @param idle_path\t目标骨架的站姿参考序列
+         * @param sequence_path\t明确新建或原位重建的自有动作序列
+         * @param montage_path\t明确新建或原位重建的自有全身蒙太奇
+         * @param start_frame\t原动作起帧 包含此帧
+         * @param end_frame\t原动作结束帧 包含此帧
+         * @param enter_seconds\t站姿进入动作的时间
+         * @param exit_seconds\t动作恢复站姿的时间
+         * @return 原始帧范围 根运动 端点姿势误差与保存结果
+         */
+        """
+        import importlib
+        import BBBTraversalAnimationBaking
+        return importlib.reload(BBBTraversalAnimationBaking).bake(
+            source_path, retargeter_path, idle_path, sequence_path, montage_path,
+            start_frame, end_frame, enter_seconds, exit_seconds)
+
+    @mcp_tool
+    @staticmethod
     def start_pie_fact_motion_capture(actor_blueprint_path: str, segments_json: str, file_prefix: str,
                                      fps: int = 60, variation_seed: int = 123) -> str:
         """

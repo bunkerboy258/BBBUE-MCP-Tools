@@ -81,6 +81,7 @@ TOOL_POLICIES = {
     'animation_graph.override_aim_offset_layer': {'scope': {'fields': ['blueprint_path']}},
     'animation_finish.configure_speed_blend': {'scope': {'fields': ['asset_path']}},
     'animation_finish.bake_pose_transition': {'scope': {'fields': ['asset_path']}},
+    'animation_finish.bake_traversal_action': {'scope': {'fields': ['sequence_path', 'montage_path']}},
     'animation_finish.configure_fact_animation_finish': {'scope': {'fields': ['asset_path']}},
     'animation_finish.start_pie_fact_motion_capture': {'world': 'pie', 'completion': 'activity'},
     'animation_finish.inspect_pie_fact_motion_capture': {'access': 'read'},

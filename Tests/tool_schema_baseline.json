@@ -15337,6 +15337,53 @@
         "additionalProperties": false
       }
     },
+    "bake_traversal_action": {
+      "description": "/**\n * 将原始攀爬重定向并烘焙为首尾站姿连续的全身蒙太奇\n * @param source_path   原始动作序列\n * @param retargeter_path       保留源根运动的独立重定向器\n * @param idle_path     目标骨架的站姿参考序列\n * @param sequence_path 明确新建或原位重建的自有动作序列\n * @param montage_path  明确新建或原位重建的自有全身蒙太奇\n * @param start_frame   原动作起帧 包含此帧\n * @param end_frame     原动作结束帧 包含此帧\n * @param enter_seconds 站姿进入动作的时间\n * @param exit_seconds  动作恢复站姿的时间\n * @return 原始帧范围 根运动 端点姿势误差与保存结果\n */",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_path": {
+            "type": "string"
+          },
+          "retargeter_path": {
+            "type": "string"
+          },
+          "idle_path": {
+            "type": "string"
+          },
+          "sequence_path": {
+            "type": "string"
+          },
+          "montage_path": {
+            "type": "string"
+          },
+          "start_frame": {
+            "type": "integer",
+            "default": 30
+          },
+          "end_frame": {
+            "type": "integer",
+            "default": 96
+          },
+          "enter_seconds": {
+            "type": "number",
+            "default": 0.3
+          },
+          "exit_seconds": {
+            "type": "number",
+            "default": 0.4
+          }
+        },
+        "required": [
+          "source_path",
+          "retargeter_path",
+          "idle_path",
+          "sequence_path",
+          "montage_path"
+        ],
+        "additionalProperties": false
+      }
+    },
     "bake_pose_transition": {
       "description": "/**\n * 从同骨架两端姿态烘焙完整过渡 保持肢体长度并约束接触点高度\n * @param source_sequence_path  起始姿态序列 取首帧\n * @param target_sequence_path  结束姿态序列 取末帧\n * @param asset_path    原位新建或重建的自有动画序列\n * @param ground_bone_names     不得低于地面的骨骼名称\n * @param seconds       过渡秒数\n * @return 全骨骼烘焙与地面高度回读结果\n */",
       "inputSchema": {
