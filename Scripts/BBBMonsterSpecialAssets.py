@@ -228,6 +228,10 @@ def _validate_data_asset(logic):
 def build_variant(destination_root, prefab_root, recipe_json):
     """/** @param destination_root 自有特感目录 @param prefab_root 该变体预制伤口目录 @param recipe_json 完整身体 动作与两份配置的制作描述 @return 编译保存及回读结果 */"""
     recipe = json.loads(recipe_json)
+    if recipe.get('stage') in {'survey', 'polish_animations', 'polish_physics', 'polish_graph'}:
+        import importlib
+        import BBBMonsterSpecialPolish
+        return importlib.reload(BBBMonsterSpecialPolish).run(destination_root, recipe)
     if not re.fullmatch(r'/Game/_Project/Mass/Monster/SpecialInfected/[A-Za-z0-9]+', destination_root):
         raise RuntimeError('目标必须为明确的特感自有目录')
     if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
@@ -257,14 +261,10 @@ def build_variant(destination_root, prefab_root, recipe_json):
                 raise RuntimeError('目标来源不属于当前制作描述 不覆盖 '+path)
     existing_presentation = unreal.load_asset(paths[1]) if unreal.EditorAssetLibrary.does_asset_exist(paths[1]) else None
     if existing_presentation and str(unreal.EditorAssetLibrary.get_metadata_tag(existing_presentation, 'BBB.SpecialComplete')) == '1':
-        require_asset_write([existing_presentation])
-        animation = existing_presentation.get_editor_property('animation')
-        animation.set_editor_property('slow_walk_sample_speed', float(recipe['logic_properties']['walk_speed']) * .5)
-        existing_presentation.set_editor_property('animation', animation)
-        report = str(unreal.BBBMonsterPresentationEditorLibrary.save_configuration(existing_presentation))
+        report = str(unreal.BBBMonsterPresentationEditorLibrary.inspect_configuration(existing_presentation))
         if report.startswith('失败'):
             raise RuntimeError(report)
-        return json.dumps({'saved': paths, 'alreadyComplete': True, 'presentationValidation': report, 'logicValidation': _validate_data_asset(unreal.load_asset(paths[0])),
+        return json.dumps({'readOnly': True, 'alreadyComplete': True, 'presentationValidation': report, 'logicValidation': _validate_data_asset(unreal.load_asset(paths[0])),
                            'birthValidation': {suffix: _validate_data_asset(unreal.load_asset(destination_root+'/DA_'+name+suffix))
                                                for suffix in ('Pool', 'Spawn')
                                                if unreal.EditorAssetLibrary.does_asset_exist(destination_root+'/DA_'+name+suffix)}}, ensure_ascii=False)

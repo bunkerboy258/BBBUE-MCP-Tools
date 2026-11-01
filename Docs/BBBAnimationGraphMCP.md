@@ -55,9 +55,13 @@
 
 普通运动由 GASP MM 生成 倒地等待 接受救援 帮扶与起身使用后置 FullBody 蒙太奇。主图清理使用 [运动匹配工具](BBBMotionMatchingMCP.md) 的 motion_matching.configure_character_montage_graph 不修改空手库和装备层。僵尸事实动画工具保持独立。
 
-`configure_special_infected_actions(asset_path, sequence_paths)` 只用于已重建的特感事实图.四个同骨架序列依次为蓄力 冲撞 恢复 喷吐.读取原生 SpecialPhaseFact 与 SpecialProgressFact.冲撞循环采样 其余阶段按当前进度采样.普通行为和死亡继续使用原事实图.原生构图后无警告编译并保存.不在 PIE 期间编辑.
+`configure_special_infected_actions(asset_path, sequence_paths)` 只用于已重建的特感事实图.四个同骨架序列依次为蓄力 冲撞 恢复 喷吐.冲撞读取 SpecialLoopPhaseFact 按实际移动速度与表现配置步幅循环采样.其余阶段读取 SpecialProgressFact.五个入口通过线程安全 GetSpecialBlendDuration 读取唯一表现配置中的混合时长.死亡 爬行 踉跄与攀爬优先于技能姿态.原生构图后无警告编译并保存.不在 PIE 期间编辑.
 
 `build_special_infected_assets(destination_root, prefab_root, recipe)` 为四类特感的明确自有目录建立逻辑 表现 实体模板 载体 动画蓝图和速度混合.制作描述必须指定 source_logic source_presentation source_actor mesh sequences sample_speeds logic_properties presentation_properties 以及可选 special_properties.九个同骨架序列依次为待机 行走 跑步 攻击 死亡 蓄力 冲撞 恢复 喷吐.预制资源目录必须是 Shared/Injury 下同名变体.已有输出只允许复用相同制作描述指纹 并拒绝覆盖其它来源.通过标准 IK Rig 与 IK Retargeter 生成同骨架的正式序列 并装配爬行 踉跄和攀爬.制作描述 stage=animations 可在无渲染宿主仅准备二十二个动作序列.材质适配和完整表现校验后保存完成标记 失败前已经保存的自有输出可按相同指纹继续.预制网格必须提前离线制作 不进行运行时切割.
+
+同一入口支持离线打磨阶段. `stage=survey` 与 `sources` 明确列出一至三十二份序列 返回头 手 脚及骨盆轨迹和首尾误差. `stage=polish_animations` 的 `animations` 按角色名指定 `source` 与可选 `frames:[首帧,末帧]` 和 `loop` 使用原位重定向 锁根及尾部混合保存动作.制作指纹只复用相同输入 拒绝覆盖非本工具资产. `stage=polish_physics` 使用现有物理与受击配置内核写入 `physics` `profiles` 及 `hit_properties` 不改变血量与触发裁决.
+
+`stage=polish_graph` 输入 `idle` 三份待机 `alert` 一份警觉 `styles` 三组待机走跑冲刺角色名 `attacks` `attack_pivots` `deaths` 四项 `special` 和 `special_animation`.完整重建当前事实图 不叠加旧状态图.速度混合包含静止 蹒跚 行走 追近快走 跑步 冲刺六个速度点.支撑脚后移速度中位数用于离线标定三种风格循环时长 高速冲撞保留至少零点四秒循环以保持姿态可读.攻击采样将手部实际接触帧映射到已有伤害时刻 死亡按原始时长结束并保持终姿.潜行与狂暴使用不同移动风格.喷吐在释放帧分段 并将同帧头部位置变换为逻辑配置的局部发射偏移.返回循环时长 步幅 保存与唯一表现配置校验 不进行自动游戏验收.
 
 `create_slime_assets(destination_root)` 在特感 Shared 下建立绿色地面材质 粘液实体模板与规则.数量上限 飞行 区域 持续伤害和速度比例集中在 DA_Slime.此工具只装配资源 不启动游戏.
 
