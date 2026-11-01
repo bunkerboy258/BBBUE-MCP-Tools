@@ -949,6 +949,15 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def extract_update_function(graph_path: str, node_guids: list[str], function_name: str, dry_run: bool = True) -> str:
+        """提取单入口顺序更新片段为线程安全函数 拒绝跨边界数据线 编译保存后交接"""
+        import importlib
+        import BBBBlueprintFunctionRefactor
+        return json.dumps(importlib.reload(BBBBlueprintFunctionRefactor).extract_update_function(
+            graph_path, node_guids, function_name, dry_run), ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def write_graph(graph_path: str, code: str, node_aliases_json: str, pin_aliases_json: str) -> str:
         """写入指定项目蓝图图表并编译 不自动保存 失败时保留撤销记录并明确报警"""
         if not graph_path.startswith("/Game/"):

@@ -12,6 +12,8 @@
 
 # BBBUE MCP Tools
 
+2026-11-01 增加 blueprint.extract_update_function 将单入口顺序更新片段提取为线程安全函数 拒绝跨边界数据线 保留计算常量及内部连线。animation_graph 提供后坐力派生迁移 重复事实包装清理和公共持枪更新收敛入口。角色主蓝图 基类及五个关联层已实际编译保存；未执行玩法验收。说明见 Docs/BBBBlueprintFunctionRefactorMCP.md。
+
 2026-10-30 左臂运行诊断：端枪相位使用 0.25 秒举枪、0.30 秒放下的 EaseInOut，共同驱动端枪与 AimIK 权重；只读属性查询支持明确 UObject 子路径。输入回放在 PIE 销毁后若已取消且时钟恢复，回收失效活动并保留失败状态；活跃世界和时钟仍覆盖时保留阻塞，四项隔离检查通过。运行验收使用原生逐帧采集，不把静态握点可达当作运行通过。
 
 2026-10-30 开火握姿腕部校准：manual_prepare_fire 显示右腕与左臂控制器，manual_apply_fire 允许右腕旋转和左臂握持求解，校验正式握点、挂接、骨长及缩放不变。同步未开火基准时保留全部开火指骨，型号路径支持连字符。BAR、SG550、SCAR-H、MP5、Mossberg、Remington 双握姿已保存回读；未运行 PIE，不作为运行时视觉验收结论。

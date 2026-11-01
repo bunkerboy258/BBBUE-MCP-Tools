@@ -36,6 +36,10 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
+    'animation_graph.centralize_weapon_handling': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['main_path', 'base_path', 'layer_paths']}, 'completion': 'verified_save'},
+    'animation_graph.simplify_animation_fact_adapter': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['blueprint_path']}, 'completion': 'verified_save'},
+    'animation_graph.configure_recoil_update_pipeline': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['blueprint_path']}, 'completion': 'verified_save'},
+    'blueprint.extract_update_function': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['graph_path']}, 'completion': 'verified_save'},
     'animation_graph.configure_upper_body_pose': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['interface_path', 'base_path', 'main_path', 'layer_paths']}, 'completion': 'verified_save'},
     'animation_graph.restore_animation_bone_tracks': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['animation_path']}, 'completion': 'verified_save'},
     'animation_graph.rebuild_weapon_aim_additive': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['asset_path', 'reference_path']}, 'completion': 'verified_save'},
