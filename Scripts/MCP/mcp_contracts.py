@@ -36,6 +36,9 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
+    'level.refresh_navigation_bounds': {'scope': {'fields': ['expected_level']}, 'world': 'editor'},
+    'level.inspect_navigation_route': {'access': 'read', 'world': 'editor', 'scope': {'fields': ['expected_level']}, 'completion': 'observed'},
+    'level.set_review_view': {'scope': {'fields': ['expected_level']}, 'world': 'editor'},
     'monster_traversal.bake_mantle': {'scope': {'fields': ['sequence_path', 'montage_path']}, 'world': 'editor'},
     'monster_traversal.configure_assets': {'scope': {'fields': ['logic_paths', 'presentation_paths', 'blueprint_paths', 'mantle_path', 'climb_path']}, 'world': 'editor'},
     'monster_traversal.build_links': {'scope': {'fields': ['expected_level']}, 'world': 'editor'},

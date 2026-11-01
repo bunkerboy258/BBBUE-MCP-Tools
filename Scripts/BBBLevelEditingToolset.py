@@ -8,6 +8,10 @@ from toolset_registry.registration import Registration
 
 
 MCP_INPUTS = {
+    'inspect_navigation_route': {'points_json': {
+        'type': 'array', 'minItems': 2, 'maxItems': 256,
+        'items': {'type': 'array', 'items': {'type': 'number'}, 'minItems': 3, 'maxItems': 3},
+    }},
     'set_static_mesh_nanite_settings': {'settings_json': {
         'type': 'object', 'minProperties': 1, 'additionalProperties': False,
         'properties': {
@@ -498,6 +502,181 @@ class BBBLevelEditingToolset(unreal.ToolsetDefinition):
         if not report.get("success", False):
             raise RuntimeError(report.get("error", "静态场景碰撞审计失败"))
         return json.dumps(report, ensure_ascii=False)
+
+
+    @mcp_tool
+    @staticmethod
+    def refresh_navigation_bounds(expected_level: str, volume_paths: list[str]) -> str:
+        """
+        /**
+         * 通知当前导航系统重新处理明确导航体积 不将请求当作构建完成
+         * @param expected_level\t当前编辑器关卡包路径
+         * @param volume_paths\t当前世界中已配置的导航体积路径
+         * @return 体积实际范围与构建状态 后续必须查询完整路径
+         */
+        """
+        from BBBAssetWritePolicy import require_write_access
+
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+        if unreal.EditorLevelLibrary.get_pie_worlds(False) or world.get_path_name().split('.', 1)[0] != expected_level:
+            raise RuntimeError("需要匹配的非 PIE 编辑器世界")
+        if not 1 <= len(volume_paths) <= 64 or len(set(volume_paths)) != len(volume_paths):
+            raise RuntimeError("需要一至六十四个不重复导航体积")
+        navigation = unreal.NavigationSystemV1.get_navigation_system(world)
+        if navigation is None:
+            raise RuntimeError("当前世界没有导航系统 请先检查世界导航配置")
+        volumes = []
+        for path in volume_paths:
+            volume = unreal.find_object(None, path)
+            if not isinstance(volume, unreal.NavMeshBoundsVolume) or volume.get_world() != world:
+                raise RuntimeError("明确目标不是当前世界导航体积 " + path)
+            origin, extent = volume.get_actor_bounds(False)
+            if min(extent.x, extent.y, extent.z) <= 0:
+                raise RuntimeError("导航体积刷体为空 " + path)
+            volumes.append(volume)
+        require_write_access(world)
+        result = []
+        for volume in volumes:
+            navigation.on_navigation_bounds_updated(volume)
+            origin, extent = volume.get_actor_bounds(False)
+            result.append({'volume': volume.get_path_name(), 'center_cm': [origin.x, origin.y, origin.z],
+                           'extent_cm': [extent.x, extent.y, extent.z]})
+        unreal.log("[BBBLevelNavigation]已提交边界刷新 " + str(len(result)))
+        return json.dumps({'world': world.get_path_name(), 'volumes': result, 'requested': True,
+                           'building_or_locked': unreal.NavigationSystemV1.is_navigation_being_built_or_locked(world)}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def inspect_navigation_route(expected_level: str, points_json: str,
+                                 context_actor_path: str = '', endpoint_tolerance_cm: float = 100.0) -> str:
+        """
+        /**
+         * 依次查询必经点之间的导航路径并拒绝将局部路径计为通过
+         * @param expected_level\t当前编辑器关卡包路径
+         * @param points_json\t二至二百五十六个必经世界坐标 厘米
+         * @param context_actor_path\t明确导航数据或 Pawn 路径 空值使用世界默认代理
+         * @param endpoint_tolerance_cm\t首尾路径点相对请求点的三维容差厘米
+         * @return 各段有效性 局部标记 实际长度和路径点 不证明真实玩家通行
+         */
+        """
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+        if unreal.EditorLevelLibrary.get_pie_worlds(False) or world.get_path_name().split('.', 1)[0] != expected_level:
+            raise RuntimeError("需要匹配的非 PIE 编辑器世界")
+        points = json.loads(points_json)
+        if not isinstance(points, list) or not 2 <= len(points) <= 256:
+            raise RuntimeError("路线需要二至二百五十六个必经点")
+        for point in points:
+            if not isinstance(point, list) or len(point) != 3 or not all(type(v) in (int, float) and math.isfinite(v) for v in point):
+                raise RuntimeError("必经点必须是三个有限厘米数值")
+        if not math.isfinite(endpoint_tolerance_cm) or not 1 <= endpoint_tolerance_cm <= 200:
+            raise RuntimeError("路径端点容差须为一至二百厘米")
+        context = None
+        if context_actor_path:
+            context = unreal.find_object(None, context_actor_path)
+            if not isinstance(context, (unreal.NavigationData, unreal.Pawn, unreal.Controller)) or context.get_world() != world:
+                raise RuntimeError("导航上下文不是当前世界的导航数据 Pawn 或 Controller")
+        actors = unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors()
+        nav_data = []
+        for actor in actors:
+            if isinstance(actor, unreal.RecastNavMesh):
+                nav_data.append({'path': actor.get_path_name(), 'radius_cm': actor.get_editor_property('agent_radius'),
+                                 'height_cm': actor.get_editor_property('agent_height')})
+        navigation = unreal.NavigationSystemV1.get_navigation_system(world)
+        building = unreal.NavigationSystemV1.is_navigation_being_built_or_locked(world)
+        if navigation is None or building or not nav_data:
+            return json.dumps({'world': world.get_path_name(), 'ready': False, 'building_or_locked': building,
+                               'navigation_system': navigation is not None, 'nav_data': nav_data,
+                               'all_segments_valid': False, 'segments': []}, ensure_ascii=False)
+        segments = []
+        for index in range(len(points) - 1):
+            start, end = points[index:index + 2]
+            path = unreal.NavigationSystemV1.find_path_to_location_synchronously(
+                world, unreal.Vector(*start), unreal.Vector(*end), context)
+            valid = path is not None and path.is_valid()
+            partial = path is not None and path.is_partial()
+            path_points = []
+            length = 0.0
+            if path is not None:
+                path_points = [[p.x, p.y, p.z] for p in path.path_points]
+                length = path.get_path_length()
+            start_error = None
+            end_error = None
+            if path_points:
+                start_error = math.dist(start, path_points[0])
+                end_error = math.dist(end, path_points[-1])
+            passed = bool(valid and not partial and len(path_points) >= 2 and math.isfinite(length)
+                          and length > 0 and start_error <= endpoint_tolerance_cm and end_error <= endpoint_tolerance_cm)
+            segments.append({'index': index, 'valid': valid, 'partial': partial, 'passed': passed,
+                             'requested_start_cm': start, 'requested_end_cm': end, 'length_m': length / 100.0,
+                             'start_error_cm': start_error, 'end_error_cm': end_error, 'path_points_cm': path_points})
+        passed = all(segment['passed'] for segment in segments)
+        if not passed:
+            unreal.log_warning("[BBBLevelNavigation]路线包含未通过段 " + str([s['index'] for s in segments if not s['passed']]))
+        return json.dumps({'world': world.get_path_name(), 'ready': True, 'building_or_locked': False,
+                           'context': context_actor_path or 'world_default', 'nav_data': nav_data,
+                           'all_segments_valid': passed, 'length_m': sum(s['length_m'] for s in segments),
+                           'segments': segments}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def set_review_view(expected_level: str, camera_actor_path: str, location: list[float],
+                        rotation: list[float], ortho_width_cm: float = 0.0, view_mode: str = 'Lit') -> str:
+        """
+        /**
+         * 用明确相机驾驶前台视口并切换真实着色模式 供 Slate 截图验收
+         * @param expected_level\t当前编辑器关卡包路径
+         * @param camera_actor_path\t当前世界明确 CameraActor 路径
+         * @param location\t世界位置厘米
+         * @param rotation\t俯仰 偏航 滚转角度 顶视使用俯仰负九十度
+         * @param ortho_width_cm\t正值开启相机正交投影 零使用透视
+         * @param view_mode\tLit Unlit 或 PlayerCollision
+         * @return 相机投影与实际视口着色模式 必须另取真实视口截图
+         */
+        """
+        from BBBAssetWritePolicy import require_write_access
+
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+        if unreal.EditorLevelLibrary.get_pie_worlds(False) or world.get_path_name().split('.', 1)[0] != expected_level:
+            raise RuntimeError("需要匹配的非 PIE 编辑器世界")
+        for values in (location, rotation):
+            if len(values) != 3 or not all(type(v) in (int, float) and math.isfinite(v) for v in values):
+                raise RuntimeError("机位必须为有限三元数组")
+        if not math.isfinite(ortho_width_cm) or not 0 <= ortho_width_cm <= 200000:
+            raise RuntimeError("正交宽度必须为零至二十万厘米")
+        modes = {'Lit': unreal.ViewModeIndex.VMI_LIT, 'Unlit': unreal.ViewModeIndex.VMI_UNLIT,
+                 'PlayerCollision': unreal.ViewModeIndex.VMI_COLLISION_PAWN}
+        if view_mode not in modes:
+            raise RuntimeError("不支持的审查视图模式")
+        actor = unreal.find_object(None, camera_actor_path)
+        if not isinstance(actor, unreal.CameraActor) or actor.get_world() != world:
+            raise RuntimeError("明确目标不是当前世界 CameraActor")
+        require_write_access(actor)
+        actor.modify()
+        component = actor.get_editor_property('camera_component')
+        component.modify()
+        actor.set_actor_location(unreal.Vector(*location), False, True)
+        actor.set_actor_rotation(unreal.Rotator(pitch=rotation[0], yaw=rotation[1], roll=rotation[2]), True)
+        projection = unreal.CameraProjectionMode.PERSPECTIVE
+        if ortho_width_cm > 0:
+            projection = unreal.CameraProjectionMode.ORTHOGRAPHIC
+            component.set_editor_property('ortho_width', ortho_width_cm)
+        component.set_editor_property('projection_mode', projection)
+        actor.set_editor_property('is_editor_only_actor', True)
+        level = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
+        key = level.get_active_viewport_config_key()
+        level.pilot_level_actor(actor, key)
+        level.set_exact_camera_view(True, key)
+        unreal.AutomationLibrary.set_editor_active_viewport_view_mode(modes[view_mode])
+        level.editor_invalidate_viewports()
+        actual = unreal.AutomationLibrary.get_editor_active_viewport_view_mode()
+        if actual != modes[view_mode] or level.get_pilot_level_actor(key) != actor:
+            raise RuntimeError("前台视口模式或驾驶相机回读不匹配")
+        unreal.log("[BBBLevelReview]前台视口 " + view_mode + " " + str(projection))
+        return json.dumps({'world': world.get_path_name(), 'camera': actor.get_path_name(),
+                           'projection': str(component.get_editor_property('projection_mode')),
+                           'ortho_width_cm': component.get_editor_property('ortho_width'),
+                           'view_mode': str(actual), 'location_cm': list(location), 'rotation_deg': list(rotation),
+                           'exact_camera_view': level.get_exact_camera_view(key)}, ensure_ascii=False)
 
 
 _registration = Registration([BBBLevelEditingToolset])

@@ -815,3 +815,5 @@ Monster 版本只编辑逻辑与表现两份主配置。`monster_gore.inspect_mo
 2026-10-31 正常宿主退出识别官方完整工具名的末段，修复新版宿主被误报 EDITOR_TOOLSET_RELOAD_REQUIRED。保持宿主代际、PIE、活动、脏包检查及延后复核。
 
 - 2026-11-01：动画职责修正入口 `animation_graph.configure_native_weapon_presentation` 将通用持枪计算消费者接回原生发布结果，删除旧蓝图累积入口；根级线程安全调度及最多两级英文函数分类。接口说明见 `Docs/BBBBlueprintFunctionRefactorMCP.md`。Development Editor 构建通过 主蓝图 基础层和五个子层编译保存通过 迁移回读无旧计算消费者。未运行 PIE 表现由用户验收。
+
+2026-11-01 关卡白盒导航与前台审查：新增 `level.refresh_navigation_bounds`、`level.inspect_navigation_route`、`level.set_review_view`。导航逐段返回有效性、partial 标记、端点误差与实际长度；审查相机使用真实前台视口，支持正交投影与 PlayerCollision 模式。复用已有复杂碰撞和 Slate 截图入口，不增加项目玩法接口。源码 AST 解析通过；前台宿主的导航检查正确拒绝未覆盖坐标，修正地面变换后局部和教学楼路线通过；正常重启后透视 Lit 视图返回有效 JSON，反射数组序列化修复实测通过。正交和 PlayerCollision 的视觉验收及全关卡通行另行核验，未运行自动化套件。参数与证据边界见 `Docs/BBBLevelLayoutMCP.md`。
