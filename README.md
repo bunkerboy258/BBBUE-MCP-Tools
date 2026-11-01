@@ -14,6 +14,8 @@
 
 2026-11-01 预览附件清理：新增 editor.configure_preview_attachments 直接检查骨架与网格的预览附件容器 仅按明确资源路径移除 保存并回读 不删除模型或改变动画。原生编译及实际调用通过；男性僵尸骨架 root 上三条重复裸脚附件已移除 男女身体和女性骨架无附件 男女攀爬蒙太奇已重开 目标包无未保存改动。说明见 Docs/BBBGenericEditorMCP.md。
 
+2026-11-01 僵尸导航统一更新: 原生 Recast 加 Detour 走廊和速度避让替换项目自制逐点跟随与候选方向评分 静态跨障连接和临近探测共用几何判断 支持薄墙后方落点 inspect_links 增加平台与翻墙数量. 本轮只做编译和静态资源保存回读 未启动 PIE 未执行自动化游戏验收. 调用见 Docs/BBBMonsterTraversalMCP.md.
+
 2026-11-01 僵尸上台与攀爬：新增 monster_traversal 制作入口 共用动作烘焙内核并支持明确接触窗口和零点锁根。配置十二份逻辑 十二份表现与男女动画图 保存快速上台与较高攀爬资源；BBBTest 按有效 Detour 瓦片及局部顶点坐标生成并保存七十九个单向台沿连接。原生编译 Python 语法及资产保存回读完成 未启动 PIE 或自动化测试 游戏通过率 观感与性能由用户验收。调用见 Docs/BBBMonsterTraversalMCP.md。
 
 # BBBUE MCP Tools
