@@ -79,8 +79,8 @@ def centralize_weapon_handling(main_path, base_path, layer_paths, dry_run):
                 raise RuntimeError('公共持枪更新出口连接失败')
     g = _function(base, 'UpdateWeaponHandling')
     g.editor.set_is_thread_safe_function(True)
-    g.editor.remove_nodes([node for node in g.editor.list_all_nodes()
-                           if node.get_class().get_name() == 'EdGraphNode_Comment'])
+    for comment in list(g.editor.list_comment_nodes()):
+        g.editor.remove_comment_node(comment)
     entry = next(node for node in g.editor.list_all_nodes() if isinstance(node, unreal.K2Node_FunctionEntry))
     execute = entry.find_then_pin()
     adapter = g.place(g.editor.add_call_function_node(base.generated_class().get_path_name() + '.GetBBBMainAnimAdapterThreadSafe'))
