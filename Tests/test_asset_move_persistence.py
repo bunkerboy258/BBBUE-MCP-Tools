@@ -121,16 +121,19 @@ class AssetMovePersistenceTests(unittest.TestCase):
         self.report["object_results"] = [{"source": "/Game/Old/A", "renamed": True}]
         def cleanup(paths):
             """/** @param paths 精确空原包路径 @return 引擎清除旧文件并保留目标 */"""
-            self.calls.append(("cleanup", list(paths)))
+            self.calls.append(("cleanup", [item.source_package_path for item in paths]))
+            self.assertEqual(paths[0].destination_package_path, "/Game/New/A")
+            self.assertEqual(paths[0].source_file_sha256, "source-sha")
             state["dirty"] = False
             for path in paths:
-                state["files"].remove(path + ".uasset")
-            return True
+                state["files"].remove(path.source_package_path + ".uasset")
+            return json.dumps({"success": True, "code": "Completed"})
         registry = self.runtime["_move_registry"]()
         registry.get_assets_by_package_name = lambda path: []
         self.runtime["_move_referencers"] = lambda registry, path: state["references"]
         self.runtime["_move_dirty_packages"] = lambda scope: ["/Game/Old/A"] if state["dirty"] and "/Game/Old/A" in scope else []
         native = self.runtime["unreal"]
+        native.BBBAssetMoveCleanupEntry = lambda **values: types.SimpleNamespace(**values)
         native.BBBAssetRepairEditorLibrary = types.SimpleNamespace(cleanup_empty_asset_packages=cleanup)
         return state
 
@@ -203,7 +206,7 @@ class AssetMovePersistenceTests(unittest.TestCase):
             """/** @param paths 精确路径 @return 核验包装引用已经释放 */"""
             self.assertEqual(sources, [])
             self.assertEqual(referencers, [])
-            self.assertEqual(paths, ["/Game/Old/A"])
+            self.assertEqual([item.source_package_path for item in paths], ["/Game/Old/A"])
             return original(paths)
         native.cleanup_empty_asset_packages = cleanup
         with patch("os.path.isfile", side_effect=lambda path: path in state["files"]):
@@ -216,9 +219,32 @@ class AssetMovePersistenceTests(unittest.TestCase):
         state["files"].update({"/Game/Old/B.uasset", "/Game/New/B.uasset"})
         self.report["assets"].append({"source": "/Game/Old/B", "destination": "/Game/New/B", "source_sha256": "source-sha"})
         with patch("os.path.isfile", side_effect=lambda path: path in state["files"]):
-            result = self.runtime["_cleanup_empty_move_sources"](self.report, [self.old, self.package("/Game/Old/B")])
+            result = self.runtime["_cleanup_empty_move_sources"](self.report, ["/Game/Old/A", "/Game/Old/B"])
         self.assertEqual([call for call in self.calls if call[0] == "cleanup"], [("cleanup", ["/Game/Old/A", "/Game/Old/B"])])
         self.assertEqual(result["deleted"], ["/Game/Old/A", "/Game/Old/B"])
+
+
+    def test_cleanup_rejects_missing_or_duplicate_mapping(self):
+        """/** @return 未匹配或重复映射不能进入原生删除 */"""
+        for duplicate in (False, True):
+            self.setUp()
+            state = self._empty_source_fixture()
+            row = self.report["assets"][0]
+            self.report["assets"] = [row, row] if duplicate else []
+            with patch("os.path.isfile", side_effect=lambda path: path in state["files"]):
+                with self.assertRaisesRegex(RuntimeError, "唯一迁移映射"):
+                    self.runtime["_cleanup_empty_move_sources"](self.report, ["/Game/Old/A"])
+            self.assertFalse(any(call[0] == "cleanup" for call in self.calls))
+
+    def test_native_rejection_preserves_reason_and_source_file(self):
+        """/** @return 原生保护拒绝必须携带具体原因且不能报告清理成功 */"""
+        state = self._empty_source_fixture()
+        native = self.runtime["unreal"].BBBAssetRepairEditorLibrary
+        native.cleanup_empty_asset_packages = lambda moves: json.dumps({"success": False, "code": "DestinationNotSaved"})
+        with patch("os.path.isfile", side_effect=lambda path: path in state["files"]):
+            with self.assertRaisesRegex(RuntimeError, "DestinationNotSaved"):
+                self.runtime["_cleanup_empty_move_sources"](self.report, ["/Game/Old/A"])
+        self.assertIn("/Game/Old/A.uasset", state["files"])
 
 
 if __name__ == "__main__":

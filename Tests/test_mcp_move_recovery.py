@@ -254,7 +254,7 @@ class MovePersistenceRecoveryTests(unittest.TestCase):
         with patch("os.path.isfile", side_effect=lambda path: path in state["files"]):
             report = f.runtime["_persist_asset_moves"](f.report, [f.old], [f.asset], [f.ref])
         self.assertFalse(report["success"])
-        self.assertEqual(report["saved_packages"], ["/Game/New/A"])
+        self.assertEqual(report["already_saved_packages"], ["/Game/New/A"])
         self.assertEqual(report["failures"][0]["package"], "/Game/Ref")
         self.assertEqual(report["empty_sources"], ["/Game/Old/A"])
         self.assertFalse(any(call[0] in {"reload", "delete"} for call in f.calls))
@@ -278,7 +278,7 @@ class MovePersistenceRecoveryTests(unittest.TestCase):
         f.report["referencer_packages"].append("/Game/Old/A")
         f.report["assets"][0]["destination_object"] = "/Game/New/A.A"
         native = f.runtime["unreal"]
-        old_loader = native.load_object
+        old_loader = lambda *args, **kwargs: None
         f.asset.get_path_name = lambda: "/Game/New/A.A"
         f.asset.get_class = lambda: SimpleNamespace(get_class_path_name=lambda: SimpleNamespace(package_name="/Script/Engine", asset_name="StaticMesh"))
         native.load_object = lambda outer, path, **options: f.asset if path == "/Game/New/A.A" else old_loader(outer, path, **options)
@@ -296,13 +296,45 @@ class MovePersistenceRecoveryTests(unittest.TestCase):
             with self.assertRaises(McpExecutionError) as caught:
                 f.runtime["_resume_asset_moves"](f.report)
             continuation = caught.exception.value["execution"]["details"]["recovery"]
-            self.assertEqual(continuation["persistence"]["saved_packages"], ["/Game/New/A"])
+            self.assertEqual(continuation["persistence"]["already_saved_packages"], ["/Game/New/A"])
             self.assertIn("/Game/Old/A.uasset", state["files"])
             native.EditorLoadingAndSavingUtils.save_packages = f.save
             result = f.runtime["_resume_asset_moves"](continuation)
         self.assertTrue(result["success"])
         self.assertEqual(result["persistence"]["empty_source_cleanup"]["deleted"], ["/Game/Old/A"])
         self.assertEqual(state["files"], {"/Game/New/A.uasset"})
+
+
+    def test_collected_empty_source_requires_record_and_empty_registry(self):
+        """/** @return 垃圾回收后的源包只允许凭原批次空包证据及空注册表恢复 */"""
+        for recorded, registered in ((False, False), (True, True), (True, False)):
+            with self.subTest(recorded=recorded, registered=registered):
+                self.setUp()
+                f = self.fixture
+                state = f._empty_source_fixture()
+                f.report["assets"][0]["destination_object"] = "/Game/New/A.A"
+                f.report["persistence"] = {"empty_sources": ["/Game/Old/A"] if recorded else []}
+                registry = f.runtime["_move_registry"]()
+                registry.get_assets_by_package_name = lambda path: [object()] if registered else []
+                native = f.runtime["unreal"]
+                native.find_object = lambda *args, **kwargs: None
+                f.asset.get_path_name = lambda: "/Game/New/A.A"
+                f.asset.get_class = lambda: SimpleNamespace(get_class_path_name=lambda: SimpleNamespace(package_name="/Script/Engine", asset_name="StaticMesh"))
+                native.load_object = lambda *args, **kwargs: f.asset
+                native.load_package = lambda path: f.ref
+                f.runtime["_move_path"] = lambda path: path
+                f.runtime["require_asset_write"] = lambda scope: None
+                f.runtime["_verify_asset_moves_json"] = lambda rows: json.dumps({"success": "/Game/Old/A.uasset" not in state["files"]})
+                with patch("os.path.isfile", side_effect=lambda path: path in state["files"]):
+                    if not recorded or registered:
+                        with self.assertRaises(McpExecutionError) as caught:
+                            f.runtime["_resume_asset_moves"](f.report)
+                        self.assertEqual(caught.exception.value["code"], "MOVE_SOURCE_STATE_REQUIRED")
+                        self.assertFalse(any(call[0] == "cleanup" for call in f.calls))
+                        continue
+                    result = f.runtime["_resume_asset_moves"](f.report)
+                    self.assertTrue(result["success"])
+                    self.assertEqual(state["files"], {"/Game/New/A.uasset"})
 
 
 if __name__ == "__main__":

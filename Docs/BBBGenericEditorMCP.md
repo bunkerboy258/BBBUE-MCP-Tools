@@ -453,3 +453,18 @@ PIE 反射调用中的 Guid 返回值按标准字符串序列化 位置参数可
 `editor.export_skeletal_mesh_fbx` 的 `include_lods=true` 通过官方 FBX 导出器输出全部真实档位 默认保持零档导出。`editor.inspect_mesh_lod_statistics` 接受官方桥接产生的 `unreal.Array` 并统一转换后验证路径。Connor 的三档实际读取及完整 FBX 导出已执行 未修改源资产 未运行自动化测试。
 
 `editor.export_skeletal_mesh_source(mesh_path, export_name, task_name)` 读取零档原始位置 法线 UV 蒙皮 骨架和材质槽 并导出只读骨架载体。用于官方 FBX 未输出几何的资产 不改动原网格 不创建中间项目资产。输出位于指定任务目录 重名拒绝覆盖。
+
+## 迁移空原包清理契约
+
+`CleanupEmptyAssetPackages` 接收 `BBBAssetMoveCleanupEntry` 数组 每项包含 `source_package_path` `destination_package_path` 与 `source_file_sha256`。清理只接受 `/Game` 原包与 `_Project` 或 `_ThirdParty` 下已保存的真实目标。已加载原包必须完全没有子对象 未加载原包必须没有注册资产且由调用方提供原批次空包证据。目标必须非重定向器且无未保存改动 原文件 SHA256 必须与移动前记录一致 整组不得有组外引用。重复映射或源目标集合相交均拒绝。
+
+返回 JSON 的 `success` 与 `code` 明确区分 `InvalidMoveMapping` `SourcePackageStateMissing` `SourcePackageNotEmpty` `DestinationNotSaved` `SourceFileChanged` `ExternalReferencerExists` 等拒绝原因。MCP 使用原迁移报告传递映射 保存目标与引用者后才调用一次引擎清理 随后回读磁盘及注册表。禁止把旧原包重新加载或保存为空文件来规避检查。
+
+
+空原包在垃圾回收后可由同一批次接续 原批次必须记录改名成功及源包已空 当前注册表必须没有该源资产 原生检查目标与摘要后才重建空包句柄 不加载磁盘旧资产。编辑器完整重启后若注册表恢复了旧资产 使用既有副本恢复入口的引擎合并与精确回读流程 不以空包清理冒充恢复。
+
+引擎合并后若只剩重定向器 仅允许其 DestinationObject 与原迁移映射完全一致。正式目标与引用先回读 只保存原映射内确有脏状态的目标 然后通过既有原生重定向器删除入口预检及执行 最后核对源磁盘文件 注册表与旧引用全部清除。目标变化 存在外部引用或出现映射外脏包均拒绝接续。
+
+## 官方 PCG 构图范围
+
+PCGToolset 的 graph node fromNode toNode 与 pCGVolume 用于确定实际编辑目标 CreateGraph 使用 path 与 name 拼接目标包 SpawnGraphInstance 使用当前编辑器世界范围。subGraphForNode 是只读引用 不把官方插件资源登记为写入目标。生成通过 ExecuteGraphInstance 显式执行 完成后保存地图并回读实际生成实例 保持全局自动刷新关闭。

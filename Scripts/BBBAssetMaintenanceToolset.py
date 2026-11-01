@@ -624,7 +624,7 @@ def _move_file_sha256(path):
         return hashlib.sha256(handle.read()).hexdigest()
 
 
-def _cleanup_empty_move_sources(report, packages):
+def _cleanup_empty_move_sources(report, source_paths):
     """
     /**
      * 只清理本次已成功移动且完全空的原包 不改正式目标
@@ -634,19 +634,26 @@ def _cleanup_empty_move_sources(report, packages):
      */
     """
     registry = _move_registry()
-    sources = {package.get_path_name() for package in packages}
+    sources = set(source_paths)
     rows = [item for item in report["assets"] if item["source"] in sources]
     result = {"packages": sorted(sources), "native_cleanup": False, "deleted": []}
-    if not packages:
+    if not source_paths:
         return result
+    if len(rows) != len(sources) or {item["source"] for item in rows} != sources:
+        raise RuntimeError("空原包清理缺少唯一迁移映射")
+    moves = []
     for item in rows:
         if not os.path.isfile(_move_filename(item["destination"])) or _move_file_sha256(_move_filename(item["source"])) != item["source_sha256"]:
             raise RuntimeError("空原包清理缺少已保存目标或原文件摘要变化: " + item["source"])
         if set(_move_referencers(registry, item["source"])) - sources:
             raise RuntimeError("空原包仍有组外引用 拒绝清理: " + item["source"])
-    packages.clear()
-    if not unreal.BBBAssetRepairEditorLibrary.cleanup_empty_asset_packages(sorted(sources)):
-        raise RuntimeError("已移动空原包的引擎清理失败 不自动重试")
+        moves.append(unreal.BBBAssetMoveCleanupEntry(
+            source_package_path=item["source"],
+            destination_package_path=item["destination"],
+            source_file_sha256=item["source_sha256"]))
+    native_result = json.loads(unreal.BBBAssetRepairEditorLibrary.cleanup_empty_asset_packages(moves))
+    if not native_result.get("success"):
+        raise RuntimeError("已移动空原包的引擎清理失败: " + json.dumps(native_result, ensure_ascii=False))
     result["native_cleanup"] = True
     registry.scan_paths_synchronous(sorted({path.rsplit("/", 1)[0] for path in sources}), force_rescan=True)
     for path in sorted(sources):
@@ -656,7 +663,7 @@ def _cleanup_empty_move_sources(report, packages):
     return result
 
 
-def _persist_asset_moves(report, source_packages, loaded_assets, referencer_packages):
+def _persist_asset_moves(report, source_packages, loaded_assets, referencer_packages, collected_empty_sources=()):
     """
     /**
      * 原生重命名后显式保存目标 引用者及原包 再刷新精确目录
@@ -694,7 +701,7 @@ def _persist_asset_moves(report, source_packages, loaded_assets, referencer_pack
     if unexpected:
         raise RuntimeError("原生移动产生范围外包 拒绝保存: " + str(unexpected))
     result = {"success": False, "phase": "saving", "requested_packages": list(packages),
-        "saved_packages": [], "already_saved_packages": [], "failures": [], "empty_sources": [package.get_path_name() for package in empty_sources]}
+        "saved_packages": [], "already_saved_packages": [], "failures": [], "empty_sources": [package.get_path_name() for package in empty_sources] + list(collected_empty_sources)}
     report["persistence"] = result
     dirty_packages = set(_move_dirty_packages(list(allowed)))
     for path, candidate in packages.items():
@@ -710,7 +717,7 @@ def _persist_asset_moves(report, source_packages, loaded_assets, referencer_pack
     result["success"] = not result["failures"]
     if result["success"]:
         pending = set(_move_dirty_packages(list(allowed)))
-        empty_paths = {package.get_path_name() for package in empty_sources}
+        empty_paths = set(result["empty_sources"])
         if pending - empty_paths:
             result["unsaved_packages"] = sorted(pending)
             result["success"] = False
@@ -718,13 +725,14 @@ def _persist_asset_moves(report, source_packages, loaded_assets, referencer_pack
         registry = _move_registry()
         registry.scan_paths_synchronous(sorted({path.rsplit("/", 1)[0] for path in packages}), force_rescan=True)
         source_packages.clear()
+        empty_sources.clear()
         referencer_packages.clear()
         packages.clear()
         package = None
         outer = None
         obj = None
         result["phase"] = "source_cleanup"
-        result["empty_source_cleanup"] = _cleanup_empty_move_sources(report, empty_sources)
+        result["empty_source_cleanup"] = _cleanup_empty_move_sources(report, sorted(empty_paths))
     result["unsaved_packages"] = _move_dirty_packages(list(allowed))
     result["success"] = result["success"] and not result["unsaved_packages"]
     if result["success"]:
@@ -750,6 +758,7 @@ def _resume_asset_moves(report):
         raise McpExecutionError("rejected", "MOVE_RECOVERY_INVALID", "迁移恢复需要实际改名证据")
     loaded = []
     originals = []
+    collected_empty_sources = []
     refs = []
     scope = set(report["referencer_packages"])
     for item in selected:
@@ -762,9 +771,15 @@ def _resume_asset_moves(report):
             if _move_file_sha256(filename) != item["source_sha256"]:
                 raise McpExecutionError("rejected", "MOVE_SOURCE_CHANGED", "迁移源文件摘要变化", {"package": source})
             package = unreal.find_object(None, source, follow_redirectors=False)
-            if package is None or package.get_path_name() != source:
+            if package is None:
+                recorded_empty = set(report.get("persistence", {}).get("empty_sources", []))
+                if source not in recorded_empty or _move_registry().get_assets_by_package_name(source):
+                    raise McpExecutionError("rejected", "MOVE_SOURCE_STATE_REQUIRED", "缺少原批次空包证据或旧路径仍注册有资产", {"package": source})
+                collected_empty_sources.append(source)
+            if package is not None and package.get_path_name() != source:
                 raise McpExecutionError("rejected", "MOVE_SOURCE_STATE_REQUIRED", "迁移原包需要实际状态核验", {"package": source})
-            originals.append(package)
+            if package is not None:
+                originals.append(package)
         asset = unreal.load_object(None, item["destination_object"], follow_redirectors=False)
         if asset is None or asset.get_path_name() != item["destination_object"] or _move_class_path(asset.get_class().get_class_path_name()) != item["class_path"]:
             raise McpExecutionError("rejected", "MOVE_TARGET_CHANGED", "迁移目标路径或类型变化", {"package": destination})
@@ -790,7 +805,7 @@ def _resume_asset_moves(report):
     outer = None
     current = {"assets": selected, "referencer_packages": report["referencer_packages"], "object_results": report["object_results"]}
     try:
-        current["persistence"] = _persist_asset_moves(current, originals, loaded, refs)
+        current["persistence"] = _persist_asset_moves(current, originals, loaded, refs, collected_empty_sources)
         current["verification"] = json.loads(_verify_asset_moves_json(json.dumps(selected)))
     except Exception as error:
         current["persistence"] = {**current.get("persistence", {}), "success": False, "error": str(error)}

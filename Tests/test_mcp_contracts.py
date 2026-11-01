@@ -26,6 +26,24 @@ def response(value):
 class McpContractTests(unittest.TestCase):
     """/** 公共失败边界与能力发现回归 */"""
 
+    def test_official_pcg_graph_edits_have_explicit_project_scope(self):
+        """/** @return 官方 PCG 节点编辑锁定所属图 插件只读引用不成为写入范围 */"""
+        graph = "/Game/_Project/Campus/PCG_Path.PCG_Path"
+        cases = [
+            ("AddSubgraphNode", {"graph": graph, "subGraphForNode": "/PCGPrimitives/Assign.Assign"}, [graph]),
+            ("UpdateNode", {"node": graph + ":Grammar"}, [graph + ":Grammar"]),
+            ("ConnectNodePins", {"fromNode": graph + ":Source", "toNode": graph + ":Target"}, [graph + ":Source", graph + ":Target"]),
+            ("CreateGraph", {"path": "/Game/_Project/Campus", "name": "PCG_Path"}, ["/Game/_Project/Campus/PCG_Path"]),
+            ("ExecuteGraphInstance", {"pCGVolume": "/Game/Campus.Campus:PersistentLevel.Path"}, ["/Game/Campus.Campus:PersistentLevel.Path"]),
+        ]
+        for name, arguments, expected in cases:
+            schema = {"type": "object", "properties": {key: {"type": "string"} for key in arguments}}
+            contract = capabilities.tool_contract("PCGToolset.PCGToolset", name, schema)
+            self.assertEqual(capabilities.write_scope(contract, arguments), (expected, True))
+            self.assertFalse(capabilities.write_scope(contract, {})[1])
+        spawn = capabilities.tool_contract("PCGToolset.PCGToolset", "SpawnGraphInstance", {"type": "object", "properties": {"graph": {"type": "string"}}})
+        self.assertEqual(spawn["scope"], {"kind": "world"})
+
     def test_optional_graph_does_not_hide_blueprint_write_scope(self):
         """/** @return 成员变量以蓝图定界 局部变量追加图表 无实际目标时仍拒绝 */"""
         schema = {"type": "object", "properties": {"blueprint": {"type": "string"},

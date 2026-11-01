@@ -36,6 +36,8 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
+    'p_c_g_toolset.SpawnGraphInstance': {'scope': {'kind': 'world'}, 'world': 'editor'},
+    'p_c_g_toolset.CreateGraph': {'scope': {'join': ['path', 'name']}},
     'animation_graph.configure_special_infected_actions': {'scope': {'fields': ['asset_path']}, 'world': 'editor', 'completion': 'verified_save'},
     'animation_graph.build_special_infected_assets': {'scope': {'fields': ['destination_root', 'prefab_root']}, 'world': 'editor', 'completion': 'verified_save'},
     'animation_graph.import_special_infected_prefabs': {'scope': {'fields': ['destination_root', 'prefab_root']}, 'world': 'editor', 'completion': 'verified_save'},
@@ -555,6 +557,7 @@ def compile_contract(contract):
     properties = parameters.setdefault("properties", {})
     if not item["scope"]:
         roles = {
+            "PCGToolset": ("graph", "node", "fromNode", "toNode", "pCGVolume"),
             "ObjectTools": ("instance",), "BlueprintTools": ("blueprint", "graph", "node", "nodes", "pin", "input_pin", "output_pin", "component"),
             "ControlRigTools": ("control_rig",), "SequencerTools": ("sequence",),
             "MaterialTools": ("material", "material_or_function", "expression", "to_expression", "from_expression"),
