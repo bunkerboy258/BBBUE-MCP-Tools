@@ -807,3 +807,5 @@ Monster 版本只编辑逻辑与表现两份主配置。`monster_gore.inspect_mo
 2026-10-31 统一僵尸毁伤工具：材质配置与保存范围纳入 RemainingSkin / RemainingMesh，支持远端已断后的近端剩余段。十种正式配置回读 ready；血肉共用母材质与烘焙图集，八区可同时保留且每只实例不分配可写纹理。静音单人 PIE 实弹验证小臂离断后尸体上臂递进，剩余上臂实际进入重力刚体模拟，尸体回收时间不变；断面 448 / 148 / 58 面三档及深红表面已回读和离屏检查。未执行自动化套件、联机或群体性能验收。说明见 Docs/BBBMonsterGoreMCP.md。
 
 2026-10-31 正常宿主退出识别官方完整工具名的末段，修复新版宿主被误报 EDITOR_TOOLSET_RELOAD_REQUIRED。保持宿主代际、PIE、活动、脏包检查及延后复核。
+
+- 2026-11-01：动画职责修正入口 `animation_graph.configure_native_weapon_presentation` 将通用持枪计算消费者接回原生发布结果，删除旧蓝图累积入口；根级线程安全调度及最多两级英文函数分类。接口说明见 `Docs/BBBBlueprintFunctionRefactorMCP.md`。Development Editor 构建通过 主蓝图 基础层和五个子层编译保存通过 迁移回读无旧计算消费者。未运行 PIE 表现由用户验收。

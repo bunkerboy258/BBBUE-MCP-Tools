@@ -243,10 +243,10 @@ def sample_runtime(action, seconds, equipment_class_path):
                 rotation = camera_actor.get_actor_rotation()
                 sample["cameraActor"] = [rotation.pitch, rotation.yaw, rotation.roll]
             if layer:
-                sample["follow"] = layer.get_editor_property("WeaponAimFollowSpeed")
-                sample["backwardAlpha"] = layer.get_editor_property("WeaponBackwardRecoilAlpha")
-                sample["recoilTime"] = layer.get_editor_property("WeaponRecoilTime")
-                sway = layer.get_editor_property("WeaponPoseOffsetAngles")
+                sample["follow"] = layer.get_weapon_aim_follow_speed()
+                sample["backwardAlpha"] = layer.get_weapon_backward_recoil_strength()
+                sample["recoilTime"] = layer.get_weapon_recoil_time()
+                sway = layer.get_weapon_pose_offset_angles()
                 sample["aimOffset"] = [sway.x, sway.y]
                 sample["poseState"] = [layer.get_editor_property("LocomotionAimIKAlpha"), layer.get_curve_value("DisableAimIK"),
                     layer.get_editor_property("RaiseWeaponAfterFiring"), layer.get_editor_property("HipFireUpperBodyOverrideWeight"),
@@ -593,143 +593,6 @@ def configure_continuous_bone_rotation(blueprint_path, bone_name, snapshot_prope
     if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
         raise RuntimeError("连续旋转动画蓝图保存失败")
     return {"asset": blueprint_path, "bone": bone_name, "snapshotProperties": snapshot_properties, "saved": True}
-
-
-def configure_animation_handling(blueprint_path, animation_path):
-    """
-    /**
-     * 用步枪只读快照重建角色持枪表现函数与逐枪加法动画层
-     * @param blueprint_path	角色基础动画层资产
-     * @param animation_path	向后冲击的加法动画序列
-     * @return 编译结果与实际节点数量 不自动保存
-     */
-    """
-    blueprint = unreal.load_asset(blueprint_path)
-    animation = unreal.load_asset(animation_path)
-    require_write_access(blueprint)
-    variables = {str(n) for n in unreal.BlueprintEditorLibrary.list_member_variable_names(blueprint, False)}
-    if "WeaponRecoilAnimation" not in variables:
-        BlueprintTools.add_object_variable(blueprint, "WeaponRecoilAnimation", unreal.AnimSequence.static_class())
-        BlueprintTools.set_variable_category(blueprint, "WeaponRecoilAnimation", "持枪表现")
-    for name, kind in (("WeaponAimFollowSpeed", "float"), ("WeaponPoseOffsetAngles", "Vector2D"), ("WeaponRecoilTime", "float"), ("WeaponBackwardRecoilAlpha", "float")):
-        if name not in variables:
-            BlueprintTools.add_variable(blueprint, name, kind)
-
-    g = _function(blueprint, "UpdateWeaponHandling")
-    g.editor.set_is_thread_safe_function(True)
-    execute = g.editor.find_graph_entry_pin()
-    character = g.out(g.call("/Script/ABBB_Evac.BBBAnimInstance.GetBBBMainAnimInstanceThreadSafe"))
-    impulse = g.out(g.call("/Script/ABBB_Evac.BBBAnimInstance.GetRecoilAngles", character))
-    execute = g.set("WeaponAimFollowSpeed", 18, execute)
-    execute = g.set("WeaponPoseOffsetAngles", impulse, execute)
-    execute = g.set("WeaponRecoilTime", 1, execute)
-    execute = g.set("WeaponBackwardRecoilAlpha", 0, execute)
-    execute = g.set("WeaponRecoilAnimation", "None", execute)
-    valid, weapon = _weapon_source(g, character, execute)
-    execute = valid.find_then_pin()
-    aiming, falling = _aim_air(g, character)
-    crouching = g.get("bSourceCrouching", character, "/Script/ABBB_Evac.BBBAnimInstance")
-    def snapshot(name):
-        return _weapon_get(g, weapon, "Get" + name)
-
-    def field(name):
-        return g.select(snapshot("AimFire" + name), snapshot("HipFire" + name), aiming)
-
-    def scale(name):
-        airborne = g.select(snapshot("Airborne" + name), 1, falling)
-        crouched = g.select(snapshot("Crouched" + name), 1, crouching)
-        return g.binary("Multiply_DoubleDouble", airborne, crouched)
-
-    follow = g.binary("Multiply_DoubleDouble", field("AimFollowSpeed"), scale("AimFollowScale"))
-    recoil = g.binary("Multiply_DoubleDouble", field("BackwardRecoilAlpha"), scale("BackwardRecoilScale"))
-    recoil = g.out(g.call("FClamp", inputs={"Value": recoil, "Min": 0, "Max": 2}))
-    sequence = _weapon_get(g, weapon, "GetFireSequence")
-    fired = g.binary("Greater_IntInt", sequence, 0)
-    reloading = _weapon_get(g, weapon, "IsReloading")
-    recoil = g.select(0, g.select(recoil, 0, fired), reloading)
-    elapsed = _weapon_get(g, weapon, "GetTimeSinceLastFireSeconds")
-    time = _weapon_get(g, weapon, "GetSnapshotTimeSeconds")
-    sway_parts = []
-    hip_amplitude = g.call("BreakVector2D", inputs={"InVec": snapshot("HipFireSwayAmplitudeDegrees")})
-    ads_amplitude = g.call("BreakVector2D", inputs={"InVec": snapshot("AimFireSwayAmplitudeDegrees")})
-    hip_frequency = g.call("BreakVector2D", inputs={"InVec": snapshot("HipFireSwayFrequency")})
-    ads_frequency = g.call("BreakVector2D", inputs={"InVec": snapshot("AimFireSwayFrequency")})
-    for axis in ("X", "Y"):
-        amplitude = g.select(g.out(ads_amplitude, axis), g.out(hip_amplitude, axis), aiming)
-        frequency = g.select(g.out(ads_frequency, axis), g.out(hip_frequency, axis), aiming)
-        phase = g.binary("Multiply_DoubleDouble", time, g.binary("Multiply_DoubleDouble", frequency, scale("SwayFrequencyScale")))
-        phase = g.binary("Multiply_DoubleDouble", phase, math.tau)
-        wave = g.out(g.call("Sin", inputs={"A": phase}))
-        sway_parts.append(g.binary("Multiply_DoubleDouble", wave, g.binary("Multiply_DoubleDouble", amplitude, scale("SwayAmplitudeScale"))))
-    sway = g.out(g.call("MakeVector2D", inputs={"X": sway_parts[0], "Y": sway_parts[1]}))
-    offset = g.binary("Add_Vector2DVector2D", impulse, sway)
-    execute = g.set("WeaponAimFollowSpeed", follow, execute)
-    execute = g.set("WeaponPoseOffsetAngles", offset, execute)
-    execute = g.set("WeaponRecoilTime", elapsed, execute)
-    execute = g.set("WeaponBackwardRecoilAlpha", recoil, execute)
-    g.set("WeaponRecoilAnimation", _weapon_get(g, weapon, "GetRecoilAnimation"), execute)
-
-    event_graph = BlueprintTools.add_function_graph(blueprint, "BlueprintThreadSafeUpdateAnimation")
-    event_editor = unreal.BlueprintGraphEditor.get_graph_editor(event_graph)
-    for node in list(event_editor.list_all_nodes()):
-        if str(node.get_node_title()).replace(" ", "").replace("\n", "") != "UpdateWeaponHandling":
-            continue
-        predecessors = list(node.find_execute_pin().list_connected_pins())
-        successors = list(node.find_then_pin().list_connected_pins())
-        event_editor.remove_nodes([node])
-        for predecessor in predecessors:
-            for successor in successors:
-                if not predecessor.try_create_connection(successor):
-                    raise RuntimeError("旧持枪更新节点清理失败")
-    entry = event_editor.find_graph_entry_pin()
-    connections = list(entry.list_connected_pins())
-    unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
-    update = event_editor.add_call_function_node(blueprint.generated_class().get_path_name() + ".UpdateWeaponHandling")
-    if update is None:
-        unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
-        update = event_editor.add_call_function_node(blueprint.generated_class().get_path_name() + ".UpdateWeaponHandling")
-    entry.break_pin_links()
-    if not entry.try_create_connection(update.find_execute_pin()):
-        raise RuntimeError("线程安全更新入口连接失败")
-    for pin in connections:
-        if not update.find_then_pin().try_create_connection(pin):
-            raise RuntimeError("现有线程安全更新链恢复失败")
-
-    aim_nodes = []
-    for graph in unreal.BlueprintEditorLibrary.list_graphs(blueprint):
-        editor = unreal.BlueprintGraphEditor.get_graph_editor(graph)
-        aim_nodes.extend(node for node in editor.list_all_nodes() if node.get_class().get_name() == "AnimGraphNode_AimIK")
-    if len(aim_nodes) != 1:
-        raise RuntimeError("AimIK 节点数量不为一 " + str(len(aim_nodes)))
-    _configure_muzzle_aim_gate(aim_nodes[0])
-    library = unreal.BBBBlueprintEditorLibrary
-    if not library.bind_animation_node_input(aim_nodes[0], "AimFollowSpeed", ["WeaponAimFollowSpeed"]):
-        raise RuntimeError("枪口跟随速度连接失败")
-    from BBBRecoilAnimationTools import bind_recoil_additive_inputs
-    bind_recoil_additive_inputs(blueprint, animation)
-    additive_graph = unreal.BlueprintEditorLibrary.find_graph(blueprint, "FullBodyAdditives")
-    additive_editor = unreal.BlueprintGraphEditor.get_graph_editor(additive_graph)
-    evaluators = [node for node in additive_editor.list_all_nodes() if node.get_class().get_name() == "AnimGraphNode_SequenceEvaluator"]
-    if len(evaluators) != 2:
-        raise RuntimeError("后坐力序列播放器数量不为二")
-    for evaluator in evaluators:
-        data = evaluator.get_editor_property("node")
-        data.set_editor_property("sequence", None)
-        evaluator.set_editor_property("node", data)
-    if "RecoilAdditiveAnimation" in variables:
-        BlueprintTools.remove_variable(blueprint, "RecoilAdditiveAnimation")
-    _replace_rifle_snapshot_casts(blueprint)
-    for graph in unreal.BlueprintEditorLibrary.list_graphs(blueprint):
-        editor = unreal.BlueprintGraphEditor.get_graph_editor(graph)
-        for node in list(editor.list_all_nodes()):
-            if node.get_class().get_name() != "K2Node_PropertyAccess":
-                continue
-            path = list(library.get_property_access_path(node))
-            if path in (["WeaponAimFollowSpeed"], ["WeaponPoseOffsetAngles"]):
-                if not any(pin.list_connected_pins() for pin in node.list_output_pins()):
-                    editor.remove_nodes([node])
-    BlueprintTools.compile_blueprint(blueprint)
-    return {"blueprint": blueprint_path, "nodes": len(g.nodes), "saved": False}
 
 
 def configure_camera_recoil(blueprint_path):

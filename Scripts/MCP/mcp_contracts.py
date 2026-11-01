@@ -37,9 +37,8 @@ INPUT_SHAPES = {
 
 TOOL_POLICIES = {
     'editor.configure_preview_attachments': {'scope': {'fields': ['asset_path']}, 'world': 'editor', 'completion': 'verified_save'},
-    'animation_graph.centralize_weapon_handling': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['main_path', 'base_path', 'layer_paths']}, 'completion': 'verified_save'},
+    'animation_graph.configure_native_weapon_presentation': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['main_path', 'base_path', 'layer_paths']}, 'completion': 'verified_save'},
     'animation_graph.simplify_animation_fact_adapter': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['blueprint_path']}, 'completion': 'verified_save'},
-    'animation_graph.configure_recoil_update_pipeline': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['blueprint_path']}, 'completion': 'verified_save'},
     'blueprint.extract_update_function': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['graph_path']}, 'completion': 'verified_save'},
     'animation_graph.configure_upper_body_pose': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['interface_path', 'base_path', 'main_path', 'layer_paths']}, 'completion': 'verified_save'},
     'animation_graph.restore_animation_bone_tracks': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['animation_path']}, 'completion': 'verified_save'},
@@ -127,7 +126,7 @@ TOOL_POLICIES = {
     'animation.configure_character_rifle_actions': {'scope': {'fields': ['character_blueprint_path']}},
     'animation.configure_continuous_bone_rotation': {'scope': {'fields': ['blueprint_path']}},
     'animation.configure_control_rig_anim_graph_node': {'scope': {'fields': ['blueprint_path']}},
-    'animation.configure_weapon_handling_graphs': {'scope': {'fields': ['blueprint_path']}},
+    'animation.configure_weapon_camera_recoil': {'scope': {'fields': ['blueprint_path']}},
     'animation.configure_weapon_recoil_animation_source': {'scope': {'fields': ['blueprint_path']}},
     'animation.copy_animation_skeleton_metadata': {'scope': {'fields': ['target_skeleton_path']}},
     'animation.create_animation_slice': {'scope': {'fields': ['destination_path']}},

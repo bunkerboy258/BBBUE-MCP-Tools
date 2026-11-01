@@ -8,8 +8,12 @@
 
 2026-11-01 已在角色主蓝图完成三段实际提取 全部编译保存并回读。提取后顶层明确调用查询准备 轨迹 运动数据 状态 选库与帧末提交。
 
-`animation_graph.configure_recoil_update_pipeline(blueprint_path, dry_run=true)` 需要已编译的装备动画事实曲线采样接口。创建主蓝图后坐力状态更新与只读结果函数 保留射击分段 回落公式和配置上限。配置只在明确主动画蓝图执行 不修改姿势图或动作素材。新增入口须在无 PIE 时调用并编译保存回读。原生代码编译和实际构图保存已通过 不替代用户运行验收。
 
 `animation_graph.simplify_animation_fact_adapter(blueprint_path, dry_run=true)` 用于已展开主管线的角色蓝图。严格核对八处属性路径和两处落地结构消费者 将纯表达式迁到实际消费者 仅保留落地边沿和上一帧速度变量。未知消费者或跨执行边界表达式直接拒绝。成功后删除 CharacterProperties 变量 不自动删除 Shared 资产。实际角色蓝图已保存通过。
 
-`animation_graph.centralize_weapon_handling(main_path, base_path, layer_paths, dry_run=true)` 将基类 UpdateWeaponHandling 的公共派生计算移入主蓝图 并在后坐力更新后调度。关联层通过已有主实例适配器读取结果 主实例未有效时不解引用。保持层内瞄准素材选择和求值曲线阶段。显式列出全部受影响关联子层并逐项编译保存；可继续完成已创建目标函数的迁移 不重复插入顶层调用。主蓝图 基类和五个子层实际编译保存通过。
+
+`animation_graph.configure_native_weapon_presentation(main_path, base_path, layer_paths, dry_run=true)` 删除主图后坐力累积与通用持枪参数计算及关联层结果复制。所有结果消费者直接使用原生线程安全 getter，保留层内曲线、姿势权重和瞄准素材逻辑。线程安全更新入口放在函数列表根级，其余函数按用途归入英文分类，最多两级，无 BBB 前缀。先预览消费者，再执行并逐个编译保存；未知写入或拆分引脚拒绝处理。
+
+原生 `ConfigureBlueprintOrganization` 提供明确函数/变量分类映射与只读分类清单。配置字段保留中文显示元数据，运行时字段清除显示名覆盖。原生动画 Processor 是后坐力及持枪通用计算的唯一维护来源。
+
+2026-11-01 职责修正已通过 Development Editor 构建 主图与六个关联层编译保存。删除主图六个旧计算函数与基础层一个复制函数 删除十九项重复状态或结果字段 七处结果消费者直接读取原生接口。未运行 PIE 或动态验收。

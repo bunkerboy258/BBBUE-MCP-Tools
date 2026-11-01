@@ -3645,22 +3645,12 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def configure_weapon_handling_graphs(blueprint_path: str, animation_path: str = "", camera: bool = False) -> str:
-        """
-        /**
-         * 通过固定动画快照接口建立持枪或镜头后坐力蓝图
-         * @param blueprint_path	目标蓝图
-         * @param animation_path	角色向后后震加法动画 相机模式不使用
-         * @param camera		是否配置相机贡献图
-         * @return 编译状态 不自动保存
-         */
-        """
+    def configure_weapon_camera_recoil(blueprint_path: str) -> str:
+        """根据装备只读快照配置相机贡献 不生产角色姿势图的持枪参数"""
         import BBBWeaponHandlingTools
         if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
-            raise RuntimeError("PIE 期间禁止改造持枪图表")
-        if camera:
-            return json.dumps(BBBWeaponHandlingTools.configure_camera_recoil(blueprint_path), ensure_ascii=False)
-        return json.dumps(BBBWeaponHandlingTools.configure_animation_handling(blueprint_path, animation_path), ensure_ascii=False)
+            raise RuntimeError("PIE 期间禁止改造相机贡献图")
+        return json.dumps(BBBWeaponHandlingTools.configure_camera_recoil(blueprint_path), ensure_ascii=False)
 
     @mcp_tool
     @staticmethod

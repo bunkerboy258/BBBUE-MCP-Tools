@@ -31,19 +31,11 @@
 
 ## 通用持枪动画快照接入
 
-`configure_weapon_handling_graphs(camera=false)` 从 `TryGetWeaponAnimInstance` 取得当前装备的 `BBBEquipmentAnimInstance` 接口 通过有效对象分支读取本装备快照 不转换为 Rifle 类型 不在角色动画实例转存开火或换弹语义
+角色通用持枪计算由动画 Processor 维护。使用 `animation_graph.configure_native_weapon_presentation` 将现有蓝图消费者接到原生结果并清除旧计算图。
 
-公共接口包含 `GetRecoilAnimation` `GetFireSequence` `IsReloading` `GetTimeSinceLastFireSeconds` `GetSnapshotTimeSeconds` 以及 `GetHipFireAimFollowSpeed` `GetAimFireAimFollowSpeed` `GetHipFireBackwardRecoilAlpha` `GetAimFireBackwardRecoilAlpha` `GetHipFireSwayAmplitudeDegrees` `GetAimFireSwayAmplitudeDegrees` `GetHipFireSwayFrequency` `GetAimFireSwayFrequency` `GetAirborneAimFollowScale` `GetAirborneBackwardRecoilScale` `GetAirborneSwayAmplitudeScale` `GetAirborneSwayFrequencyScale`
+`configure_weapon_camera_recoil(blueprint_path)` 读取通用装备接口生成相机 `ReadRecoilSource` 函数。只用于相机贡献 不生成角色后坐力或持枪累积状态。
 
-公共 C++ 基类仅声明线程安全虚函数并返回中性值 不保存枪械动作快照 具体装备动画实例重写 getter 读取自身 Animation 系统发布的快照 继承的反射函数无需重复声明 `UFUNCTION`
-
-工具核对现有 AimIK 权重选择节点 将独占的 `IsRifle AND HasMuzzle` 条件收敛为 `HasMuzzle` 保留选择节点原有曲线权重输入 类型谓词或合取存在其它消费者时明确中止 不删除其它逻辑
-
-现有角色基础层中的步枪快照转换一并替换为当前装备非空分支 保留原有有效装备与空装备执行链 通过线程安全对象比较核对快照指针 不在线程安全更新图调用 `KismetSystemLibrary.IsValid`
-
-`configure_weapon_handling_graphs(camera=true)` 同样读取通用装备接口 使用 `GetHipFireCameraSettings` `GetAimFireCameraSettings` `GetAirborneCameraImpulseScale` `GetAirborneCameraRecoveryScale` 取得当前装备的相机贡献 保留原有无装备返回路径 相机模式仍须传入 `animation_path` 可传空字符串
-
-工具同时维护 `WeaponRecoilAnimation` 序列输入 每次更新先清空引用与后坐力权重 再读取有效装备的专属序列 用于换枪和卸下时释放旧装备引用 `FullBodyAdditives` 中的落地状态机保持原结构 `camera=true` 的相机配置入口仍使用独立相机图逻辑
+动画 Processor 每次更新先清空序列与后向震动结果 再读取有效装备的专属序列 换枪或卸下不会沿用旧装备结果。`FullBodyAdditives` 通过原生线程安全 getter 读取序列 时间与强度 原有落地状态机保持。
 
 持枪近战使用 `UpperBody` 槽位 下半身沿用移动状态机 专属动作中的 `DisableAimIK` 与 `DisableLHandIK` 使用零到一再回零的平滑曲线 分别释放瞄准和左手握持动作 曲线回零时恢复当前装备约束 曲线作者资源属于各武器型号 本工具不创建跨型号共用专属动作
 
@@ -277,8 +269,7 @@ IK 重建通过网格查询真实父骨名，使用 FK 脚组件变换相对于�
 - `render_asset_thumbnails` 请求项可设置 `diagnostic_only=true` 只输出网格 PNG 不导入纹理 不修改资产 `yaw` 用于选择辨认模型所需角度 诊断图片验收后删除
 
 - `create_backward_additive_animation` 从指定持枪动画首帧新建局部空间加法动画 通过右臂双骨旋转让右手向后移动 保持骨段长度与手部朝向 末帧返回基准姿势 目标路径已存在时拒绝覆盖
-- `configure_weapon_handling_graphs` 根据步枪动画快照重建持枪表现函数 默认用于角色基础动画层 `camera=true` 用于相机蓝图 `ReadRecoilSource` 函数
-- 角色图选择腰射或瞄准设置 再叠加空中倍率 用武器快照时间计算摇摆 用最近开火经过时间求值后震动画 不再根据角度大小增加推测是否开火
+- 动画 Processor 选择腰射或瞄准设置 再叠加空中倍率 用武器快照时间计算摇摆 用最近开火经过时间求值后震动画 不再根据角度大小增加推测是否开火
 - 相机图只读取武器动画快照 自行选择镜头冲量 角度上限和回正速度 不依赖步枪玩法黑板
 - 图表工具仅编译不保存 必须先签出资产 调用后检查编译结果再显式保存
 - 原生辅助接口 `BindAnimationNodeInput` 用于暴露动画节点输入并绑定属性路径 `ConfigureTimedAdditiveLayer` 用于重建按外部时间求值的非循环加法层
@@ -300,11 +291,10 @@ IK 重建通过网格查询真实父骨名，使用 FK 脚组件变换相对于�
 
 `inspect_backward_recoil_context` 从装备挂接变换、真实枪口插槽和持枪基准推导受力轴。`rebuild_backward_recoil_animation` 原位重做已签出的序列，Alpha 为 1 时默认后退 8 厘米，肩部承担四分之一位移，双臂保持长度并恢复双手朝向。动作不制作枪口上抬、左右偏转或下半身运动。峰值约在 0.021 秒，按装备射击间隔的九成恢复到零，序列尾段保持零差值。
 
-`merge_recoil_into_full_body_additives` 一次性将旧独立层并入原有 `FullBodyAdditives`，保留落地恢复状态机，将原来的 0.65 落地恢复权重移入层内，主图接收权重改为 1。后坐力通过 `WeaponRecoilTime` 的显式时间播放器和 `WeaponBackwardRecoilAlpha` 合成。结构不符合预期或重复合并会拒绝执行。旧的 `configure_recoil_animation_graphs` 公共入口已删除，禁止重新创建独立后坐力层。
+`merge_recoil_into_full_body_additives` 一次性将旧独立层并入原有 `FullBodyAdditives`，保留落地恢复状态机，将原来的 0.65 落地恢复权重移入层内，主图接收权重改为 1。后坐力通过 `GetWeaponRecoilTime` 的显式时间播放器和 `GetWeaponBackwardRecoilStrength` 合成。结构不符合预期或重复合并会拒绝执行。旧的 `configure_recoil_animation_graphs` 公共入口已删除，禁止重新创建独立后坐力层。`bind_backward_recoil_additive_inputs` 维护原生结果绑定，不重建落地状态机。
 
-`bind_backward_recoil_additive_inputs` 维护已合并层的时间和权重绑定，不重建落地状态机。`configure_weapon_handling_graphs` 同样维护原有层，不再创建 `FullBodyRecoil`。
 
-角色后坐力倍率支持 0 到 2。`FullBodyAdditives` 用两个同步的序列评估器读取当前武器专属动画和 `WeaponRecoilTime`。两次加法权重分别为 `Clamp(WeaponBackwardRecoilAlpha, 0, 1)` 和 `Clamp(WeaponBackwardRecoilAlpha - 1, 0, 1)` 避免单个加法节点把大于 1 的幅度截断。两个节点沿用 80/40 的权重插值速度。1.5 实际分解为 1 与 0.5 叠加 1.2 分解为 1 与 0.2。低于 1 的配置不启用第二份叠加。工具检查双播放器共享动画与时间绑定 并拒绝未识别结构 不修改相机贡献或后坐力动画骨轨。
+角色后坐力倍率支持 0 到 2。`FullBodyAdditives` 用两个同步的序列评估器读取当前武器专属动画和 `GetWeaponRecoilTime`。两次加法权重分别为 `Clamp(GetWeaponBackwardRecoilStrength, 0, 1)` 和 `Clamp(GetWeaponBackwardRecoilStrength - 1, 0, 1)` 避免单个加法节点把大于 1 的幅度截断。两个节点沿用 80/40 的权重插值速度。1.5 实际分解为 1 与 0.5 叠加 1.2 分解为 1 与 0.2。低于 1 的配置不启用第二份叠加。工具检查双播放器共享动画与时间绑定 并拒绝未识别结构 不修改相机贡献或后坐力动画骨轨。
 
 `hold_animation_bone_tracks` 同时删除被固定骨骼同名的变换修正曲线 其它骨骼曲线与通知保留 若存在同名浮点曲线则拒绝模糊删除 调用后必须回读实际求值姿势 不能只验证原始轨道
 
@@ -326,9 +316,8 @@ IK 重建通过网格查询真实父骨名，使用 FK 脚组件变换相对于�
 
 ## 下蹲倍率接入
 
-`configure_weapon_handling_graphs` 从角色主动画实例读取 `bSourceCrouching` 作为实际下蹲事实 不使用下蹲输入意图 不让装备读取角色姿态
 
-角色图在当前腰射或瞄准参数上叠乘空中与下蹲倍率 使用 `GetCrouchedAimFollowScale` `GetCrouchedBackwardRecoilScale` `GetCrouchedSwayAmplitudeScale` `GetCrouchedSwayFrequencyScale` 四个中性默认值为 1 的线程安全快照入口
+动画 Processor 使用实际下蹲事实 在当前腰射或瞄准参数上叠乘空中与下蹲倍率 使用 `GetCrouchedAimFollowScale` `GetCrouchedBackwardRecoilScale` `GetCrouchedSwayAmplitudeScale` `GetCrouchedSwayFrequencyScale` 四个中性默认值为 1 的线程安全快照入口
 
 相机图使用 `GetCrouchedCameraImpulseScale` 与 `GetCrouchedCameraRecoveryScale` 缩放镜头冲量及随机范围和回零速率 不缩放角度上限或纵向保留比例
 

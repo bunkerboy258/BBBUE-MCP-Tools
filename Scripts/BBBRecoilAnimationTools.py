@@ -315,7 +315,7 @@ def bind_recoil_additive_inputs(blueprint, animation):
             raise RuntimeError("超额后坐力节点创建失败 尚未保存")
         extra_evaluator.set_editor_property("node", evaluator.get_editor_property("node"))
         extra_blend.set_editor_property("node", blend.get_editor_property("node"))
-        for pin_name, path in (("Sequence", ["WeaponRecoilAnimation"]), ("ExplicitTime", ["WeaponRecoilTime"])):
+        for pin_name, path in (("Sequence", ["GetWeaponRecoilAnimation"]), ("ExplicitTime", ["GetWeaponRecoilTime"])):
             if not library.bind_animation_node_input(extra_evaluator, pin_name, path):
                 raise RuntimeError("超额后坐力输入展开失败 " + pin_name)
             pin = extra_evaluator.find_input_pin(pin_name)
@@ -339,17 +339,11 @@ def bind_recoil_additive_inputs(blueprint, animation):
     if len(evaluators) != 2 or len(list(editor.list_all_nodes())) != 12:
         raise RuntimeError("后坐力双层倍率结构不完整 尚未保存")
     for player in evaluators:
-        for name, path in (("Sequence", ["WeaponRecoilAnimation"]), ("ExplicitTime", ["WeaponRecoilTime"])):
+        for name, path in (("Sequence", ["GetWeaponRecoilAnimation"]), ("ExplicitTime", ["GetWeaponRecoilTime"])):
             links = list(player.find_input_pin(name).list_connected_pins())
             if len(links) != 1 or list(library.get_property_access_path(links[0].get_owning_node())) != path:
                 raise RuntimeError("后坐力播放器绑定不一致 尚未保存 " + name)
-    handling = unreal.BlueprintEditorLibrary.find_graph(blueprint, "UpdateWeaponHandling")
-    if handling is None:
-        raise RuntimeError("持枪更新函数缺失 尚未保存")
-    handling_editor = unreal.BlueprintGraphEditor.get_graph_editor(handling)
-    clamp = _unique(list(handling_editor.list_all_nodes()), lambda node: {"Value", "Min", "Max"}.issubset({str(pin.get_pin_name()) for pin in node.list_input_pins()}), "角色后坐力倍率限幅")
-    if not clamp.find_input_pin("Max").set_pin_value("2.0"):
-        raise RuntimeError("角色后坐力倍率上限更新失败 尚未保存")
+
 
 
 def _create_node(editor, ending, position):
@@ -416,9 +410,9 @@ def merge_recoil_additives(interface_path, base_path, main_path, dependent_paths
     evaluator_data.import_text(evaluator_data.export_text().replace("bShouldLoop=True", "bShouldLoop=False").replace("bTeleportToExplicitTime=False", "bTeleportToExplicitTime=True"))
     evaluator.set_editor_property("node", evaluator_data)
     library = unreal.BBBBlueprintEditorLibrary
-    if not library.bind_animation_node_input(evaluator, "ExplicitTime", ["WeaponRecoilTime"]):
+    if not library.bind_animation_node_input(evaluator, "ExplicitTime", ["GetWeaponRecoilTime"]):
         raise RuntimeError("后坐力时间绑定失败")
-    if not library.bind_animation_node_input(recoil, "Alpha", ["WeaponBackwardRecoilAlpha"]):
+    if not library.bind_animation_node_input(recoil, "Alpha", ["GetWeaponBackwardRecoilStrength"]):
         raise RuntimeError("后坐力权重绑定失败")
     recoil_data = recoil.get_editor_property("node")
     clamp = recoil_data.get_editor_property("alpha_scale_bias_clamp")
@@ -459,7 +453,7 @@ def merge_recoil_additives(interface_path, base_path, main_path, dependent_paths
     for asset in [interface, base] + dependents + [main]:
         if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
             raise RuntimeError("动画蓝图保存失败: " + asset.get_path_name())
-    return {"saved": True, "landingAlpha": landing_alpha, "mainAlpha": 1.0, "recoilAlphaPath": ["WeaponBackwardRecoilAlpha"], "compiled": results}
+    return {"saved": True, "landingAlpha": landing_alpha, "mainAlpha": 1.0, "recoilAlphaPath": ["GetWeaponBackwardRecoilStrength"], "compiled": results}
 
 
 def sample_recoil_runtime(action, seconds, file_prefix):
@@ -531,8 +525,8 @@ def sample_recoil_runtime(action, seconds, file_prefix):
                 row["shot"] = weapon.get_fire_sequence()
                 row["reloading"] = bool(weapon.is_reloading)
             if layer is not None:
-                row["alpha"] = layer.get_editor_property("WeaponBackwardRecoilAlpha")
-                row["recoilTime"] = layer.get_editor_property("WeaponRecoilTime")
+                row["alpha"] = layer.get_weapon_backward_recoil_strength()
+                row["recoilTime"] = layer.get_weapon_recoil_time()
             state["samples"].append(row)
             if row["time"] >= seconds:
                 finish()

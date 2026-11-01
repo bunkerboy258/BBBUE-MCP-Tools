@@ -62,12 +62,14 @@ def snapshot(mesh, main, runtime):
     for layer in runtime.get("linkedLayers", []):
         instance = unreal.load_object(None, layer["path"])
         values = {"path": layer["path"], "missingProperties": []}
-        for name in ("WeaponAimAlpha", "LocomotionAimIKAlpha", "WeaponAimFollowSpeed",
-                     "WeaponBackwardRecoilAlpha", "WeaponRecoilTime"):
+        for name in ("WeaponAimAlpha", "LocomotionAimIKAlpha"):
             try:
                 values[name] = float(instance.get_editor_property(name))
             except Exception:
                 values["missingProperties"].append(name)
+        values["WeaponAimFollowSpeed"] = float(instance.get_weapon_aim_follow_speed())
+        values["WeaponBackwardRecoilStrength"] = float(instance.get_weapon_backward_recoil_strength())
+        values["WeaponRecoilTime"] = float(instance.get_weapon_recoil_time())
         values["curves"] = {name: float(instance.get_curve_value(name)) for name in CURVES}
         result["layers"].append(values)
     return result

@@ -372,7 +372,7 @@ PIE 反射调用中的 Guid 返回值按标准字符串序列化 位置参数可
 
 特效拍摄返回 `pending` 后需用 `get_niagara_capture_status()` 读取跨帧渲染结果 DesiredAge 固定模拟年龄 并等待四个渲染帧及捕获提交后再导出 工具活动结束前不得停止 PIE 或让出宿主。
 
-`configure_weapon_handling_graphs(camera=true)` 从 `BBBEquipmentAnimInstance` 的通用只读接口获取镜头贡献 不依赖 Rifle 类型 无装备时返回无贡献 每个具体装备动画实例可覆盖四个镜头参数 getter。
+`configure_weapon_camera_recoil(blueprint_path)` 从 `BBBEquipmentAnimInstance` 的通用只读接口获取镜头贡献 不依赖 Rifle 类型 无装备时返回无贡献 每个具体装备动画实例可覆盖四个镜头参数 getter。
 
 项目原生 `render_mesh_thumbnail` 使用 1024 方形采样后按真实透明边界裁切 用于背包的大幅详情图 避免将小图放大。
 `render_mesh_silhouettes` 的线稿突出外轮廓和主要材质分界 抑制细碎折面 使用较宽描线保证普通背包格子中的可读性。

@@ -19,11 +19,11 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def centralize_weapon_handling(main_path: str, base_path: str, layer_paths: list[str], dry_run: bool = True) -> str:
-        """公共持枪派生改由主线程安全入口生产 关联层只读取结果 保留层内曲线求值"""
+    def configure_native_weapon_presentation(main_path: str, base_path: str, layer_paths: list[str], dry_run: bool = True) -> str:
+        """移除蓝图通用持枪计算并直读原生结果 整理根级线程更新与两级用途分类"""
         import importlib
         import BBBWeaponPresentationUpdate
-        return json.dumps(importlib.reload(BBBWeaponPresentationUpdate).centralize_weapon_handling(
+        return json.dumps(importlib.reload(BBBWeaponPresentationUpdate).configure_native_weapon_presentation(
             main_path, base_path, layer_paths, dry_run), ensure_ascii=False)
 
     @mcp_tool
@@ -33,15 +33,6 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
         import importlib
         import BBBAnimationFactAdapter
         return json.dumps(importlib.reload(BBBAnimationFactAdapter).simplify_fact_adapter(
-            blueprint_path, dry_run), ensure_ascii=False)
-
-    @mcp_tool
-    @staticmethod
-    def configure_recoil_update_pipeline(blueprint_path: str, dry_run: bool = True) -> str:
-        """将角色动画后坐力状态放入主蓝图线程安全更新 不修改姿势图与配置"""
-        import importlib
-        import BBBRecoilUpdateGraph
-        return json.dumps(importlib.reload(BBBRecoilUpdateGraph).configure_recoil_update_pipeline(
             blueprint_path, dry_run), ensure_ascii=False)
 
     @mcp_tool
