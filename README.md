@@ -819,3 +819,7 @@ Monster 版本只编辑逻辑与表现两份主配置。`monster_gore.inspect_mo
 2026-11-01 关卡白盒导航与前台审查：新增 `level.refresh_navigation_bounds`、`level.inspect_navigation_route`、`level.set_review_view`。导航逐段返回有效性、partial 标记、端点误差与实际长度；审查相机使用真实前台视口，支持正交投影与 PlayerCollision 模式。复用已有复杂碰撞和 Slate 截图入口，不增加项目玩法接口。源码 AST 解析通过；前台宿主的导航检查正确拒绝未覆盖坐标，修正地面变换后局部和教学楼路线通过；正常重启后透视 Lit 视图返回有效 JSON，反射数组序列化修复实测通过。正交和 PlayerCollision 的视觉验收及全关卡通行另行核验，未运行自动化套件。参数与证据边界见 `Docs/BBBLevelLayoutMCP.md`。
 
 2026-11-01 新增 animation_graph.configure_snapshot_montage_source，在已有全身槽之前接入物理退出快照并保留原运动链。主动画蓝图实际调用已无警告编译、保存；重复构图拒绝。motion_matching.create_schema 支持空轨迹采样数组；实际建立仅姿态起身格式，数据库回读四个动作、七个候选姿态、十八维且索引 ready。未运行 PIE，动态表现由用户验收。参数见 Docs/BBBAnimationGraphMCP.md。
+
+2026-11-01 已保存故障批次允许原客户端明确取消.取消执行宿主与目标脏包核对及当前磁盘回读 保留失败与 partial 状态 不重放或删除资产.用于迁移恢复已因文件变化停止但仍占用干员的交接.专项检查与调用方式见 Docs/BBBTaskFaultCancellation.md.
+
+2026-11-01 特感事实动作构图支持蓄力 冲撞 恢复与喷吐.骨骼 FBX 导出改为以实际网格骨骼为准 不包含共享骨架中未装配的骨骼.故障取消在回读后清空迁移接续状态 防止宿主换代重建占用.专项网关检查五项通过.UE5.8 Editor 完整编译链接通过.四类特感各二十二个标准 IK 重定向动作及三档身体和预制伤口已装配 四份逻辑 八份出生配置与四份表现通过原生校验 无警告.未运行 PIE 或主客机战斗验收.

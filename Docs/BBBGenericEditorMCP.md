@@ -451,3 +451,5 @@ PIE 反射调用中的 Guid 返回值按标准字符串序列化 位置参数可
 ## 骨骼网格生产密度读取
 
 `editor.export_skeletal_mesh_fbx` 的 `include_lods=true` 通过官方 FBX 导出器输出全部真实档位 默认保持零档导出。`editor.inspect_mesh_lod_statistics` 接受官方桥接产生的 `unreal.Array` 并统一转换后验证路径。Connor 的三档实际读取及完整 FBX 导出已执行 未修改源资产 未运行自动化测试。
+
+`editor.export_skeletal_mesh_source(mesh_path, export_name, task_name)` 读取零档原始位置 法线 UV 蒙皮 骨架和材质槽 并导出只读骨架载体。用于官方 FBX 未输出几何的资产 不改动原网格 不创建中间项目资产。输出位于指定任务目录 重名拒绝覆盖。

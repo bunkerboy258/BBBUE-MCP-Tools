@@ -4330,6 +4330,56 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def export_skeletal_mesh_source(mesh_path: str, export_name: str, task_name: str) -> str:
+        """/** @param mesh_path 已保存的骨骼网格 @param export_name 新的导出目录 @param task_name 临时任务名 @return 原始几何 蒙皮与骨架载体的文件路径 不改写资产 */"""
+        if not all(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,95}', value) for value in (export_name, task_name)):
+            raise RuntimeError('需要明确的任务与导出目录名')
+        mesh = unreal.load_asset(mesh_path)
+        if not isinstance(mesh, unreal.SkeletalMesh):
+            raise RuntimeError('需要骨骼网格')
+        if unreal.EditorLevelLibrary.get_pie_worlds(False):
+            raise RuntimeError('PIE期间等待源数据导出')
+        dirty = {value.get_path_name() for value in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
+        if mesh.get_outermost().get_path_name() in dirty:
+            raise RuntimeError('源网格存在未保存修改')
+        root = os.environ.get('BBB_MCP_TEST_OUTPUT') if os.environ.get('BBB_MCP_HOST_ROLE') == 'test' else os.path.join(unreal.Paths.project_saved_dir(), 'temp', task_name)
+        if not root:
+            raise RuntimeError('宿主缺少输出目录')
+        directory = os.path.abspath(os.path.join(root, export_name))
+        if os.path.exists(directory):
+            raise RuntimeError('导出目录已存在')
+        raw = str(unreal.BBBAnimationGraphEditorLibrary.read_skeletal_mesh_source(mesh))
+        if raw.startswith('失败'):
+            raise RuntimeError(raw)
+        data = json.loads(raw)
+        if not data['vertices'] or not data['triangles']:
+            raise RuntimeError('没有原始几何')
+        os.makedirs(directory)
+        source_file = os.path.join(directory, 'MeshSource.json')
+        with open(source_file, 'x', encoding='utf-8') as stream:
+            json.dump(data, stream, ensure_ascii=False, allow_nan=False)
+        reference = {key: data[key] for key in ('mesh', 'bones', 'schemaVersion')}
+        reference['boneCount'] = len(data['bones'])
+        reference['lod0VertexCount'] = len(data['vertices'])
+        reference['skeleton'] = mesh.get_editor_property('skeleton').get_path_name()
+        reference_file = os.path.join(directory, 'Skeleton.json')
+        with open(reference_file, 'x', encoding='utf-8') as stream:
+            json.dump(reference, stream, ensure_ascii=False, allow_nan=False)
+        options = unreal.FbxExportOption()
+        options.set_editor_properties({'ascii': False, 'force_front_x_axis': True, 'level_of_detail': False,
+            'collision': False, 'bake_material_inputs': unreal.FbxMaterialBakeMode.DISABLED})
+        task = unreal.AssetExportTask()
+        task.set_editor_properties({'object': mesh, 'filename': os.path.join(directory, 'SkeletonCarrier.fbx'),
+            'exporter': unreal.SkeletalMeshExporterFBX(), 'options': options, 'automated': True,
+            'prompt': False, 'replace_identical': False, 'write_empty_files': False})
+        if not unreal.Exporter.run_asset_export_task(task):
+            raise RuntimeError('骨架载体导出失败')
+        return json.dumps({'directory': directory, 'source': source_file, 'skeleton': reference_file,
+            'vertices': len(data['vertices']), 'triangles': len(data['triangles']), 'boneCount': len(data['bones'])}, ensure_ascii=False)
+
+
+    @mcp_tool
+    @staticmethod
     def export_skeletal_mesh_fbx(mesh_path: str, export_name: str, task_name: str = "", include_lods: bool = False) -> str:
         """
         /**
@@ -4372,13 +4422,21 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "Exports", export_name))
         if task_name:
             directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "temp", task_name, export_name))
+        if os.environ.get("BBB_MCP_HOST_ROLE") == "test":
+            output_root = os.environ.get("BBB_MCP_TEST_OUTPUT")
+            if not output_root or not os.path.isdir(output_root):
+                fail("隔离宿主缺少自己的输出目录")
+            directory = os.path.abspath(os.path.join(output_root, export_name))
         if os.path.exists(directory):
             fail("交付目录已经存在 " + directory)
 
         subsystem = unreal.get_editor_subsystem(unreal.SkeletalMeshEditorSubsystem)
         reference = unreal.AnimPoseExtensions.get_reference_pose(skeleton)
+        component = unreal.new_object(unreal.SkeletalMeshComponent)
+        component.set_skeletal_mesh_asset(mesh)
         bones = []
-        for bone_name in reference.get_bone_names():
+        for bone_index in range(component.get_num_bones()):
+            bone_name = component.get_bone_name(bone_index)
             poses = {}
             for label, space in (("local", unreal.AnimPoseSpaces.LOCAL), ("component", unreal.AnimPoseSpaces.WORLD)):
                 pose = reference.get_ref_bone_pose(bone_name, space)

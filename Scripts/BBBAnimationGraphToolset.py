@@ -8,6 +8,9 @@ from BBBMcpCapabilities import mcp_tool
 from toolset_registry.registration import Registration
 from BBBAssetWritePolicy import require_asset_write, require_write_access
 
+MCP_INPUTS = {
+    'build_special_infected_assets': {'recipe_json': {'type': 'object', 'additionalProperties': True}},
+}
 
 @unreal.uclass()
 class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
@@ -16,6 +19,52 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
      * 创建显式时间双通道动画图并配置明确的骨骼表现组件
      */
     """
+
+    @mcp_tool
+    @staticmethod
+    def import_special_infected_prefabs(destination_root: str, prefab_root: str, source_mesh_path: str, part_ids: list[int] = []) -> str:
+        """/** @param destination_root 明确的特感目录 @param prefab_root 同名伤口目录 @param source_mesh_path 原始身体 @param part_ids 空数组导入身体和内部组织 否则每次最多三个断点 @return 来源指纹 骨架与LOD回读 */"""
+        import importlib
+        import BBBMonsterSpecialAssets
+        return importlib.reload(BBBMonsterSpecialAssets).import_prefabs(destination_root, prefab_root, source_mesh_path, part_ids)
+
+    @mcp_tool
+    @staticmethod
+    def create_slime_assets(destination_root: str) -> str:
+        """/** @param destination_root 新的自有粘液资源目录 @return 地面材质 实体模板与规则资产的保存证据 */"""
+        import importlib
+        import BBBMonsterSpecialAssets
+        return importlib.reload(BBBMonsterSpecialAssets).create_slime_assets(destination_root)
+
+    @mcp_tool
+    @staticmethod
+    def build_special_infected_assets(destination_root: str, prefab_root: str, recipe_json: str) -> str:
+        """/** @param destination_root 明确的特感目录 @param prefab_root 此变体的预制伤口目录 @param recipe_json 身体 九个动作与逻辑表现配置描述 @return 正式模板和配置保存证据 */"""
+        import importlib
+        import BBBMonsterSpecialAssets
+        return importlib.reload(BBBMonsterSpecialAssets).build_variant(destination_root, prefab_root, recipe_json)
+
+    @mcp_tool
+    @staticmethod
+    def configure_special_infected_actions(asset_path: str, sequence_paths: list[str]) -> str:
+        """/** @param asset_path 自有特感事实动画图 @param sequence_paths 蓄力 冲撞 恢复 喷吐四个同骨架序列 @return 编译保存结果 */"""
+        if not asset_path.startswith('/Game/_Project/') or len(sequence_paths) != 4:
+            raise RuntimeError('需要明确的特感动画图与四个动作')
+        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+            raise RuntimeError('PIE 期间等待特感构图')
+        blueprint = unreal.load_asset(asset_path)
+        sequences = [unreal.load_asset(path) for path in sequence_paths]
+        if not isinstance(blueprint, unreal.AnimBlueprint) or any(not isinstance(value, unreal.AnimSequence) for value in sequences):
+            raise RuntimeError('动画图或序列类型错误')
+        require_asset_write([blueprint])
+        if not unreal.BBBAnimationGraphEditorLibrary.configure_special_infected_actions(blueprint, sequences):
+            raise RuntimeError('特感动作构图失败 不保存')
+        unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
+        if blueprint.get_editor_property('status') != unreal.BlueprintStatus.BS_UP_TO_DATE:
+            raise RuntimeError('特感动作图编译失败 不保存')
+        if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
+            raise RuntimeError('特感动作图保存失败')
+        return json.dumps({'asset': blueprint.get_path_name(), 'sequences': list(sequence_paths), 'saved': True})
 
     @mcp_tool
     @staticmethod

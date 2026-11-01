@@ -64,6 +64,7 @@ HELPER_MODULES = (
     "BBBAnimationRecoveryTools",
     "BBBAnimationViewTools",
     "BBBFactAnimationCaptureTools",
+    "BBBMonsterSpecialAssets",
     "BBBAnimationPoseBaking",
     "BBBTraversalAnimationBaking",
     "BBBSoundAssetAudit", "BBBRecoilAnimationTools", "BBBDisplayAssetCaptureTools", "BBBBlueprintMigration",

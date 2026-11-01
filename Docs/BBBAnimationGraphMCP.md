@@ -55,6 +55,14 @@
 
 普通运动由 GASP MM 生成 倒地等待 接受救援 帮扶与起身使用后置 FullBody 蒙太奇。主图清理使用 [运动匹配工具](BBBMotionMatchingMCP.md) 的 motion_matching.configure_character_montage_graph 不修改空手库和装备层。僵尸事实动画工具保持独立。
 
+`configure_special_infected_actions(asset_path, sequence_paths)` 只用于已重建的特感事实图.四个同骨架序列依次为蓄力 冲撞 恢复 喷吐.读取原生 SpecialPhaseFact 与 SpecialProgressFact.冲撞循环采样 其余阶段按当前进度采样.普通行为和死亡继续使用原事实图.原生构图后无警告编译并保存.不在 PIE 期间编辑.
+
+`build_special_infected_assets(destination_root, prefab_root, recipe)` 为四类特感的明确自有目录建立逻辑 表现 实体模板 载体 动画蓝图和速度混合.制作描述必须指定 source_logic source_presentation source_actor mesh sequences sample_speeds logic_properties presentation_properties 以及可选 special_properties.九个同骨架序列依次为待机 行走 跑步 攻击 死亡 蓄力 冲撞 恢复 喷吐.预制资源目录必须是 Shared/Injury 下同名变体.已有输出只允许复用相同制作描述指纹 并拒绝覆盖其它来源.通过标准 IK Rig 与 IK Retargeter 生成同骨架的正式序列 并装配爬行 踉跄和攀爬.制作描述 stage=animations 可在无渲染宿主仅准备二十二个动作序列.材质适配和完整表现校验后保存完成标记 失败前已经保存的自有输出可按相同指纹继续.预制网格必须提前离线制作 不进行运行时切割.
+
+`create_slime_assets(destination_root)` 在特感 Shared 下建立绿色地面材质 粘液实体模板与规则.数量上限 飞行 区域 持续伤害和速度比例集中在 DA_Slime.此工具只装配资源 不启动游戏.
+
+`animation_graph.import_special_infected_prefabs(destination_root, prefab_root, source_mesh_path, part_ids=[])` 从同名 ArtSource 制作源导入专属骨架、物理、三档身体和内部组织。空断点列表导入身体；非空每批最多三个断点，包含三档封口及蒙皮/静态掉落与剩余段。每项保存来源指纹并回读骨架和 LOD，重复调用仅复用完全相同来源，拒绝覆盖来源不符的资产。无需 PIE，可在 NullRHI 宿主调用。
+
 ## 物理姿态到全身蒙太奇的交接
 
 `animation_graph.configure_snapshot_montage_source(blueprint_path, slot_name, condition_getter, snapshot_property, blend_duration=0.25)` 在已有唯一全身槽之前接入只读 FPoseSnapshot。条件必须来自原生线程安全查询。条件为真时使用物理退出快照，结束后混回原源姿态；普通 MM、根骨、脚部和装备链保持原有结构。不创建起身状态机，不改变运动库。重复构图、错误快照类型或非线程安全查询会被拒绝。仅用于明确自有动画蓝图，构图后无警告编译并保存。

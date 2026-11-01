@@ -7551,6 +7551,38 @@
           "returnValue"
         ]
       }
+    },
+    "export_skeletal_mesh_source": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mesh_path": {
+            "type": "string"
+          },
+          "export_name": {
+            "type": "string"
+          },
+          "task_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "mesh_path",
+          "export_name",
+          "task_name"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBLevelEditingToolset": {
@@ -13648,6 +13680,132 @@
           "base_path",
           "main_path",
           "layer_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_special_infected_actions": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "asset_path": {
+            "type": "string"
+          },
+          "sequence_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "asset_path",
+          "sequence_paths"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "build_special_infected_assets": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "destination_root": {
+            "type": "string"
+          },
+          "prefab_root": {
+            "type": "string"
+          },
+          "recipe_json": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "destination_root",
+          "prefab_root",
+          "recipe_json"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "import_special_infected_prefabs": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "destination_root": {
+            "type": "string"
+          },
+          "prefab_root": {
+            "type": "string"
+          },
+          "source_mesh_path": {
+            "type": "string"
+          },
+          "part_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "default": []
+          }
+        },
+        "required": [
+          "destination_root",
+          "prefab_root",
+          "source_mesh_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "create_slime_assets": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "destination_root": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "destination_root"
         ]
       },
       "outputSchema": {
