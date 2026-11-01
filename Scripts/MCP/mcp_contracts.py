@@ -36,6 +36,10 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
+    'monster_traversal.bake_mantle': {'scope': {'fields': ['sequence_path', 'montage_path']}, 'world': 'editor'},
+    'monster_traversal.configure_assets': {'scope': {'fields': ['logic_paths', 'presentation_paths', 'blueprint_paths', 'mantle_path', 'climb_path']}, 'world': 'editor'},
+    'monster_traversal.build_links': {'scope': {'fields': ['expected_level']}, 'world': 'editor'},
+    'monster_traversal.inspect_links': {'access': 'read', 'world': 'editor'},
     'editor.configure_preview_attachments': {'scope': {'fields': ['asset_path']}, 'world': 'editor', 'completion': 'verified_save'},
     'animation_graph.configure_native_weapon_presentation': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['main_path', 'base_path', 'layer_paths']}, 'completion': 'verified_save'},
     'animation_graph.simplify_animation_fact_adapter': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['blueprint_path']}, 'completion': 'verified_save'},

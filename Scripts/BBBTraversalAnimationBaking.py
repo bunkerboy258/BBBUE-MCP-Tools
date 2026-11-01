@@ -30,12 +30,13 @@ def _blend(a, b, alpha):
     return value
 
 
-def _contact_correction(sequence, source, evaluate, result, start_frame, end_frame, core_start, root_origin):
+def _contact_correction(sequence, source, evaluate, result, start_frame, end_frame, core_start, root_origin, contact_window):
     """/** @param sequence 目标动作 @param source 原片 @param evaluate 原始求值 @param result 烘焙轨道 @param start_frame 起点 @param end_frame 末点 @param core_start 主体起点 @param root_origin 原片原点 @return 不拉伸双臂的接触回读误差 */"""
+    contact_begin, contact_end, full_begin, full_end = contact_window
     contacts = {}
     largest_body_offset = 0.0
-    for source_frame in range(max(start_frame, 40), min(end_frame, 74) + 1):
-        weight = min((source_frame - 40) / 8.0, (74 - source_frame) / 10.0, 1.0)
+    for source_frame in range(max(start_frame, contact_begin), min(end_frame, contact_end) + 1):
+        weight = min((source_frame - contact_begin) / max(1, full_begin - contact_begin), (contact_end - source_frame) / max(1, contact_end - full_end), 1.0)
         weight = max(0.0, weight)
         weight = weight * weight * (3 - 2 * weight)
         if weight == 0:
@@ -98,12 +99,12 @@ def _contact_correction(sequence, source, evaluate, result, start_frame, end_fra
             maximum = max(maximum, (pose.get_bone_pose(name, unreal.AnimPoseSpaces.WORLD).translation - desired).length())
     if maximum > 0.1:
         raise RuntimeError('双臂接触轨迹回读误差过大 ' + str(maximum))
-    return {'frames': len(contacts), 'sourceWindow': [40, 74], 'fullWeightWindow': [48, 64],
+    return {'frames': len(contacts), 'sourceWindow': [contact_begin, contact_end], 'fullWeightWindow': [full_begin, full_end],
             'maximumBodyOffsetCm': largest_body_offset, 'maximumErrorCm': maximum}
 
 
 def bake(source_path, retargeter_path, idle_path, sequence_path, montage_path,
-         start_frame, end_frame, enter_seconds, exit_seconds):
+         start_frame, end_frame, enter_seconds, exit_seconds, contact_window=(40, 74, 48, 64)):
     """/** @param source_path 原片 @param retargeter_path 映射 @param idle_path 站姿 @param sequence_path 序列输出 @param montage_path 蒙太奇输出 @param start_frame 起帧 @param end_frame 末帧 @param enter_seconds 进入 @param exit_seconds 退出 @return 保存及轨迹证据 */"""
     assets = unreal.EditorAssetLibrary
     if unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
@@ -199,12 +200,12 @@ def bake(source_path, retargeter_path, idle_path, sequence_path, montage_path,
         sequence.controller.close_bracket(False)
     unreal.AnimationLibrary.remove_all_animation_notify_tracks(sequence)
     unreal.AnimationLibrary.remove_all_animation_sync_markers(sequence)
-    sequence.set_editor_properties({'enable_root_motion': True, 'force_root_lock': False,
-                                  'root_motion_root_lock': unreal.RootMotionRootLock.ANIM_FIRST_FRAME})
+    sequence.set_editor_properties({'enable_root_motion': True, 'force_root_lock': True,
+                                  'root_motion_root_lock': unreal.RootMotionRootLock.ZERO})
     sequence.set_preview_skeletal_mesh(mesh)
     evaluate.incorporate_root_motion_into_pose = True
     contact = _contact_correction(sequence, source, evaluate, result, start_frame, end_frame,
-                                  hold + enter, root_start.translation)
+                                  hold + enter, root_start.translation, contact_window)
     maximum = 0.0
     for name, expected in result.items():
         actual = list(reader(sequence, name))

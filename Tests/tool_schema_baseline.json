@@ -16320,5 +16320,164 @@
         "additionalProperties": false
       }
     }
+  },
+  "BBBMonsterTraversalToolset": {
+    "bake_mantle": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_path": {
+            "type": "string"
+          },
+          "retargeter_path": {
+            "type": "string"
+          },
+          "idle_path": {
+            "type": "string"
+          },
+          "sequence_path": {
+            "type": "string"
+          },
+          "montage_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_path",
+          "retargeter_path",
+          "idle_path",
+          "sequence_path",
+          "montage_path"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "configure_assets": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "logic_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "presentation_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "blueprint_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "mantle_path": {
+            "type": "string"
+          },
+          "climb_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "logic_paths",
+          "presentation_paths",
+          "blueprint_paths",
+          "mantle_path",
+          "climb_path"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "build_links": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expected_level": {
+            "type": "string"
+          },
+          "spacing": {
+            "type": "number",
+            "default": 120.0
+          },
+          "minimum_height": {
+            "type": "number",
+            "default": 35.0
+          },
+          "maximum_height": {
+            "type": "number",
+            "default": 250.0
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "expected_level"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "inspect_links": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expected_level": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_level"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    }
   }
 }
