@@ -36,6 +36,7 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
+    'editor.configure_preview_attachments': {'scope': {'fields': ['asset_path']}, 'world': 'editor', 'completion': 'verified_save'},
     'animation_graph.centralize_weapon_handling': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['main_path', 'base_path', 'layer_paths']}, 'completion': 'verified_save'},
     'animation_graph.simplify_animation_fact_adapter': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['blueprint_path']}, 'completion': 'verified_save'},
     'animation_graph.configure_recoil_update_pipeline': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['blueprint_path']}, 'completion': 'verified_save'},

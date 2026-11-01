@@ -5268,4 +5268,43 @@ return saturate(edge*3)*smoothstep(0.18,0.7,n)*0.8;
         return json.dumps({'readOnly': True, 'geometrySource': 'RenderData', 'meshes': rows}, ensure_ascii=False)
 
 
+    @mcp_tool
+    @staticmethod
+    def configure_preview_attachments(asset_path: str, remove_paths: list[str], dry_run: bool = True) -> str:
+        """
+        /**
+         * 检查骨架或网格的预览附件 仅按明确路径移除 不修改正式模型
+         * @param asset_path	目标骨架或骨骼网格
+         * @param remove_paths	需要移除的附件包路径或对象路径 空数组仅检查
+         * @param dry_run	仅预检 不修改或保存
+         * @return 附件前后清单 匹配数量与保存回读结果
+         */
+        """
+        from BBBAssetWritePolicy import require_asset_write
+
+        if not asset_path.startswith('/Game/'):
+            raise RuntimeError('需要明确的项目内容资产')
+        if len(remove_paths) > 32 or any(not path.startswith('/Game/') or '*' in path for path in remove_paths):
+            raise RuntimeError('附件路径必须明确 单次最多三十二项')
+        asset = unreal.load_asset(asset_path)
+        if not isinstance(asset, (unreal.Skeleton, unreal.SkeletalMesh)):
+            raise RuntimeError('目标必须是骨架或骨骼网格')
+        if not dry_run:
+            require_asset_write([asset])
+        result = json.loads(unreal.BBBAssetRepairEditorLibrary.configure_preview_attachments(
+            asset, remove_paths, dry_run))
+        if not result.get('success'):
+            raise RuntimeError('预览附件操作失败 ' + str(result))
+        result['saved'] = False
+        if not dry_run and result['removed']:
+            if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
+                raise RuntimeError('预览附件保存失败 ' + asset_path)
+            readback = json.loads(unreal.BBBAssetRepairEditorLibrary.configure_preview_attachments(
+                asset, remove_paths, True))
+            if not readback.get('success') or readback['matched'] or readback['after'] != result['after']:
+                raise RuntimeError('预览附件保存后回读不一致 ' + asset_path)
+            result['saved'] = True
+        return json.dumps(result, ensure_ascii=False)
+
+
 _registration = Registration([BBBGenericEditorToolset])

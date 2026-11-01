@@ -12,6 +12,8 @@
 
 2026-10-30: 骨轨替换按 UE FName 语义忽略骨名大小写；蒙皮参考检查接受 SCAR-H 等合法连字符路径。已在 12 把调试枪械的 47 个动画上完成参考根轨道归一化回读，非根轨道及动画元数据保持不变。
 
+2026-11-01 预览附件清理：新增 editor.configure_preview_attachments 直接检查骨架与网格的预览附件容器 仅按明确资源路径移除 保存并回读 不删除模型或改变动画。原生编译及实际调用通过；男性僵尸骨架 root 上三条重复裸脚附件已移除 男女身体和女性骨架无附件 男女攀爬蒙太奇已重开 目标包无未保存改动。说明见 Docs/BBBGenericEditorMCP.md。
+
 # BBBUE MCP Tools
 
 2026-11-01 增加 blueprint.extract_update_function 将单入口顺序更新片段提取为线程安全函数 拒绝跨边界数据线 保留计算常量及内部连线。animation_graph 提供后坐力派生迁移 重复事实包装清理和公共持枪更新收敛入口。角色主蓝图 基类及五个关联层已实际编译保存；未执行玩法验收。说明见 Docs/BBBBlueprintFunctionRefactorMCP.md。
