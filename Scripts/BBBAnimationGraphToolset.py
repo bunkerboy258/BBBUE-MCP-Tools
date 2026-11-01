@@ -1256,4 +1256,26 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
                            "reference": os.path.join(reference_content_directory, reference_relative_package + ".uasset"),
                            "runtime_acceptance": "not_requested"}, ensure_ascii=False)
 
+    @mcp_tool
+    @staticmethod
+    def configure_snapshot_montage_source(blueprint_path: str, slot_name: str, condition_getter: str,
+                                         snapshot_property: str, blend_duration: float = 0.25) -> str:
+        """/** @param blueprint_path 明确自有动画图 @param slot_name 已有全身槽 @param condition_getter 线程安全阶段查询 @param snapshot_property 只读姿态快照 @param blend_duration 退出混合秒数 @return 编译保存结果 */"""
+        if not blueprint_path.startswith('/Game/_Project/'):
+            raise RuntimeError('要求明确自有动画图')
+        blueprint = unreal.load_asset(blueprint_path)
+        if not isinstance(blueprint, unreal.AnimBlueprint):
+            raise RuntimeError('目标不是动画蓝图')
+        require_asset_write([blueprint])
+        if not unreal.BBBAnimationGraphEditorLibrary.configure_snapshot_montage_source(
+                blueprint, slot_name, condition_getter, snapshot_property, blend_duration):
+            raise RuntimeError('快照蒙太奇源构图失败 不保存')
+        unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
+        if blueprint.get_editor_property('status') != unreal.BlueprintStatus.BS_UP_TO_DATE:
+            raise RuntimeError('快照源编译未通过 不保存')
+        if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
+            raise RuntimeError('快照源保存失败')
+        return json.dumps({'asset': blueprint.get_path_name(), 'slot': slot_name,
+                           'snapshot': snapshot_property, 'condition': condition_getter, 'saved': True})
+
 _registration = Registration([BBBAnimationGraphToolset])

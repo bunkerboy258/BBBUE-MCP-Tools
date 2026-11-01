@@ -36,6 +36,7 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
+    'animation_graph.configure_snapshot_montage_source': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['blueprint_path']}, 'completion': 'verified_save'},
     'level.refresh_navigation_bounds': {'scope': {'fields': ['expected_level']}, 'world': 'editor'},
     'level.inspect_navigation_route': {'access': 'read', 'world': 'editor', 'scope': {'fields': ['expected_level']}, 'completion': 'observed'},
     'level.set_review_view': {'scope': {'fields': ['expected_level']}, 'world': 'editor'},

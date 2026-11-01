@@ -54,3 +54,9 @@
 # 角色普通运动与离散动作
 
 普通运动由 GASP MM 生成 倒地等待 接受救援 帮扶与起身使用后置 FullBody 蒙太奇。主图清理使用 [运动匹配工具](BBBMotionMatchingMCP.md) 的 motion_matching.configure_character_montage_graph 不修改空手库和装备层。僵尸事实动画工具保持独立。
+
+## 物理姿态到全身蒙太奇的交接
+
+`animation_graph.configure_snapshot_montage_source(blueprint_path, slot_name, condition_getter, snapshot_property, blend_duration=0.25)` 在已有唯一全身槽之前接入只读 FPoseSnapshot。条件必须来自原生线程安全查询。条件为真时使用物理退出快照，结束后混回原源姿态；普通 MM、根骨、脚部和装备链保持原有结构。不创建起身状态机，不改变运动库。重复构图、错误快照类型或非线程安全查询会被拒绝。仅用于明确自有动画蓝图，构图后无警告编译并保存。
+
+`motion_matching.create_schema` 的 `trajectory_offsets=[]` 创建仅姿态通道的搜索格式，适合一次性动作选择。采样骨属性可用现有反射配置工具设置；修改后必须刷新格式并核对数据库实际维度及索引，不能仅凭保存成功判定索引已更新。

@@ -58,7 +58,7 @@ def create_schema(asset_path: str, skeleton_path: str, bone_names: list[str], tr
     skeleton = _load(skeleton_path, unreal.Skeleton)
     if not bone_names or len(set(bone_names)) != len(bone_names):
         raise RuntimeError("采样骨不能为空或重复")
-    if not trajectory_offsets or any(not math.isfinite(value) for value in trajectory_offsets):
+    if any(not math.isfinite(value) for value in trajectory_offsets):
         raise RuntimeError("轨迹采样时间无效")
     if sorted(set(trajectory_offsets)) != trajectory_offsets or sample_rate < 1 or sample_rate > 240:
         raise RuntimeError("轨迹时间必须递增且唯一 采样率须在 1 到 240")
@@ -85,7 +85,7 @@ def create_schema(asset_path: str, skeleton_path: str, bone_names: list[str], tr
         bone.set_editor_property("flags", 3)
         bones.append(bone)
     pose.set_editor_property("sampled_bones", bones)
-    schema.set_editor_property("channels", [trajectory, pose])
+    schema.set_editor_property("channels", [trajectory, pose] if trajectory_offsets else [pose])
     if not unreal.EditorAssetLibrary.save_loaded_asset(schema, only_if_is_dirty=False):
         raise RuntimeError("格式保存失败: " + asset_path)
     return json.dumps(_schema_report(schema), ensure_ascii=False)
