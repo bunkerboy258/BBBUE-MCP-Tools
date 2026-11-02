@@ -25,7 +25,7 @@ def _running():
     return json.loads(inspect()).get("state") == "running"
 
 
-def start(duration_seconds, file_prefix, target_actor_path=""):
+def start(duration_seconds, file_prefix, target_actor_path="", capture_search_trace=False):
     """
     /**
      * @param duration_seconds 有限游戏采样秒数
@@ -45,7 +45,7 @@ def start(duration_seconds, file_prefix, target_actor_path=""):
         pawn = unreal.find_object(None, target_actor_path)
     if pawn is None:
         raise RuntimeError("逐帧姿态采集需要有效 PIE 角色")
-    result = library.start_motion_matching_runtime_probe(pawn, duration_seconds, file_prefix)
+    result = library.start_motion_matching_runtime_probe(pawn, duration_seconds, file_prefix, capture_search_trace)
     parsed = json.loads(result)
     if parsed.get("state") != "running":
         raise RuntimeError(parsed.get("error") or "原生逐帧采集未启动")

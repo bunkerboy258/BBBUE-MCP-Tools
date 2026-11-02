@@ -1,5 +1,13 @@
 # 动作匹配运行时探针
 
+## 原生搜索跟踪
+
+`start_runtime_probe` 的 `capture_search_trace=true` 同步启用 UE 原生 PoseSearch 跟踪 最长三十秒 输出同名 `.utrace` 文件 超过二百五十六 MiB 自动停止 已有 Trace 连接时拒绝启动 不接管其它任务 跟踪结束恢复原有通道。逐帧 JSONL 的 `traceCycle` 与 `traceAnimInstanceId` 用于同一宿主内对齐搜索事件。
+
+`motion_matching.inspect_search_trace(file_path, anim_instance_id, event_offset, event_limit)` 只读解析已关闭的本项目 Saved/temp 跟踪 每次最多返回一百二十个事件 保留查询向量 原生中断模式 最低成本八个候选以及延续和当前姿势候选 包括通知成本及延续成本。不重新执行搜索 不用跨帧成本代替同帧比较。仅允许五百一十二 MiB 以内文件 分析超过十五秒失败 无对应事件明确报错。
+
+动作路径与采样时间依赖同一宿主仍加载的数据库索引 必须在采样后重启宿主或修改索引之前读取 失效对象不猜测资源。候选 flags 来自引擎 EPoseCandidateFlags 不能仅按成本排序把被过滤候选当作可选动作。
+
 适用于当前 PIE 的标准 Motion Matching 与 Pose History。默认选择本地玩家 也支持明确的参考角色路径。单次快照入口 `BBBMotionMatchingEditorLibrary.ProbeMotionMatchingRuntime` 等待已有求值完成。有界连续采集使用原生骨骼完成回调 不主动推进或强制重算动画 不修改角色或资产。
 
 调用 `motion_matching.start_runtime_probe` 并明确本任务 `file_prefix`。`duration_seconds` 为 1 到 120 游戏秒 默认 20 秒。`target_actor_path` 空值使用本地玩家。采集每个实际完成的骨骼姿态 同一引擎帧多次回调保留最后结果。报告仅写入 `Saved/temp/<file_prefix>/MMRuntime_<时间>.jsonl`。拒绝路径穿越 重复启动和超过帧数或墙钟上限的采集。

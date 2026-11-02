@@ -242,10 +242,17 @@ class BBBMotionMatchingToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def start_runtime_probe(duration_seconds: float = 20.0, file_prefix: str = "MMRuntimeProbe", target_actor_path: str = "") -> str:
+    def start_runtime_probe(duration_seconds: float = 20.0, file_prefix: str = "MMRuntimeProbe", target_actor_path: str = "", capture_search_trace: bool = False) -> str:
         """/** @param duration_seconds 最长游戏采样秒数 @param file_prefix 本任务临时目录 @param target_actor_path 明确的 PIE 角色路径 空值使用本地玩家 @return 原生骨骼完成回调驱动的逐帧姿态采集状态 */"""
         import BBBMotionMatchingRuntimeProbe
-        return BBBMotionMatchingRuntimeProbe.start(duration_seconds, file_prefix, target_actor_path)
+        return BBBMotionMatchingRuntimeProbe.start(duration_seconds, file_prefix, target_actor_path, capture_search_trace)
+
+    @mcp_tool
+    @staticmethod
+    def inspect_search_trace(file_path: str, anim_instance_id: str = "", event_offset: int = 0, event_limit: int = 30) -> str:
+        """/** @param file_path 本宿主 Saved/temp 原生搜索跟踪 @param anim_instance_id 探针实例标识 @param event_offset 匹配事件偏移 @param event_limit 返回事件数 上限一百二十 @return 查询 候选成本 中断原因与覆盖 */"""
+        return unreal.BBBMotionMatchingEditorLibrary.inspect_motion_matching_search_trace(
+            file_path, anim_instance_id, event_offset, event_limit)
 
     @mcp_tool
     @staticmethod
