@@ -290,10 +290,6 @@ def start_capture(world, version_path, region, direction, file_prefix, shots, in
                 sample["gibs"] = json.loads(unreal.BBBMonsterGoreEditorLibrary.inspect_gib_presentation(world))
             if capture_images and camera and elapsed >= tail + 1.5 and not data["groundView"]:
                 coordinates = None
-                if residue_seconds > 0:
-                    pieces = sample["gibs"]["fleshPieces"]
-                    if pieces:
-                        coordinates = pieces[0]["location"]
                 if coordinates is None:
                     residue = json.loads(unreal.BBBBloodResidueEditorLibrary.inspect_residue(world))
                     surfaces = residue["visibleResidues"]
