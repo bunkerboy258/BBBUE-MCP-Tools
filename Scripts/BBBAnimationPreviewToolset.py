@@ -42,6 +42,24 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def capture_slime_presentation(definition_path: str, file_prefix: str) -> str:
+        """/** @param definition_path 正式黏液配置 @param file_prefix 自有任务目录与前缀 @return 四段表现的短时拍摄 不生成玩法输入 */"""
+        import importlib
+        import BBBSlimeEffectsPreview
+        if json.loads(BBBSlimeEffectsPreview.status()).get('status') == 'running':
+            raise RuntimeError('黏液拍摄仍在运行')
+        importlib.reload(BBBSlimeEffectsPreview)
+        return BBBSlimeEffectsPreview.capture(definition_path, file_prefix)
+
+    @mcp_tool
+    @staticmethod
+    def get_slime_capture_status() -> str:
+        """/** @return 最近一次黏液表现拍摄的状态和图像 */"""
+        import BBBSlimeEffectsPreview
+        return BBBSlimeEffectsPreview.status()
+
+    @mcp_tool
+    @staticmethod
     def probe_mass_behavior(action: str, file_prefix: str = "", duration_seconds: float = 30.0, sample_interval: float = 0.2) -> str:
         """
         /**

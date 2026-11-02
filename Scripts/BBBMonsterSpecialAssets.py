@@ -168,44 +168,10 @@ def import_prefabs(destination_root, prefab_root, source_mesh_path, part_ids):
 
 
 def create_slime_assets(destination_root):
-    """/** @param destination_root 不存在资源的自有目录 @return 三个已保存且互相绑定的粘液资源 */"""
-    if not re.fullmatch(r'/Game/_Project/Mass/Monster/SpecialInfected/Shared/[A-Za-z0-9]+', destination_root):
-        raise RuntimeError('需要明确的特感共享资源目录')
-    if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
-        raise RuntimeError('PIE 期间等待粘液装配')
-    names = ['M_Slime', 'MEC_Slime', 'DA_Slime']
-    paths = [destination_root+'/'+value for value in names]
-    if any(unreal.EditorAssetLibrary.does_asset_exist(path) for path in paths):
-        raise RuntimeError('粘液资源已存在 使用明确配置工具继续')
-    require_asset_write([], destinations=[destination_root])
-    tools = unreal.AssetToolsHelpers.get_asset_tools()
-    material = tools.create_asset(names[0], destination_root, unreal.Material, unreal.MaterialFactoryNew())
-    edit = unreal.MaterialEditingLibrary
-    color = edit.create_material_expression(material, unreal.MaterialExpressionConstant3Vector, -300, -100)
-    color.set_editor_property('constant', unreal.LinearColor(0.012, 0.13, 0.003, 1))
-    roughness = edit.create_material_expression(material, unreal.MaterialExpressionConstant, -300, 80)
-    roughness.set_editor_property('r', 0.23)
-    if not edit.connect_material_property(color, '', unreal.MaterialProperty.MP_BASE_COLOR):
-        raise RuntimeError('粘液材质颜色连接失败')
-    if not edit.connect_material_property(roughness, '', unreal.MaterialProperty.MP_ROUGHNESS):
-        raise RuntimeError('粘液材质粗糙度连接失败')
-    edit.recompile_material(material)
-    factory = unreal.DataAssetFactory()
-    factory.set_editor_property('data_asset_class', unreal.MassEntityConfigAsset)
-    config = tools.create_asset(names[1], destination_root, unreal.MassEntityConfigAsset, factory)
-    trait = unreal.new_object(unreal.BBBSlimeTrait, outer=config, name='Slime')
-    raw_config = config.get_editor_property('config')
-    raw_config.set_editor_property('traits', [trait])
-    config.set_editor_property('config', raw_config)
-    factory = unreal.DataAssetFactory()
-    factory.set_editor_property('data_asset_class', unreal.BBBSlimeDefinition)
-    definition = tools.create_asset(names[2], destination_root, unreal.BBBSlimeDefinition, factory)
-    definition.set_editor_property('entity_config', config)
-    definition.set_editor_property('material', material)
-    for asset in (material, config, definition):
-        if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
-            raise RuntimeError('粘液资产保存失败')
-    return json.dumps({'saved': paths, 'definition': definition.get_path_name(), 'template': config.get_path_name()}, ensure_ascii=False)
+    """/** @param destination_root 正式黏液目录 @return 四段表现与配置保存证据 */"""
+    import importlib
+    import BBBSlimeEffectsAssets
+    return importlib.reload(BBBSlimeEffectsAssets).build(destination_root)
 
 
 def _validate_data_asset(logic):

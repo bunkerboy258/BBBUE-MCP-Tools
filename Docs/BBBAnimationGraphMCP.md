@@ -63,7 +63,9 @@
 
 `stage=polish_graph` 输入 `idle` 三份待机 `alert` 一份警觉 `styles` 三组待机走跑冲刺角色名 `attacks` `attack_pivots` `deaths` 四项 `special` 和 `special_animation`.完整重建当前事实图 不叠加旧状态图.速度混合包含静止 蹒跚 行走 追近快走 跑步 冲刺六个速度点.支撑脚后移速度中位数用于离线标定三种风格循环时长 高速冲撞保留至少零点四秒循环以保持姿态可读.攻击采样将手部实际接触帧映射到已有伤害时刻 死亡按原始时长结束并保持终姿.潜行与狂暴使用不同移动风格.喷吐在释放帧分段 并将同帧头部位置变换为逻辑配置的局部发射偏移.返回循环时长 步幅 保存与唯一表现配置校验 不进行自动游戏验收.
 
-`create_slime_assets(destination_root)` 在特感 Shared 下建立绿色地面材质 粘液实体模板与规则.数量上限 飞行 区域 持续伤害和速度比例集中在 DA_Slime.此工具只装配资源 不启动游戏.
+`create_slime_assets(destination_root)` 在明确的正式 Shared/Slime 目录原位装配喷口 飞行拖尾 撞击泼溅 地面水洼与少量气泡.现有 DA_Slime 的表现分区统一保存资源 配色 形变比例 拖尾寿命 铺开及消退时间和距离预算.原玩法数值与实体模板保持原值.制作阶段统一世界空间 使用 DataInstance.Alive 回收粒子 并明确写入 vec4 动态材质通道.地面保留来源实例的全部纹理参数 母材质接入贴花生命周期透明度.液体遮罩采用共享自有纹理副本 最大1024并关闭流送 减少运行时首次流送波动 不改原包纹理.同一指纹的只读结果可回报素材实际连接的动态通道.制作使用独立的现有水体与血液素材副本 不改第三方原包.仅在没有 PIE 时执行.相同制作指纹完成后只读回报就绪状态.
+
+`preview.capture_slime_presentation(definition_path, file_prefix)` 在明确的渲染 PIE 中仅驱动正式表现载体 不生成 Mass 实体或玩法伤害.拍摄喷口 飞行 落地 成形及消退五个时刻 并回读粒子快照.前缀使用 Saved/temp 下的任务目录与名称. `preview.get_slime_capture_status()` 返回当前进度 实际时刻及图像路径.完成或失败均销毁自有灯光 地面与载体并清理回调.最终场景观感以实机为准.
 
 `animation_graph.import_special_infected_prefabs(destination_root, prefab_root, source_mesh_path, part_ids=[])` 从同名 ArtSource 制作源导入专属骨架、物理、三档身体和内部组织。空断点列表导入身体；非空每批最多三个断点，包含三档封口及蒙皮/静态掉落与剩余段。每项保存来源指纹并回读骨架和 LOD，重复调用仅复用完全相同来源，拒绝覆盖来源不符的资产。无需 PIE，可在 NullRHI 宿主调用。
 

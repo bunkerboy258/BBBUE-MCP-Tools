@@ -36,6 +36,8 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
+    'preview.capture_slime_presentation': {'access': 'pie', 'world': 'pie', 'scope': {'kind': 'session'}, 'completion': 'activity'},
+    'preview.get_slime_capture_status': {'access': 'read', 'world': 'any', 'completion': 'observed'},
     'p_c_g_toolset.SpawnGraphInstance': {'scope': {'kind': 'world'}, 'world': 'editor'},
     'p_c_g_toolset.CreateGraph': {'scope': {'join': ['path', 'name']}},
     'animation_graph.configure_special_infected_actions': {'scope': {'fields': ['asset_path']}, 'world': 'editor', 'completion': 'verified_save'},

@@ -12698,6 +12698,55 @@
           "returnValue"
         ]
       }
+    },
+    "capture_slime_presentation": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "definition_path": {
+            "type": "string",
+            "description": "正式黏液配置"
+          },
+          "file_prefix": {
+            "type": "string",
+            "description": "自有任务目录与前缀"
+          }
+        },
+        "required": [
+          "definition_path",
+          "file_prefix"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "四段表现的短时拍摄 不生成玩法输入 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "get_slime_capture_status": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "最近一次黏液表现拍摄的状态和图像 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBAnimationGraphToolset": {

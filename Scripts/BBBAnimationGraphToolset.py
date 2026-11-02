@@ -31,7 +31,7 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
     @mcp_tool
     @staticmethod
     def create_slime_assets(destination_root: str) -> str:
-        """/** @param destination_root 新的自有粘液资源目录 @return 地面材质 实体模板与规则资产的保存证据 */"""
+        """/** @param destination_root 正式黏液目录 @return 喷口 拖尾 泼溅 地面资源与表现配置的保存证据 */"""
         import importlib
         import BBBMonsterSpecialAssets
         return importlib.reload(BBBMonsterSpecialAssets).create_slime_assets(destination_root)
