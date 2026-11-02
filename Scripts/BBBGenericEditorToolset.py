@@ -4938,20 +4938,10 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
     @staticmethod
     def configure_asset_properties(asset_path: str, properties_json: str) -> str:
         """/** @param asset_path 自有资产路径 @param properties_json 编辑器属性和值 @return 保存与属性回读 */"""
-        from BBBAssetWritePolicy import require_write_access
-        asset = unreal.load_asset(asset_path)
-        if not asset_path.startswith('/Game/_Project/') or asset is None or isinstance(asset, (unreal.World, unreal.Actor, unreal.ActorComponent)):
-            raise RuntimeError('目标必须为已有自有资产')
-        require_write_access(asset)
-        properties = json.loads(properties_json)
-        with unreal.ScopedEditorTransaction('配置资产属性'):
-            asset.modify()
-            for name, value in properties.items():
-                _apply_editor_property(asset, name, value)
-        if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
-            raise RuntimeError('资产属性保存失败')
-        return json.dumps({'asset': asset.get_path_name(), 'saved': True,
-            'properties': {name: _serialize_value(asset.get_editor_property(name)) for name in properties}}, ensure_ascii=False)
+        import importlib
+        import BBBAssetPropertyEditing
+        return importlib.reload(BBBAssetPropertyEditing).configure(asset_path, properties_json,
+            _apply_editor_property, _materialize_property_value, _serialize_value)
 
 
     @mcp_tool
