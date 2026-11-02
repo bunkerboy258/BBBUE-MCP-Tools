@@ -16,6 +16,8 @@ Law 规则是代码更新的最高铁律：
 
 MCP 工具扩展规则
 
+- `runtime.profile_scene_gpu(action="capture")` 请求当前 PIE 的原生单帧 GPU 分析 逐阶段与材质结果读取引擎日志 随后用 `action="restore"` 恢复分析器窗口及材质和网格绘制事件设置并核验 正常计时必须先恢复 不把请求成功当作分析完成
+
 - `hit.normalize_zombie_gib_material_bindings` 默认核对姿态断肢源分组与实际材质索引 显式应用按源分组名称重建绑定并清除继承覆盖 只处理明确的自有 `_PosePart` 资产 不保存 随后回读并保存目标资产
 
 - `BBBGenericEditorToolset.render_asset_thumbnails` 的单项请求支持 `material_overrides` 字典 将实际材质槽名称映射至 Game 材质路径 原生库检查目标槽和材质并只替换临时预览组件 可用于匹配运行时隐藏旗帜贴片的材质 不修改源网格

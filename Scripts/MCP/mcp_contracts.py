@@ -454,6 +454,7 @@ TOOL_POLICIES = {
     'runtime.configure_mcp_resources': {'input_rules': {'properties': {'profile': {'enum': ['HighThroughput', 'Balanced', 'Economy', 'GamingBackground'], 'description': '宿主资源档位'}}}},
     'runtime.inspect_mcp_dependencies': {'access': 'read'},
     'runtime.inspect_mcp_resources': {'access': 'read'},
+    'runtime.profile_scene_gpu': {'access': 'pie', 'world': 'any', 'scope': {'kind': 'session'}},
     'traversal.configure_traversal_contact_points': {'scope': {'rows': ['points', 'montage']}},
     'traversal.configure_traversal_montages': {'scope': {'fields': ['destination_paths']}},
     'traversal.inspect_pie_traversal_contact_points': {'access': 'read'},

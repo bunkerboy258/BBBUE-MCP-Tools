@@ -18,6 +18,7 @@ _PROFILES = {
 _PRIORITY_NAMES = {0x20: "Normal", 0x4000: "BelowNormal"}
 _active_profile = "Unconfigured"
 _configured_max_fps = None
+_scene_gpu_profile_settings = None
 
 
 def _profile_options():
@@ -198,6 +199,59 @@ class BBBMcpRuntimeToolset(unreal.ToolsetDefinition):
          */
         """
         return json.dumps(_snapshot(), ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def profile_scene_gpu(action: str = "capture") -> str:
+        """
+        /**
+         * 请求原生单帧 GPU 分析 结果由引擎日志交付 不改变画质或保存截图
+         * @param action	capture 请求分析 restore 恢复分析器显示设置
+         * @return 请求帧号与日志路径 请求成功不代表分析已经完成
+         */
+        """
+        global _scene_gpu_profile_settings
+        if action not in ("capture", "restore"):
+            raise ValueError("GPU 分析只接受 capture 或 restore")
+        if action == "restore":
+            if _scene_gpu_profile_settings is None:
+                return json.dumps({"status": "idle"})
+            for name, value in _scene_gpu_profile_settings.items():
+                unreal.SystemLibrary.execute_console_command(None, "{} {}".format(name, value))
+            restored = {
+                name: unreal.SystemLibrary.get_console_variable_int_value(name)
+                for name in _scene_gpu_profile_settings
+            }
+            if restored != _scene_gpu_profile_settings:
+                unreal.log_error("[BBBMcpGpuProfile]分析器设置恢复回读不一致")
+                raise RuntimeError("GPU 分析器设置未完整恢复")
+            _scene_gpu_profile_settings = None
+            unreal.log("[BBBMcpGpuProfile]已恢复分析器显示设置")
+            return json.dumps({"status": "restored", "settings": restored})
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if world is None:
+            raise RuntimeError("GPU 分析要求当前 PIE 世界")
+        if _snapshot()["null_rhi"]:
+            raise RuntimeError("GPU 分析要求启用渲染")
+        if _scene_gpu_profile_settings is not None:
+            raise RuntimeError("上次 GPU 分析尚未恢复 请先执行 restore")
+        values = {"r.ProfileGPU.ShowUI": 0, "r.ShowMaterialDrawEvents": 1, "r.EmitMeshDrawEvents": 1}
+        _scene_gpu_profile_settings = {
+            name: unreal.SystemLibrary.get_console_variable_int_value(name) for name in values
+        }
+        for name, value in values.items():
+            unreal.SystemLibrary.execute_console_command(world, "{} {}".format(name, value))
+        unreal.SystemLibrary.execute_console_command(world, "ProfileGPU")
+        frame = int(unreal.SystemLibrary.get_frame_count())
+        unreal.log("[BBBMcpGpuProfile]已请求单帧 GPU 分析 Frame={}".format(frame))
+        pipeline = {
+            name: unreal.SystemLibrary.get_console_variable_int_value(name)
+            for name in ("r.EarlyZPass", "r.EarlyZPassOnlyMaterialMasking", "r.StencilForLODDither")
+        }
+        return json.dumps({"status": "requested", "frame": frame, "pipeline_settings": pipeline,
+                           "log_directory": unreal.Paths.project_log_dir(),
+                           "next_action": "检查引擎日志中的 GPU 分析结果后执行 restore"}, ensure_ascii=False)
+
 
     @mcp_tool
     @staticmethod
