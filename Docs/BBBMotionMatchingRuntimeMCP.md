@@ -1,5 +1,15 @@
 # 动作匹配运行时探针
 
+## 骨骼连续性搜索配置与独立计时
+
+`motion_matching.configure_bone_channels(asset_path, group_name, bone_names, origin_bone, position_weight, velocity_weight)` 为明确自有 Schema 增加或更新命名通道组，每个骨骼包含位置与速度通道，使用 `UseCharacterPose` 查询实际角色姿态。位置与速度分别使用独立归一化组，不重建其它通道。空骨骼数组只移除此命名组。拒绝 PIE 中写入，保存后回读骨骼、权重与查询方式。调用前必须核对实际引用者；多人或多装备共用 Schema 时，不能凭资产名称判断修改范围。
+
+`motion_matching.capture_search_timing(action, file_prefix, duration_seconds)` 使用引擎 Trace Utilities 单独采集 CPU、帧与测量区间，支持 start/status/stop，时长一至十五游戏秒。已有跟踪时拒绝启动；输出限新的 `Saved/temp/<file_prefix>/cpu.utrace`，游戏结束、六十墙钟秒或二百五十六 MiB 上限自动收尾，并恢复原有跟踪通道。与骨骼 JSON、候选跟踪和录像分轮运行，避免把诊断开销当成搜索成本。用 Unreal Insights 导出 `MMPerformanceCapture` 区间；没有对应区间的文件不能声称完成性能对照。
+
+2026-11-02：UE5.8 实际保存回读通过。空手专用 Schema 的十七个数据库索引均就绪，三十维增至四十二维；原有六个子对象配置保持一致，主图仅为历史采样补入左右手。原共享格式继续供步枪与手枪使用，不扩大修改范围。首次缺失手部历史的采样作废；补齐并编译后重新完成相同五百六十四帧输入，左右转向输入各三十六帧共四次，无缺失骨骼且始终在临时平地。
+
+独立 CPU 区间各六百七十三次 `UpdateMotionMatchingQuery`，平均约 0.089 / 0.101 ms，中位约 0.082 / 0.092 ms。此值是查询更新作用域，不是整帧或多人性能保证。实际查询仍为 PCA 四维、KNN 二百、叶大小十六。转向区间左右手帧间速度差 P95 降低约百分之十八与八，切入动作手部速度差均值从 284.38 降至 216.53 cm/s；切入位置差 P95 从 36.96 增至 48.09 cm，不能声称回摆完全消失。保留低权重对照供用户视觉验收，不以均值改善代替验收。
+
 ## 原生搜索跟踪
 
 `start_runtime_probe` 的 `capture_search_trace=true` 同步启用 UE 原生 PoseSearch 跟踪 最长三十秒 输出同名 `.utrace` 文件 超过二百五十六 MiB 自动停止 已有 Trace 连接时拒绝启动 不接管其它任务 跟踪结束恢复原有通道。逐帧 JSONL 的 `traceCycle` 与 `traceAnimInstanceId` 用于同一宿主内对齐搜索事件。

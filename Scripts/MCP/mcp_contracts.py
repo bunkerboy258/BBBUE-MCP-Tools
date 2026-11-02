@@ -36,6 +36,8 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
+    'motion_matching.capture_search_timing': {'access': 'read', 'world': 'any', 'completion': 'observed'},
+    'motion_matching.configure_bone_channels': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['asset_path']}, 'completion': 'verified_save'},
     'preview.capture_slime_presentation': {'access': 'pie', 'world': 'pie', 'scope': {'kind': 'session'}, 'completion': 'activity'},
     'preview.get_slime_capture_status': {'access': 'read', 'world': 'any', 'completion': 'observed'},
     'p_c_g_toolset.SpawnGraphInstance': {'scope': {'kind': 'world'}, 'world': 'editor'},

@@ -165,6 +165,41 @@ class BBBMotionMatchingToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def capture_search_timing(action: str, file_prefix: str = '', duration_seconds: float = 8.0) -> str:
+        """
+        /**
+         * @param action           start status stop
+         * @param file_prefix      新的任务临时目录
+         * @param duration_seconds 最长游戏秒数
+         * @return                仅 CPU 跟踪状态 不采集骨骼或候选
+         */
+        """
+        import BBBMotionMatchingTiming
+        if action == 'start' and json.loads(BBBMotionMatchingTiming.capture('status')).get('state') != 'running':
+            importlib.reload(BBBMotionMatchingTiming)
+        return BBBMotionMatchingTiming.capture(action, file_prefix, duration_seconds)
+
+    @mcp_tool
+    @staticmethod
+    def configure_bone_channels(asset_path: str, group_name: str, bone_names: list[str], origin_bone: str,
+                                position_weight: float = 0.1, velocity_weight: float = 0.1) -> str:
+        """
+        /**
+         * @param asset_path       自有搜索格式
+         * @param group_name       独立通道组名称
+         * @param bone_names       骨骼列表 空数组移除此组
+         * @param origin_bone      相对参考骨骼
+         * @param position_weight  位置权重
+         * @param velocity_weight  速度权重
+         * @return                实际角色姿态查询通道的保存回读
+         */
+        """
+        import BBBMotionMatchingAssets
+        return importlib.reload(BBBMotionMatchingAssets).configure_bone_channels(
+            asset_path, group_name, bone_names, origin_bone, position_weight, velocity_weight)
+
+    @mcp_tool
+    @staticmethod
     def configure_character_montage_graph(main_path: str, dry_run: bool = True) -> str:
         """
         /**
