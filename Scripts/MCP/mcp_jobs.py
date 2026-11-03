@@ -242,11 +242,14 @@ class JobQueue:
         prepared = self.catalog.prepare(operations)
         for item in prepared:
             if item["contract"].get("scope", {}).get("kind") == "world" and item["access"] != "read":
-                item["targets"] = sorted(asset_targets(self.activity.get("editor_world")))
+                item["world_targets"] = sorted(asset_targets(self.activity.get("editor_world")))
+                item["targets"] = sorted(set(item["world_targets"]) | asset_targets(item["targets"]))
                 item["scoped"] = bool(item["targets"])
+                if not item["scoped"]:
+                    raise JobConflict("EDITOR_WORLD_REQUIRED", {"hint": "先打开已保存的项目地图"})
         for item in prepared:
             if item["access"] == "write" and item["world"] == "editor" and not item.get("scoped"):
-                raise JobConflict("ASSET_SCOPE_REQUIRED", {"tool": item["contract"]["id"], "next": None})
+                raise JobConflict("TOOL_SCOPE_INVALID", {"tool": item["contract"]["id"], "hint": "工具范围声明待维护"})
         with self.changed:
             if registration is not None:
                 current = self.clients.operators.require(client)
@@ -419,7 +422,7 @@ class JobQueue:
                     current = self.observe(force=True)
                     job["owned_dirty"].update(set(current.get("dirty_packages", [])) - before_dirty)
                 for item in job["operations"][job["completed"]:]:
-                    if item["contract"].get("scope", {}).get("kind") == "world" and asset_targets(item["targets"]) != asset_targets(current.get("editor_world")):
+                    if item["contract"].get("scope", {}).get("kind") == "world" and item["access"] != "read" and asset_targets(item["world_targets"]) != asset_targets(current.get("editor_world")):
                         raise JobConflict("EDITOR_WORLD_CHANGED")
                 reason = self._reason(job, current)
                 if reason:

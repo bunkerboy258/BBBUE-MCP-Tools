@@ -513,6 +513,9 @@ class TaskGateway:
             if name == "find_tools":
                 return reply(self.catalog.find(**arguments))
             if name == "describe_tool":
+                if arguments["tool"] in self.catalog.scope_errors:
+                    return reply({"status": "rejected", "code": "TOOL_SCOPE_INVALID", "tool": arguments["tool"],
+                        "hint": "工具范围声明待维护，详情见 inspect_tasks(detail=true).tool_scope_errors", "next": None}, True)
                 if arguments["tool"] not in self.tools and arguments["tool"] not in self.catalog.tools:
                     return reply({"status": "rejected", "code": "TOOL_UNKNOWN", "tool": arguments["tool"],
                         "next": next_call("find_tools", query=arguments["tool"])}, True)
@@ -556,6 +559,9 @@ class TaskGateway:
         if target == "submit_batch" and unknown:
             index = int(unknown.group(1))
             identity = parameters["arguments"]["operations"][index]["tool"]
+            if identity in self.catalog.scope_errors:
+                return {"status": "rejected", "code": "TOOL_SCOPE_INVALID", "operation": index, "tool": identity,
+                    "hint": "工具范围声明待维护，详情见 inspect_tasks(detail=true).tool_scope_errors", "next": None}
             return {"status": "rejected", "code": "TOOL_UNKNOWN", "operation": index, "tool": identity,
                     "next": next_call("find_tools", query=identity.replace(".", " ").replace("_", " "))}
         if details == "TOOL_UNKNOWN":

@@ -3,6 +3,7 @@ import copy
 from functools import lru_cache, wraps
 import inspect
 import json
+import logging
 import hashlib
 from pathlib import Path
 import re
@@ -11,7 +12,7 @@ from MCP.mcp_result import require_business_success, McpExecutionError
 from MCP.mcp_asset_scope import asset_targets
 from MCP.mcp_discovery import ALIASES, HINTS, SUMMARIES
 from MCP.mcp_workflows import guidance, ROUTES, PURPOSES
-from MCP.mcp_contracts import TOOL_POLICIES, compile_contract, default_arguments
+from MCP.mcp_contracts import TOOL_POLICIES, compile_contract, default_arguments, validate_scope_contract, ScopeContractError
 
 
 TOOL_DOMAINS = {
@@ -598,7 +599,7 @@ def write_scope(contract, arguments, access=None, world=None):
     if access is None:
         access, world = resolve_access(contract, arguments)
     scope = contract.get("scope", TOOL_POLICIES.get(contract["id"], {}).get("scope", {}))
-    if scope.get("kind") in {"session", "world"}:
+    if scope.get("kind") == "session":
         return [], True
     row_fields = scope.get("rows")
     if row_fields is not None:
@@ -615,7 +616,7 @@ def write_scope(contract, arguments, access=None, world=None):
     fields = scope.get("fields")
     targets = [arguments.get(field, contract["parameters"].get("properties", {}).get(field, {}).get("default")) for field in fields or ()]
     targets = [target for target in targets if target is not None]
-    scoped = access == "read" or world == "pie" or access == "pie" or contract["id"] == "runtime.configure_mcp_resources" or bool(fields and targets and asset_targets(targets))
+    scoped = access == "read" or world == "pie" or access == "pie" or (scope.get("kind") == "world" and not fields) or bool(fields and targets and asset_targets(targets))
     return targets, scoped
 
 
@@ -626,6 +627,7 @@ class ToolCatalog:
         """/** @param backend 官方后端 @return 实际目录 */"""
         self.backend = backend
         self.tools = {}
+        self.scope_errors = {}
         for toolset, descriptors in backend.descriptors():
             for descriptor in descriptors:
                 name = descriptor["name"].rsplit(".", 1)[-1]
@@ -640,7 +642,12 @@ class ToolCatalog:
         """/** @param contract 已核实契约 @return 登记完成 */"""
         if contract["id"] in self.tools:
             raise ValueError("DUPLICATE_TOOL_ID")
-        item = contract if "codecs" in contract else compile_contract(contract)
+        try:
+            item = contract if "codecs" in contract else compile_contract(contract)
+            validate_scope_contract(item)
+        except ScopeContractError as error:
+            self._scope_error(contract["id"], error)
+            return False
         item["dependencies"] = []
         if item["definition"] in TOOL_DOMAINS and item["definition"].startswith("BBB"):
             item["dependencies"] = sorted(library + "." + function for library, functions in native_requirements(item["definition"], item["name"]).items() for function in functions)
@@ -648,7 +655,14 @@ class ToolCatalog:
         if item["summary"] == item["name"] and item["id"] in SUMMARIES:
             item["summary"] = SUMMARIES[item["id"]]
         self.tools[item["id"]] = item
+        self.scope_errors.pop(item["id"], None)
         self._search_cache = None
+        return True
+
+    def _scope_error(self, identity, error):
+        """/** @param identity 工具标识 @param error 范围声明错误 @return 登记独立工具诊断 */"""
+        self.scope_errors[identity] = str(error)
+        logging.error("tool_scope_invalid tool=%s reason=%s", identity, error)
 
     def version(self):
         """/** @return 当前注册契约集合的确定版本 */"""
@@ -789,6 +803,15 @@ class ToolCatalog:
             if contract["id"] == "asset.save_assets" and not arguments.get("asset_paths"):
                 raise ValueError("SAVE_REQUIRES_EXPLICIT_ASSETS")
             targets, scoped = write_scope(contract, arguments, access, world)
+            if not scoped and access != "read":
+                scope = contract["scope"]
+                fields = scope.get("fields", scope.get("join", []))
+                if "rows" in scope:
+                    fields = [scope["rows"][0]]
+                field = next((name for name in fields if name in arguments), fields[0])
+                rule = "expected /Game asset path in scope fields " + ", ".join(fields)
+                issues.append("/operations/" + str(index) + "/arguments/" + field + ": " + rule)
+                continue
             prepared.append({"contract": contract, "arguments": arguments, "access": access, "world": world, "targets": targets, "scoped": scoped})
         if issues:
             raise ArgumentValidationError(issues)

@@ -44,10 +44,6 @@ def response(value):
     if result.get("code") == "OPERATOR_LEVEL_REQUIRED":
         result["next"] = next_call("manage_operator", action="update", level=result.get("required_level", 0))
         result["needs"] = [{"path": "/arguments/level", "rule": "明确管理任务通过manage_operator设置对应等级", "schema": {"const": result.get("required_level", 0)}}]
-    if result.get("code") == "ASSET_SCOPE_REQUIRED":
-        target = result.get("details", {}).get("tool")
-        if target:
-            result["next"] = next_call("describe_tool", tool=target)
     if recovery and result.get("assets", {}).get("retry_at") is None and isinstance(result.get("batch"), str):
         result["next"] = next_call("control_task", action="recover", batch=result["batch"])
         result["hint"] = "自动恢复已暂停；核对 recovery_failure 后接续原批次恢复"

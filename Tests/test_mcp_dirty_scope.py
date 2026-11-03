@@ -84,12 +84,12 @@ class DirtyScopeTests(unittest.TestCase):
 
     def test_unknown_scope_reports_action_without_dumping_all_dirty_packages(self):
         self.backend.state["dirty_packages"] = ["/Game/A" + str(index) for index in range(191)]
-        self.catalog.add({"id": "scene.unknown", "name": "unknown", "definition": "Scene", "toolset": "Scene", "parameters": {"type": "object"}, "access": "write", "world": "editor"})
-        with self.assertRaises(McpBusinessError) as failure:
-            self.queue.submit(self.second, [{"tool": "scene.unknown", "arguments": {}}])
-        self.assertEqual(failure.exception.value["code"], "ASSET_SCOPE_REQUIRED")
+        with self.assertLogs(level="ERROR"):
+            accepted = self.catalog.add({"id": "scene.unknown", "name": "unknown", "definition": "Scene", "toolset": "Scene", "parameters": {"type": "object"}, "access": "write", "world": "editor"})
+        self.assertFalse(accepted)
+        self.assertNotIn("scene.unknown", self.catalog.tools)
         self.assertEqual(self.queue.queue, [])
-        self.assertLess(len(json.dumps(failure.exception.value)), 512)
+        self.assertLess(len(self.catalog.scope_errors["scene.unknown"]), 512)
 
     def test_async_resume_claims_only_its_scope(self):
         """

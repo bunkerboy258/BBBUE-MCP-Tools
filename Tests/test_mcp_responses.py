@@ -65,8 +65,6 @@ class ResponseTests(unittest.TestCase):
 
     def test_scope_error_points_to_exact_tool_and_large_schema_is_bounded(self):
         """/** @return 范围错误有具体查询 参数片段控制体积 */"""
-        value = response({"status": "rejected", "code": "ASSET_SCOPE_REQUIRED", "details": {"tool": "test.write"}})
-        self.assertEqual(value["next"], {"tool": "describe_tool", "arguments": {"tool": "test.write"}})
         schema = {"type": "object", "properties": {"settings": {"type": "object", "properties": {str(index): {"type": "string"} for index in range(200)}}}}
         value = argument_failure("/arguments/settings: expected object", schema, "test.write")
         self.assertEqual(value["next"]["arguments"]["tool"], "test.write")

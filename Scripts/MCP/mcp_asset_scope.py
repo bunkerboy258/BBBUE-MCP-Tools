@@ -4,7 +4,7 @@ import re
 def asset_targets(value, normalize=True):
     """/** @param value\t操作参数 @param normalize\t规范化为包路径 @return 明确的目标集合 */"""
     targets = set()
-    if isinstance(value, str) and value.startswith("/Game/"):
+    if isinstance(value, str) and (value == "/Game" or value.startswith("/Game/")):
         # PIE 临时包由运行宿主持有 不属于磁盘资产或源控写入范围
         if re.search(r"/UEDPIE_[0-9]+_[^/]+(?:$|/)", value.split(".", 1)[0]):
             return targets

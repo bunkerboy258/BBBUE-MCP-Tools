@@ -150,11 +150,13 @@ class CachedCatalog(ToolCatalog):
         """/** @param path 已核验契约快照 @return 可离线查询的目录 */"""
         self.path = Path(path)
         self.tools = {}
+        self.scope_errors = {}
         self.backend = None
         if self.path.exists():
             try:
                 value = json.loads(self.path.read_text(encoding="utf-8"))
-                self.tools = value["tools"]
+                for contract in value["tools"].values():
+                    self.add(contract)
                 self.version()
             except (OSError, ValueError, KeyError, TypeError):
                 self.tools = {}
@@ -165,6 +167,7 @@ class CachedCatalog(ToolCatalog):
         catalog = ToolCatalog(backend)
         atomic_json(self.path, {"tools": catalog.tools, "version": catalog.version()})
         self.tools = catalog.tools
+        self.scope_errors = catalog.scope_errors
         self.backend = backend
         return self
 
@@ -273,6 +276,7 @@ class ProjectRuntime:
                     if old.worker and old.worker.is_alive():
                         raise RuntimeError("PREVIOUS_EXECUTION_SETTLING")
                 self.catalog.tools = catalog.tools
+                self.catalog.scope_errors = catalog.scope_errors
                 self.catalog.backend = backend
                 atomic_json(self.catalog.path, {"tools": catalog.tools, "version": catalog.version()})
                 previous_backend = self.backend
@@ -364,6 +368,8 @@ class ProjectRuntime:
                             raise McpBusinessError({"status": "rejected", "code": "BATCH_OWNERSHIP"})
                         value = {"batch": batch, "status": stored["status"], "completed": stored["completed"], "results": stored["results"], "next": None}
                 if batch is None:
+                    if detail and self.catalog.scope_errors:
+                        value["tool_scope_errors"] = dict(self.catalog.scope_errors)
                     value["source"] = self.source_state()
                     value["connection"] = self.state
                     value["service"] = "ready"

@@ -32,7 +32,11 @@
 
 目标范围已有脏包时，服务核对资产占用，定向编译、保存与回读后执行原批次。`proof.prepared` 记录前置保存的包，`proof.saved` 记录保存结果。其他活动批次持有的资产按原归属交接，故障资产沿后台恢复流程处理。占用响应默认提供八项包摘要，`detail=true` 返回完整证据，内部保存始终使用完整范围。
 
-`ASSET_SCOPE_REQUIRED` 在派发前指出范围缺失的工具。地图演员按地图及外部 Actor/Object 包协调；当前地图改变时返回 `EDITOR_WORLD_CHANGED`。
+目录发布和缓存读取共用范围校验，覆盖资产字段、批量行目标、目录与名称拼接、当前地图和会话操作。声明错误独立记录为 `TOOL_SCOPE_INVALID`，日志和 `inspect_tasks(detail=true).tool_scope_errors` 提供维护诊断。其余工具继续提供服务。
+
+目标参数缺失或路径无效时返回 `ARGUMENT_INVALID`，`needs` 定位到对应范围字段。当前地图需要已保存的项目包，否则返回 `EDITOR_WORLD_REQUIRED`。地图演员按地图及外部 Actor/Object 包协调；当前地图改变时返回 `EDITOR_WORLD_CHANGED`。
+
+`scene.load_level` 合并当前地图与目标地图的范围；Entry 和临时空地图可直接打开已保存的目标地图。排队期间的当前地图变化沿世界绑定核验。
 
 `ARGUMENT_INVALID` 的 `needs` 返回具体字段路径、操作序号与准确字段契约。校验阶段实际修改为零的批次立即结束；部分成功的批次保存已知修改并保留 `failure`。执行结果不确定时，自动核实证据写入 `proof.reconciled`，原执行状态继续标为 `unknown`。
 

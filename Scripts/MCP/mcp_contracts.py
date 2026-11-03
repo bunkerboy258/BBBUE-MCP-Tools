@@ -5,6 +5,7 @@ from pathlib import Path
 import ast
 from functools import lru_cache
 from MCP.mcp_result import object_path
+from MCP.mcp_response import resolve_schema
 
 
 INPUT_SHAPES = {
@@ -36,7 +37,7 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
-    'scene.load_level': {'scope': {'kind': 'world'}},
+    'scene.load_level': {'scope': {'kind': 'world', 'fields': ['level_path']}},
     'external.game.set_game_mode': {'scope': {'kind': 'world'}},
     'external.retarget.initialize_retarget_ops': {'scope': {'fields': ['retargeter_path']}},
     'external.retarget.set_retarget_chain_bones': {'scope': {'fields': ['ik_rig_path']}},
@@ -87,9 +88,9 @@ TOOL_POLICIES = {
     'motion_matching.configure_in_place_root_velocities': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['asset_paths']}, 'completion': 'verified_save'},
     'motion_matching.analyze_runtime_probe': {'access': 'read', 'world': 'any', 'completion': 'observed'},
     'motion_matching.prepare_reference_runtime': {'access': 'read', 'world': 'editor', 'completion': 'observed'},
-    'motion_matching.start_reference_replay': {'access': 'write', 'world': 'any', 'completion': 'observed'},
+    'motion_matching.start_reference_replay': {'access': 'write', 'world': 'any', 'scope': {'kind': 'session'}, 'completion': 'observed'},
     'motion_matching.inspect_reference_replay': {'access': 'read', 'world': 'any', 'completion': 'observed'},
-    'motion_matching.stop_reference_replay': {'access': 'write', 'world': 'any', 'completion': 'observed'},
+    'motion_matching.stop_reference_replay': {'access': 'write', 'world': 'any', 'scope': {'kind': 'session'}, 'completion': 'observed'},
     'motion_matching.migrate_configuration': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['target_paths']}, 'completion': 'verified_save'},
     'motion_matching.inspect_configuration': {'access': 'read', 'world': 'editor', 'completion': 'observed'},
     'editor.configure_animation_root_motion_matrix': {'scope': {'fields': ['asset_paths']}},
@@ -571,6 +572,87 @@ def expand_input_shape(schema):
     if isinstance(schema, list):
         return [expand_input_shape(value) for value in schema]
     return schema
+
+
+class ScopeContractError(ValueError):
+    """/** 工具范围声明的开发期错误 */"""
+
+    def __init__(self, tool, reasons):
+        """/** @param tool 工具标识 @param reasons 声明问题 @return 定位到工具的维护诊断 */"""
+        self.tool = tool
+        super().__init__("TOOL_SCOPE_INVALID: " + tool + ": " + "; ".join(reasons))
+
+
+def _scope_variants(schema, root, depth=0):
+    """/** @param schema 字段类型 @param root 完整参数 @return 可用类型分支 */"""
+    if depth >= 16:
+        return []
+    schema = resolve_schema(schema, root)
+    result = [schema]
+    if isinstance(schema.get("type"), list):
+        result = [{**schema, "type": kind} for kind in schema["type"]]
+    for key in ("anyOf", "oneOf", "allOf"):
+        for branch in schema.get(key, []):
+            result.extend(_scope_variants(branch, root, depth + 1))
+    return result
+
+
+def validate_scope_contract(contract):
+    """/** @param contract 规范化工具契约 @return 范围声明完成核验 */"""
+    scope = contract.get("scope", {})
+    root = contract["parameters"]
+    properties = root.get("properties", {})
+    reasons = []
+    if not isinstance(scope, dict):
+        raise ScopeContractError(contract["id"], ["scope object required"])
+    selectors = set(scope) & {"fields", "rows", "join", "kind"}
+    world_fields = selectors == {"kind", "fields"} and scope.get("kind") == "world"
+    if scope and ((len(selectors) != 1 and not world_fields) or set(scope) - selectors - {"referencers"}):
+        reasons.append("one scope selector required")
+    if not selectors and contract["access"] == "write" and contract["world"] != "pie":
+        reasons.append("write scope required")
+    if "referencers" in scope and type(scope["referencers"]) is not bool:
+        reasons.append("referencers boolean required")
+    if "kind" in scope and scope["kind"] not in ("world", "session"):
+        reasons.append("scope kind must be world or session")
+    names = []
+    for selector in ("fields", "join"):
+        if selector not in scope:
+            continue
+        fields = scope[selector]
+        if not isinstance(fields, list) or not fields or any(not isinstance(name, str) for name in fields):
+            reasons.append(selector + " must contain field names")
+            continue
+        if selector == "join" and len(fields) != 2:
+            reasons.append("join requires two fields")
+        names.extend(fields)
+        for name in fields:
+            variants = _scope_variants(properties.get(name, {}), root)
+            allowed = {"string"} if selector == "join" else {"string", "array", "object"}
+            if not any(value.get("type") in allowed for value in variants):
+                reasons.append(name + " requires an asset path type")
+    if "rows" in scope:
+        rows = scope["rows"]
+        if not isinstance(rows, list) or len(rows) != 2 or not isinstance(rows[0], str):
+            reasons.append("rows requires an array field and target keys")
+        if isinstance(rows, list) and len(rows) == 2 and isinstance(rows[0], str):
+            field, keys = rows
+            names.append(field)
+            keys = [keys] if isinstance(keys, str) else keys
+            if not isinstance(keys, list) or not keys or any(not isinstance(key, str) for key in keys):
+                reasons.append("rows target keys required")
+            if isinstance(keys, list) and keys and all(isinstance(key, str) for key in keys):
+                arrays = _scope_variants(properties.get(field, {}), root)
+                items = [item for array in arrays if array.get("type") == "array"
+                    for item in _scope_variants(array.get("items", {}), root)]
+                for key in keys:
+                    values = [value for item in items
+                        for value in _scope_variants(item.get("properties", {}).get(key, {}), root)]
+                    if not any(value.get("type") == "string" for value in values):
+                        reasons.append(field + "/items/" + key + " requires an asset path string")
+    reasons.extend("unknown field " + name for name in names if name not in properties)
+    if reasons:
+        raise ScopeContractError(contract["id"], reasons)
 
 
 def compile_contract(contract):

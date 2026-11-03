@@ -220,10 +220,10 @@ class JobTests(unittest.TestCase):
 
     def test_source_assets_never_define_mutation_scope(self):
         schema = {"type": "object", "properties": {"source_path": {"type": "string"}}}
-        self.catalog.add({"id": "scene.copy", "name": "copy", "definition": "Scene", "toolset": "Scene", "parameters": schema, "summary": "copy", "access": "write", "world": "editor"})
-        with self.assertRaises(JobConflict) as failure:
-            self.manager.submit(self.first, [{"tool": "scene.copy", "arguments": {"source_path": "/Game/Source"}}])
-        self.assertEqual(failure.exception.value["code"], "ASSET_SCOPE_REQUIRED")
+        with self.assertLogs(level="ERROR"):
+            accepted = self.catalog.add({"id": "scene.copy", "name": "copy", "definition": "Scene", "toolset": "Scene", "parameters": schema, "summary": "copy", "access": "write", "world": "editor"})
+        self.assertFalse(accepted)
+        self.assertNotIn("scene.copy", self.catalog.tools)
         self.assertEqual(self.manager.queue, [])
 
     def test_continuous_recording_allows_its_owner_to_continue_and_stop(self):
