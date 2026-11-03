@@ -36,7 +36,7 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
-2026-11-03 新增 level.reuse_authored_lighting 核对几何及原生光照映射后才允许绑定 来源保持只读 DeadCity 474 个组件几何匹配 741 个当前映射未命中 原始标识命中 477 条 应用在写入前拒绝 地形 210 条与体积光照可读 未重新烘焙 见 Docs/BBBStaticLightingMCP.md
+    'level.reuse_authored_lighting': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['expected_level']}, 'completion': 'verified_save'},
     'level.inspect_static_lighting': {'access': 'read', 'world': 'editor', 'scope': {'fields': ['expected_level']}, 'completion': 'observed'},
     'level.build_gpu_lightmass': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['expected_level', 'build_data_path']}, 'completion': 'activity'},
     'level.build_static_lighting': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['expected_level', 'build_data_path']}, 'completion': 'activity'},
