@@ -27,3 +27,13 @@
 ## 验证
 
 2026-11-03 UE5.8 原生完整编译与工具 Python 语法检查通过 实际场景构建与画面验证执行中
+
+## GPU 整图烘焙
+
+`level.build_gpu_lightmass(expected_level, build_data_path, action, gi_samples, shadow_samples, tile_pool_size, workload_factor)` 使用引擎 GPULightmassSubsystem 的 FullBake 不调用 CPU BuildLighting 要求启用 GPULightmass 插件 DX12 与硬件光追 编辑器不能以 r.RayTracing=0 启动
+
+默认 GI 512 阴影 128 瓦片池 32 工作倍率 2 关闭实时视口 户外关闭辐照缓存 完成后降噪 压缩贴图 体积光照格 200cm 质量倍率 2 不修改进程优先级 不修改源美术
+
+活动按原生 IsRunning 与 GetPercentage 回读 进程停止不单独证明烘焙成功 交付必须核对引擎完成及结果导入日志 并保存地图与独立 BuiltData 不自动回退 CPU
+
+2026-11-03 GPU 工具配置完成 实际整图烘焙待完成

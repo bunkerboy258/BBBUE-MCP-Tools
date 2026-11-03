@@ -1,3 +1,5 @@
+2026-11-03 新增 level.build_gpu_lightmass 通过原生子系统整图 GPU 烘焙 显式限制采样 瓦片池与工作负载 完成证据与保存独立核对 实际烘焙执行中 见 Docs/BBBStaticLightingMCP.md
+
 2026-11-03 新增原生静态光照审计与 CPU 构建入口 精确限制地图及独立 BuiltData 写入 跟踪引擎成功与结果采用 三项契约回归通过 149 演员预览烘焙成功并保存 整图与目标帧率验证继续执行 见 Docs/BBBStaticLightingMCP.md
 
 2026-11-03 材质脚步声制作：新增官方 MetaSound 预设 Builder、枚举函数参数与枚举键对象映射工具，资产属性支持保留 GameplayTag 键的 mapEntries。普通参数的约束描述保持原生传输类型，两个单项检查通过；45 条免费音效、五类预设与音库、13 处地面或地形层物理材质及角色组件配置已保存回读。Begin 单次查地后继续 GASP 事件选音和附着播放，未知表面保留原音库；通知与子通知编译通过，未进行 PIE 听感验收。接口见 Docs/BBBFootstepAudioMCP.md。

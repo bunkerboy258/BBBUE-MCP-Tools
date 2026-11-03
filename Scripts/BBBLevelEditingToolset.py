@@ -9,6 +9,13 @@ from toolset_registry.registration import Registration
 
 MCP_INPUTS = {
     'inspect_static_lighting': {'center': {'type': 'array', 'items': {'type': 'number'}, 'minItems': 3, 'maxItems': 3}, 'extent': {'type': 'array', 'items': {'type': 'number', 'minimum': 0}, 'minItems': 3, 'maxItems': 3}},
+    'build_gpu_lightmass': {
+        'action': {'type': 'string', 'enum': ['start', 'status'], 'default': 'status'},
+        'gi_samples': {'type': 'integer', 'minimum': 32, 'maximum': 8192, 'default': 512},
+        'shadow_samples': {'type': 'integer', 'minimum': 32, 'maximum': 8192, 'default': 128},
+        'tile_pool_size': {'type': 'integer', 'minimum': 16, 'maximum': 128, 'default': 32},
+        'workload_factor': {'type': 'integer', 'minimum': 1, 'maximum': 8, 'default': 2},
+    },
     'build_static_lighting': {'action': {'type': 'string', 'enum': ['start', 'status', 'cancel'], 'default': 'status'}, 'quality': {'type': 'integer', 'minimum': 0, 'maximum': 3, 'default': 0}, 'actor_paths_json': {'type': 'array', 'items': {'type': 'string', 'minLength': 1}, 'uniqueItems': True, 'default': []}},
     'inspect_navigation_route': {'points_json': {
         'type': 'array', 'minItems': 2, 'maxItems': 256,
@@ -113,6 +120,77 @@ class BBBLevelEditingToolset(unreal.ToolsetDefinition):
             register_activity('lighting:' + result['id'], status)
         return json.dumps(result, ensure_ascii=False)
 
+
+    @mcp_tool
+    @staticmethod
+    def build_gpu_lightmass(expected_level: str, build_data_path: str, action: str = 'status',
+                            gi_samples: int = 512, shadow_samples: int = 128,
+                            tile_pool_size: int = 32, workload_factor: int = 2) -> str:
+        """
+        /**
+         * 使用引擎 GPU Lightmass 整图烘焙 并登记实际运行状态
+         * @param expected_level	明确的当前关卡包路径
+         * @param build_data_path	目标关卡独立构建数据包
+         * @param action	start 或 status
+         * @param gi_samples	每纹素间接光采样数
+         * @param shadow_samples	静止灯光阴影采样数
+         * @param tile_pool_size	显存瓦片池边长
+         * @param workload_factor	关闭实时视口后的工作负载倍率
+         * @return 原生运行状态与进度 停止不单独证明结果成功
+         */
+        """
+        from BBBAssetWritePolicy import require_write_access
+        from BBBMcpCapabilities import register_activity
+
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+        if world is None or world.get_path_name().split('.', 1)[0] != expected_level:
+            raise RuntimeError("当前关卡与 GPU 烘焙目标不匹配")
+        if build_data_path != expected_level + '_BuiltData' or action not in ('start', 'status'):
+            raise RuntimeError("GPU 烘焙动作或独立构建数据路径无效")
+        if not hasattr(unreal, 'GPULightmassSubsystem'):
+            raise RuntimeError("未启用 GPU Lightmass 插件 需要启用后重启编辑器")
+        library = unreal.get_default_object(unreal.load_class(None, "/Script/Engine.SubsystemBlueprintLibrary"))
+        subsystem = library.call_method("GetWorldSubsystem", (world, unreal.GPULightmassSubsystem))
+        if subsystem is None:
+            raise RuntimeError("当前世界没有 GPU Lightmass 子系统")
+
+        def status():
+            running = bool(subsystem.is_running())
+            percent = int(subsystem.get_percentage())
+            return {'status': 'running' if running else 'completed', 'running': running,
+                    'percentage': percent, 'backend': 'GPU Lightmass',
+                    'result_requires_completion_log': True, 'level': expected_level}
+
+        if action == 'status':
+            return json.dumps(status(), ensure_ascii=False)
+        require_write_access(world)
+        require_write_access(build_data_path)
+        if subsystem.is_running() or unreal.EditorLevelLibrary.get_pie_worlds(False):
+            raise RuntimeError("GPU 烘焙已运行或当前处于 PIE")
+        for value, lower, upper in ((gi_samples, 32, 8192), (shadow_samples, 32, 8192),
+                                    (tile_pool_size, 16, 128), (workload_factor, 1, 8)):
+            if type(value) is not int or not lower <= value <= upper:
+                raise RuntimeError("GPU 烘焙参数越界")
+        settings = subsystem.get_settings()
+        values = {'mode': unreal.GPULightmassMode.FULL_BAKE,
+                  'gi_samples': gi_samples, 'stationary_light_shadow_samples': shadow_samples,
+                  'lightmap_tile_pool_size': tile_pool_size,
+                  'tile_passes_in_slow_mode': 1, 'tile_passes_in_full_speed_mode': workload_factor,
+                  'use_irradiance_caching': False, 'use_first_bounce_ray_guiding': False,
+                  'compress_lightmaps': True,
+                  'denoising_options': unreal.GPULightmassDenoisingOptions.ON_COMPLETION,
+                  'volumetric_lightmap_quality_multiplier': 2,
+                  'volumetric_lightmap_detail_cell_size': 200}
+        for name, value in values.items():
+            settings.set_editor_property(name, value)
+        subsystem.set_realtime(False)
+        subsystem.launch()
+        result = status()
+        if not result['running']:
+            raise RuntimeError("GPU Lightmass 未能启动 请检查 DX12 光追与显存日志")
+        register_activity('gpu_lighting:' + world.get_path_name(), status)
+        unreal.log('[BBBGpuLightmass] FullBake started ' + json.dumps(result, ensure_ascii=False))
+        return json.dumps(result, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod

@@ -37,6 +37,7 @@ INPUT_SHAPES = {
 
 TOOL_POLICIES = {
     'level.inspect_static_lighting': {'access': 'read', 'world': 'editor', 'scope': {'fields': ['expected_level']}, 'completion': 'observed'},
+    'level.build_gpu_lightmass': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['expected_level', 'build_data_path']}, 'completion': 'activity'},
     'level.build_static_lighting': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['expected_level', 'build_data_path']}, 'completion': 'activity'},
     'editor.create_metasound_preset': {'scope': {'fields': ['asset_path']}, 'world': 'editor', 'completion': 'verified_save'},
     'blueprint.add_enum_function_param': {'scope': {'fields': ['graph_path']}, 'world': 'editor', 'completion': 'verified_save'},

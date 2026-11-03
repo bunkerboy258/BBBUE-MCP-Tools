@@ -7994,6 +7994,54 @@
           "returnValue"
         ]
       }
+    },
+    "build_gpu_lightmass": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expected_level": {
+            "type": "string"
+          },
+          "build_data_path": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "default": "status"
+          },
+          "gi_samples": {
+            "type": "integer",
+            "default": 512
+          },
+          "shadow_samples": {
+            "type": "integer",
+            "default": 128
+          },
+          "tile_pool_size": {
+            "type": "integer",
+            "default": 32
+          },
+          "workload_factor": {
+            "type": "integer",
+            "default": 2
+          }
+        },
+        "required": [
+          "expected_level",
+          "build_data_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBBlueprintGraphToolset": {
