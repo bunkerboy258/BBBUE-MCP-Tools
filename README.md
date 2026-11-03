@@ -129,6 +129,17 @@ result = session.submit_batch(
 
 环境：Windows、UE5.8、接入项目的编辑器模块、Python 与 `requests`。
 
+项目在 `Config/DefaultEngine.ini` 配置独立仓库的 Python 搜索目录，UE 随后自动执行仓库中的 `Scripts/init_unreal.py`：
+
+```ini
+[/Script/PythonScriptPlugin.PythonScriptPluginSettings]
++AdditionalPaths=(Path="E:/UE5.8/BBBUE-MCP-Tools/Scripts")
+```
+
+统一入口为 `BBBMcpEditorStartup.start_editor_mcp()`：先注册并核对仓库工具，再建立私有后端并发布宿主。工具注册失败直接报错，不发布不完整宿主；同进程重复调用不重复注册、建立后端或启动心跳。测试宿主注册工具后由所属调度维护，不登记为共享编辑宿主；命令行任务跳过自动接入。正常打开项目和正式启动器共用此入口，不需要任务临时目录中的 `ConnectMcp.py`。
+
+2026-11-03 启动链核验：Python 语法和配置静态检查通过；无任务 Python 初始化命令的可视冷启动已自动注册工具并接入常驻服务，宿主身份、当前 DeadCity 关卡和脏包只读查询通过。未启动 PIE 或自动化验收。
+
 首次配置常驻服务：
 
 ```powershell

@@ -24,6 +24,7 @@ class StartupTests(unittest.TestCase):
         self.unreal = types.SimpleNamespace(BBBMcpEditorStartupLibrary=self.native,
             SystemLibrary=types.SimpleNamespace(get_command_line=lambda:''),log=Mock(),log_warning=Mock(),
             register_slate_post_tick_callback=Mock(return_value=1))
+        self.bootstrap = types.SimpleNamespace(register_mcp_toolsets=Mock())
         with patch.dict(sys.modules, {'unreal':self.unreal}):
             spec=importlib.util.spec_from_file_location('startup_under_test',ROOT/'Scripts/BBBMcpEditorStartup.py')
             self.module=importlib.util.module_from_spec(spec)
@@ -32,6 +33,7 @@ class StartupTests(unittest.TestCase):
                      patch.object(self.module,'_port_available',return_value=18000),
                      patch.object(self.module.shutil,'which',return_value='C:/Python/python.exe'),
                      patch.object(self.module.threading,'Thread'),patch.object(Path,'is_file',return_value=True),
+                     patch.dict(sys.modules, {'BBBMcpBootstrap': self.bootstrap}),
                      patch.dict(os.environ,{'BBB_MCP_HOST_ROLE':'editor'})]:
             item.start()
             self.addCleanup(item.stop)
@@ -44,6 +46,16 @@ class StartupTests(unittest.TestCase):
         self.assertNotIn('process',self.module._startup)
         self.module.start_editor_mcp()
         self.assertEqual(self.native.start_private_backend.call_count,1)
+        self.bootstrap.register_mcp_toolsets.assert_called_once()
+
+    def test_registration_failure_does_not_publish_an_incomplete_host(self):
+        """/** @return 工具注册失败时不建立后端或发布宿主 */"""
+        self.bootstrap.register_mcp_toolsets.side_effect = RuntimeError('MCP_TOOLSET_REGISTRATION_FAILED')
+        with self.assertRaisesRegex(RuntimeError, 'MCP_TOOLSET_REGISTRATION_FAILED'):
+            self.module.start_editor_mcp()
+        self.native.start_private_backend.assert_not_called()
+        self.module.publish_host.assert_not_called()
+        self.assertIsNone(self.module._startup)
 
     def test_service_port_and_external_python_are_explicit(self):
         self.unreal.SystemLibrary.get_command_line=lambda:'-BBBMcpServicePort=18100 -BBBMcpServicePython="C:/Python Runtime/python.exe"'
