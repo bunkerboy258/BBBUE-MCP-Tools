@@ -36,6 +36,12 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
+    'animation.assign_notify_instance_tracks': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['asset_path']}, 'completion': 'verified_save'},
+    'animation.replace_notify_tracks': {'access': 'write', 'world': 'editor', 'scope': {'rows': ['requests', 'asset_path']}, 'completion': 'verified_save'},
+    'animation.inspect_reference_notify_events': {'access': 'read', 'world': 'editor', 'completion': 'observed'},
+    'blueprint.convert_notify_blueprint_to_state': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['blueprint_path', 'child_paths']}, 'completion': 'verified_save'},
+    'assets.import_external_packages': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['destination_root']}, 'completion': 'verified_save'},
+    'actor.add_component': {'scope': {'fields': ['owner']}},
     'motion_matching.capture_search_timing': {'access': 'read', 'world': 'any', 'completion': 'observed'},
     'motion_matching.configure_bone_channels': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['asset_path']}, 'completion': 'verified_save'},
     'preview.capture_slime_presentation': {'access': 'pie', 'world': 'pie', 'scope': {'kind': 'session'}, 'completion': 'activity'},

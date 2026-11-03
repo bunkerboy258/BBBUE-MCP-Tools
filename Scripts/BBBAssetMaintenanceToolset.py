@@ -1151,6 +1151,23 @@ def _execute_asset_moves(report):
 
 @unreal.uclass()
 class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
+    @mcp_tool
+    @staticmethod
+    def import_external_packages(content_directory: str, relative_packages: list[str], destination_root: str, dry_run: bool = True) -> str:
+        """
+        /**
+         * @param content_directory	外部 Content 目录
+         * @param relative_packages	明确相对包名
+         * @param destination_root	第三方目标包根
+         * @param dry_run	只预检
+         * @return 原生引用重写与来源指纹核验结果
+         */
+        """
+        import importlib
+        import BBBExternalPackageImport
+        return json.dumps(importlib.reload(BBBExternalPackageImport).import_packages(
+            content_directory, relative_packages, destination_root, dry_run), ensure_ascii=False)
+
     """提供精确限定资产范围的维护工具"""
 
     @mcp_tool

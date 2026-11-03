@@ -49,6 +49,7 @@ TOOL_DOMAINS = {
 TOOLSET_ROUTES = tuple(name for name in TOOL_DOMAINS if name.startswith("BBB"))
 
 HELPER_MODULES = (
+    "BBBFootstepAuthoring",
     "BBBMotionMatchingAssets",
     "BBBMotionMatchingProvider",
     "BBBMotionMatchingGraph",
@@ -71,6 +72,7 @@ HELPER_MODULES = (
     "BBBAnimationPoseBaking",
     "BBBTraversalAnimationBaking",
     "BBBSoundAssetAudit", "BBBRecoilAnimationTools", "BBBDisplayAssetCaptureTools", "BBBBlueprintMigration",
+    "BBBExternalPackageImport",
 )
 SCRIPTS_ROOT = Path(__file__).resolve().parent
 

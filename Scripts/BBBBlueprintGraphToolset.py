@@ -235,6 +235,35 @@ def _capture_layout_graph(graph):
 class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
     @mcp_tool
     @staticmethod
+    def convert_notify_blueprint_to_state(blueprint_path: str, state_class: str, child_paths: list[str]) -> str:
+        """
+        /**
+         * @param blueprint_path	明确普通通知蓝图
+         * @param state_class	原生状态通知父类
+         * @param child_paths	明确子通知蓝图
+         * @return 编译保存结果与父类
+         */
+        """
+        from BBBAssetWritePolicy import require_asset_write
+        blueprint = unreal.load_asset(blueprint_path)
+        parent = unreal.load_class(None, state_class)
+        children = [unreal.load_asset(path) for path in child_paths]
+        if not isinstance(blueprint, unreal.Blueprint) or parent is None or any(not isinstance(item, unreal.Blueprint) for item in children):
+            raise RuntimeError('需要明确通知蓝图 原生状态类与子类')
+        require_asset_write([blueprint] + children)
+        if not unreal.BBBBlueprintEditorLibrary.convert_notify_blueprint_to_state(blueprint, parent):
+            raise RuntimeError('通知类型转换失败 不保存')
+        for child in children:
+            unreal.BlueprintEditorLibrary.compile_blueprint(child)
+            if child.get_editor_property('status') != unreal.BlueprintStatus.BS_UP_TO_DATE:
+                raise RuntimeError('子通知编译失败 不保存: ' + child.get_path_name())
+        for item in [blueprint] + children:
+            if not unreal.EditorAssetLibrary.save_loaded_asset(item, False):
+                raise RuntimeError('通知保存失败')
+        return json.dumps({'saved': True, 'blueprint': blueprint_path, 'children': child_paths, 'parent': state_class}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def set_blueprint_comment_text(graph_path: str, node_guid: str, expected_text: str, text: str) -> str:
         """/** @param graph_path 项目图表 @param node_guid 节点标识 @param expected_text 原文 @param text 新正文 @return 保存与回读结果 */"""
         if not graph_path.startswith('/Game/_Project/'):

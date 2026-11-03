@@ -290,6 +290,13 @@ def _load_blueprint_default_object(asset_path):
 def _apply_editor_property(target, property_name, requested_value):
     current_value = target.get_editor_property(property_name)
 
+    if isinstance(requested_value, dict) and 'enumType' in requested_value and isinstance(current_value, unreal.EnumBase):
+        enum_type = type(current_value)
+        if enum_type.__name__ != requested_value['enumType']:
+            raise RuntimeError('目标字段枚举类型不匹配: ' + property_name)
+        target.set_editor_property(property_name, getattr(enum_type, requested_value['value']))
+        return
+
     if isinstance(requested_value, list) or (isinstance(requested_value, dict) and any(
         name in requested_value for name in ('structType', 'enumType', 'classPath', 'mapValues'))):
         target.set_editor_property(property_name, _materialize_property_value(requested_value))
@@ -2282,13 +2289,26 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
                 library.remove_animation_notify_events_by_track(asset, track_name)
             if not library.is_valid_anim_notify_track_name(asset, track_name):
                 library.add_animation_notify_track(asset, track_name)
+            instance_tracks = []
+            for original_track in library.get_animation_notify_track_names(asset):
+                for original in library.get_animation_notify_events_for_track(asset, original_track):
+                    original_instance = original.get_editor_property('notify') or original.get_editor_property('notify_state_class')
+                    if original_instance is not None:
+                        instance_tracks.append((original_instance, original_track))
             for notify_class, start, duration, is_state, properties in validated:
+                previous_instances = {event.get_editor_property('notify') or event.get_editor_property('notify_state_class')
+                                      for event in library.get_animation_notify_events(asset)}
                 if is_state:
-                    created = library.add_animation_notify_state_event(asset, track_name, start, duration, notify_class)
+                    library.add_animation_notify_state_event(asset, track_name, start, duration, notify_class)
                 if not is_state:
-                    created = library.add_animation_notify_event(asset, track_name, start, notify_class)
-                if created is None:
-                    raise RuntimeError("创建通知失败 未保存资产 请检查当前脏包")
+                    library.add_animation_notify_event(asset, track_name, start, notify_class)
+                added = [event.get_editor_property('notify') or event.get_editor_property('notify_state_class')
+                         for event in library.get_animation_notify_events(asset)
+                         if (event.get_editor_property('notify') or event.get_editor_property('notify_state_class')) not in previous_instances]
+                if len(added) != 1 or added[0] is None:
+                    raise RuntimeError('新增通知对象不唯一 禁止保存')
+                created = added[0]
+                instance_tracks.append((created, track_name))
                 instance = created
                 for property_name, requested_value in properties.items():
                     current_value = instance.get_editor_property(property_name)
@@ -2317,6 +2337,10 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
                             scale=unreal.Vector(*numbers[6:9]),
                         )
                     _apply_editor_property(instance, property_name, requested_value)
+
+            for instance, assigned_track in instance_tracks:
+                if not unreal.BBBBlueprintEditorLibrary.set_animation_notify_instance_track(asset, instance, assigned_track):
+                    raise RuntimeError('按对象身份设置通知轨道失败 禁止保存')
 
         if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
             raise RuntimeError("通知资产保存失败")

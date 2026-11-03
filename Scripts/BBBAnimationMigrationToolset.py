@@ -15,6 +15,13 @@ from toolset_registry.registration import Registration
 
 
 MCP_INPUTS = {
+    'replace_notify_tracks': {'requests_json': {'type': 'array', 'minItems': 1, 'maxItems': 8,
+        'items': {'type': 'object', 'properties': {'asset_path': {'type': 'string'}, 'track_name': {'type': 'string'},
+            'events': {'type': 'array', 'items': {'type': 'object', 'properties': {
+                'class_path': {'type': 'string'}, 'time': {'type': 'number'}, 'duration': {'type': 'number'},
+                'properties': {'type': 'object', 'additionalProperties': True}},
+                'required': ['class_path', 'time'], 'additionalProperties': False}}},
+            'required': ['asset_path', 'track_name', 'events'], 'additionalProperties': False}}},
     'replace_animation_bone_tracks': {
         'tracks_json': {'type': 'object', 'minProperties': 1, 'maxProperties': 128, 'additionalProperties': {'type': 'array', 'minItems': 1, 'maxItems': 1200, 'items': {'$ref': '#/$defs/TransformQuaternion'}}},
     },
@@ -588,6 +595,64 @@ def _build_ik_foot_track_data(animation, mesh):
 
 @unreal.uclass()
 class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
+    @mcp_tool
+    @staticmethod
+    def assign_notify_instance_tracks(asset_path: str, assignments: dict[str, str]) -> str:
+        """
+        /**
+         * @param asset_path	目标动画
+         * @param assignments	明确通知对象路径到已有轨道名的映射
+         * @return 保存后通知列表
+         */
+        """
+        from BBBAssetWritePolicy import require_write_access
+        from BBBGenericEditorToolset import BBBGenericEditorToolset
+        animation = unreal.load_asset(asset_path)
+        if not isinstance(animation, unreal.AnimSequenceBase) or not assignments:
+            raise RuntimeError('要求动画与明确通知轨道映射')
+        require_write_access(animation)
+        instances = [(unreal.load_object(None, path), track) for path, track in assignments.items()]
+        tracks = unreal.AnimationLibrary.get_animation_notify_track_names(animation)
+        if any(instance is None or instance.get_outer() != animation or unreal.Name(track) not in tracks for instance, track in instances):
+            raise RuntimeError('通知归属或目标轨道无效')
+        for instance, track in instances:
+            if not unreal.BBBBlueprintEditorLibrary.set_animation_notify_instance_track(animation, instance, track):
+                raise RuntimeError('通知轨道设置失败 禁止保存')
+        for instance, track in instances:
+            events = unreal.AnimationLibrary.get_animation_notify_events_for_track(animation, track)
+            if not any((event.get_editor_property('notify') or event.get_editor_property('notify_state_class')) == instance for event in events):
+                raise RuntimeError('目标轨道不能容纳通知区间 禁止保存')
+        if not unreal.EditorAssetLibrary.save_loaded_asset(animation, False):
+            raise RuntimeError('通知轨道保存失败')
+        return BBBGenericEditorToolset.inspect_animation_notifies(asset_path)
+
+    @mcp_tool
+    @staticmethod
+    def inspect_reference_notify_events(content_directory: str, animation_paths: list[str]) -> str:
+        """
+        /**
+         * @param content_directory\t外部只读 Content 目录
+         * @param animation_paths\t明确来源动画
+         * @return 原生通知时刻和类 不执行蓝图
+         */
+        """
+        import importlib
+        import BBBFootstepAuthoring
+        return importlib.reload(BBBFootstepAuthoring).inspect_reference_events(content_directory, animation_paths)
+
+    @mcp_tool
+    @staticmethod
+    def replace_notify_tracks(requests_json: str) -> str:
+        """
+        /**
+         * @param requests_json\t每批一至八条资产 轨道与通知配置
+         * @return 保存回读及骨轨 曲线和非目标事件保护摘要
+         */
+        """
+        import importlib
+        import BBBFootstepAuthoring
+        return importlib.reload(BBBFootstepAuthoring).replace_tracks(json.loads(requests_json))
+
     """为 BBB 动画迁移提供官方 MCP 探针和编辑入口"""
 
     @mcp_tool

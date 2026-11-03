@@ -16,7 +16,12 @@ def _verify(target, requested, materialize, path):
         if structured:
             _verify(actual, expected, materialize, field)
             continue
-        converted = materialize(expected)
+        if isinstance(expected, dict) and 'enumType' in expected and isinstance(actual, unreal.EnumBase):
+            if type(actual).__name__ != expected['enumType']:
+                raise RuntimeError('目标字段枚举类型不匹配: ' + field)
+            converted = getattr(type(actual), expected['value'])
+        else:
+            converted = materialize(expected)
         if isinstance(actual, unreal.StructBase) and isinstance(converted, unreal.StructBase):
             if actual.export_text() == converted.export_text():
                 continue
