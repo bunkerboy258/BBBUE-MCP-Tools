@@ -100,7 +100,7 @@ def _register_repository_toolsets():
      */
     """
     global _loaded_source_version
-    version = source_version()
+    version = source_version(force=True)
     if _loaded_source_version is not None and _loaded_source_version != version:
         raise RuntimeError("TOOLSET_UPDATE_REQUIRED: restart editor host")
     scripts_root = os.path.join(get_repository_root(), "Scripts")
@@ -143,7 +143,7 @@ def _register_repository_toolsets():
         for module_name, status in report["modules"].items():
             if not status["native_dependencies_ready"]:
                 unreal.log_warning("[BBBMcpBootstrap]原生依赖缺失 {} {}".format(module_name, (status["missing_native_classes"] + status["missing_native_functions"])))
-        if source_version() != version:
+        if source_version(force=True) != version:
             raise RuntimeError("TOOLSET_SOURCE_CHANGED_DURING_LOAD")
         _loaded_source_version = version
         report["source_version"] = version

@@ -115,7 +115,7 @@ class UnrealBackend:
         for name in self._toolsets():
             definition = re.sub(r"_0x[0-9a-fA-F]{8}$", "", name.rsplit(".", 1)[-1])
             known = definition in TOOL_DOMAINS or not definition.startswith("BBB")
-            if known and definition not in {"BBBExternalToolset", "ProgrammaticToolset"}:
+            if known and definition not in {"BBBExternalToolset", "ProgrammaticToolset", "AgentSkillToolset"}:
                 value = self._call("describe_toolset", {"toolset_name": name})
                 if isinstance(value, str):
                     value = json.loads(value)
@@ -499,7 +499,7 @@ class TaskGateway:
             if name not in self.tools:
                 raise ValueError("TOOL_UNKNOWN")
             validate_arguments(arguments, self.tools[name]["inputSchema"])
-            if name in {"find_tools", "describe_tool", "submit_batch"} and hasattr(self.jobs, "require_current"):
+            if name in {"find_tools", "describe_tool"} and hasattr(self.jobs, "require_current"):
                 self.jobs.require_current()
             if name == "control_task":
                 required = {"cancel": "batch", "close": "batch", "recover": "batch", "cancel_blocker": "batch", "pause_operator": "operator", "resume_operator": "operator", "terminate_host": "host"}.get(arguments["action"])

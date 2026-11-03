@@ -17,3 +17,5 @@
 动作的范围、权限和世界约束以当前单项契约为准。资产操作通过源控检查，场景修改使用完整基线与实际回读。
 
 数据表行名使用 `data_table.list_rows`，指定行使用 `data_table.get_rows`，全部行使用 `external.data_table.get_rows_as_json`。查询全部行可一次完成。
+
+当前地图使用 `scene.get_current_level`，打开地图使用 `scene.load_level`。打开前自动交接当前地图，原生入口核验目标地图。

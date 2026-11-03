@@ -36,6 +36,14 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
+    'scene.load_level': {'scope': {'kind': 'world'}},
+    'external.game.set_game_mode': {'scope': {'kind': 'world'}},
+    'external.retarget.initialize_retarget_ops': {'scope': {'fields': ['retargeter_path']}},
+    'external.retarget.set_retarget_chain_bones': {'scope': {'fields': ['ik_rig_path']}},
+    'external.retarget.set_retargeter_source_ik_rig': {'scope': {'fields': ['retargeter_path']}},
+    'external.vision.capture_actors': {'scope': {'kind': 'session'}},
+    'external.vision.capture_from': {'scope': {'kind': 'session'}},
+    'external.vision.capture_viewport': {'scope': {'kind': 'session'}},
     'level.reuse_authored_lighting': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['expected_level']}, 'completion': 'verified_save'},
     'level.inspect_static_lighting': {'access': 'read', 'world': 'editor', 'scope': {'fields': ['expected_level']}, 'completion': 'observed'},
     'level.build_gpu_lightmass': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['expected_level', 'build_data_path']}, 'completion': 'activity'},
@@ -420,7 +428,6 @@ TOOL_POLICIES = {
     'external.game.add_input_mapping': {'scope': {'fields': ['mapping_context_path']}},
     'external.layer.get_actors_in_layer': {'access': 'read'},
     'external.layer.list_layers': {'access': 'read'},
-    'external.level.get_current_level_path': {'access': 'read'},
     'external.level.list_level_actors': {'access': 'read'},
     'external.level_sequence.close_sequencer': {'scope': {'kind': 'session'}},
     'external.level_sequence.get_sequence_info': {'access': 'read'},
@@ -586,12 +593,12 @@ def compile_contract(contract):
         fields = [field for field in roles.get(item["definition"], ()) if field in properties]
         if fields:
             item["scope"] = {"fields": fields}
-        if item["definition"] in {"ActorTools", "LevelTools", "LandscapeTools", "FoliageTools"}:
+        if item["definition"] in {"ActorTools", "SceneTools", "PrimitiveTools", "LevelTools", "LandscapeTools", "FoliageTools"}:
             item["scope"] = {"kind": "world"}
             paths = [field for field in ("level_path", "map_path", "expected_level") if field in properties]
             if paths:
                 item["scope"] = {"fields": paths}
-        if item["id"].startswith(("external.actor.", "external.light.", "external.level.", "external.layer.")) and item["access"] != "read":
+        if item["id"].startswith(("external.actor.", "external.editor.", "external.light.", "external.level.", "external.layer.")) and item["access"] != "read":
             item["scope"] = {"kind": "world"}
             if "level_path" in properties:
                 item["scope"] = {"fields": ["level_path"]}

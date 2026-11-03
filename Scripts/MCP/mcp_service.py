@@ -25,7 +25,7 @@ install_source_loader()
 
 from BBBMcpCapabilities import ToolCatalog
 from MCP.mcp_clients import ClientRegistry
-from MCP.mcp_host_registry import HostRegistry, RegistryGuard, atomic_json, private_directory, process_identity, project_key
+from MCP.mcp_host_registry import HostRegistry, RegistryGuard, atomic_json, private_directory, process_identity, project_key, service_directory
 from MCP.mcp_project_host import project_identity
 from MCP.mcp_result import McpBusinessError
 from MCP.mcp_response import response
@@ -35,14 +35,6 @@ from MCP.mcp_test_hosts import TestHost, project_version
 from MCP.mcp_source_version import source_version
 
 _loaded_source_version = source_version()
-
-
-def service_directory():
-    """/** @return 当前用户的常驻服务配置目录 */"""
-    import winreg
-    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders") as key:
-        local = os.path.expandvars(winreg.QueryValueEx(key, "Local AppData")[0])
-    return private_directory(Path(local) / "BBBMcp")
 
 
 def configuration(project_file=None, port=8000, directory=None):
@@ -216,9 +208,13 @@ class ProjectRuntime:
         """/** @return 版本一致时允许发现与新任务 */"""
         state = self.source_state()
         if not state["current"]:
+            if self.backend is None:
+                raise McpBusinessError({"status": "waiting", "code": "EDITOR_OFFLINE", "next": None,
+                    "hint": "启动项目编辑器后重新提交"})
+            components = [name for name in ("service", "host") if state[name] != state["expected"]]
             raise McpBusinessError({"status": "rejected", "code": "TOOLSET_UPDATE_REQUIRED", "source": state,
-                "hint": "完成当前任务交接后重启编辑器和 MCP 服务；inspect_tasks 回读 source.current=true 后继续",
-                "next": {"tool": "inspect_tasks", "arguments": {}}})
+                "restart": components, "hint": "交接已接收批次后重启 restart 所列进程，再查询 source.current",
+                "next": None})
 
     def connect(self, resume_key=None):
         """/** @param resume_key 客户端恢复凭据 @return 已登记身份 */"""
@@ -383,7 +379,11 @@ class ProjectRuntime:
                                 same_process = current is not None and self.identity == (process_id, current["created"])
                                 value["shutdown"] = {"status": "exit_pending" if same_process else "exited", "process_id": process_id}
                         value["stale"] = gateway is not None
-                    signature = (value.get("revision", 0), self.revision, self.registry.revision, self.clients.operators.revision)
+                    if self.state == "ready" and value.get("status") == "ready" and not value["source"]["current"]:
+                        value.update(status="update_required", available=["inspect", "recover"],
+                            code="TOOLSET_UPDATE_REQUIRED")
+                    signature = (value.get("revision", 0), self.revision, self.registry.revision,
+                        self.clients.operators.revision, tuple(value["source"].values()))
                     if signature != self.view_signature:
                         self.view_signature = signature
                         self.view_revision += 1

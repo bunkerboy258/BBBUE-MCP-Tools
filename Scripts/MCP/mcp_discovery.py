@@ -30,6 +30,8 @@ ALIASES = {
 }
 
 HINTS = {
+    "scene.get_current_level": "current editor level map 当前 地图 关卡 路径",
+    "scene.load_level": "open load editor level map 打开 加载 地图 关卡",
     "data_table.list_rows": "data table list row names 数据表 行名",
     "data_table.get_schema": "data table schema columns fields 数据表 字段 列",
     "data_table.get_rows": "data table rows values 数据表 行 数据",

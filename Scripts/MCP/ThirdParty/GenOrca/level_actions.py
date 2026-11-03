@@ -19,19 +19,6 @@ def ue_create_level(level_path: str = None) -> str:
         return json.dumps({"success": False, "message": str(e), "traceback": traceback.format_exc()})
 
 
-def ue_load_level(level_path: str = None) -> str:
-    """Opens (loads) an existing level in the editor."""
-    if not level_path:
-        return json.dumps({"success": False, "message": "Required parameter 'level_path' is missing."})
-    try:
-        success = unreal.EditorLevelLibrary.load_level(level_path)
-        if not success:
-            return json.dumps({"success": False, "message": f"EditorLevelLibrary.load_level() returned False for '{level_path}'."})
-        return json.dumps({"success": True, "level_path": level_path, "message": f"Level '{level_path}' loaded."})
-    except Exception as e:
-        return json.dumps({"success": False, "message": str(e), "traceback": traceback.format_exc()})
-
-
 def ue_list_level_actors(class_filter: str = None) -> str:
     """
     Lists all actors in the current level.
@@ -111,18 +98,6 @@ def ue_set_world_settings(gravity: float = None, time_dilation: float = None) ->
 
 
 # --- Current level info / saving ----------------------------------------------
-
-def ue_get_current_level_path() -> str:
-    """Returns the path of the currently open editor world/level."""
-    try:
-        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
-        if not world:
-            return json.dumps({"success": False, "message": "No editor world is open."})
-        return json.dumps({"success": True, "level_path": world.get_path_name(),
-                           "level_name": world.get_name()})
-    except Exception as e:
-        return json.dumps({"success": False, "message": str(e), "traceback": traceback.format_exc()})
-
 
 def ue_save_current_level() -> str:
     """Saves the currently open level. Returns success=False for an unsaved/untitled level."""

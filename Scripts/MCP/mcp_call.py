@@ -1,4 +1,5 @@
 import argparse
+import copy
 import json
 import os
 import sys
@@ -162,8 +163,7 @@ class McpSession:
         """/** @param conversation_id 本聊天稳定标识 @return 私有凭证文件的互斥恢复 */"""
         import hashlib
         import msvcrt
-        from MCP.mcp_host_registry import private_directory
-        from MCP.mcp_service import service_directory
+        from MCP.mcp_host_registry import private_directory, service_directory
         directory = private_directory(service_directory() / "clients")
         identity = hashlib.sha256((self.url + "\n" + conversation_id).encode()).hexdigest()
         self.identity_path = directory / (identity + ".json")
@@ -259,14 +259,14 @@ class McpSession:
         result = self.request("find_tools", {"query": query, "limit": limit})
         for item in result:
             if "parameters" in item:
-                self._cache[item["id"]] = json.loads(json.dumps(item))
+                self._cache[item["id"]] = copy.deepcopy(item)
         return result
 
     def describe_tool(self, tool):
         """/** @param tool 稳定 ID @return 单工具参数 */"""
         if tool not in self._cache:
             self._cache[tool] = self.request("describe_tool", {"tool": tool})
-        return json.loads(json.dumps(self._cache[tool]))
+        return copy.deepcopy(self._cache[tool])
 
     def submit_batch(self, operations, label="", environment="editor", test_options=None, test_host=None, await_seconds=2):
         """/** @param operations 有序操作 @param label 阶段用途 @return 即时批次编号 */"""

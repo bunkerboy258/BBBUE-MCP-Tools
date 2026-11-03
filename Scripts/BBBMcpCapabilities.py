@@ -395,6 +395,7 @@ def mcp_tool(method):
 BLOCKED_TOOLS = {
     "execute_tool_script", "execute_python_command", "execute_python_script", "execute_editor_script",
     "execute_console_command", "execute_script",
+    "write_file",
 }
 
 
@@ -523,7 +524,7 @@ def tool_contract(toolset, name, schema, description=""):
     domain = TOOL_DOMAINS.get(definition)
     if domain is None and not definition.startswith("BBB") and definition != "ProgrammaticToolset":
         domain = re.sub(r"(?<!^)(?=[A-Z])", "_", definition.removesuffix("Tools")).lower()
-    if domain is None or name in BLOCKED_TOOLS or definition == "BBBExternalToolset":
+    if domain is None or name in BLOCKED_TOOLS or definition in {"BBBExternalToolset", "AgentSkillToolset"}:
         return None
     parameters = clean_schema(schema)
     parameters.setdefault("additionalProperties", False)
@@ -651,10 +652,19 @@ class ToolCatalog:
 
     def version(self):
         """/** @return 当前注册契约集合的确定版本 */"""
-        return hashlib.sha256(json.dumps([sorted((identity, item["version"], item["summary"]) for identity, item in self.tools.items()), ROUTES, PURPOSES], ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:12]
+        signature = tuple((identity, item["version"], item["summary"]) for identity, item in self.tools.items())
+        cached = getattr(self, "_version_cache", None)
+        if cached is None or cached[0] != signature:
+            version = hashlib.sha256(json.dumps([sorted(signature), ROUTES, PURPOSES], ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:12]
+            cached = (signature, version)
+            self._version_cache = cached
+            self._search_cache = None
+        return cached[1]
 
     def find(self, query, limit=3):
         """/** @param query 目标关键字 @param limit 结果上限 @return 候选工具 */"""
+        if query.strip() in self.tools:
+            return [self.describe(query.strip())]
         normalized = query.casefold().strip()
         if any(word in normalized for word in ("关闭编辑器", "退出编辑器", "关编辑器", "关闭ue", "退出ue", "shutdown_host", "close editor", "quit editor")):
             result = self.describe("control_task")

@@ -56,6 +56,14 @@ def private_directory(path):
     return path
 
 
+def service_directory():
+    """/** @return 当前用户的常驻服务配置目录 */"""
+    import winreg
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders") as key:
+        local = os.path.expandvars(winreg.QueryValueEx(key, "Local AppData")[0])
+    return private_directory(Path(local) / "BBBMcp")
+
+
 def terminate_process(identity):
     """/** @param identity 已登记的程序路径和创建时间 @return 同一进程句柄的终止结果 */"""
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)

@@ -135,7 +135,7 @@ class ServiceTests(unittest.TestCase):
 
     def test_sdk_conversation_restores_private_key_and_grade(self):
         """/** @return 同一聊天重建 SDK 时恢复干员 */"""
-        with patch("MCP.mcp_service.service_directory", return_value=Path(self.temp.name) / "service"):
+        with patch("MCP.mcp_host_registry.service_directory", return_value=Path(self.temp.name) / "service"):
             with McpSession(self.url, 5, task="测试归属", level=0, conversation_id="chat-1") as first:
                 key = first.client_key
                 identity = first.operator["id"]

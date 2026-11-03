@@ -4,28 +4,45 @@ import threading
 import importlib.abc
 import importlib.machinery
 import sys
+import time
 
 
 _lock = threading.Lock()
 _signature = None
 _digest = None
+_checked_at = 0
+_file_digests = {}
 
 
-def source_version():
+def source_version(force=False):
     """/** @return 当前 Scripts 源码内容版本 */"""
-    global _signature, _digest
+    global _signature, _digest, _checked_at, _file_digests
     root = Path(__file__).resolve().parents[1]
     with _lock:
+        if not force and _digest is not None and time.monotonic() - _checked_at < 1:
+            return _digest
         files = sorted(root.rglob("*.py"))
-        signature = tuple((str(path.relative_to(root)), path.stat().st_mtime_ns, path.stat().st_size) for path in files)
-        if signature != _signature:
+        signature = []
+        for path in files:
+            metadata = path.stat()
+            signature.append((str(path.relative_to(root)), metadata.st_mtime_ns, metadata.st_ctime_ns, metadata.st_size))
+        signature = tuple(signature)
+        if force or signature != _signature:
             digest = hashlib.sha256()
-            for path, unused_time, unused_size in signature:
+            file_digests = {}
+            for entry in signature:
+                path = entry[0]
+                content = _file_digests.get(entry)
+                if content is None or force:
+                    content = hashlib.sha256((root / path).read_bytes()).digest()
+                file_digests[entry] = content
                 digest.update(path.encode("utf-8"))
                 digest.update(b"\0")
-                digest.update(hashlib.sha256((root / path).read_bytes()).digest())
+                digest.update(content)
             _digest = digest.hexdigest()
             _signature = signature
+            _file_digests = file_digests
+        _checked_at = time.monotonic()
         return _digest
 
 

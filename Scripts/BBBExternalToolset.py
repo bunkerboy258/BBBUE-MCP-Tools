@@ -84,9 +84,7 @@ _DOMAIN_ACTIONS = {
     },
     "level": {
         "create_level",
-        "get_current_level_path",
         "list_level_actors",
-        "load_level",
         "save_current_level",
         "set_world_settings",
     },
