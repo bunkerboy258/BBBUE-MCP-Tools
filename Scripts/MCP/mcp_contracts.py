@@ -36,6 +36,9 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
+    'editor.create_metasound_preset': {'scope': {'fields': ['asset_path']}, 'world': 'editor', 'completion': 'verified_save'},
+    'blueprint.add_enum_function_param': {'scope': {'fields': ['graph_path']}, 'world': 'editor', 'completion': 'verified_save'},
+    'blueprint.add_enum_object_map_variable': {'scope': {'fields': ['blueprint_path']}, 'world': 'editor', 'completion': 'verified_save'},
     'animation.assign_notify_instance_tracks': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['asset_path']}, 'completion': 'verified_save'},
     'animation.replace_notify_tracks': {'access': 'write', 'world': 'editor', 'scope': {'rows': ['requests', 'asset_path']}, 'completion': 'verified_save'},
     'animation.inspect_reference_notify_events': {'access': 'read', 'world': 'editor', 'completion': 'observed'},
@@ -609,6 +612,9 @@ def compile_contract(contract):
             if name not in shapes:
                 raise ValueError("STRUCTURED_CONTRACT_REQUIRED: " + item["id"] + "/" + name)
             field = expand_input_shape(shapes[name])
+            if not name.endswith('_json') and original.get('type') == field.get('type'):
+                properties[name] = {**original, **field}
+                continue
             if "default" in original:
                 default = original["default"]
                 field["default"] = json.loads(default) if isinstance(default, str) and default else default

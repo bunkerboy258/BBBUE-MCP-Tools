@@ -24,6 +24,16 @@ _temporary_test_level = None
 
 
 MCP_INPUTS = {
+    'create_metasound_preset': {
+        'object_array_inputs_json': {'type': 'object', 'additionalProperties': {'type': 'array', 'items': {'type': 'string'}}},
+        'float_inputs_json': {'type': 'object', 'additionalProperties': {'type': 'number'}},
+    },
+    'process_animation_fingers': {'profile_json': {'type': 'object', 'additionalProperties': True}},
+    'sample_skeletal_mesh_surface': {'local_rotations_json': {'type': 'object', 'additionalProperties': {'type': 'array', 'items': {'type': 'number'}, 'minItems': 4, 'maxItems': 4}}},
+    'configure_niagara_particle_stage': {'stage_json': {'type': 'object', 'properties': {'stage': {'type': 'string', 'enum': ['spawn', 'update']}, 'name': {'type': 'string'}, 'code': {'type': 'string'}, 'inputs': {'type': 'array', 'items': {'type': 'object', 'properties': {'name': {'type': 'string'}, 'type': {'type': 'string', 'enum': ['float', 'int', 'bool', 'position', 'vec2', 'vec3', 'color', 'quat']}}, 'required': ['name', 'type'], 'additionalProperties': False}}, 'outputs': {'type': 'array', 'minItems': 1, 'items': {'type': 'object', 'properties': {'name': {'type': 'string'}, 'type': {'type': 'string', 'enum': ['float', 'int', 'bool', 'position', 'vec2', 'vec3', 'color', 'quat']}}, 'required': ['name', 'type'], 'additionalProperties': False}}, 'render': {'type': 'object', 'properties': {'kind': {'type': 'string', 'enum': ['none', 'sprite', 'mesh']}, 'material': {'type': 'string'}, 'mesh': {'type': 'string'}, 'aligned': {'type': 'boolean'}}, 'required': ['kind'], 'additionalProperties': False}, 'modules': {'type': 'array', 'items': {'type': 'string'}, 'maxItems': 8}, 'parameters': {'type': 'array', 'items': {'type': 'object', 'properties': {'name': {'type': 'string'}, 'type': {'type': 'string', 'enum': ['float', 'int', 'bool', 'position', 'vec2', 'vec3', 'color', 'quat']}, 'value': {'type': 'string'}}, 'required': ['name', 'type', 'value'], 'additionalProperties': False}}}, 'required': ['stage', 'name', 'code', 'inputs', 'outputs'], 'additionalProperties': False}},
+    'configure_asset_properties': {'properties_json': {'type': 'object', 'additionalProperties': True}},
+    'configure_niagara_burst_layer': {'layer_json': {'type': 'object', 'properties': {'name': {'type': 'string'}, 'material': {'type': 'string'}, 'count': {'type': 'integer', 'minimum': 1, 'maximum': 256}, 'lifetime': {'type': 'number', 'minimum': 0.01, 'maximum': 5}, 'speed': {'type': 'number', 'minimum': 0, 'maximum': 5000}, 'drag': {'type': 'number', 'minimum': 0, 'maximum': 100}, 'gravity': {'type': 'number', 'minimum': 0, 'maximum': 2000}, 'growth': {'type': 'number', 'minimum': 0, 'maximum': 10}, 'size': {'type': 'array', 'items': {'type': 'number', 'minimum': 0.1, 'maximum': 1000}, 'minItems': 2, 'maxItems': 2}, 'color': {'type': 'array', 'items': {'type': 'number', 'minimum': 0, 'maximum': 100}, 'minItems': 4, 'maxItems': 4}, 'aligned': {'type': 'boolean'}}, 'required': ['name', 'material', 'count', 'lifetime', 'speed', 'drag', 'gravity', 'growth', 'size', 'color', 'aligned'], 'additionalProperties': False}},
+    'configure_niagara_parameters': {'changes_json': {'type': 'array', 'items': {'type': 'object', 'properties': {'store': {'type': 'string'}, 'name': {'type': 'string'}, 'value': {'type': 'string'}}, 'required': ['store', 'name', 'value'], 'additionalProperties': False}, 'minItems': 1}},
     'process_animation_fingers': {'profile_json': {'type': 'object', 'additionalProperties': True}},
     'sample_skeletal_mesh_surface': {'local_rotations_json': {'type': 'object', 'additionalProperties': {'type': 'array', 'items': {'type': 'number'}, 'minItems': 4, 'maxItems': 4}}},
     'configure_niagara_parameters': {'changes_json': {'type': 'array', 'items': {'type': 'object', 'properties': {'store': {'type': 'string'}, 'name': {'type': 'string'}, 'value': {'type': 'string'}}, 'required': ['store', 'name', 'value'], 'additionalProperties': False}, 'minItems': 1}},
@@ -298,7 +308,7 @@ def _apply_editor_property(target, property_name, requested_value):
         return
 
     if isinstance(requested_value, list) or (isinstance(requested_value, dict) and any(
-        name in requested_value for name in ('structType', 'enumType', 'classPath', 'mapValues'))):
+        name in requested_value for name in ('structType', 'enumType', 'classPath', 'mapValues', 'mapEntries'))):
         target.set_editor_property(property_name, _materialize_property_value(requested_value))
         return
 
@@ -373,6 +383,15 @@ def _materialize_property_value(value):
     if 'mapValues' in value:
         return {key: _materialize_property_value(item) for key, item in value['mapValues'].items()}
 
+    if 'mapEntries' in value:
+        entries = value['mapEntries']
+        if not isinstance(entries, list) or any(not isinstance(item, dict) or set(item) != {'key', 'value'} for item in entries):
+            raise RuntimeError('映射条目必须逐项包含 key 与 value')
+        result = {_materialize_property_value(item['key']): _materialize_property_value(item['value']) for item in entries}
+        if len(result) != len(entries):
+            raise RuntimeError('映射条目存在重复键')
+        return result
+
     if 'structType' in value:
         result = getattr(unreal, value['structType'])()
         if 'structText' in value:
@@ -443,6 +462,26 @@ def _set_flat_cubic_curve(animation, curve_name, keys):
 @unreal.uclass()
 class BBBGenericEditorToolset(unreal.ToolsetDefinition):
     """提供不绑定具体领域的官方 UE 编辑器工具"""
+
+    @mcp_tool
+    @staticmethod
+    def create_metasound_preset(asset_path: str, reference_path: str, object_array_inputs_json: str,
+                               float_inputs_json: str) -> str:
+        """
+        /**
+         * @param asset_path	新预设路径
+         * @param reference_path	来源 MetaSound Source
+         * @param object_array_inputs_json	对象数组输入
+         * @param float_inputs_json	浮点输入
+         * @return 原生创建与保存回读
+         */
+        """
+        import importlib
+        import BBBAudioAssetAuthoring
+        return json.dumps(importlib.reload(BBBAudioAssetAuthoring).create_preset(
+            asset_path, reference_path, json.loads(object_array_inputs_json), json.loads(float_inputs_json)), ensure_ascii=False)
+
+
 
     @mcp_tool
     @staticmethod

@@ -233,6 +233,65 @@ def _capture_layout_graph(graph):
 
 @unreal.uclass()
 class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
+
+    @mcp_tool
+    @staticmethod
+    def add_enum_function_param(graph_path: str, param_name: str, enum_path: str, input_param: bool) -> str:
+        """
+        /**
+         * @param graph_path	函数图
+         * @param param_name	英文参数名
+         * @param enum_path	原生或用户枚举路径
+         * @param input_param	是否输入
+         * @return 参数归属与类型
+         */
+        """
+        from BBBAssetWritePolicy import require_write_access
+        graph = unreal.load_object(None, graph_path)
+        enum = unreal.load_object(None, enum_path)
+        if not isinstance(graph, unreal.EdGraph) or not isinstance(enum, unreal.Enum):
+            raise RuntimeError('要求函数图和有效枚举')
+        require_write_access(graph.get_outer())
+        pin_type = unreal.EdGraphPinType()
+        pin_type.import_text('(PinCategory="byte",PinSubCategoryObject="' + enum.get_path_name() + '")')
+        graph_editor = unreal.BlueprintGraphEditor.get_graph_editor(graph)
+        if input_param:
+            graph_editor.add_graph_input_parameter(param_name, pin_type)
+        if not input_param:
+            graph_editor.add_graph_output_parameter(param_name, pin_type)
+        unreal.BlueprintEditorLibrary.compile_blueprint(graph.get_outer())
+        return json.dumps({'graph': graph_path, 'parameter': param_name, 'type': pin_type.export_text()})
+
+
+    @mcp_tool
+    @staticmethod
+    def add_enum_object_map_variable(blueprint_path: str, name: str, enum_path: str, object_class_path: str) -> str:
+        """
+        /**
+         * @param blueprint_path	目标蓝图
+         * @param name	英文字段名
+         * @param enum_path	映射键枚举
+         * @param object_class_path	映射值对象类
+         * @return 字段类型与蓝图
+         */
+        """
+        from BBBAssetWritePolicy import require_write_access
+        blueprint = unreal.load_asset(blueprint_path)
+        enum = unreal.load_object(None, enum_path)
+        object_class = unreal.load_class(None, object_class_path)
+        if not isinstance(blueprint, unreal.Blueprint) or not isinstance(enum, unreal.Enum) or object_class is None:
+            raise RuntimeError('蓝图 枚举或对象类无效')
+        require_write_access(blueprint)
+        key = unreal.EdGraphPinType()
+        key.import_text('(PinCategory="byte",PinSubCategoryObject="' + enum.get_path_name() + '")')
+        value = unreal.BlueprintEditorLibrary.get_object_reference_type(object_class)
+        map_type = unreal.BlueprintEditorLibrary.get_map_type(key, value)
+        if not unreal.BlueprintEditorLibrary.add_member_variable(blueprint, name, map_type):
+            raise RuntimeError('枚举对象映射字段创建失败')
+        unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
+        return json.dumps({'blueprint': blueprint_path, 'name': name, 'type': map_type.export_text()})
+
+
     @mcp_tool
     @staticmethod
     def convert_notify_blueprint_to_state(blueprint_path: str, state_class: str, child_paths: list[str]) -> str:

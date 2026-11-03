@@ -12,7 +12,7 @@ def _verify(target, requested, materialize, path):
         actual = target.get_editor_property(name)
         field = path + '.' + name
         structured = isinstance(expected, dict) and not any(
-            key in expected for key in ('structType', 'enumType', 'classPath', 'mapValues', 'refPath'))
+            key in expected for key in ('structType', 'enumType', 'classPath', 'mapValues', 'mapEntries', 'refPath'))
         if structured:
             _verify(actual, expected, materialize, field)
             continue
