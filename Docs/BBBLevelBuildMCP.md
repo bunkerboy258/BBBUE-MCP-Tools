@@ -12,7 +12,7 @@
 
 实现依赖项目编辑器模块 BBBLevelBuildEditorLibrary 编译成功和宿主加载完成后才能调用 启动成功不代表代理或光照验收成功
 
-2026-11-04 原生编辑器模块编译通过 当前引擎材质烘焙在 DX11 和 DX12 均触发 SharedPointer 断言 因此正式接口采用保留源材质的 HLOD 几何合并 DeadCity 项目拷贝已生成并保存 17 个原生簇 全部 IsBuilt 为真 纹理流送未构建组件为 0 代理包约 40 MB 官方 Slate 远景截图已核对 最终 Production 光照进行中
+2026-11-04 原生编辑器模块编译通过 当前引擎材质烘焙在 DX11 和 DX12 均触发 SharedPointer 断言 因此正式接口采用保留源材质的 HLOD 几何合并 DeadCity 项目拷贝已保存 17 个原生簇 代理包约 40 MB 最终 CPU Production 光照计算约 4 小时 7 分钟 原生状态确认成功且结果采用 反射捕获已更新 Map 与 BuiltData 已明确保存并重载 光照未构建对象和纹理流送未构建组件均为 0 光照及非空体积光照有效 lighting_quality 为 3 全部 HLOD built 为真 官方 Slate 远景和短时 PIE 角色窗口截图已核对 未进行 2K120 性能验收
 
 专项静态光照契约检查通过 全库完整性检查因并行 BBBAnimationMigrationToolset 的源码与目录基线不同而失败 本次不修改该并行模块
 
