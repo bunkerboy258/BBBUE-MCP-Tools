@@ -194,7 +194,7 @@ def _validate_data_asset(logic):
 def build_variant(destination_root, prefab_root, recipe_json):
     """/** @param destination_root 自有特感目录 @param prefab_root 该变体预制伤口目录 @param recipe_json 完整身体 动作与两份配置的制作描述 @return 编译保存及回读结果 */"""
     recipe = json.loads(recipe_json)
-    if recipe.get('stage') in {'survey', 'polish_animations', 'polish_physics', 'polish_graph'}:
+    if recipe.get('stage') in {'survey', 'polish_retargeters', 'polish_animations', 'polish_motion_timing', 'polish_physics', 'polish_graph'}:
         import importlib
         import BBBMonsterSpecialPolish
         return importlib.reload(BBBMonsterSpecialPolish).run(destination_root, recipe)
