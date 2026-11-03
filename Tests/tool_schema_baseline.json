@@ -8078,6 +8078,122 @@
           "returnValue"
         ]
       }
+    },
+    "inspect_level_build": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expected_level": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_level"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "build_hlod_cluster": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expected_level": {
+            "type": "string"
+          },
+          "actor_paths_json": {
+            "type": "string"
+          },
+          "cluster_label": {
+            "type": "string"
+          },
+          "draw_distance": {
+            "type": "number",
+            "default": 20000
+          },
+          "source_lod": {
+            "type": "integer",
+            "default": 2
+          }
+        },
+        "required": [
+          "expected_level",
+          "actor_paths_json",
+          "cluster_label"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "build_texture_streaming_data": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expected_level": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_level"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "build_reflection_captures": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expected_level": {
+            "type": "string"
+          },
+          "build_data_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_level",
+          "build_data_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBBlueprintGraphToolset": {

@@ -8,6 +8,11 @@ from toolset_registry.registration import Registration
 
 
 MCP_INPUTS = {
+    'build_hlod_cluster': {
+        'actor_paths_json': {'type': 'array', 'items': {'type': 'string', 'minLength': 1}, 'minItems': 2, 'maxItems': 32, 'uniqueItems': True},
+        'draw_distance': {'type': 'number', 'minimum': 10000, 'maximum': 50000, 'default': 20000},
+        'source_lod': {'type': 'integer', 'minimum': 1, 'maximum': 2, 'default': 2},
+    },
     'inspect_static_lighting': {'center': {'type': 'array', 'items': {'type': 'number'}, 'minItems': 3, 'maxItems': 3}, 'extent': {'type': 'array', 'items': {'type': 'number', 'minimum': 0}, 'minItems': 3, 'maxItems': 3}},
     'build_gpu_lightmass': {
         'action': {'type': 'string', 'enum': ['start', 'status'], 'default': 'status'},
@@ -43,6 +48,61 @@ MCP_INPUTS = {
 @unreal.uclass()
 class BBBLevelEditingToolset(unreal.ToolsetDefinition):
     """提供当前关卡的项目级编辑工具"""
+
+    @mcp_tool
+    @staticmethod
+    def inspect_level_build(expected_level: str) -> str:
+        """只读检查当前关卡原生光照有效性 HLOD 和不透明静态候选对象"""
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+        if world is None or world.get_path_name().split('.', 1)[0] != expected_level:
+            raise RuntimeError('关卡与检查目标不匹配')
+        return str(unreal.BBBLevelBuildEditorLibrary.inspect_level_build(world))
+
+    @mcp_tool
+    @staticmethod
+    def build_hlod_cluster(expected_level: str, actor_paths_json: str, cluster_label: str,
+                           draw_distance: float = 20000, source_lod: int = 2) -> str:
+        """为明确同层不透明静态对象构建并保存原生 HLOD 簇 保留源材质 使用已有网格 LOD"""
+        from BBBAssetWritePolicy import require_write_access
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+        if world is None or world.get_path_name().split('.', 1)[0] != expected_level or not expected_level.startswith('/Game/_Project/'):
+            raise RuntimeError('需要明确的当前自有关卡')
+        require_write_access(world)
+        actors = json.loads(actor_paths_json)
+        result = json.loads(str(unreal.BBBLevelBuildEditorLibrary.build_hlod_cluster(
+            world, actors, cluster_label, draw_distance, source_lod)))
+        if not result.get('success'):
+            raise RuntimeError(result.get('error', '原生 HLOD 构建失败'))
+        return json.dumps(result, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def build_reflection_captures(expected_level: str, build_data_path: str) -> str:
+        """更新当前自有关卡的静态反射捕获 构建数据由批次保存并回读"""
+        from BBBAssetWritePolicy import require_write_access
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+        if world is None or world.get_path_name().split('.', 1)[0] != expected_level or build_data_path != expected_level + '_BuiltData':
+            raise RuntimeError('关卡或构建数据路径不匹配')
+        require_write_access(world)
+        require_write_access(build_data_path)
+        result = json.loads(str(unreal.BBBLevelBuildEditorLibrary.build_reflection_captures(world)))
+        if not result.get('success'):
+            raise RuntimeError('反射捕获尚未完成')
+        return json.dumps(result, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def build_texture_streaming_data(expected_level: str) -> str:
+        """重建当前自有关卡组件的纹理流送数据 不修改原网格和材质"""
+        from BBBAssetWritePolicy import require_write_access
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+        if world is None or world.get_path_name().split('.', 1)[0] != expected_level or not expected_level.startswith('/Game/_Project/'):
+            raise RuntimeError('需要明确的当前自有关卡')
+        require_write_access(world)
+        result = json.loads(str(unreal.BBBLevelBuildEditorLibrary.build_texture_streaming_data(world)))
+        if not result.get('success'):
+            raise RuntimeError('关卡纹理流送构建失败')
+        return json.dumps(result, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod
