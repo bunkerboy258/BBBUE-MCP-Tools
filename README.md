@@ -1,3 +1,5 @@
+2026-11-03 新增 level.reuse_authored_lighting 核对几何及原生光照映射后才允许绑定 来源保持只读 DeadCity 474 个组件几何匹配 741 个当前映射未命中 原始标识命中 477 条 应用在写入前拒绝 地形 210 条与体积光照可读 未重新烘焙 见 Docs/BBBStaticLightingMCP.md
+
 2026-11-03 新增 level.build_gpu_lightmass 通过原生子系统整图 GPU 烘焙 显式限制采样 瓦片池与工作负载 完成证据与保存独立核对 实际烘焙执行中 见 Docs/BBBStaticLightingMCP.md
 
 2026-11-03 新增原生静态光照审计与 CPU 构建入口 精确限制地图及独立 BuiltData 写入 跟踪引擎成功与结果采用 三项契约回归通过 149 演员预览烘焙成功并保存 整图与目标帧率验证继续执行 见 Docs/BBBStaticLightingMCP.md

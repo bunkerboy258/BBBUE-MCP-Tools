@@ -8042,6 +8042,42 @@
           "returnValue"
         ]
       }
+    },
+    "reuse_authored_lighting": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expected_level": {
+            "type": "string"
+          },
+          "source_level": {
+            "type": "string"
+          },
+          "source_build_data_path": {
+            "type": "string"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "expected_level",
+          "source_level",
+          "source_build_data_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBBlueprintGraphToolset": {

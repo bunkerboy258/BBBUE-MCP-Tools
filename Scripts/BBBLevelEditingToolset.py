@@ -123,6 +123,32 @@ class BBBLevelEditingToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def reuse_authored_lighting(expected_level: str, source_level: str, source_build_data_path: str,
+                               dry_run: bool = True) -> str:
+        """
+        /**
+         * 核对原作者光照映射并绑定到几何一致的当前项目关卡 来源只读
+         * @param expected_level	明确的当前项目关卡包路径
+         * @param source_level	只读原作者地图包路径
+         * @param source_build_data_path	只读原作者构建数据包路径
+         * @param dry_run	为真时不修改当前关卡
+         * @return 原生匹配覆盖与实际绑定结果 不触发烘焙
+         */
+        """
+        from BBBAssetWritePolicy import require_write_access
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+        if world is None or world.get_path_name().split('.', 1)[0] != expected_level:
+            raise RuntimeError("当前关卡与原作者光照复用目标不匹配")
+        if not dry_run:
+            require_write_access(world)
+        result = json.loads(str(unreal.BBBStaticLightingEditorLibrary.reuse_authored_lighting(
+            world, source_level, source_build_data_path, dry_run)))
+        if not result.get('success'):
+            raise RuntimeError(result.get('error', '原作者光照核对失败'))
+        return json.dumps(result, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def build_gpu_lightmass(expected_level: str, build_data_path: str, action: str = 'status',
                             gi_samples: int = 512, shadow_samples: int = 128,
                             tile_pool_size: int = 32, workload_factor: int = 2) -> str:
