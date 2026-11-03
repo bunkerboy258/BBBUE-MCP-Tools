@@ -76,27 +76,27 @@ def reimport(asset_path, source_file, import_uniform_scale, lod_source_files):
     try:
         unreal.SystemLibrary.execute_console_command(None, cvar + " 0")
         unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])
+        imported = list(task.get_objects())
+        if len(imported) != 1 or imported[0].get_path_name() != mesh.get_path_name():
+            unreal.log_error("[BBBSkeletalReimport] 导入未返回唯一原位目标: " + package)
+            raise RuntimeError("骨骼网格原位导入失败 请检查目标状态")
+        result = imported[0]
+        if result.physics_asset != physics_asset:
+            result.physics_asset = physics_asset
+        subsystem = unreal.get_editor_subsystem(unreal.SkeletalMeshEditorSubsystem)
+        for index, path in enumerate(lod_files, start=1):
+            if subsystem.import_lod(result, index, os.path.realpath(path)) != index:
+                unreal.log_error("[BBBSkeletalReimport] 细节档位导入失败: " + package + " LOD" + str(index))
+                raise RuntimeError("细节档位导入失败 不保存")
+        if lod_files:
+            expected_count = len(lod_files) + 1
+            extra = list(range(expected_count, subsystem.get_lod_count(result)))
+            if extra and not subsystem.remove_lods(result, extra):
+                raise RuntimeError("多余细节档位未完整移除 不保存")
+            if subsystem.get_lod_count(result) != expected_count:
+                raise RuntimeError("实际细节档位数量不符 不保存")
     finally:
         unreal.SystemLibrary.execute_console_command(None, cvar + " " + str(int(previous_interchange)))
-    imported = list(task.get_objects())
-    if len(imported) != 1 or imported[0].get_path_name() != mesh.get_path_name():
-        unreal.log_error("[BBBSkeletalReimport] 导入未返回唯一原位目标: " + package)
-        raise RuntimeError("骨骼网格原位导入失败 请检查目标状态")
-    result = imported[0]
-    if result.physics_asset != physics_asset:
-        result.physics_asset = physics_asset
-    subsystem = unreal.get_editor_subsystem(unreal.SkeletalMeshEditorSubsystem)
-    for index, path in enumerate(lod_files, start=1):
-        if subsystem.import_lod(result, index, os.path.realpath(path)) != index:
-            unreal.log_error("[BBBSkeletalReimport] 细节档位导入失败: " + package + " LOD" + str(index))
-            raise RuntimeError("细节档位导入失败 不保存")
-    if lod_files:
-        expected_count = len(lod_files) + 1
-        extra = list(range(expected_count, subsystem.get_lod_count(result)))
-        if extra and not subsystem.remove_lods(result, extra):
-            raise RuntimeError("多余细节档位未完整移除 不保存")
-        if subsystem.get_lod_count(result) != expected_count:
-            raise RuntimeError("实际细节档位数量不符 不保存")
     if result.skeleton != skeleton or list(skeleton.get_reference_pose().get_bone_names()) != bone_names:
         unreal.log_error("[BBBSkeletalReimport] 骨架身份或骨名发生变化: " + package)
         raise RuntimeError("骨架校验失败 不保存")
