@@ -7906,6 +7906,94 @@
           "returnValue"
         ]
       }
+    },
+    "inspect_static_lighting": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expected_level": {
+            "type": "string",
+            "description": "明确的当前关卡包路径 *"
+          },
+          "center": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "包围盒中心厘米 三个有限数值 *"
+          },
+          "extent": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "包围盒半尺寸厘米 全零读取整个世界 *"
+          }
+        },
+        "required": [
+          "expected_level",
+          "center",
+          "extent"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "原生网格检查与组件清单 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
+    },
+    "build_static_lighting": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expected_level": {
+            "type": "string",
+            "description": "明确的当前关卡包路径 *"
+          },
+          "build_data_path": {
+            "type": "string",
+            "description": "当前关卡对应的独立 BuiltData 包路径 *"
+          },
+          "action": {
+            "type": "string",
+            "description": "start 或 status 或 cancel *",
+            "default": "status"
+          },
+          "quality": {
+            "type": "integer",
+            "description": "零至三 对应预览 中 高 正式 *",
+            "default": 0
+          },
+          "actor_paths_json": {
+            "type": "string",
+            "description": "明确接收烘焙的演员 空数组构建整个当前关卡 *",
+            "default": "[]"
+          }
+        },
+        "required": [
+          "expected_level",
+          "build_data_path"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "原生运行 成功与结果采用状态 不将启动成功当作构建完成 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBBlueprintGraphToolset": {

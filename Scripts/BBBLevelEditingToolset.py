@@ -8,6 +8,8 @@ from toolset_registry.registration import Registration
 
 
 MCP_INPUTS = {
+    'inspect_static_lighting': {'center': {'type': 'array', 'items': {'type': 'number'}, 'minItems': 3, 'maxItems': 3}, 'extent': {'type': 'array', 'items': {'type': 'number', 'minimum': 0}, 'minItems': 3, 'maxItems': 3}},
+    'build_static_lighting': {'action': {'type': 'string', 'enum': ['start', 'status', 'cancel'], 'default': 'status'}, 'quality': {'type': 'integer', 'minimum': 0, 'maximum': 3, 'default': 0}, 'actor_paths_json': {'type': 'array', 'items': {'type': 'string', 'minLength': 1}, 'uniqueItems': True, 'default': []}},
     'inspect_navigation_route': {'points_json': {
         'type': 'array', 'minItems': 2, 'maxItems': 256,
         'items': {'type': 'array', 'items': {'type': 'number'}, 'minItems': 3, 'maxItems': 3},
@@ -34,6 +36,83 @@ MCP_INPUTS = {
 @unreal.uclass()
 class BBBLevelEditingToolset(unreal.ToolsetDefinition):
     """提供当前关卡的项目级编辑工具"""
+
+    @mcp_tool
+    @staticmethod
+    def inspect_static_lighting(expected_level: str, center: list[float], extent: list[float]) -> str:
+        """
+        /**
+         * 只读检查当前关卡包围盒内网格的光照 UV 与 Nanite 信息
+         * @param expected_level\t明确的当前关卡包路径
+         * @param center\t包围盒中心厘米 三个有限数值
+         * @param extent\t包围盒半尺寸厘米 全零读取整个世界
+         * @return 原生网格检查与组件清单
+         */
+        """
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+        if world is None or world.get_path_name().split('.', 1)[0] != expected_level:
+            raise RuntimeError("当前关卡与检查目标不匹配")
+        for values in (center, extent):
+            if len(values) != 3 or any(type(value) not in (int, float) or not math.isfinite(value) for value in values):
+                raise RuntimeError("包围盒必须为有限三元数组")
+        if any(value < 0 for value in extent):
+            raise RuntimeError("包围盒半尺寸不能为负")
+        result = json.loads(str(unreal.BBBStaticLightingEditorLibrary.inspect_static_lighting(
+            world, unreal.Vector(*center), unreal.Vector(*extent))))
+        if not result.get('success'):
+            raise RuntimeError(result.get('error', '原生光照检查失败'))
+        return json.dumps(result, ensure_ascii=False)
+
+
+    @mcp_tool
+    @staticmethod
+    def build_static_lighting(expected_level: str, build_data_path: str, action: str = 'status', quality: int = 0,
+                              actor_paths_json: str = '[]') -> str:
+        """
+        /**
+         * 启动 查询或取消本工具持有的原生 CPU 光照构建 完成后需显式保存关卡与构建数据
+         * @param expected_level\t明确的当前关卡包路径
+         * @param build_data_path\t当前关卡对应的独立 BuiltData 包路径
+         * @param action\tstart 或 status 或 cancel
+         * @param quality\t零至三 对应预览 中 高 正式
+         * @param actor_paths_json\t明确接收烘焙的演员 空数组构建整个当前关卡
+         * @return 原生运行 成功与结果采用状态 不将启动成功当作构建完成
+         */
+        """
+        from BBBAssetWritePolicy import require_write_access
+        from BBBMcpCapabilities import register_activity
+
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+        if world is None or world.get_path_name().split('.', 1)[0] != expected_level:
+            raise RuntimeError("当前关卡与构建目标不匹配")
+        if action not in ('start', 'status', 'cancel') or type(quality) is not int or not 0 <= quality <= 3:
+            raise RuntimeError("光照动作或质量无效")
+        actor_paths = json.loads(actor_paths_json)
+        if not isinstance(actor_paths, list) or any(not isinstance(path, str) or not path for path in actor_paths):
+            raise RuntimeError("烘焙目标必须为有效路径数组")
+        if len(set(actor_paths)) != len(actor_paths):
+            raise RuntimeError("烘焙演员不能重复")
+        if action == 'start':
+            if build_data_path != expected_level + '_BuiltData':
+                raise RuntimeError("构建数据路径必须属于目标关卡")
+            require_write_access(world)
+            require_write_access(build_data_path)
+
+        def status():
+            result = json.loads(str(unreal.BBBStaticLightingEditorLibrary.build_static_lighting(
+                world, 'status', 0, [])))
+            if not result.get('success'):
+                raise RuntimeError(result.get('error', '原生光照状态查询失败'))
+            return result
+
+        result = json.loads(str(unreal.BBBStaticLightingEditorLibrary.build_static_lighting(
+            world, action, quality, actor_paths)))
+        if not result.get('success'):
+            raise RuntimeError(result.get('error', '原生光照构建失败'))
+        if result.get('running'):
+            register_activity('lighting:' + result['id'], status)
+        return json.dumps(result, ensure_ascii=False)
+
 
     @mcp_tool
     @staticmethod
