@@ -19,6 +19,10 @@ from urllib.request import Request, build_opener, ProxyHandler
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from MCP.mcp_source_version import install_source_loader
+
+install_source_loader()
+
 from BBBMcpCapabilities import ToolCatalog
 from MCP.mcp_clients import ClientRegistry
 from MCP.mcp_host_registry import HostRegistry, RegistryGuard, atomic_json, private_directory, process_identity, project_key
@@ -28,6 +32,9 @@ from MCP.mcp_response import response
 from MCP.mcp_decision import require_control
 from MCP.mcp_task_gateway import TaskGateway, UnrealBackend, public_tools
 from MCP.mcp_test_hosts import TestHost, project_version
+from MCP.mcp_source_version import source_version
+
+_loaded_source_version = source_version()
 
 
 def service_directory():
@@ -199,6 +206,20 @@ class ProjectRuntime:
         self.protocol.jobs = self
         self.protocol.tools = {row["name"]: row for row in public_tools()}
 
+    def source_state(self):
+        """/** @return 磁盘与两个执行进程的源码版本 */"""
+        expected = source_version()
+        host = self.backend.loaded_source_version if self.backend is not None else None
+        return {"expected": expected, "service": _loaded_source_version, "host": host, "current": expected == _loaded_source_version == host}
+
+    def require_current(self):
+        """/** @return 版本一致时允许发现与新任务 */"""
+        state = self.source_state()
+        if not state["current"]:
+            raise McpBusinessError({"status": "rejected", "code": "TOOLSET_UPDATE_REQUIRED", "source": state,
+                "hint": "完成当前任务交接后重启编辑器和 MCP 服务；inspect_tasks 回读 source.current=true 后继续",
+                "next": {"tool": "inspect_tasks", "arguments": {}}})
+
     def connect(self, resume_key=None):
         """/** @param resume_key 客户端恢复凭据 @return 已登记身份 */"""
         with self.lock:
@@ -323,6 +344,7 @@ class ProjectRuntime:
             if self.gateway is None or self.state != "ready":
                 raise McpBusinessError({"status": "waiting", "code": "EDITOR_CONNECTING" if self.state == "connecting" else "EDITOR_OFFLINE",
                     "next": None, "retry_after_seconds": 2, "hint": "编辑器接入后重新提交；使用 inspect_tasks 等待状态变为 ready"})
+            self.require_current()
             return self.gateway.jobs.submit(client, operations, label, environment, test_options, test_host)
 
     def inspect(self, client, batch=None, detail=False, after_revision=None, wait_seconds=0):
@@ -346,6 +368,7 @@ class ProjectRuntime:
                             raise McpBusinessError({"status": "rejected", "code": "BATCH_OWNERSHIP"})
                         value = {"batch": batch, "status": stored["status"], "completed": stored["completed"], "results": stored["results"], "next": None}
                 if batch is None:
+                    value["source"] = self.source_state()
                     value["connection"] = self.state
                     value["service"] = "ready"
                     value["hosts"] = self.registry.public()
@@ -472,7 +495,7 @@ def make_service_server(service, port):
                 self.send_error(403)
                 return
             self.send_value(200, {}, {"service": "BBB-MCP", "protocol": 6, "process_id": os.getpid(),
-                "projects": list(service.projects), "default": service.default})
+                "projects": list(service.projects), "default": service.default, "source_version": _loaded_source_version})
 
         def do_POST(self):
             self.dispatch()

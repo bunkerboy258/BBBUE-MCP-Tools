@@ -78,6 +78,7 @@ class UnrealBackend:
         self.task_name = None
         self.external_name = None
         self.remap = False
+        self.loaded_source_version = None
 
     def _call(self, name, arguments):
         if self.guard is not None and hasattr(self.guard, "verify"):
@@ -156,6 +157,7 @@ class UnrealBackend:
         """/** @return 实际宿主证据 */"""
         self._toolsets()
         value = self._call("call_tool", {"toolset_name": self.task_name, "tool_name": "inspect_editor_activity", "arguments": {}})
+        self.loaded_source_version = value.get("source_version")
         if value["process_id"] != self.process_id or project_identity(value["project_root"]) != self.project:
             raise RuntimeError("HOST_IDENTITY_CHANGED")
         if self.guard is not None:
@@ -497,6 +499,8 @@ class TaskGateway:
             if name not in self.tools:
                 raise ValueError("TOOL_UNKNOWN")
             validate_arguments(arguments, self.tools[name]["inputSchema"])
+            if name in {"find_tools", "describe_tool", "submit_batch"} and hasattr(self.jobs, "require_current"):
+                self.jobs.require_current()
             if name == "control_task":
                 required = {"cancel": "batch", "close": "batch", "recover": "batch", "cancel_blocker": "batch", "pause_operator": "operator", "resume_operator": "operator", "terminate_host": "host"}.get(arguments["action"])
                 if required is not None and not arguments.get(required):

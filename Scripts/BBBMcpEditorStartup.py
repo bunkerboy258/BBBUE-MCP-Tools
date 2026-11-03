@@ -12,6 +12,10 @@ from urllib.request import build_opener, ProxyHandler
 
 import unreal
 
+from MCP.mcp_source_version import install_source_loader
+
+install_source_loader()
+
 from MCP.mcp_host_registry import publish_host, write_host
 
 

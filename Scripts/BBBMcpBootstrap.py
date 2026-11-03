@@ -3,9 +3,14 @@ import os
 import sys
 
 import unreal
+from MCP.mcp_source_version import source_version, install_source_loader
+
+install_source_loader()
 
 import BBBMcpCapabilities
 from BBBMcpCapabilities import TOOLSET_ROUTES, HELPER_MODULES
+
+_loaded_source_version = None
 
 
 def get_repository_root():
@@ -94,6 +99,10 @@ def _register_repository_toolsets():
      * @return 注册与依赖报告
      */
     """
+    global _loaded_source_version
+    version = source_version()
+    if _loaded_source_version is not None and _loaded_source_version != version:
+        raise RuntimeError("TOOLSET_UPDATE_REQUIRED: restart editor host")
     scripts_root = os.path.join(get_repository_root(), "Scripts")
     external_root = os.path.join(scripts_root, "MCP", "ThirdParty", "GenOrca")
     if not unreal.ToolsetRegistry.is_available():
@@ -134,6 +143,10 @@ def _register_repository_toolsets():
         for module_name, status in report["modules"].items():
             if not status["native_dependencies_ready"]:
                 unreal.log_warning("[BBBMcpBootstrap]原生依赖缺失 {} {}".format(module_name, (status["missing_native_classes"] + status["missing_native_functions"])))
+        if source_version() != version:
+            raise RuntimeError("TOOLSET_SOURCE_CHANGED_DURING_LOAD")
+        _loaded_source_version = version
+        report["source_version"] = version
         unreal.log("[BBBMcpBootstrap]注册完成 {}".format(get_repository_root()))
         return report
     except Exception as error:
