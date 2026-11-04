@@ -207,19 +207,22 @@ class BBBCinematicToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def create_media_ui_material(asset_path: str, texture_path: str, alpha_only: bool = False,
+    def create_media_ui_material(asset_path: str, texture_path: str, ink_mask: bool = False, ink_reference: float = 0.75,
                                  uv_offset: list[float] = [0.0, 0.0], uv_scale: list[float] = [1.0, 1.0], replace_existing: bool = False) -> str:
         """
         /**
          * @param asset_path	新建 UI 材质
          * @param texture_path	明确的原始纹理或媒体纹理
-         * @param alpha_only	只使用纹理透明度并由顶点色染色
+         * @param ink_mask	将纹理亮度和透明度作为墨迹覆盖度
+         * @param ink_reference	线性采样中完整墨迹的亮度
          * @param uv_offset	采样区域起点
          * @param uv_scale	采样区域尺寸
          * @param replace_existing	明确重建未通过的材质
          * @return 保存与编译后的 UI 材质
          */
         """
+        if not 0.01 <= ink_reference <= 1.0:
+            raise ValueError("墨迹参考亮度必须在零与一之间")
         if unreal.EditorAssetLibrary.does_asset_exist(asset_path) and not replace_existing:
             raise RuntimeError("目标 UI 材质已存在")
         texture = unreal.load_asset(texture_path)
@@ -233,14 +236,14 @@ class BBBCinematicToolset(unreal.ToolsetDefinition):
             raise RuntimeError("目标不是材质")
         unreal.MaterialEditingLibrary.delete_all_material_expressions(material)
         material.set_editor_property("material_domain", unreal.MaterialDomain.MD_UI)
-        material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT if alpha_only else unreal.BlendMode.BLEND_OPAQUE)
+        material.set_editor_property("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT if ink_mask else unreal.BlendMode.BLEND_OPAQUE)
         library = unreal.MaterialEditingLibrary
         sample = library.create_material_expression(material, unreal.MaterialExpressionTextureSampleParameter2D, -350, 0)
         sample.set_editor_property("texture", texture)
-        sample.set_editor_property("parameter_name", "ImageTexture" if alpha_only else "VideoTexture")
+        sample.set_editor_property("parameter_name", "ImageTexture" if ink_mask else "VideoTexture")
         sample.set_editor_property("sampler_type", unreal.MaterialSamplerType.SAMPLERTYPE_COLOR)
-        vertex = library.create_material_expression(material, unreal.MaterialExpressionVertexColor, -350, 220)
-        if alpha_only:
+        connections = []
+        if ink_mask:
             coordinates = library.create_material_expression(material, unreal.MaterialExpressionTextureCoordinate, -1000, 0)
             scale = library.create_material_expression(material, unreal.MaterialExpressionConstant2Vector, -1000, 140)
             scale.set_editor_property("r", uv_scale[0])
@@ -250,21 +253,35 @@ class BBBCinematicToolset(unreal.ToolsetDefinition):
             offset.set_editor_property("g", uv_offset[1])
             multiply = library.create_material_expression(material, unreal.MaterialExpressionMultiply, -800, 0)
             add = library.create_material_expression(material, unreal.MaterialExpressionAdd, -600, 0)
-            library.connect_material_expressions(coordinates, "", multiply, "A")
-            library.connect_material_expressions(scale, "", multiply, "B")
-            library.connect_material_expressions(multiply, "", add, "A")
-            library.connect_material_expressions(offset, "", add, "B")
-            library.connect_material_expressions(add, "", sample, "UVs")
-            library.connect_material_property(vertex, "RGB", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
-            library.connect_material_property(sample, "A", unreal.MaterialProperty.MP_OPACITY)
-        if not alpha_only:
-            color = library.create_material_expression(material, unreal.MaterialExpressionMultiply, -100, 0)
-            library.connect_material_expressions(sample, "RGB", color, "A")
-            library.connect_material_expressions(vertex, "RGB", color, "B")
-            library.connect_material_property(color, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+            connections.append(library.connect_material_expressions(coordinates, "", multiply, "A"))
+            connections.append(library.connect_material_expressions(scale, "", multiply, "B"))
+            connections.append(library.connect_material_expressions(multiply, "", add, "A"))
+            connections.append(library.connect_material_expressions(offset, "", add, "B"))
+            connections.append(library.connect_material_expressions(add, "", sample, "UVs"))
+            white = library.create_material_expression(material, unreal.MaterialExpressionConstant3Vector, -350, 500)
+            white.set_editor_property("constant", unreal.LinearColor(1.0, 1.0, 1.0, 1.0))
+            coefficients = library.create_material_expression(material, unreal.MaterialExpressionConstant3Vector, -350, 300)
+            coefficients.set_editor_property("constant", unreal.LinearColor(0.2126, 0.7152, 0.0722, 1.0))
+            luminance = library.create_material_expression(material, unreal.MaterialExpressionDotProduct, -100, 100)
+            divide = library.create_material_expression(material, unreal.MaterialExpressionDivide, 100, 100)
+            divide.set_editor_property("const_b", ink_reference)
+            saturate = library.create_material_expression(material, unreal.MaterialExpressionSaturate, 300, 100)
+            coverage = library.create_material_expression(material, unreal.MaterialExpressionMultiply, 500, 100)
+            connections.append(library.connect_material_expressions(sample, "RGB", luminance, "A"))
+            connections.append(library.connect_material_expressions(coefficients, "", luminance, "B"))
+            connections.append(library.connect_material_expressions(luminance, "", divide, "A"))
+            connections.append(library.connect_material_expressions(divide, "", saturate, ""))
+            connections.append(library.connect_material_expressions(saturate, "", coverage, "A"))
+            connections.append(library.connect_material_expressions(sample, "A", coverage, "B"))
+            connections.append(library.connect_material_property(white, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR))
+            connections.append(library.connect_material_property(coverage, "", unreal.MaterialProperty.MP_OPACITY))
+        if not ink_mask:
+            connections.append(library.connect_material_property(sample, "RGB", unreal.MaterialProperty.MP_EMISSIVE_COLOR))
+        if not all(connections):
+            raise RuntimeError("UI 材质存在未连接的图节点 禁止保存")
         library.recompile_material(material)
         unreal.EditorAssetLibrary.save_loaded_asset(material)
-        return json.dumps({"asset": material.get_path_name(), "domain": "UI", "alpha_only": alpha_only})
+        return json.dumps({"asset": material.get_path_name(), "domain": "UI", "ink_mask": ink_mask})
 
 
 _registration = Registration([BBBCinematicToolset])
