@@ -12,7 +12,7 @@
 
 ## 循环与动作变体
 
-出生变化使用 `BBBMonsterVariationDefinition` 与实体 `Variation` Fragment。`configure_fact_movement_styles(asset_path, style_paths, blend_duration=0.18)` 要求三个不同的同骨架一维速度混合，干净重建 Patrol 和 Locomotion 图。固定 `LocomotionStyleFact` 只激活一个分支；`AnimationSpeedFact` 为实际水平速度除以出生速度倍率；`LoopPhaseFact` 为 Mass 持续维护的归一化相位。表现 Actor 重建不重新抽取风格或起点。拒绝 PIE、脏包、无效类型、非独占写入及编译警告。
+出生变化使用 `BBBMonsterVariationDefinition` 与实体 `Variation` Fragment。`configure_fact_movement_styles(asset_path, patrol_style_paths, chase_style_paths, blend_duration=0.18)` 分别指定三套同骨架巡逻速度混合和三套追击速度混合 各组路径不得重复。分别干净重建 Patrol 和 Locomotion 图。固定 `LocomotionStyleFact` 只激活一个分支 `AnimationSpeedFact` 为实际水平速度除以出生速度倍率 `LoopPhaseFact` 为 Mass 持续维护的归一化相位。巡逻循环时长由表现配置 `PatrolCycleSeconds` 定义 追击沿用走跑冲刺的时长配置 速度采样点间按步幅插值。三待机变体与移动风格使用同一索引 起步门槛为静止上限加五厘米每秒 停步门槛仍为静止上限。原地转身仅在三厘米每秒以下进入 六厘米每秒以上退出。表现 Actor 重建不重新抽取风格或起点。拒绝 PIE 脏包 无效类型 非独占写入及编译警告。
 
 待机与警觉现在也显式采样连续实体相位；动作和循环变体的选择读取 `VariationSeedFact`，不再使用 Actor 的临时编号。既有僵尸图必须重新配置循环与动作变体，不保留旧属性别名。循环入口结果返回 `continuousEntityPhase=true`，不返回旧起点桶数。按需组合素材风格，不新增玩法状态、逐实例动画计时 Tick 或动态材质实例。
 

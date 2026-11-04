@@ -79,3 +79,5 @@ $env:BBB_MCP_URL = $hostInfo.Endpoint
 GPU 分析改为 prepare、等待至少 60 帧、连续 capture、最后 restore；避免将绘制标记切换触发的预阴影缓存重建误判为稳定开销。流程和实测边界见 [BBBGpuProfileMCP](Docs/BBBGpuProfileMCP.md)，专项回归检查通过。
 
 动作左手基准使用现有 Control Rig 求解，仅修改左臂并保留原手指及右臂。FAL 装备、换弹及 Mossberg 三段装填已原位烘焙保存，公共握持端点位置误差小于 0.005 厘米，逐发装填手指接缝误差小于 0.00004 度，插入段人工关键帧文件哈希保持；未运行 PIE，观感待人工审核。制作契约见 [BBBActionLeftHandAlignmentMCP](Docs/BBBActionLeftHandAlignmentMCP.md)。
+
+2026-11-04 僵尸行为步态: `animation_graph.configure_fact_movement_styles` 分别接收 `patrol_style_paths` 和 `chase_style_paths` 两组各三套速度混合 巡逻与追击不再由同一组输入构图。三份待机与固定移动风格共用索引 起步和停步使用分开的速度门槛 原地转身限定在接近静止时。原生编辑器构建通过 两份正式动画蓝图均无警告编译保存 采样骨盆及手臂腿部的移动循环首尾误差低于 0.03 cm 和 0.08 度 现有十项动画图工具检查通过。未启动 PIE 未进行视觉验收。接口说明见 [BBBAnimationGraphMCP](Docs/BBBAnimationGraphMCP.md)。

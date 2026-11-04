@@ -918,36 +918,38 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def configure_fact_movement_styles(asset_path: str, style_paths: list[str], blend_duration: float = 0.18) -> str:
+    def configure_fact_movement_styles(asset_path: str, patrol_style_paths: list[str], chase_style_paths: list[str], blend_duration: float = 0.18) -> str:
         """
         /**
-         * 以实体固定风格与连续相位重建巡逻追击 只采样一个移动分支
+         * 以实体固定风格与连续相位分别重建巡逻和追击 只采样当前移动分支
          * @param asset_path		独占持有的事实动画蓝图
-         * @param style_paths		三个同骨架一维实际速度混合资产
+         * @param patrol_style_paths	三个同骨架巡逻速度混合资产
+         * @param chase_style_paths	三个同骨架追击速度混合资产
          * @param blend_duration	姿势过渡秒数
          * @return 无警告编译与保存结果
          */
         """
-        if len(style_paths) != 3 or len(set(style_paths)) != 3 or not math.isfinite(blend_duration) or not 0.0 < blend_duration <= 0.3:
+        if any(len(paths) != 3 or len(set(paths)) != 3 for paths in (patrol_style_paths, chase_style_paths)) or not math.isfinite(blend_duration) or not 0.0 < blend_duration <= 0.3:
             raise RuntimeError("移动风格必须是三个不同资产且过渡时间有效")
         if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
             raise RuntimeError("PIE 期间禁止配置移动风格")
         blueprint = unreal.load_asset(asset_path)
-        styles = [unreal.load_asset(path) for path in style_paths]
-        if not isinstance(blueprint, unreal.AnimBlueprint) or any(not isinstance(value, unreal.BlendSpace1D) for value in styles):
+        patrol = [unreal.load_asset(path) for path in patrol_style_paths]
+        chase = [unreal.load_asset(path) for path in chase_style_paths]
+        if not isinstance(blueprint, unreal.AnimBlueprint) or any(not isinstance(value, unreal.BlendSpace1D) for value in patrol + chase):
             raise RuntimeError("动画蓝图或一维移动混合类型无效")
         require_write_access(blueprint)
         dirty = {value.get_path_name() for value in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
         if blueprint.get_outermost().get_path_name() in dirty:
             raise RuntimeError("目标有未保存编辑 拒绝混入")
-        if not unreal.BBBAnimationGraphEditorLibrary.configure_fact_movement_styles(blueprint, styles, blend_duration):
+        if not unreal.BBBAnimationGraphEditorLibrary.configure_fact_movement_styles(blueprint, patrol, chase, blend_duration):
             raise RuntimeError("移动风格构图失败 不保存")
         unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
         if blueprint.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
             raise RuntimeError("移动风格图未无警告编译通过 不保存")
         if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
             raise RuntimeError("移动风格动画蓝图保存失败")
-        return json.dumps({"asset": asset_path, "styles": list(style_paths), "continuousEntityPhase": True, "saved": True}, ensure_ascii=False)
+        return json.dumps({"asset": asset_path, "patrolStyles": list(patrol_style_paths), "chaseStyles": list(chase_style_paths), "continuousEntityPhase": True, "saved": True}, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod

@@ -310,6 +310,7 @@ def _motion_timing(root, presentation):
         rows.append({'blend': blend.get_path_name(), 'clips': [clip.get_path_name() for clip in clips], 'strideCm': distances})
     animation = presentation.get_editor_property('animation')
     animation.set_editor_property('movement_cycle_seconds', cycles)
+    animation.set_editor_property('patrol_cycle_seconds', unreal.Vector(*[cycle.x for cycle in cycles]))
     animation.set_editor_property('slow_walk_cycle_seconds', unreal.Vector(*slow))
     animation.set_editor_property('pursuit_walk_cycle_seconds', unreal.Vector(*pursuit))
     presentation.set_editor_property('animation', animation)
@@ -441,7 +442,7 @@ def _graph(root, presentation, recipe):
         raise RuntimeError('完整事实图重建失败')
     if not library.configure_special_infected_actions(blueprint, [sequence(x) for x in recipe['special']]):
         raise RuntimeError('特殊动作构图失败')
-    if not library.configure_fact_movement_styles(blueprint, styles, .18) or not library.configure_fact_locomotion_variants(blueprint, idle, alert, 3, .18):
+    if not library.configure_fact_movement_styles(blueprint, styles, styles, .18) or not library.configure_fact_locomotion_variants(blueprint, idle, alert, 3, .18):
         raise RuntimeError('移动或待机变体构图失败')
     death_duration = max(x.get_play_length() for x in deaths)
     ends = [x.get_play_length()/death_duration for x in deaths]

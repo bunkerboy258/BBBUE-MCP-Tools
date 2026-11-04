@@ -382,7 +382,7 @@ def build_variant(destination_root, prefab_root, recipe_json):
         raise RuntimeError('基础事实图创建失败')
     if not unreal.BBBAnimationGraphEditorLibrary.configure_special_infected_actions(blueprint, sequences[5:9]):
         raise RuntimeError('特感事实动作创建失败')
-    if not unreal.BBBAnimationGraphEditorLibrary.configure_fact_movement_styles(blueprint, [blend, blend, blend], .16):
+    if not unreal.BBBAnimationGraphEditorLibrary.configure_fact_movement_styles(blueprint, [blend, blend, blend], [blend, blend, blend], .16):
         raise RuntimeError('实体相位移动构图失败')
     if not unreal.BBBAnimationGraphEditorLibrary.configure_fact_locomotion_variants(blueprint, [sequences[0]], [sequences[0]], 3, .18):
         raise RuntimeError('待机警觉相位构图失败')
@@ -397,6 +397,9 @@ def build_variant(destination_root, prefab_root, recipe_json):
         raise RuntimeError('特感动画图编译未通过')
     for field, value in recipe['presentation_properties'].items():
         _apply_editor_property(presentation, field, value)
+    animation = presentation.get_editor_property('animation')
+    animation.set_editor_property('patrol_cycle_seconds', unreal.Vector(*[cycle.x for cycle in animation.get_editor_property('movement_cycle_seconds')]))
+    presentation.set_editor_property('animation', animation)
     physics = presentation.get_editor_property('physics_asset')
     require_asset_write([physics])
     physics_report = str(unreal.BBBHitReactionEditorLibrary.configure_physics_asset(physics, 350, 24, mesh, ''))
