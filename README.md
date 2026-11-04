@@ -77,3 +77,5 @@ $env:BBB_MCP_URL = $hostInfo.Endpoint
 2026-11-04 新增 `editor.create_inner_outline_material` 通用可见目标内侧描边材质创建入口 模板标记与场景深度共同限制可见内边缘 材质已保存且三个参数回读一致 工具语法核对通过 未进行游玩或画面验收。
 
 GPU 分析改为 prepare、等待至少 60 帧、连续 capture、最后 restore；避免将绘制标记切换触发的预阴影缓存重建误判为稳定开销。流程和实测边界见 [BBBGpuProfileMCP](Docs/BBBGpuProfileMCP.md)，专项回归检查通过。
+
+动作左手基准使用现有 Control Rig 求解，仅修改左臂并保留原手指及右臂。FAL 装备、换弹及 Mossberg 三段装填已原位烘焙保存，公共握持端点位置误差小于 0.005 厘米，逐发装填手指接缝误差小于 0.00004 度，插入段人工关键帧文件哈希保持；未运行 PIE，观感待人工审核。制作契约见 [BBBActionLeftHandAlignmentMCP](Docs/BBBActionLeftHandAlignmentMCP.md)。

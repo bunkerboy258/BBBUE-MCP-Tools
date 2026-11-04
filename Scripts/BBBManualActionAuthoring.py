@@ -60,6 +60,8 @@ def _source(recipe_path):
             raise RuntimeError('ACTION_ASSET_SCOPE: ' + field)
     if data['finger_animation'] != data['animation'] and data['finger_animation'].rsplit('/', 1)[0] != root + '/Animation/Sequence':
         raise RuntimeError('ACTION_FINGER_SOURCE_SCOPE')
+    if data.get('restore_action_fingers_request', {}).get('seam'):
+        return path, data
     import BBBCommonActionSources
     row = BBBCommonActionSources.source_for(data)
     if _digest(_asset(data['animation'], unreal.AnimSequence)) != row['validation']['animation_digest']:

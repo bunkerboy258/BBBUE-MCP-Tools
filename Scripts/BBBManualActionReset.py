@@ -139,6 +139,11 @@ def restore_fingers(path, data, write_paths):
     from BBBControlRigAuthoringToolset import _asset, _pose
     from BBBManualActionAuthoring import _save
 
+    if data['restore_action_fingers_request'].get('seam'):
+        import importlib
+        import BBBActionLeftHandAlignment
+        return importlib.reload(BBBActionLeftHandAlignment).match_finger_seam(path, data, write_paths)
+
     if data['restore_action_fingers_request'].get('entire_clip'):
         return restore_entire_fingers(path, data, write_paths)
     if set(write_paths) != {data['sequence']} or unreal.EditorLevelLibrary.get_pie_worlds(False):
