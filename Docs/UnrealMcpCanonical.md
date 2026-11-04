@@ -140,3 +140,9 @@ SDK 缓存发现首项的完整契约，按响应 `catalog_version` 失效。工
 零级干员使用 `control_task(action="recover", batch=...)` 接管其它会话的故障批次。服务核对终态、故障占用及所属活动，原子转移批次归属并记录原干员与接管干员。原客户端控制权限随归属转移；恢复沿原迁移证据核验、保存及释放资产。
 
 正常关闭编辑器使用 `control_task(action="shutdown_host")`，随后按 `next` 查询 `inspect_tasks.shutdown`。`shutdown_requested` 表示已安排退出，`exited` 表示原进程已退出；`shutdown_blocked` 与 `shutdown_failed` 携带实际原因。
+
+## 提示窗口
+
+`inspect_tasks` 在编辑器等待模态选择时返回 `EDITOR_DIALOG_OPEN`、当前 `dialog` 和可用按钮。`control_task(action="inspect_dialog")` 通过独立本机通道读取提示；随后用 `respond_dialog` 提交同一快照的 `dialog` 与 `button` 标识。提交后重新检查弹窗和原批次，`queued`、`dispatched` 表示已提交选择。
+
+UE 模态循环由原生桥处理，系统对话框按宿主进程及原生控件处理。独立通道使用有界 I/O。原批次所属干员可回应，其他占用及手动提示沿零级权限处理；过期快照返回 `DIALOG_SNAPSHOT_CHANGED`。持续活动等待遇到提示时交付实际阻塞状态。编辑器完全失去消息处理能力时保留通道诊断。

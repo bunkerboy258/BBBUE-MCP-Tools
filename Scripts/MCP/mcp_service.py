@@ -191,6 +191,9 @@ class ProjectRuntime:
         self.view_signature = None
         self.view_revision = 0
         self.retry_at = 0
+        self.dialog_lock = threading.Lock()
+        self.dialog_checked_at = 0
+        self.dialog_state = {"status": "unknown"}
         state = private_directory(self.project_file.parent / "Saved/McpState")
         self.clients = ClientRegistry(state_path=state / "gateway.sqlite")
         self.clients.operators.work_source = self.operator_jobs
@@ -218,6 +221,23 @@ class ProjectRuntime:
             raise McpBusinessError({"status": "rejected", "code": "TOOLSET_UPDATE_REQUIRED", "source": state,
                 "restart": components, "hint": "交接已接收批次后重启 restart 所列进程，再查询 source.current",
                 "next": None})
+
+    def _inspect_dialog(self, force=False):
+        """/** @param force 立即读取 @return 独立于编辑队列的弹窗状态 */"""
+        from MCP.mcp_dialogs import inspect_dialog
+        with self.dialog_lock:
+            if not force and time.monotonic() - self.dialog_checked_at < 0.5:
+                return self.dialog_state
+            row = self.registry.candidate(self.project)
+            if row is None:
+                return {"status": "offline"}
+            try:
+                RegistryGuard(self.registry, self.project, row["process_id"]).verify()
+                self.dialog_state = inspect_dialog(row)
+            except (OSError, ValueError, RuntimeError):
+                self.dialog_state = {"status": "unknown", "code": "DIALOG_INSPECTION_UNAVAILABLE"}
+            self.dialog_checked_at = time.monotonic()
+            return self.dialog_state
 
     def connect(self, resume_key=None):
         """/** @param resume_key 客户端恢复凭据 @return 已登记身份 */"""
@@ -351,6 +371,18 @@ class ProjectRuntime:
         """/** @param client 所属客户端 @param batch 批次 @param detail 详细信息 @param after_revision 上次版本 @param wait_seconds 等待上限 @return 项目与连接状态 */"""
         deadline = time.monotonic() + wait_seconds
         while True:
+            dialog = self._inspect_dialog()
+            if dialog.get("code") == "EDITOR_DIALOG_OPEN" and (batch is None or (self.gateway is not None and batch in self.gateway.jobs.editor.jobs)):
+                result = dict(dialog)
+                result["next"] = {"tool": "control_task", "arguments": {"action": "inspect_dialog"}}
+                result["host"] = {"process_id": self.identity[0] if self.identity else None, "verified": True}
+                if batch is not None and self.gateway is not None:
+                    editor = self.gateway.jobs.editor
+                    with editor.changed:
+                        job = editor.jobs.get(batch)
+                        if job is not None and job["owner"] == client:
+                            result.update(batch=batch, completed=job["completed"])
+                return result
             with self.lock:
                 gateway = self.gateway
             if gateway:
@@ -419,10 +451,32 @@ class ProjectRuntime:
                 rows.append({"owner": "@" + item["owner"], "status": "recovering"})
         return rows
 
-    def control(self, client, action, batch=None, operator=None, lease_seconds=60, host=None):
+    def control(self, client, action, batch=None, operator=None, lease_seconds=60, host=None, dialog=None, button=None):
         """/** @param client 所属客户端 @param action 控制动作 @param batch 批次 @return 归属范围内的结果 */"""
         pool = self.clients.operators
         require_control(pool, client, action)
+        if action == "inspect_dialog":
+            return self._inspect_dialog(force=True)
+        if action == "respond_dialog":
+            from MCP.mcp_dialogs import respond_dialog
+            pool.require(client)
+            row = self.registry.candidate(self.project)
+            if row is None:
+                raise McpBusinessError({"status": "rejected", "code": "EDITOR_OFFLINE"})
+            owned = False
+            if self.gateway is not None:
+                editor = self.gateway.jobs.editor
+                with editor.changed:
+                    running = [item for item in editor.jobs.values() if item["status"] == "running"]
+                    owned = bool(running) and all(item["owner"] == client for item in running)
+            if not owned:
+                pool.require(client, level=0)
+            RegistryGuard(self.registry, self.project, row["process_id"]).verify()
+            with self.dialog_lock:
+                result = respond_dialog(row, dialog, button)
+                self.dialog_checked_at = 0
+            pool.record(client, action, dialog, result=result.get("status", "unknown"))
+            return result
         if action == "pause_operator":
             value = pool.pause(client, operator, lease_seconds)
             self.wake()

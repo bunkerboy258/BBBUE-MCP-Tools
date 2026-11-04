@@ -288,12 +288,12 @@ class McpSession:
             arguments["after_revision"] = after_revision
         return self.request("inspect_tasks", arguments)
 
-    def control_task(self, action, batch=None, operator=None, lease_seconds=None, host=None):
+    def control_task(self, action, batch=None, operator=None, lease_seconds=None, host=None, dialog=None, button=None):
         """/** @param action 控制动作 @param batch 批次 @return 控制结果 */"""
         arguments = {"action": action}
         if batch is not None:
             arguments["batch"] = batch
-        for name, value in (("operator", operator), ("lease_seconds", lease_seconds), ("host", host)):
+        for name, value in (("operator", operator), ("lease_seconds", lease_seconds), ("host", host), ("dialog", dialog), ("button", button)):
             if value is not None:
                 arguments[name] = value
         return self.request("control_task", arguments)
@@ -306,6 +306,8 @@ class McpSession:
             arguments["wait_seconds"] = min(arguments.get("wait_seconds", 30), max(0, deadline - time.monotonic()))
             value = self.inspect_tasks(**arguments)
             if value["status"] in {"completed", "rejected", "failed", "cancelled", "closed"} and not value.get("recovering") and value.get("assets", {}).get("phase") != "fault":
+                return value
+            if value.get("code") == "EDITOR_DIALOG_OPEN":
                 return value
             action = value.get("next")
             if isinstance(action, dict) and action.get("tool") == "control_task" and action.get("arguments") == {"action": "recover", "batch": batch}:
@@ -329,6 +331,8 @@ class McpSession:
         revision = None
         while time.monotonic() < deadline:
             value = self.inspect_tasks(batch=batch, after_revision=revision, wait_seconds=min(30, max(0, deadline - time.monotonic())))
+            if value.get("code") == "EDITOR_DIALOG_OPEN":
+                raise McpBusinessError(value)
             if value.get("status") in {"failed", "rejected", "cancelled"} and not value.get("recovering"):
                 raise McpBusinessError(value)
             verified = value.get("host", {}).get("verified", value.get("host_state", {}).get("verified", False))
