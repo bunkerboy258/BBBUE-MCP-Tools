@@ -16,6 +16,7 @@ from MCP.mcp_contracts import TOOL_POLICIES, compile_contract, default_arguments
 
 
 TOOL_DOMAINS = {
+    "BBBCinematicToolset": "cinematic",
     "BBBMotionMatchingToolset": "motion_matching",
     "BBBHudAssetToolset": "hud",
     "BBBTraversalToolset": "traversal",

@@ -1,5 +1,7 @@
 # BBBUE MCP Tools
 
+2026-11-05 新增 `cinematic` 通用入口. 在当前可见编辑器创建带原生摄影机切换的推进序列并通过宿主内 Movie Render Queue 输出 PNG 同时提供顶点染色标题与普通二维媒体 UI 材质. 八个序列与两项材质创建保存回读通过 第一镜实际输出 60 帧 4K PNG. 使用与证据范围见 [摄影序列](Docs/BBBCinematicMCP.md).
+
 2026-11-05 骨轨复制入口新增 `match_source_timing` 显式选项 支持无曲线 通知及标记的同骨架动画原位同步源帧数与帧率 不删除资产或断开引用。保存前核对全部骨轨与元数据 实际资产回读结果见工具返回。不以此替代 PIE 视觉验收。接口说明见 [动画迁移](Docs/BBBAnimationMigrationMCP.md)。
 
 2026-11-04 新增 `monster_gore.import_special_infected_gore`。按身体 内部组织 分批断点和配置四阶段交付已批准的 Blender 烘焙资源 保持原骨架与绑定。支持每变体共享图集父实例及八区制作遮罩 不修改玩法或动画配置。十一项毁伤入口边界检查通过 四种特感正式导入保存回读均为 ready 未执行 PIE 或战斗画面验收。见 Docs/BBBMonsterGoreMCP.md。

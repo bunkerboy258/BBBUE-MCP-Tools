@@ -37,6 +37,10 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
+    "cinematic.create_media_ui_material": {"access":"write", "world":"editor", "scope":{"fields":["asset_path"]}},
+    "cinematic.create_shot": {"access":"write", "world":"editor", "scope":{"fields":["asset_path"]}},
+    "cinematic.render_shot": {"access":"write", "world":"editor", "scope":{"fields":["asset_path"]}},
+    "cinematic.inspect_render": {"access":"read", "world":"any", "scope":{}},
     'monster_gore.import_special_infected_gore': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['definition_path']}, 'completion': 'verified_save'},
     'editor.prune_unused_material_expressions': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['material_path']}, 'completion': 'verified_save'},
     'scene.load_level': {'scope': {'kind': 'world', 'fields': ['level_path']}},
