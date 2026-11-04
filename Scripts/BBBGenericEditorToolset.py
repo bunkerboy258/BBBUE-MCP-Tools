@@ -5425,4 +5425,28 @@ return saturate(edge*3)*smoothstep(0.18,0.7,n)*0.8;
         from BBBInnerOutlineMaterialTools import configure_inner_outline_material
         return configure_inner_outline_material(material_path)
 
+    @mcp_tool
+    @staticmethod
+    def prune_unused_material_expressions(material_path: str) -> str:
+        """清理自有材质不可达节点并编译保存
+
+        /** @param material_path 自有材质包 @return 不可达节点清理与编译保存回读 */
+        """
+        from BBBAssetWritePolicy import require_write_access
+        material = unreal.load_asset(material_path)
+        if not isinstance(material, unreal.Material) or not material_path.startswith('/Game/_Project/'):
+            raise RuntimeError('目标必须为自有材质')
+        require_write_access(material)
+        result = json.loads(unreal.BBBAssetRepairEditorLibrary.prune_unused_material_expressions(material))
+        if not result.get('success'):
+            raise RuntimeError('材质清理前置检查失败')
+        from editor_toolset.toolsets.material import MaterialTools
+        MaterialTools.recompile(material)
+        if not unreal.EditorAssetLibrary.save_loaded_asset(material, False):
+            raise RuntimeError('材质清理保存失败')
+        if unreal.MaterialEditingLibrary.get_num_material_expressions(material) != result['remaining']:
+            raise RuntimeError('材质节点数量回读不符')
+        result['saved'] = True
+        return json.dumps(result, ensure_ascii=False)
+
 _registration = Registration([BBBGenericEditorToolset])

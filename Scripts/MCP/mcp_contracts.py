@@ -37,6 +37,7 @@ INPUT_SHAPES = {
 
 
 TOOL_POLICIES = {
+    'editor.prune_unused_material_expressions': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['material_path']}, 'completion': 'verified_save'},
     'scene.load_level': {'scope': {'kind': 'world', 'fields': ['level_path']}},
     'external.game.set_game_mode': {'scope': {'kind': 'world'}},
     'external.retarget.initialize_retarget_ops': {'scope': {'fields': ['retargeter_path']}},

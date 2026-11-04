@@ -397,6 +397,7 @@ BLOCKED_TOOLS = {
     "execute_tool_script", "execute_python_command", "execute_python_script", "execute_editor_script",
     "execute_console_command", "execute_script",
     "write_file",
+    "delete_unused_expressions",
 }
 
 
