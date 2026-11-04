@@ -19,6 +19,7 @@ _PRIORITY_NAMES = {0x20: "Normal", 0x4000: "BelowNormal"}
 _active_profile = "Unconfigured"
 _configured_max_fps = None
 _scene_gpu_profile_settings = None
+_scene_gpu_profile_ready_frame = None
 
 
 def _profile_options():
@@ -206,13 +207,13 @@ class BBBMcpRuntimeToolset(unreal.ToolsetDefinition):
         """
         /**
          * 请求原生单帧 GPU 分析 结果由引擎日志交付 不改变画质或保存截图
-         * @param action	capture 请求分析 restore 恢复分析器显示设置
+         * @param action	prepare 启用标记并预热 capture 捕获稳定帧 restore 恢复分析器显示设置
          * @return 请求帧号与日志路径 请求成功不代表分析已经完成
          */
         """
-        global _scene_gpu_profile_settings
-        if action not in ("capture", "restore"):
-            raise ValueError("GPU 分析只接受 capture 或 restore")
+        global _scene_gpu_profile_settings, _scene_gpu_profile_ready_frame
+        if action not in ("prepare", "capture", "restore"):
+            raise ValueError("GPU 分析只接受 prepare capture 或 restore")
         if action == "restore":
             if _scene_gpu_profile_settings is None:
                 return json.dumps({"status": "idle"})
@@ -226,6 +227,7 @@ class BBBMcpRuntimeToolset(unreal.ToolsetDefinition):
                 unreal.log_error("[BBBMcpGpuProfile]分析器设置恢复回读不一致")
                 raise RuntimeError("GPU 分析器设置未完整恢复")
             _scene_gpu_profile_settings = None
+            _scene_gpu_profile_ready_frame = None
             unreal.log("[BBBMcpGpuProfile]已恢复分析器显示设置")
             return json.dumps({"status": "restored", "settings": restored})
         world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
@@ -233,14 +235,23 @@ class BBBMcpRuntimeToolset(unreal.ToolsetDefinition):
             raise RuntimeError("GPU 分析要求当前 PIE 世界")
         if _snapshot()["null_rhi"]:
             raise RuntimeError("GPU 分析要求启用渲染")
-        if _scene_gpu_profile_settings is not None:
-            raise RuntimeError("上次 GPU 分析尚未恢复 请先执行 restore")
-        values = {"r.ProfileGPU.ShowUI": 0, "r.ShowMaterialDrawEvents": 1, "r.EmitMeshDrawEvents": 1}
-        _scene_gpu_profile_settings = {
-            name: unreal.SystemLibrary.get_console_variable_int_value(name) for name in values
-        }
-        for name, value in values.items():
-            unreal.SystemLibrary.execute_console_command(world, "{} {}".format(name, value))
+        if action == "prepare":
+            if _scene_gpu_profile_settings is not None:
+                raise RuntimeError("GPU 分析已经准备 请捕获或恢复")
+            values = {"r.ProfileGPU.ShowUI": 0, "r.ShowMaterialDrawEvents": 1, "r.EmitMeshDrawEvents": 1}
+            _scene_gpu_profile_settings = {
+                name: unreal.SystemLibrary.get_console_variable_int_value(name) for name in values
+            }
+            for name, value in values.items():
+                unreal.SystemLibrary.execute_console_command(world, "{} {}".format(name, value))
+            _scene_gpu_profile_ready_frame = int(unreal.SystemLibrary.get_frame_count()) + 60
+            return json.dumps({"status": "prepared", "ready_frame": _scene_gpu_profile_ready_frame,
+                               "next_action": "等待至少六十个引擎帧再调用 capture 连续捕获 最后 restore"}, ensure_ascii=False)
+        if _scene_gpu_profile_settings is None:
+            raise RuntimeError("GPU 分析必须先 prepare 避免把标记切换触发的缓存重建当作稳定开销")
+        if int(unreal.SystemLibrary.get_frame_count()) < _scene_gpu_profile_ready_frame:
+            return json.dumps({"status": "warming", "ready_frame": _scene_gpu_profile_ready_frame,
+                               "next_action": "等待引擎帧预热后再次 capture"}, ensure_ascii=False)
         unreal.SystemLibrary.execute_console_command(world, "ProfileGPU")
         frame = int(unreal.SystemLibrary.get_frame_count())
         unreal.log("[BBBMcpGpuProfile]已请求单帧 GPU 分析 Frame={}".format(frame))
@@ -250,7 +261,7 @@ class BBBMcpRuntimeToolset(unreal.ToolsetDefinition):
         }
         return json.dumps({"status": "requested", "frame": frame, "pipeline_settings": pipeline,
                            "log_directory": unreal.Paths.project_log_dir(),
-                           "next_action": "检查引擎日志中的 GPU 分析结果后执行 restore"}, ensure_ascii=False)
+                           "next_action": "保持标记不变 可再次 capture 结束后 restore"}, ensure_ascii=False)
 
 
     @mcp_tool
