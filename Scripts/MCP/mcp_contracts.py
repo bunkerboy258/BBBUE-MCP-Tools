@@ -359,7 +359,7 @@ TOOL_POLICIES = {
     'editor.run_automation_tests': {'access': 'pie'},
     'editor.configure_pie_session': {'access': 'pie', 'world': 'editor', 'scope': {'kind': 'session'}, 'completion': 'observed'},
     'editor.create_channel_sprite_system': {'scope': {'fields': ['channel_path', 'system_path']}},
-    'editor.create_inner_outline_material': {'scope': {'fields': ['material_path']}},
+    'editor.configure_inner_outline_material': {'scope': {'fields': ['material_path']}},
     'editor.create_primitive_texture_blend_material': {'scope': {'fields': ['material_path']}},
     'editor.create_projectile_sprite_material': {'scope': {'fields': ['material_path']}},
     'editor.create_static_mesh_grid_graph': {'scope': {'fields': ['graph_path']}},

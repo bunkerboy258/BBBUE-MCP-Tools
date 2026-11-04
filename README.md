@@ -76,7 +76,7 @@ $env:BBB_MCP_URL = $hostInfo.Endpoint
 
 2026-11-04 普通关卡构建: 新增保留源材质的原生 HLOD 单簇构建 光照有效性检查 纹理流送组件构建和反射捕获入口 模块编译通过 DeadCity 已完成 CPU Production 整图光照与反射捕获 保存重载后光照及非空体积光照有效 未构建对象和纹理流送组件均为 0 全部 17 簇有效 官方 Slate 短时 PIE 角色截图已核对 尚未进行 2K120 性能验收 详见 Docs/BBBLevelBuildMCP.md
 
-2026-11-04 新增 `editor.create_inner_outline_material` 通用可见目标内侧描边材质创建入口 模板标记与场景深度共同限制可见内边缘 材质已保存且三个参数回读一致 工具语法核对通过 未进行游玩或画面验收。
+2026-11-04 `editor.configure_inner_outline_material` 原位构建自有后处理材质 双模板组分别提供白色与橙色可见内侧轮廓 独立宽度和强度参数 支持新增或更新后处理材质 不创建兼容入口 工具语法核对通过 实际材质已保存且六个标量及橙色参数回读一致 完整材质再次编译后无新增编译错误 未运行游玩或画面验收。
 
 GPU 分析改为 prepare、等待至少 60 帧、连续 capture、最后 restore；避免将绘制标记切换触发的预阴影缓存重建误判为稳定开销。流程和实测边界见 [BBBGpuProfileMCP](Docs/BBBGpuProfileMCP.md)，专项回归检查通过。
 
