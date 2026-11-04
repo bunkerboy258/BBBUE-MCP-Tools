@@ -837,7 +837,7 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def configure_fact_action_variants(asset_path: str, variant_paths: list[str], counts: list[int], progress_pivots: list[float], sample_pivots: list[float], progress_ends: list[float], blend_duration: float = 0.16) -> str:
+    def configure_fact_action_variants(asset_path: str, variant_paths: list[str], counts: list[int], blend_duration: float = 0.16) -> str:
         """
         /**
          * 为现有事实状态机配置线程安全动作变体及同状态惯性重启
@@ -851,13 +851,6 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
         if len(counts) != 2 or any(count < 1 for count in counts) or sum(counts) != len(variant_paths):
             raise RuntimeError("动作变体必须明确分为攻击 死亡两个非空组")
 
-        if any(len(values) != len(variant_paths) for values in (progress_pivots, sample_pivots, progress_ends)):
-            raise RuntimeError("时间锚点必须与全部动作变体一一对应")
-
-        for pivot, sample, end in zip(progress_pivots, sample_pivots, progress_ends):
-            if not all(math.isfinite(value) for value in (pivot, sample, end)) or not 0.0 < pivot < end <= 1.0 or not 0.0 < sample < 1.0:
-                raise RuntimeError("动作时间锚点无效")
-
         if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
             raise RuntimeError("PIE 期间禁止配置动作变体")
 
@@ -868,7 +861,7 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
 
         require_write_access(blueprint)
 
-        if not unreal.BBBAnimationGraphEditorLibrary.configure_fact_action_variants(blueprint, sequences, counts, progress_pivots, sample_pivots, progress_ends, blend_duration):
+        if not unreal.BBBAnimationGraphEditorLibrary.configure_fact_action_variants(blueprint, sequences, counts, blend_duration):
             raise RuntimeError("变体构图失败 不保存")
 
         unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
@@ -878,7 +871,7 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
         if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
             raise RuntimeError("变体动画蓝图保存失败")
 
-        return json.dumps({"asset": asset_path, "variants": list(variant_paths), "counts": list(counts), "progressPivots": list(progress_pivots), "samplePivots": list(sample_pivots), "progressEnds": list(progress_ends), "saved": True}, ensure_ascii=False)
+        return json.dumps({"asset": asset_path, "variants": list(variant_paths), "counts": list(counts), "saved": True}, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod

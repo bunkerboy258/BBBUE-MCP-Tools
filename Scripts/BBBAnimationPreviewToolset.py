@@ -60,14 +60,15 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def probe_mass_behavior(action: str, file_prefix: str = "", duration_seconds: float = 30.0, sample_interval: float = 0.2) -> str:
+    def probe_mass_behavior(action: str, file_prefix: str = "", duration_seconds: float = 30.0, sample_interval: float = 0.2, include_animation: bool = False) -> str:
         """
         /**
          * 连续读取正式尸群事实 不改变目标 状态或配置 支持无渲染宿主
          * @param action\t\tstart 开始 status 查询 stop 停止
          * @param file_prefix\t\tSaved/temp 内唯一任务目录和文件前缀
          * @param duration_seconds\t\t采样游戏秒数 一至一百二十
-         * @param sample_interval\t\t采样游戏秒数间隔 至少零点二
+         * @param sample_interval\t\t采样游戏秒数间隔 至少一百二十分之一
+         * @param include_animation\t\t记录实际动画状态与最终骨骼 不改变更新策略
          * @return 状态 路径 样本数量及探针自身耗时
          */
         """
@@ -84,7 +85,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
             raise RuntimeError("当前行为采样尚未结束")
         if not re.fullmatch(r"[A-Za-z0-9_-]+/[A-Za-z0-9_-]+", file_prefix):
             raise RuntimeError("前缀必须为任务目录/采样名称 仅允许英文数字下划线和短横线")
-        if not math.isfinite(duration_seconds) or not 1.0 <= duration_seconds <= 120.0 or not math.isfinite(sample_interval) or not 0.2 <= sample_interval <= 2.0:
+        if not math.isfinite(duration_seconds) or not 1.0 <= duration_seconds <= 120.0 or not math.isfinite(sample_interval) or not 1 / 120 <= sample_interval <= 2.0:
             raise RuntimeError("采样时长或间隔超出范围")
         world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
         if world is None:
@@ -117,6 +118,21 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
                     return
                 started = time.perf_counter()
                 snapshot = json.loads(unreal.BBBMassValidationLibrary.inspect_population(world, [], False))
+                if include_animation:
+                    for item in snapshot['locomotion']:
+                        actor = unreal.find_object(None, item.get('actorPath', ''))
+                        if actor is None:
+                            continue
+                        mesh = actor.get_monster_mesh()
+                        animation = mesh.get_anim_instance()
+                        runtime = json.loads(unreal.BBBBlueprintEditorLibrary.probe_animation_instance_runtime(animation)) if animation else {}
+                        item['animationStates'] = runtime.get('states', [])
+                        item['animationPlayers'] = runtime.get('players', [])
+                        item['animationRuntimeError'] = runtime.get('error', '')
+                        item['sampleBones'] = {}
+                        for bone in ('pelvis', 'spine_03', 'upperarm_l', 'hand_l', 'upperarm_r', 'hand_r', 'foot_l', 'foot_r'):
+                            transform = mesh.get_socket_transform(bone, unreal.RelativeTransformSpace.RTS_COMPONENT)
+                            item['sampleBones'][bone] = [*transform.translation.to_tuple(), *transform.rotation.to_tuple()]
                 snapshot["probeElapsedMs"] = (time.perf_counter() - started) * 1000.0
                 output.write(json.dumps(snapshot, ensure_ascii=False, separators=(",", ":")) + "\n")
                 report["samples"] += 1

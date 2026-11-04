@@ -287,7 +287,7 @@ def _travel(sequence, scale):
 
 
 def _motion_timing(root, presentation):
-    """/** @param root 正式特感目录 @param presentation 唯一表现配置 @return 依据现有速度采样重新标定的步频 不重建动画图或修改玩法 */"""
+    """/** @param root 正式特感目录 @param presentation 唯一表现配置 @return 实际资产循环秒数及原速步幅 不重建动画图或修改玩法 */"""
     name = root.rsplit('/', 1)[1]
     scale = presentation.get_editor_property('mesh_transform').scale3d.x
     cycles = []
@@ -304,9 +304,9 @@ def _motion_timing(root, presentation):
         if any(value <= 0 for value in speeds[1:]) or any(not isinstance(value, unreal.AnimSequence) for value in clips):
             raise RuntimeError('现有速度采样无效')
         distances = [_travel(clips[index], scale) for index in (1, 4, 5)]
-        cycles.append(unreal.Vector(*[distance/speeds[index] for distance, index in zip(distances, (2, 4, 5))]))
-        slow.append(distances[0]/speeds[1])
-        pursuit.append(distances[0]/speeds[3])
+        cycles.append(unreal.Vector(*[clips[index].get_play_length() for index in (2, 4, 5)]))
+        slow.append(clips[1].get_play_length())
+        pursuit.append(clips[3].get_play_length())
         rows.append({'blend': blend.get_path_name(), 'clips': [clip.get_path_name() for clip in clips], 'strideCm': distances})
     animation = presentation.get_editor_property('animation')
     animation.set_editor_property('movement_cycle_seconds', cycles)
@@ -421,10 +421,12 @@ def _graph(root, presentation, recipe):
             factory = unreal.BlendSpaceFactory1D()
             factory.set_editor_property('target_skeleton', clips[0].get_skeleton())
             blend = tools.create_asset(path.rsplit('/', 1)[1], root, unreal.BlendSpace1D, factory)
-        walk_speed = float(logic.get_editor_property('walk_speed'))
-        chase_speed = float(logic.get_editor_property('walker_chase_walk_speed'))
-        slow_speed = float(presentation.get_editor_property('animation').get_editor_property('slow_walk_sample_speed'))
-        speeds = [0, slow_speed, walk_speed, chase_speed, float(logic.get_editor_property('run_speed')), float(logic.get_editor_property('sprint_speed'))]
+        walk_speed = float(getattr(logic.get_editor_property('walk_speed'), 'xyz'[index]))
+        chase_speed = float(getattr(logic.get_editor_property('walker_chase_walk_speed'), 'xyz'[index]))
+        slow_speed = float(getattr(presentation.get_editor_property('animation').get_editor_property('slow_walk_sample_speed'), 'xyz'[index]))
+        speeds = [0, slow_speed, walk_speed, chase_speed,
+                  float(getattr(logic.get_editor_property('run_speed'), 'xyz'[index])),
+                  float(getattr(logic.get_editor_property('sprint_speed'), 'xyz'[index]))]
         if not library.configure_speed_blend_space(blend, [clips[0], clips[1], clips[1], clips[1], clips[2], clips[3]], speeds, .12):
             raise RuntimeError('移动采样构图失败')
         if not unreal.EditorAssetLibrary.save_loaded_asset(blend, False):
@@ -432,9 +434,9 @@ def _graph(root, presentation, recipe):
         styles.append(blend)
         scale = presentation.get_editor_property('mesh_transform').scale3d.x
         distances = [_travel(c, scale) for c in clips[1:]]
-        cycles.append(unreal.Vector(*[d/s for d, s in zip(distances, (walk_speed, speeds[4], speeds[5]))]))
-        slow.append(distances[0]/slow_speed)
-        pursuit.append(distances[0]/chase_speed)
+        cycles.append(unreal.Vector(*[clip.get_play_length() for clip in clips[1:]]))
+        slow.append(clips[1].get_play_length())
+        pursuit.append(clips[1].get_play_length())
     attacks = [sequence(x) for x in recipe['attacks']]
     deaths = [sequence(x) for x in recipe['deaths']]
     if not library.build_fact_driven_state_machine_graph(blueprint, styles[0], [attacks[0], deaths[0]],
@@ -445,16 +447,14 @@ def _graph(root, presentation, recipe):
     if not library.configure_fact_movement_styles(blueprint, styles, styles, .18) or not library.configure_fact_locomotion_variants(blueprint, idle, alert, 3, .18):
         raise RuntimeError('移动或待机变体构图失败')
     death_duration = max(x.get_play_length() for x in deaths)
-    ends = [x.get_play_length()/death_duration for x in deaths]
-    pivots = recipe['attack_pivots']+[.45]*len(deaths)
-    hit_fraction = presentation.get_editor_property('animation').get_editor_property('animation_hit_fraction')
-    if not library.configure_fact_action_variants(blueprint, attacks+deaths, [len(attacks), len(deaths)],
-            [hit_fraction]*len(attacks)+[end*.45 for end in ends], pivots, [1.0]*len(attacks)+ends, .15):
-        raise RuntimeError('攻击与死亡变体构图失败')
+    logic.set_editor_property('attack_windup', [clip.get_play_length()*pivot for clip, pivot in zip(attacks, recipe['attack_pivots'])])
+    logic.set_editor_property('attack_recovery', [clip.get_play_length()*(1-pivot) for clip, pivot in zip(attacks, recipe['attack_pivots'])])
     if not library.configure_fact_body_stagger_state(blueprint, [sequence('Stagger'+str(i)) for i in range(5)], .08):
         raise RuntimeError('部位踉跄构图失败')
     if not library.configure_fact_crawl_states(blueprint, [sequence('Crawl'+str(i)) for i in range(6)], .22):
         raise RuntimeError('爬行构图失败')
+    if not library.configure_fact_action_variants(blueprint, attacks+deaths, [len(attacks), len(deaths)], .15):
+        raise RuntimeError('攻击与死亡变体构图失败')
     traversal = json.loads(str(unreal.BBBMonsterTraversalEditorLibrary.configure_traversal_assets([logic], [presentation], sequence('Mantle'), sequence('Climb'))))
     if not traversal.get('success') or library.configure_fact_combat_transitions(blueprint, .18, .075, .19, .06, .2, .22, .045) < 0:
         raise RuntimeError('攀爬或动作衔接失败')
@@ -476,7 +476,7 @@ def _graph(root, presentation, recipe):
     animation.set_editor_property('movement_cycle_seconds', cycles)
     animation.set_editor_property('slow_walk_cycle_seconds', unreal.Vector(*slow))
     animation.set_editor_property('pursuit_walk_cycle_seconds', unreal.Vector(*pursuit))
-    animation.set_editor_property('animation_stride_scale', 1.0)
+    animation.set_editor_property('playback_rate', 1.0)
     animation.set_editor_property('death_animation_duration', death_duration)
     presentation.set_editor_property('animation', animation)
     special = dict(recipe['special_animation'])

@@ -60,6 +60,29 @@ class MassBehaviorProbeTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.probe("start", "Audit/test", 1, .2)
 
+    def test_animation_sampling_uses_checked_native_state_reader(self):
+        """/** @return 状态查询交给原生类型和索引检查 不调用实例上的固定状态机索引 */"""
+        fake = self.probe.__globals__['unreal']
+        animation = object()
+        transform = types.SimpleNamespace(
+            translation=types.SimpleNamespace(to_tuple=lambda: (1, 2, 3)),
+            rotation=types.SimpleNamespace(to_tuple=lambda: (0, 0, 0, 1)),
+        )
+        mesh = types.SimpleNamespace(get_anim_instance=lambda: animation, get_socket_transform=lambda *args: transform)
+        fake.find_object = lambda *args: types.SimpleNamespace(get_monster_mesh=lambda: mesh)
+        fake.RelativeTransformSpace = types.SimpleNamespace(RTS_COMPONENT=0)
+        fake.BBBBlueprintEditorLibrary = types.SimpleNamespace(probe_animation_instance_runtime=lambda instance:
+            json.dumps({'states': [{'machine': 'FactDrivenActions', 'state': 'Patrol'}], 'players': []}))
+        fake.BBBMassValidationLibrary.inspect_population = lambda *args: json.dumps({
+            'worldSeconds': self.now, 'locomotion': [{'actorPath': '/Test/Actor'}]})
+        result = json.loads(self.probe('start', 'Audit/animation', 1, 1 / 60, True))
+        self.callbacks[1](1 / 60)
+        self.probe('stop')
+        row = json.loads(Path(result['path']).read_text().splitlines()[0])['locomotion'][0]
+        self.assertEqual(row['animationStates'][0]['state'], 'Patrol')
+        self.assertEqual(len(row['sampleBones']), 8)
+        self.assertEqual(row['sampleBones']['pelvis'], [1, 2, 3, 0, 0, 0, 1])
+
     def test_completion_closes_output_and_callback(self):
         """/** @return 游戏时间到达上限后数据完整且回调被撤销 */"""
         result = json.loads(self.probe("start", "Audit/test", 1, .2))

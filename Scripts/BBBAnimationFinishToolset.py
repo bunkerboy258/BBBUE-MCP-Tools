@@ -78,7 +78,7 @@ class BBBAnimationFinishToolset(unreal.ToolsetDefinition):
     @mcp_tool
     @staticmethod
     def configure_fact_animation_finish(asset_path: str, turn_sequence_paths: list[str], crawl_death_sequence_path: str,
-                                        crawl_attack_sequence_paths: list[str], crawl_attack_sample_pivots: list[float],
+                                        crawl_attack_sequence_paths: list[str],
                                         crawl_reference_speed: float = 39.7054) -> str:
         """
         /**
@@ -86,7 +86,6 @@ class BBBAnimationFinishToolset(unreal.ToolsetDefinition):
          * @param turn_sequence_paths\t左转和右转原地九十度片段
          * @param crawl_death_sequence_path\t完整爬行死亡过渡序列
          * @param crawl_attack_sequence_paths\t爬行攻击变体路径
-         * @param crawl_attack_sample_pivots\t各变体实际接触帧的归一化位置
          * @param crawl_reference_speed	原速爬行素材对应的移动速度
          * @return 编译保存结果 实际转向不改变 Mass 移动
          */
@@ -97,7 +96,7 @@ class BBBAnimationFinishToolset(unreal.ToolsetDefinition):
         attacks = [unreal.load_asset(path) for path in crawl_attack_sequence_paths]
         if not math.isfinite(crawl_reference_speed) or crawl_reference_speed <= 0:
             raise RuntimeError('爬行参考速度无效')
-        if not 1 <= len(attacks) <= 8 or len(attacks) != len(crawl_attack_sample_pivots) or any(not math.isfinite(value) or not 0 < value < 1 for value in crawl_attack_sample_pivots):
+        if not 1 <= len(attacks) <= 8:
             raise RuntimeError('爬行攻击接触锚点无效')
         if not isinstance(blueprint, unreal.AnimBlueprint) or len(turns) != 2:
             raise RuntimeError("事实动画蓝图或转身样本数量无效")
@@ -106,7 +105,7 @@ class BBBAnimationFinishToolset(unreal.ToolsetDefinition):
         require_asset_write([blueprint])
         if blueprint.get_outermost() in set(unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()):
             raise RuntimeError("目标有未保存编辑")
-        if not unreal.BBBAnimationGraphEditorLibrary.configure_fact_animation_finish(blueprint, turns, death, attacks, crawl_attack_sample_pivots, crawl_reference_speed):
+        if not unreal.BBBAnimationGraphEditorLibrary.configure_fact_animation_finish(blueprint, turns, death, attacks, crawl_reference_speed):
             raise RuntimeError("转身与爬行死亡构图失败 不保存")
         unreal.BlueprintEditorLibrary.compile_blueprint(blueprint)
         if blueprint.get_editor_property('status') != unreal.BlueprintStatus.BS_UP_TO_DATE:

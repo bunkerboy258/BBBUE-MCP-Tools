@@ -35,30 +35,27 @@ class FactAnimationGraphTests(unittest.TestCase):
         exec(compile(ast.Module(body=methods, type_ignores=[]), "fact_graph_test", "exec"), namespace)
         self.actions = namespace["configure_fact_action_variants"]
         self.locomotion = namespace["configure_fact_locomotion_variants"]
-        self.arguments = ("/Game/Test/ABP", ["/Game/A", "/Game/D"], [1, 1], [0.4, 0.2], [0.65, 0.5], [1.0, 0.4])
+        self.arguments = ("/Game/Test/ABP", ["/Game/A", "/Game/D"], [1, 1])
 
-    def test_explicit_mapping_forwarded_and_only_target_saved(self):
-        """/** @return 完整时间锚点前传且不保存其它资产 */"""
+    def test_source_time_variants_forwarded_and_only_target_saved(self):
+        """/** @return 原速动作分组前传且只保存目标资产 */"""
         result = json.loads(self.actions(*self.arguments))
         self.access.assert_called_once_with(self.blueprint)
         self.engine.BBBAnimationGraphEditorLibrary.configure_fact_action_variants.assert_called_once_with(
-            self.blueprint, [self.sequence] * 2, [1, 1], [0.4, 0.2], [0.65, 0.5], [1.0, 0.4], 0.16)
+            self.blueprint, [self.sequence] * 2, [1, 1], 0.16)
         self.engine.EditorAssetLibrary.save_loaded_asset.assert_called_once_with(self.blueprint, False)
         self.assertTrue(result["saved"])
 
-    def test_invalid_mapping_rejected_before_loading(self):
-        """/** @return 数量 非有限值 与无效进度边界拒绝 */"""
-        for pivots, samples, ends in [([], [0.5] * 3, [1.0] * 3), ([0.4] * 3, [math.nan] * 3, [1.0] * 3),
-                                      ([0.4] * 3, [0.5] * 3, [0.4] * 3), ([0.4] * 3, [1.0] * 3, [1.0] * 3)]:
-            with self.assertRaises(RuntimeError):
-                self.actions(*self.arguments[:3], pivots, samples, ends)
+    def test_time_remapping_arguments_are_removed(self):
+        """/** @return 时间重映射参数不再被接受 */"""
+        with self.assertRaises(TypeError):
+            self.actions(*self.arguments, progress_pivots=[0.4, 0.2])
         self.engine.load_asset.assert_not_called()
 
     def test_removed_three_action_contract_is_rejected(self):
         """/** @return 旧硬直动作组不再被构图入口接受 */"""
         with self.assertRaises(RuntimeError):
-            self.actions("/Game/Test/ABP", ["/Game/A", "/Game/H", "/Game/D"], [1, 1, 1],
-                         [0.4, 0.5, 0.2], [0.65, 0.5, 0.5], [1.0, 1.0, 0.4])
+            self.actions("/Game/Test/ABP", ["/Game/A", "/Game/H", "/Game/D"], [1, 1, 1])
         self.engine.load_asset.assert_not_called()
 
     def test_pie_and_access_failure_prevent_native_changes(self):
@@ -93,6 +90,7 @@ class FactAnimationGraphTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.actions(*self.arguments)
         self.engine.EditorAssetLibrary.save_loaded_asset.assert_not_called()
+
 
 
 class FactAnimationSamplingTests(unittest.TestCase):

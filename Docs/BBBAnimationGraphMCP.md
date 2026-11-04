@@ -78,3 +78,11 @@
 `animation_graph.configure_snapshot_montage_source(blueprint_path, slot_name, condition_getter, snapshot_property, blend_duration=0.25)` 在已有唯一全身槽之前接入只读 FPoseSnapshot。条件必须来自原生线程安全查询。条件为真时使用物理退出快照，结束后混回原源姿态；普通 MM、根骨、脚部和装备链保持原有结构。不创建起身状态机，不改变运动库。重复构图、错误快照类型或非线程安全查询会被拒绝。仅用于明确自有动画蓝图，构图后无警告编译并保存。
 
 `motion_matching.create_schema` 的 `trajectory_offsets=[]` 创建仅姿态通道的搜索格式，适合一次性动作选择。采样骨属性可用现有反射配置工具设置；修改后必须刷新格式并核对数据库实际维度及索引，不能仅凭保存成功判定索引已更新。
+
+
+`preview.probe_mass_behavior(action, file_prefix, duration_seconds=30, sample_interval=0.2, include_animation=false)` 在真实 PIE 按游戏时钟只读采集正式实体。`include_animation=true` 额外使用已有原生类型与初始化检查读取实际状态机和活跃播放器 并记录八个骨盆及肢体骨骼的最终组件空间变换。不使用固定状态机索引 不推进动画或修改预算。采样间隔可低至 1/120 秒 实际频率受游戏帧间隔与探针耗时限制。输出为 Saved/temp 下的专属 JSONL 结束或世界替换时撤销回调。
+
+
+普通攻击与死亡使用 `ActionElapsedFact` 直接采样原始秒数。`animation_graph.configure_fact_action_variants` 只接收 `asset_path` `variant_paths` `counts` 与 `blend_duration`。已移除时间锚点与 Hermite 重映射。`animation_finish.configure_fact_animation_finish` 同样移除 `crawl_attack_sample_pivots` 并让爬行攻击和死亡保持原速。玩法配置按相同的出生种子与动作编号选择接触秒数和恢复秒数。
+
+移动周期保存原动画长度。`PlaybackRate` 默认为 1 并限制在 0.8 到 1.2。普通移动按三种风格分别配置 PatrolSpeed WalkSpeed WalkerChaseWalkSpeed RunSpeed SprintSpeed 与 SlowWalkSampleSpeed 向量。可通过现有 `animation_finish.configure_speed_blend` 原位重建速度采样并刷新缓存。

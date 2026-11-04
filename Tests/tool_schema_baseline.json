@@ -13590,24 +13590,6 @@
             },
             "description": "各分组数量 *"
           },
-          "progress_pivots": {
-            "type": "array",
-            "items": {
-              "type": "number"
-            }
-          },
-          "sample_pivots": {
-            "type": "array",
-            "items": {
-              "type": "number"
-            }
-          },
-          "progress_ends": {
-            "type": "array",
-            "items": {
-              "type": "number"
-            }
-          },
           "blend_duration": {
             "type": "number",
             "description": "重启过渡秒数 *",
@@ -13617,10 +13599,7 @@
         "required": [
           "asset_path",
           "variant_paths",
-          "counts",
-          "progress_pivots",
-          "sample_pivots",
-          "progress_ends"
+          "counts"
         ]
       },
       "outputSchema": {
@@ -15847,7 +15826,7 @@
       }
     },
     "configure_fact_animation_finish": {
-      "description": "/**\n * @param asset_path    完整事实动画蓝图\n * @param turn_sequence_paths   左转和右转原地九十度片段\n * @param crawl_death_sequence_path     完整爬行死亡过渡序列\n * @param crawl_attack_sequence_paths   爬行攻击变体路径\n * @param crawl_attack_sample_pivots    各变体实际接触帧的归一化位置\n * @param crawl_reference_speed 原速爬行素材对应的移动速度\n * @return 编译保存结果 实际转向不改变 Mass 移动\n */",
+      "description": "/**\n * @param asset_path    完整事实动画蓝图\n * @param turn_sequence_paths   左转和右转原地九十度片段\n * @param crawl_death_sequence_path     完整爬行死亡过渡序列\n * @param crawl_attack_sequence_paths   爬行攻击变体路径\n * @param crawl_reference_speed 原速爬行素材对应的移动速度\n * @return 编译保存结果 实际转向不改变 Mass 移动\n */",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -15869,12 +15848,6 @@
               "type": "string"
             }
           },
-          "crawl_attack_sample_pivots": {
-            "type": "array",
-            "items": {
-              "type": "number"
-            }
-          },
           "crawl_reference_speed": {
             "type": "number",
             "default": 39.7054
@@ -15884,8 +15857,7 @@
           "asset_path",
           "turn_sequence_paths",
           "crawl_death_sequence_path",
-          "crawl_attack_sequence_paths",
-          "crawl_attack_sample_pivots"
+          "crawl_attack_sequence_paths"
         ],
         "additionalProperties": false
       }
@@ -16017,16 +15989,35 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "definition_path": {"type": "string"},
-          "phase": {"type": "string"},
-          "part_ids": {"type": "array", "items": {"type": "integer"}, "default": []}
+          "definition_path": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "part_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "default": []
+          }
         },
-        "required": ["definition_path", "phase"]
+        "required": [
+          "definition_path",
+          "phase"
+        ]
       },
       "outputSchema": {
         "type": "object",
-        "properties": {"returnValue": {"type": "string"}},
-        "required": ["returnValue"]
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
       }
     },
     "inspect_monster_presentation": {
