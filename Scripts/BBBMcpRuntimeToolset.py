@@ -203,6 +203,35 @@ class BBBMcpRuntimeToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def apply_scene_quality(quality: int = 1) -> str:
+        """
+        /**
+         * 在当前 PIE 通过原生 GameUserSettings 应用画质 不保存用户配置或资产
+         * @param quality\t引擎画质档位零至四
+         * @return 实际设置类 分组值及渲染参数 JSON
+         */
+        """
+        if type(quality) is not int or not 0 <= quality <= 4:
+            raise ValueError("画质档位必须为零至四的整数")
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if world is None:
+            raise RuntimeError("应用场景画质要求当前 PIE 世界")
+        settings = unreal.GameUserSettings.get_game_user_settings()
+        settings.set_overall_scalability_level(quality)
+        settings.apply_non_resolution_settings()
+        names = ("sg.ResolutionQuality", "sg.ViewDistanceQuality", "sg.AntiAliasingQuality",
+                 "sg.ShadowQuality", "sg.TextureQuality", "sg.EffectsQuality", "sg.FoliageQuality",
+                 "r.ScreenPercentage", "r.AntiAliasingMethod", "r.ViewDistanceScale",
+                 "r.StaticMeshLODDistanceScale", "r.Shadow.DistanceScale", "r.Shadow.CSM.MaxCascades",
+                 "r.Streaming.PoolSize", "foliage.DensityScale", "foliage.LODDistanceScale",
+                 "a.Budget.Enabled", "a.Budget.BudgetMs")
+        values = {name: unreal.SystemLibrary.get_console_variable_float_value(name) for name in names}
+        return json.dumps({"settings_class": settings.get_class().get_path_name(), "quality": quality,
+                           "actual_overall_quality": settings.get_overall_scalability_level(),
+                           "settings": values, "saved": False}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def profile_scene_gpu(action: str = "capture") -> str:
         """
         /**

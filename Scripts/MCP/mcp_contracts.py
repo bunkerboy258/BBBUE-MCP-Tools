@@ -481,6 +481,7 @@ TOOL_POLICIES = {
     'runtime.inspect_mcp_dependencies': {'access': 'read'},
     'runtime.inspect_mcp_resources': {'access': 'read'},
     'runtime.profile_scene_gpu': {'access': 'pie', 'world': 'any', 'scope': {'kind': 'session'}},
+    'runtime.apply_scene_quality': {'access': 'pie', 'world': 'pie', 'scope': {'kind': 'session'}},
     'traversal.configure_traversal_contact_points': {'scope': {'rows': ['points', 'montage']}},
     'traversal.configure_traversal_montages': {'scope': {'fields': ['destination_paths']}},
     'traversal.inspect_pie_traversal_contact_points': {'access': 'read'},

@@ -10793,6 +10793,28 @@
           "returnValue"
         ]
       }
+    },
+    "apply_scene_quality": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "quality": {
+            "type": "integer",
+            "default": 1
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBAssetMaintenanceToolset": {

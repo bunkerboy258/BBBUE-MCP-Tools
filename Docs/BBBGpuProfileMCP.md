@@ -1,5 +1,7 @@
 # GPU 稳定帧捕获
 
+`runtime.apply_scene_quality(quality=0..4)` 在当前 PIE 中调用实际 `GameUserSettings` 的统一档位设置与 `ApplyNonResolutionSettings`。返回设置类和生效的分组 抗锯齿 视距 LOD 阴影及纹理池参数。不保存用户配置或资产。使用项目设置子类时也执行其原生覆盖流程。比较画质档位时先应用再预热 不用直接修改各个 `sg.*` 代替游戏的设置应用流程。
+
 `runtime.profile_scene_gpu` 使用 `prepare → capture → capture → restore`。
 
 `prepare` 保存原值并启用材质及网格绘制标记，不捕获。等待至少 60 个引擎帧，使标记切换引起的渲染状态及阴影缓存重建完成。过早调用 `capture` 返回 `warming`，不会请求 GPU 分析。未准备直接捕获会明确失败。
