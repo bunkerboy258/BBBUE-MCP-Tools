@@ -412,45 +412,6 @@ def build_variant(destination_root, prefab_root, recipe_json):
         raise RuntimeError('专属身体物理保存失败')
     gore = presentation.get_editor_property('gore')
     gore.set_editor_property('body', mesh)
-    project = os.path.abspath(unreal.Paths.project_dir())
-    with open(os.path.join(project, 'ArtSource', 'ZombieDestruction', 'Production', name, 'Regions.json'), encoding='utf-8-sig') as stream:
-        region_specs = json.load(stream)['regions']
-    regions = []
-    for value in region_specs:
-        region = unreal.BBBMonsterDestructionRegionDefinition()
-        for key in ('name', 'bone'):
-            region.set_editor_property(key, value[key])
-        region.set_editor_property('contact', unreal.Vector(**value['contact']))
-        region.set_editor_property('rotation', unreal.Rotator(**value['rotation']))
-        region.set_editor_property('extent', unreal.Vector(**value['extent']))
-        regions.append(region)
-    destruction = gore.get_editor_property('destruction')
-    destruction.set_editor_property('regions', regions)
-    destruction.set_editor_property('interior', unreal.load_asset(prefab_root+'/SK_Destruction'))
-    with open(os.path.join(project, 'ArtSource', 'ZombieInjury', name, 'Wounds.json'), encoding='utf-8-sig') as stream:
-        wounds = json.load(stream)['wounds']
-    parts = []
-    for value in wounds:
-        if value['id'] < 10:
-            continue
-        part = unreal.BBBMonsterDismembermentPartDefinition()
-        for key in ('id', 'name', 'bone'):
-            part.set_editor_property(key, value[key])
-        part.set_editor_property('region', getattr(unreal.BBBMonsterHitRegion, value['region']))
-        for key in ('center', 'contact', 'extent'):
-            part.set_editor_property(key, unreal.Vector(*value[key]))
-        part.set_editor_property('rotation', unreal.Rotator(**value['rotation']))
-        tile = value['atlas']
-        part.set_editor_property('atlas_rect', unreal.Vector4((tile%4)*.25, (tile//4)*.25, .25, .25))
-        for key, prefix in [('tissue', 'SK_Tissue_'), ('detached_skin', 'SK_Detached_'), ('detached_mesh', 'SM_Detached_'),
-                            ('remaining_skin', 'SK_Remaining_'), ('remaining_mesh', 'SM_Remaining_')]:
-            path = prefab_root+'/'+prefix+value['name']
-            asset = unreal.load_asset(path) if unreal.EditorAssetLibrary.does_asset_exist(path) else None
-            if not asset and key in ('tissue', 'detached_skin', 'detached_mesh'):
-                raise RuntimeError('预制断点资源缺失 '+path)
-            part.set_editor_property(key, asset)
-        parts.append(part)
-    gore.get_editor_property('dismemberment').set_editor_property('parts', parts)
     presentation.set_editor_property('animation_class', blueprint.generated_class())
     animation = presentation.get_editor_property('animation')
     animation.set_editor_property('idle_cycle_seconds', unreal.Vector(*([sequences[0].get_play_length()]*3)))
@@ -505,12 +466,8 @@ def build_variant(destination_root, prefab_root, recipe_json):
     unreal.BlueprintEditorLibrary.compile_blueprint(actor)
     if actor.get_editor_property('status') != unreal.BlueprintStatus.BS_UP_TO_DATE:
         raise RuntimeError('特感载体编译失败')
-    material_report = str(unreal.BBBMonsterGoreEditorLibrary.configure_wound_materials(gore))
-    if material_report.startswith('失败'):
-        raise RuntimeError(material_report)
-    report = str(unreal.BBBMonsterGoreEditorLibrary.save_gore_configuration(gore))
-    if report.startswith('失败'):
-        raise RuntimeError(report)
+    import BBBMonsterGoreProduction
+    BBBMonsterGoreProduction.import_gore(presentation.get_outermost().get_path_name(), 'configure', [])
     report = str(unreal.BBBMonsterPresentationEditorLibrary.save_configuration(presentation))
     if report.startswith('失败'):
         raise RuntimeError(report)

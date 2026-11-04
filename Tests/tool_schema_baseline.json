@@ -16013,6 +16013,22 @@
     }
   },
   "BBBMonsterGoreToolset": {
+    "import_special_infected_gore": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "definition_path": {"type": "string"},
+          "phase": {"type": "string"},
+          "part_ids": {"type": "array", "items": {"type": "integer"}, "default": []}
+        },
+        "required": ["definition_path", "phase"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {"returnValue": {"type": "string"}},
+        "required": ["returnValue"]
+      }
+    },
     "inspect_monster_presentation": {
       "inputSchema": {
         "type": "object",

@@ -68,6 +68,7 @@ HELPER_MODULES = (
     "BBBAnimationViewTools",
     "BBBFactAnimationCaptureTools",
     "BBBMonsterSpecialAssets",
+    "BBBMonsterGoreProduction",
     "BBBSlimeEffectsAssets",
     "BBBSlimeEffectsPreview",
     "BBBMonsterSpecialPolish",

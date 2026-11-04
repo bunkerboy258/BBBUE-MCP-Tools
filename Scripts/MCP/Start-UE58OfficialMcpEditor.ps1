@@ -67,7 +67,7 @@ try
     {
         throw '项目编辑器正在启动 请稍后复用当前服务'
     }
-    $editors = @(Get-CimInstance Win32_Process -Filter "Name = 'UnrealEditor.exe'" | Where-Object { $_.CommandLine.Replace('/', '\') -match $projectPattern -and $_.CommandLine -notmatch '(?i)-BBBMcpHostRole=Test(\s|$)' })
+    $editors = @(Get-CimInstance Win32_Process -Filter "Name = 'UnrealEditor.exe'" | Where-Object { $_.CommandLine -and $_.CommandLine.Replace('/', '\') -match $projectPattern -and $_.CommandLine -notmatch '(?i)-BBBMcpHostRole=Test(\s|$)' })
     if ($editors.Count -eq 0)
     {
         $frames = @{ HighThroughput = 120; Balanced = 60; Economy = 30; GamingBackground = 15 }[$PerformanceProfile]

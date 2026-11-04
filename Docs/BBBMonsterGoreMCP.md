@@ -37,6 +37,12 @@
 
 ## 编辑操作
 
+monster_gore.import_special_infected_gore 原位交付已经人工通过并完成离线烘焙的四种特感。definition_path 必须为 SpecialInfected/<变体>/DA_<变体>Presentation。phase 依次使用 body / interior / parts / configure。parts 每批提供一至三个唯一 part_ids。工具拒绝 PIE 未烘焙源及未知路径。身体与内部组织完整替换三档 LOD 并保持骨架身份。九组断面与配对残肢分别导入 剩余段只用于上臂和大腿。configure 只更新毁伤资源与表现参数 不修改攻击 动画或逻辑配置。
+
+特感身体的 UV1 与 UV3 来自已通过的当前制作源 保留身体几何 法线 蒙皮及 UV0/UV2。T_SpecialDestructionRegions 是四种特感共用的八区只读图。每个变体的 MI_BakedAnatomy 保存该变体的颜色 / DirectX 法线 / ORM 覆盖 内部与断面子实例共用它。样式重置不会清除父实例图集 不增加运行时组件或每实例纹理。特感不使用普通僵尸衣物的位移图。
+
+导入前边界由 Tests/test_monster_gore_production.py 校验 路径 阶段 PIE 和未烘焙源必须在写入前拒绝。资产交付以导入保存及 inspect_monster_gore_assets 的 ready 回读为准 不将此结果视为战斗或画面验收。
+
 monster_gore.configure_monster_wound_materials(definition_path) 适配已有资源的身体 / 断面 / 掉落件与毁伤组织材质。须先导入三档组织网格及破口和衣料图集 工具核对齐全后保存相关自有包。匹配的共享表面图复用现有节点。断面与掉落件的材质绑定发生变化时才重建对应网格资源。着色器核验使用有渲染能力的编辑宿主。编译错误返回具体材质与编译信息。
 
 整体重建表面图时同时解除所有旧材质输出引用。新投影只捕获当前烘焙表面的颜色 / 粗糙度与常量遮罩。BakedMaterialGraph 原生回归核对旧遮罩与顶点输出链的解除并验证匹配图集节点直接复用。

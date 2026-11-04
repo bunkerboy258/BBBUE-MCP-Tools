@@ -12,6 +12,14 @@ class BBBMonsterGoreToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def import_special_infected_gore(definition_path: str, phase: str, part_ids: list[int] = []) -> str:
+        """/** @param definition_path 四种特感唯一表现配置 @param phase body interior parts configure @param part_ids 每批至多三个已烘焙断点 @return 保留原骨架的原位保存与配置回读 */"""
+        import importlib
+        import BBBMonsterGoreProduction
+        return importlib.reload(BBBMonsterGoreProduction).import_gore(definition_path, phase, part_ids)
+
+    @mcp_tool
+    @staticmethod
     def inspect_monster_presentation(definition_path: str) -> str:
         """/** @param definition_path 唯一表现配置资产 @return 分区所有权及有效性 不保存 */"""
         definition = unreal.load_asset(definition_path)
