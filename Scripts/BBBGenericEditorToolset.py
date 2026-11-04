@@ -5418,4 +5418,11 @@ return saturate(edge*3)*smoothstep(0.18,0.7,n)*0.8;
         return json.dumps(result, ensure_ascii=False)
 
 
+    @mcp_tool
+    @staticmethod
+    def create_inner_outline_material(material_path: str) -> str:
+        """/** @param material_path 不存在的自有材质包 @return 可见目标内侧描边材质与保存回读 */"""
+        from BBBInnerOutlineMaterialTools import create_inner_outline_material
+        return create_inner_outline_material(material_path)
+
 _registration = Registration([BBBGenericEditorToolset])
