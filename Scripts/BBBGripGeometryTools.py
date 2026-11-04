@@ -55,7 +55,7 @@ def sample_surface(mesh_path, animation_path, time_seconds, selected_bones, mini
      * @return 报告路径 数量与几何限制 不修改或保存资产
      */
     """
-    if not isinstance(mesh_path, str) or re.fullmatch(r"/Game/(?:[A-Za-z0-9_]+/)*[A-Za-z0-9_]+", mesh_path) is None:
+    if not isinstance(mesh_path, str) or re.fullmatch(r"/Game/(?:\w+/)*\w+", mesh_path) is None:
         raise RuntimeError("几何采样要求明确的 Game 网格包路径")
 
     if not math.isfinite(time_seconds) or time_seconds < 0:
@@ -111,7 +111,7 @@ def sample_surface(mesh_path, animation_path, time_seconds, selected_bones, mini
     local = [_transform(bone["referenceLocal"]) for bone in bones]
     animation = None
     if animation_path:
-        if re.fullmatch(r"/Game/(?:[A-Za-z0-9_]+/)*[A-Za-z0-9_]+", animation_path) is None:
+        if re.fullmatch(r"/Game/(?:\w+/)*\w+", animation_path) is None:
             raise RuntimeError("几何采样要求明确的 Game 动画包路径")
 
         animation = unreal.load_asset(animation_path)

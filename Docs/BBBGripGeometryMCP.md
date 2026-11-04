@@ -4,6 +4,8 @@
 
 `editor.sample_skeletal_mesh_surface` 取得骨骼网格实际零级源表面在明确姿势下的线性蒙皮结果。它读取导入顶点与真实骨权重 不使用简单碰撞壳 不依赖 RHI 不修改或保存资产。
 
+网格和动画包路径支持中文等 Unicode 字母名称，仍限定 `/Game/` 下的明确分段包名，不接受空段、对象后缀或目录穿越。
+
 原生实现位于项目编辑器模块 `BBBGripGeometryEditorLibrary`。MCP 包装位于 `Scripts/BBBGripGeometryTools.py`。原生库缺失时明确报错 必须先编译并加载编辑器模块。
 
 | 参数 | 含义 |
