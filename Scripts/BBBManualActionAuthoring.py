@@ -62,6 +62,10 @@ def _source(recipe_path):
         raise RuntimeError('ACTION_FINGER_SOURCE_SCOPE')
     if data.get('restore_action_fingers_request', {}).get('seam'):
         return path, data
+    if data.get('refresh_weapon_animation_request'):
+        if _digest(_asset(data['animation'], unreal.AnimSequence)) != data['source_track_digest']:
+            raise RuntimeError('ACTION_REFRESH_SOURCE_CHANGED')
+        return path, data
     import BBBCommonActionSources
     row = BBBCommonActionSources.source_for(data)
     if _digest(_asset(data['animation'], unreal.AnimSequence)) != row['validation']['animation_digest']:
@@ -531,8 +535,8 @@ def _weapon_preview_animation(data, source, montage, weapon_rate):
         output = unreal.EditorAssetLibrary.duplicate_asset(source.get_path_name().split('.')[0], destination)
     rate = source.data_model_interface.get_frame_rate()
     fps = rate.numerator / rate.denominator
-    frame_windows = [(row['bone'], math.ceil(row['start'] * fps - 0.0001),
-                      math.ceil(row['end'] * fps - 0.0001)) for row in windows]
+    frame_windows = [(row['bone'], math.floor(row['start'] * fps + 0.0001),
+                      math.ceil(row['end'] * fps - 0.0001) + 1) for row in windows]
     boundaries = []
     for bone in {row['bone'] for row in windows}:
         values = list(unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(source, bone))
@@ -773,6 +777,8 @@ def prepare(recipe_path, write_paths):
         importlib.reload(BBBManualActionNative)
         return BBBManualActionNative.sync_reload_timing(path, data, write_paths)
     required = {data['sequence'], data['rig']}
+    if data.get('refresh_weapon_animation_request'):
+        required.remove(data['rig'])
     if data.get('preview_animation'):
         required.add(data['preview_animation'])
     if set(write_paths) != required:
@@ -843,6 +849,9 @@ def prepare(recipe_path, write_paths):
             data['weapon_preview_refresh'] = {'source': segment.get_editor_property('anim_reference').get_path_name(),
                 'all_control_and_transform_keys_preserved': True}
             data.pop('refresh_weapon_animation_request')
+            _save(path, data)
+            return {'sequence': data['sequence'], 'weapon_preview': data['weapon_preview'],
+                    'all_control_and_transform_keys_preserved': True}
         if data.get('finger_repair_source'):
             import importlib
             import BBBActionRetargetTools
