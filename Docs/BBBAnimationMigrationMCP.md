@@ -316,6 +316,8 @@ IK 重建通过网格查询真实父骨名，使用 FK 脚组件变换相对于�
 
 ## 下蹲倍率接入
 
+`animation.replace_animation_bone_tracks` 可在完整源动画复制时设置 `match_source_timing=true` 原位同步源帧数和帧率。源与目标必须同骨架 同参考姿势 同骨轨集合 且都没有曲线 通知和同步标记。目标对象及引用保持不变 完整骨轨与时序保存前回读核验。默认仍要求源与目标时序完全一致。
+
 
 动画 Processor 使用实际下蹲事实 在当前腰射或瞄准参数上叠乘空中与下蹲倍率 使用 `GetCrouchedAimFollowScale` `GetCrouchedBackwardRecoilScale` `GetCrouchedSwayAmplitudeScale` `GetCrouchedSwayFrequencyScale` 四个中性默认值为 1 的线程安全快照入口
 

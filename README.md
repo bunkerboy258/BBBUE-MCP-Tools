@@ -1,5 +1,7 @@
 # BBBUE MCP Tools
 
+2026-11-05 骨轨复制入口新增 `match_source_timing` 显式选项 支持无曲线 通知及标记的同骨架动画原位同步源帧数与帧率 不删除资产或断开引用。保存前核对全部骨轨与元数据 实际资产回读结果见工具返回。不以此替代 PIE 视觉验收。接口说明见 [动画迁移](Docs/BBBAnimationMigrationMCP.md)。
+
 2026-11-04 新增 `monster_gore.import_special_infected_gore`。按身体 内部组织 分批断点和配置四阶段交付已批准的 Blender 烘焙资源 保持原骨架与绑定。支持每变体共享图集父实例及八区制作遮罩 不修改玩法或动画配置。十一项毁伤入口边界检查通过 四种特感正式导入保存回读均为 ready 未执行 PIE 或战斗画面验收。见 Docs/BBBMonsterGoreMCP.md。
 
 2026-11-04 材质不可达节点清理统一使用 `editor.prune_unused_material_expressions`. 原 `material.delete_unused_expressions` 不再公开. 仅遍历明确自有材质的输出依赖 解除不可达表达式及其图节点的根引用 从表达式集合移除并迁入瞬态包 避免 UE5.8 原生删除接口的根引用断言. 保留可达节点及全部输入连接 编译后保存并回读节点数量. UA 皮肤与衬衫分别清理 6 和 5 个不可达节点 已完成编译 保存及回读 未运行 PIE 或画面验收.

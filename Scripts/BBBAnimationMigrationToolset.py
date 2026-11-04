@@ -3677,17 +3677,18 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def replace_animation_bone_tracks(animation_path: str, tracks_json: str = "{}", source_animation_path: str = "") -> str:
+    def replace_animation_bone_tracks(animation_path: str, tracks_json: str = "{}", source_animation_path: str = "", match_source_timing: bool = False) -> str:
         """
         /**
          * 校验并替换显式骨骼的逐帧局部变换 保留其它轨道 曲线和通知
          * @param animation_path\t目标动画序列
          * @param tracks_json\t\t骨骼名称到完整局部变换关键帧数组
+         * @param match_source_timing 同步源帧数与帧率 仅允许无曲线 通知和标记的完整复制
          * @return 保存资产 轨道 帧数和回读结果
          */
         """
         import BBBAnimationTrajectoryTools
-        return BBBAnimationTrajectoryTools.replace_tracks(animation_path, tracks_json, source_animation_path)
+        return BBBAnimationTrajectoryTools.replace_tracks(animation_path, tracks_json, source_animation_path, match_source_timing=match_source_timing)
 
 
 

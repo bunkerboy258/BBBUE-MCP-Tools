@@ -4,7 +4,7 @@ import math
 import unreal
 
 
-def replace_tracks(animation_path, tracks_json, source_animation_path=""):
+def replace_tracks(animation_path, tracks_json, source_animation_path="", match_source_timing=False):
     from BBBAssetWritePolicy import require_write_access
 
     animation = unreal.load_asset(animation_path)
@@ -15,11 +15,14 @@ def replace_tracks(animation_path, tracks_json, source_animation_path=""):
         raise RuntimeError("PIE 期间禁止改写动画轨道")
     count = animation.data_model_interface.get_number_of_keys()
     requests = json.loads(tracks_json)
+    if match_source_timing and not source_animation_path:
+        raise RuntimeError("同步源时序必须完整复制源动画")
     metadata_before = None
     if source_animation_path:
         if requests:
             raise RuntimeError("源动画与显式轨道不能同时提供")
-        requests, metadata_before = _source_track_request(animation, source_animation_path)
+        requests, metadata_before = _source_track_request(animation, source_animation_path, match_source_timing)
+        count = metadata_before["frames"]
     if metadata_before is None:
         metadata_before = _track_metadata(animation)
     if not isinstance(requests, dict) or not requests or len(requests) > 128 or count > 1200:
@@ -53,6 +56,16 @@ def replace_tracks(animation_path, tracks_json, source_animation_path=""):
     controller = animation.controller
     controller.open_bracket("替换指定骨骼局部轨道", False)
     try:
+        if match_source_timing:
+            source = unreal.load_asset(source_animation_path)
+            rate = source.data_model_interface.get_frame_rate()
+            controller.set_frame_rate(rate, False)
+            actual_rate = animation.data_model_interface.get_frame_rate()
+            if (actual_rate.numerator, actual_rate.denominator) != (rate.numerator, rate.denominator):
+                raise RuntimeError("同步源动画帧率失败")
+            controller.set_number_of_frames(unreal.FrameNumber(value=count - 1), False)
+            if animation.data_model_interface.get_number_of_keys() != count:
+                raise RuntimeError("同步源动画帧数失败")
         for name, values in prepared.items():
             if name.casefold() not in {item.casefold() for item in existing} and not controller.add_bone_curve(name, False):
                 raise RuntimeError("新增缺失骨轨失败 " + name)
@@ -104,13 +117,18 @@ def _track_metadata(animation):
     }
 
 
-def _source_track_request(animation, source_animation_path):
+def _source_track_request(animation, source_animation_path, match_source_timing=False):
     """/** @param animation 现有目标 @param source_animation_path 烘焙源 @return 校验后的完整局部轨道与目标元数据 */"""
     source = unreal.load_asset(source_animation_path)
     if not isinstance(source, unreal.AnimSequence) or source == animation:
         raise RuntimeError("源动画无效或与目标相同")
     before = _track_metadata(animation)
-    if _track_metadata(source) != before:
+    source_metadata = _track_metadata(source)
+    if match_source_timing:
+        if any(before[name] or source_metadata[name] for name in ("curves", "notifies", "markers")):
+            raise RuntimeError("有曲线 通知或标记的动画禁止自动同步时序")
+        before.update({name: source_metadata[name] for name in ("frames", "rate", "length")})
+    if source_metadata != before:
         raise RuntimeError("源与目标的骨架 帧率 通知 曲线或参考姿势不一致")
     source_names = [str(name) for name in source.data_model_interface.get_bone_track_names()]
     target_names = [str(name) for name in animation.data_model_interface.get_bone_track_names()]
