@@ -116,6 +116,15 @@ def _set_texture(instance, parameter, texture):
         raise RuntimeError('纹理参数回读不一致 ' + parameter)
 
 
+def _set_authored_surface(instance, texture):
+    """/** @param instance 正式身体或组织材质实例 @param texture 当前变体的制作遮罩 @return 核对后的分区读取 */"""
+    _set_texture(instance, 'InjuryRegions', texture)
+    library = unreal.MaterialEditingLibrary
+    library.set_material_instance_scalar_parameter_value(instance, 'InjuryAuthoredSurface', 1.)
+    if abs(library.get_material_instance_scalar_parameter_value(instance, 'InjuryAuthoredSurface') - 1.) > .001:
+        raise RuntimeError('当前材质没有启用认可源的破口与内壁 ' + instance.get_path_name())
+
+
 def _configure(definition_path, variant, root, production, severing):
     """/** @param definition_path 唯一表现配置 @param variant 特感 @param root 自有预制目录 @param production 制作根 @param severing 断肢根 @return 保存后的完整资源回读 */"""
     assets = unreal.EditorAssetLibrary
@@ -185,6 +194,10 @@ def _configure(definition_path, variant, root, production, severing):
     for parameter, filename in (('DestructionColor', 'T_Destruction_BaseColor'), ('DestructionNormal', 'T_Destruction_Normal'), ('DestructionORM', 'T_Destruction_ORM')):
         texture = unreal.load_asset(root + '/Textures/' + filename)
         _set_texture(atlas, parameter, texture)
+    region_texture = unreal.load_asset(root + '/Textures/T_DestructionRegions')
+    if not isinstance(region_texture, unreal.Texture2D):
+        raise RuntimeError('缺少当前变体的八区破口与边缘遮罩 ' + variant)
+    _set_authored_surface(atlas, region_texture)
     _save(atlas)
     # 图集放在标准父实例 样式重置只清除子实例的颜色与粗糙度参数
     for instance in (material, tissue):
@@ -200,11 +213,10 @@ def _configure(definition_path, variant, root, production, severing):
             if unreal.MaterialEditingLibrary.get_material_instance_texture_parameter_value(instance, parameter) != expected:
                 raise RuntimeError('子实例图集继承不一致 ' + instance.get_path_name() + ' ' + parameter)
         _save(instance)
-    region_texture = unreal.load_asset('/Game/_Project/Mass/Monster/Zombie/Shared/Injury/Materials/T_SpecialDestructionRegions')
     for instance in gore.get_editor_property('materials'):
         if not isinstance(instance, unreal.MaterialInstanceConstant):
             raise RuntimeError('身体伤口材质必须为共享实例')
-        _set_texture(instance, 'InjuryRegions', region_texture)
+        _set_authored_surface(instance, region_texture)
         # 不套用普通僵尸衣物的位移图 保留特感自身衣料与已制作的破边
         unreal.MaterialEditingLibrary.set_material_instance_scalar_parameter_value(instance, 'InjuryClothEnabled', 0)
         _save(instance)
@@ -229,8 +241,13 @@ def import_gore(definition_path, phase, part_ids):
     production = art / 'ZombieDestruction/Production' / variant
     severing = art / 'ZombieInjury/Production' / variant
     info = _json(production / 'InteriorInfo.json')
-    if not info.get('baked') or not info.get('optimized') or info.get('stage') not in ('exported', 'imported'):
+    if (not info.get('baked') or not info.get('optimized') or info.get('stage') not in ('exported', 'imported')
+            or not info.get('approvedSourceSha256')
+            or info.get('humanApproval', {}).get('blendSha256') != info['approvedSourceSha256']):
         raise RuntimeError('需要已烘焙并导出的批准制作源')
+    approved = _json(art / 'ZombieDestruction/Polish/SpecialInfected' / variant / 'AuthoringInfo.json')
+    if not approved.get('humanApproved') or approved.get('blendSha256') != info['approvedSourceSha256']:
+        raise RuntimeError('当前制作源与本次导入的已批准摘要不符')
     root = '/Game/_Project/Mass/Monster/Zombie/Shared/Injury/' + variant
     destination = definition_path.rsplit('/', 1)[0]
     require_asset_write([definition_path])
@@ -240,10 +257,9 @@ def import_gore(definition_path, phase, part_ids):
         result = _skeletal(root + '/SK_Destruction', [production / ('SK_Destruction_LOD' + str(lod) + '.fbx') for lod in range(3)])
         textures = []
         for name, normal, masks in (('T_Destruction_BaseColor', False, False), ('T_Destruction_Normal', True, False),
-                                    ('T_Destruction_ORM', False, True), ('T_SeverProjection', False, True)):
+                                    ('T_Destruction_ORM', False, True), ('T_SeverProjection', False, True),
+                                    ('T_DestructionRegions', False, True)):
             textures.append(_texture(root + '/Textures/' + name, production / 'Textures' / (name + '.png'), normal, masks).get_path_name())
-        textures.append(_texture('/Game/_Project/Mass/Monster/Zombie/Shared/Injury/Materials/T_SpecialDestructionRegions',
-                                 art / 'ZombieDestruction/Production/SpecialInfected/Textures/T_DestructionRegions.png', masks=True).get_path_name())
         return json.dumps({'mesh': result, 'textures': textures, 'saved': True}, ensure_ascii=False)
     if phase == 'parts':
         if not 1 <= len(part_ids) <= 3 or len(set(part_ids)) != len(part_ids):

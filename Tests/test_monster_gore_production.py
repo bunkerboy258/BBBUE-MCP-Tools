@@ -49,6 +49,20 @@ class MonsterGoreProductionTests(unittest.TestCase):
         self.access.assert_not_called()
         self.engine.load_asset.assert_not_called()
 
+    def test_changed_approval_rejected_before_write(self):
+        """/** @return 制作源已更改时拒绝导入旧烘焙 */"""
+        self.engine.get_editor_subsystem.return_value.get_game_world.return_value = None
+        self.engine.Paths.project_dir.return_value = 'E:/BBB_Evac'
+        self.metadata.side_effect = [
+            {'baked': True, 'optimized': True, 'stage': 'exported',
+             'approvedSourceSha256': 'approved', 'humanApproval': {'blendSha256': 'approved'}},
+            {'humanApproved': True, 'blendSha256': 'changed'},
+        ]
+        with self.assertRaisesRegex(RuntimeError, '已批准摘要不符'):
+            self.run_import(self.definition, 'body', [])
+        self.access.assert_not_called()
+        self.engine.load_asset.assert_not_called()
+
     def test_existing_texture_binding_is_confirmed_by_readback(self):
         """/** @return 已有绑定没有产生更改时仍以实际参数回读确认结果 */"""
         source = Path(__file__).resolve().parents[1] / 'Scripts/BBBMonsterGoreProduction.py'
