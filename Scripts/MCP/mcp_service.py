@@ -110,8 +110,16 @@ def _ensure_service(project_file=None, port=8000, timeout=15, directory=None, py
         configuration(project_file, port, directory)
     try:
         health = service_health(url)
+    except Exception:
+        try:
+            with socket.socket() as probe:
+                if os.name == "nt":
+                    probe.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+                probe.bind(("127.0.0.1", port))
+        except OSError as error:
+            raise RuntimeError("SERVICE_HANDOVER_REQUIRED: port unavailable") from error
+    else:
         if project_file is not None and project_key(project_file) not in health["projects"]:
-            configuration(project_file, port, directory)
             deadline = time.monotonic() + timeout
             while project_key(project_file) not in health["projects"]:
                 if time.monotonic() >= deadline:
@@ -119,10 +127,6 @@ def _ensure_service(project_file=None, port=8000, timeout=15, directory=None, py
                 time.sleep(0.2)
                 health = service_health(url)
         return health
-    except Exception:
-        with socket.socket() as probe:
-            if probe.connect_ex(("127.0.0.1", port)) == 0:
-                raise RuntimeError("SERVICE_HANDOVER_REQUIRED: existing listener retained")
     directory = Path(directory or service_directory()).resolve()
     configuration(project_file, port, directory)
     arguments = [python or sys.executable, "-B", str(Path(__file__).resolve()), "--directory", str(directory), "--port", str(port)]
@@ -131,16 +135,26 @@ def _ensure_service(project_file=None, port=8000, timeout=15, directory=None, py
     mode = "wb" if log_path.exists() and log_path.stat().st_size > 65536 else "ab"
     with log_path.open(mode) as output:
         process = subprocess.Popen(arguments, stdin=subprocess.DEVNULL, stdout=output, stderr=output, creationflags=flags)
-    threading.Thread(target=process.wait, daemon=True, name="BBB-MCP-service-process").start()
     deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            return service_health(url)
-        except Exception:
-            if process.poll() is not None:
-                raise RuntimeError("SERVICE_START_FAILED: inspect startup.log")
-        time.sleep(0.2)
-    raise RuntimeError("SERVICE_START_TIMEOUT: inspect startup.log")
+    adopted = False
+    try:
+        while time.monotonic() < deadline:
+            try:
+                health = service_health(url)
+            except Exception:
+                if process.poll() is not None:
+                    raise RuntimeError("SERVICE_START_FAILED: inspect startup.log")
+                time.sleep(0.2)
+                continue
+            if health["process_id"] == process.pid:
+                threading.Thread(target=process.wait, daemon=True, name="BBB-MCP-service-process").start()
+                adopted = True
+            return health
+        raise RuntimeError("SERVICE_START_TIMEOUT: inspect startup.log")
+    finally:
+        if not adopted and process.poll() is None:
+            process.terminate()
+            process.wait(timeout=5)
 
 
 class CachedCatalog(ToolCatalog):
@@ -543,6 +557,46 @@ class McpService:
                 context.backend.close()
 
 
+class LocalServiceServer(ThreadingHTTPServer):
+    """/** 回环端口独占与请求容量保护 */"""
+
+    allow_reuse_address = False
+    allow_reuse_port = False
+    request_queue_size = 32
+
+    def __init__(self, address, handler):
+        self._requests = threading.BoundedSemaphore(32)
+        super().__init__(address, handler)
+
+    def server_bind(self):
+        if os.name == "nt":
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+    def process_request(self, request, address):
+        request.settimeout(5)
+        if not self._requests.acquire(blocking=False):
+            try:
+                request.settimeout(0.1)
+                request.sendall(b"HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nRetry-After: 1\r\nContent-Length: 0\r\n\r\n")
+            except OSError:
+                pass
+            finally:
+                self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, address)
+        except BaseException:
+            self._requests.release()
+            raise
+
+    def process_request_thread(self, request, address):
+        try:
+            super().process_request_thread(request, address)
+        finally:
+            self._requests.release()
+
+
 def make_service_server(service, port):
     """/** @param service 常驻上下文 @param port 回环端口 @return 本机 HTTP 入口 */"""
     class Handler(BaseHTTPRequestHandler):
@@ -604,9 +658,7 @@ def make_service_server(service, port):
         def log_message(self, format, *arguments):
             return
 
-    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-    server.daemon_threads = True
-    return server
+    return LocalServiceServer(("127.0.0.1", port), Handler)
 
 
 def main():
