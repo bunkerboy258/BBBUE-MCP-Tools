@@ -83,6 +83,18 @@ class McpContractTests(unittest.TestCase):
         self.assertIsNone(capabilities.tool_contract("LevelSequenceEditorSubsystem", "RemoveAllBindings",
             schema, annotations={"accessMode": "write"}))
 
+    def test_native_asset_name_search_returns_dispatchable_filter(self):
+        """/** @return 资产短名直接生成符合原生接口的查找调用 */"""
+        schema = {"type": "object", "properties": {"filter": {"type": "object", "properties": {
+            "folderPath": {"type": "string"}, "name": {"type": "string"}, "maxResults": {"type": "integer"},
+        }}}}
+        descriptor = {"name": "FindAssets", "inputSchema": schema, "annotations": {"accessMode": "read"}}
+        backend = types.SimpleNamespace(descriptors=lambda: [("AssetToolset", [descriptor])], external_contracts=lambda: [])
+        catalog = capabilities.ToolCatalog(backend)
+        result = catalog.find("MyMesh42")[0]
+        operation = catalog.prepare([result["call"]])[0]
+        self.assertEqual(operation["arguments"], {"filter": {"folderPath": "/Game", "name": "MyMesh42", "maxResults": 20}})
+
     def test_character_locomotion_authoring_and_observation_boundaries(self):
         """/** @return 连续循环构图需要原生依赖和明确写入范围 运动状态查询保持只读 */"""
         requirements = capabilities.native_requirements("BBBAnimationGraphToolset", "restore_character_directional_cycle")

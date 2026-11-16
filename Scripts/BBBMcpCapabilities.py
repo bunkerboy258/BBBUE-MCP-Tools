@@ -46,6 +46,7 @@ TOOL_DOMAINS = {
     "BlueprintToolset": "blueprint_base",
     "BlueprintDslToolset": "blueprint_dsl",
     "BlueprintDslTools": "blueprint_special_graph",
+    "DataTableToolset": "data_table",
     "ControlRigTools": "control_rig_base",
     "EditorAppToolset": "app",
 }
@@ -401,6 +402,7 @@ BLOCKED_TOOLS = {
     "execute_console_command", "execute_script",
     "write_file",
     "delete_unused_expressions",
+    "DeleteUnusedExpressions",
 }
 
 
@@ -597,6 +599,8 @@ def tool_contract(toolset, name, schema, description="", annotations=None):
     if definition == "AssetToolset":
         if name == "FindAssets":
             contract["id"] = "asset.find_assets"
+            if "filter" in parameters.get("properties", {}):
+                parameters["properties"]["filter"]["default"] = {"folderPath": "/Game", "maxResults": 100}
         if name == "SaveAsset":
             contract.update(id="asset.save_asset", scope={"fields": ["assetPath"]})
         if name in {"Duplicate", "Delete", "SetMetadataTag", "RemoveMetadataTag"}:
@@ -604,6 +608,10 @@ def tool_contract(toolset, name, schema, description="", annotations=None):
                       "SetMetadataTag": ["assetPath"], "RemoveMetadataTag": ["assetPath"]}[name]
             if set(fields) <= parameters.get("properties", {}).keys():
                 contract.update(scope={"fields": fields})
+    if definition == "DataTableToolset":
+        local_names = {"ListRows": "list_rows", "GetSchema": "get_schema", "GetRows": "get_rows"}
+        if name in local_names:
+            contract["id"] = domain + "." + local_names[name]
     if definition == "BlueprintToolset" and name == "Create":
         if {"folderPath", "assetName"} <= parameters.get("properties", {}).keys():
             contract.update(scope={"join": ["folderPath", "assetName"]})
@@ -744,6 +752,12 @@ class ToolCatalog:
         """/** @param query 目标关键字 @param limit 结果上限 @return 候选工具 */"""
         if query.strip() in self.tools:
             return [self.describe(query.strip())]
+        if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*\d[A-Za-z0-9_]*", query.strip()) and "asset.find_assets" in self.tools:
+            result = self.describe("asset.find_assets")
+            arguments = {"filter": {"folderPath": "/Game", "name": query.strip(), "maxResults": 20}}
+            result["arguments"] = arguments
+            result["call"] = {"tool": "asset.find_assets", "arguments": arguments}
+            return [result]
         normalized = query.casefold().strip()
         if any(word in normalized for word in ("关闭编辑器", "退出编辑器", "关编辑器", "关闭ue", "退出ue", "shutdown_host", "close editor", "quit editor")):
             result = self.describe("control_task")
@@ -772,8 +786,9 @@ class ToolCatalog:
             for contract in self.tools.values():
                 identity = contract["id"].casefold()
                 hint = HINTS.get(identity, "")
-                words = set((identity.replace(".", " ").replace("_", " ") + " " + hint).split())
-                text = (identity + " " + contract["summary"] + " " + hint).casefold()
+                name_words = re.sub(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])", " ", contract["name"]).casefold()
+                words = set((identity.replace(".", " ").replace("_", " ") + " " + name_words + " " + hint).split())
+                text = (identity + " " + name_words + " " + contract["summary"] + " " + hint).casefold()
                 text += " " + " ".join(str(value) for field in contract["parameters"].get("properties", {}).values() for value in field.get("enum", []))
                 entries.append((contract, identity, words, text))
             cache = (self.tools, entries)
@@ -824,9 +839,6 @@ class ToolCatalog:
         result = [{key: item[key] for key in ("id", "summary", "access")} for score, identity, item in candidates[:min(limit, 3)]]
         if result:
             result[0] = self.describe(result[0]["id"])
-        if not result and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*\d[A-Za-z0-9_]*", query.strip()) and "asset.find_assets" in self.tools:
-            result = [self.describe("asset.find_assets")]
-            result[0]["arguments"] = {"folder_path": "/Game", "name": query.strip()}
         return result
 
     def describe(self, identity):

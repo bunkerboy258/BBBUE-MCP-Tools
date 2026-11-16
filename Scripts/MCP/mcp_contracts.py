@@ -666,6 +666,11 @@ NATIVE_PACKAGES = {
     ("PCGEditorSubsystem", "CollapseNodesToSubgraph"): ("graph", "assetPath"),
 }
 
+NATIVE_ACTOR_TARGETS = {
+    "ActorToolset": ("actor", "owner", "component", "parent"),
+    "PrimitiveToolset": ("actor",),
+}
+
 
 def _scope_variants(schema, root, depth=0):
     """/** @param schema 字段类型 @param root 完整参数 @return 可用类型分支 */"""
@@ -695,6 +700,9 @@ def _native_asset_scope(definition, name, parameters):
         return {"fields": list(NATIVE_PACKAGES[route])}
     if route in {("PCGToolset", "SpawnGraphInstance"), ("PCGEditorSubsystem", "SpawnGraphInstance")}:
         return {"kind": "world"}
+    actors = [field for field in NATIVE_ACTOR_TARGETS.get(definition, ()) if field in properties]
+    if actors:
+        return {"kind": "world", "fields": actors}
     destination = NATIVE_DESTINATIONS.get(route)
     if destination is None and name in {"Create", "CreateMaterial", "CreateFunction",
             "CreateParameterCollection", "CreateWidgetBlueprint", "ImportFile"}:
