@@ -1,7 +1,6 @@
 import json
 import math
 import os
-import sys
 import traceback
 import uuid
 
@@ -2350,14 +2349,4 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         return json.dumps(sample_node(main_path, mesh_path, node_guid, animation_path, time_seconds, output_name), ensure_ascii=False)
 
 
-
-_official_python = os.path.join(unreal.Paths.engine_plugins_dir(), "Experimental", "Toolsets", "AnimationAssistantToolset", "Content", "Python")
-if _official_python not in sys.path:
-    sys.path.append(_official_python)
-
-from animation_toolset.toolsets.controlrig import ControlRigTools
-from animation_toolset.toolsets.sequencer import SequencerTools
-from animation_toolset.toolsets.controlrig_sequencer import SequencerControlRigTools
-from animation_toolset.toolsets.import_export import SequencerImportExportTools
-
-_registration = Registration([BBBControlRigAuthoringToolset, ControlRigTools, SequencerTools, SequencerControlRigTools, SequencerImportExportTools])
+_registration = Registration([BBBControlRigAuthoringToolset])

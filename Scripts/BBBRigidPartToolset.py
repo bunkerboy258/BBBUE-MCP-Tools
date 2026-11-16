@@ -5,7 +5,6 @@ import unreal
 from BBBMcpCapabilities import mcp_tool
 from toolset_registry.registration import Registration
 from BBBAssetWritePolicy import require_write_access
-from editor_toolset.toolsets.blueprint import BlueprintTools
 
 
 def _link(source, target):
@@ -111,7 +110,7 @@ class BBBRigidPartToolset(unreal.ToolsetDefinition):
         require_write_access(blueprint)
         if slot_node.get_outer() != graph:
             raise RuntimeError("部位引脚与姿势节点必须属于同一图表")
-        if function_name in [str(item.get_name()) for item in BlueprintTools.list_graphs(blueprint)]:
+        if function_name in [str(item.get_name()) for item in unreal.BlueprintToolset.list_graphs(blueprint)]:
             raise RuntimeError("目标函数已存在 拒绝覆盖")
         execute = leader.find_execute_pin()
         previous = list(execute.list_connected_pins())
@@ -124,11 +123,13 @@ class BBBRigidPartToolset(unreal.ToolsetDefinition):
 
         with unreal.ScopedEditorTransaction("BBB Rigid Part Attachment"):
             blueprint.modify()
-            function_graph = BlueprintTools.add_function_graph(blueprint, function_name)
+            function_graph = unreal.BlueprintEditorLibrary.add_function_graph(blueprint, function_name)
             if str(function_graph.get_name()) != function_name:
                 raise RuntimeError("函数名称被占用 请重新加载已保存蓝图后再执行")
-            BlueprintTools.add_object_function_param(function_graph, "PartMesh", unreal.SkeletalMeshComponent.static_class(), True)
-            BlueprintTools.add_object_function_param(function_graph, "BodyMesh", unreal.SkeletalMeshComponent.static_class(), True)
+            unreal.BlueprintGraphEditor.get_graph_editor(function_graph).add_graph_input_parameter(
+                "PartMesh", unreal.BlueprintEditorLibrary.get_object_reference_type(unreal.SkeletalMeshComponent.static_class()))
+            unreal.BlueprintGraphEditor.get_graph_editor(function_graph).add_graph_input_parameter(
+                "BodyMesh", unreal.BlueprintEditorLibrary.get_object_reference_type(unreal.SkeletalMeshComponent.static_class()))
             editor = unreal.BlueprintGraphEditor.get_graph_editor(function_graph)
             entry = next(node for node in editor.list_all_nodes() if isinstance(node, unreal.K2Node_FunctionEntry))
             part = entry.find_output_pin("PartMesh")
@@ -173,7 +174,7 @@ class BBBRigidPartToolset(unreal.ToolsetDefinition):
             _link(relative.find_then_pin(), result.find_execute_pin())
             for index, node in enumerate([entry, clear, mode, animation, attach, relative, result]):
                 node.set_node_pos(unreal.IntPoint(index * 320, 0))
-            BlueprintTools.compile_blueprint(blueprint)
+            unreal.BlueprintToolset.compile_blueprint(blueprint)
             if blueprint.get_editor_property("status") == unreal.BlueprintStatus.BS_ERROR:
                 raise RuntimeError("刚性附着函数编译失败 尚未保存")
 
@@ -205,7 +206,7 @@ class BBBRigidPartToolset(unreal.ToolsetDefinition):
             equal.set_node_pos(unreal.IntPoint(position.x - 600, position.y - 450))
             branch.set_node_pos(unreal.IntPoint(position.x - 300, position.y - 250))
             call.set_node_pos(unreal.IntPoint(position.x, position.y - 350))
-            BlueprintTools.compile_blueprint(blueprint)
+            unreal.BlueprintToolset.compile_blueprint(blueprint)
             if blueprint.get_editor_property("status") == unreal.BlueprintStatus.BS_ERROR:
                 raise RuntimeError("部件分流编译失败 尚未保存")
 

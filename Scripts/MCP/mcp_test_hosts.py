@@ -159,7 +159,7 @@ class TestHost:
             "-UserDir=" + str(self.directory), "-ShaderWorkingDir=" + str(self.directory / "Shaders"),
             "-abslog=" + str(self.directory / "Editor.log"),
             "-ModelContextProtocolStartServer", "-ModelContextProtocolPort=" + str(port),
-            "-ini:EditorPerProjectUserSettings:[/Script/ModelContextProtocolEngine.ModelContextProtocolSettings]:ServerUrlPath=/bbb-mcp-" + key,
+            "-ini:EditorPerProjectUserSettings:[/Script/ModelContextProtocol.ModelContextProtocolSettings]:ServerUrlPath=/bbb-mcp-" + key,
             "-ini:EditorPerProjectUserSettings:[/Script/UnrealEd.EditorLoadingSavingSettings]:bEnableAutoSave=False",
             "-ini:EditorPerProjectUserSettings:[/Script/UnrealEd.LevelEditorPlaySettings]:RunUnderOneProcess=True,ServerPort=" + str(self.server_port)
                 + ",PlayNumberOfClients=" + str(options.get("players", 1)) + ",PlayNetMode="

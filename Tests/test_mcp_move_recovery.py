@@ -27,7 +27,9 @@ class MoveRecoveryTests(unittest.TestCase):
         self.other = self.queue.connect()
         self.queue.clients.operators.manage(self.owner, task="迁移资产", level=0)
         self.catalog.add({"id": "assets.move_assets_batch", "name": "move_assets_batch", "toolset": "test", "definition": "Test",
-            "parameters": {"type": "object", "properties": {"moves": {"type": "array", "items": {"type": "object"}}}},
+            "parameters": {"type": "object", "properties": {"moves": {"type": "array", "items": {
+                "type": "object", "properties": {"source": {"type": "string"}, "destination": {"type": "string"}},
+                "required": ["source", "destination"]}}}},
             "access": "write", "world": "editor", "summary": "迁移资产"})
         self.record = {"assets": [{"source": "/Game/Old/A", "destination": "/Game/New/A"}],
             "referencer_packages": ["/Game/Ref"], "object_results": [{"source": "/Game/Old/A", "renamed": True}]}

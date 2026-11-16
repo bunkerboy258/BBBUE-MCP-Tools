@@ -14,7 +14,7 @@
 
 2026-11-04 几何表面采样路径校验支持中文资产目录和包名，保持明确 Game 包路径及任务临时输出限制；用于读取实际服装在正式持枪姿势下的蒙皮表面。语法检查通过，资产采样结果随调用回读。
 
-UE5.8 编辑器工具与任务调度。固定入口默认 `http://127.0.0.1:8000/mcp`。
+UE 5.9 编辑器工具与任务调度。固定入口默认 `http://127.0.0.1:8000/mcp`。
 
 ## 调用
 
@@ -53,14 +53,14 @@ with McpSession(task="核对资产") as session:
 
 ## 启动与更新
 
-环境为 Windows、UE5.8、项目编辑器模块、Python 与 `requests`。项目 Python 搜索路径指向本仓库 `Scripts`，由 `init_unreal.py` 接入独立常驻服务。
+环境为 Windows、UE 5.9、项目编辑器模块、Python 与 `requests`。项目 Python 搜索路径指向本仓库 `Scripts`，由 `init_unreal.py` 接入独立常驻服务。
 
 ```powershell
 .\Scripts\MCP\Start-BBBMcpService.ps1 -ProjectPath '<uproject绝对路径>' -InstallAtLogon
 
-$hostInfo = & .\Scripts\MCP\Start-UE58OfficialMcpEditor.ps1 `
+$hostInfo = & .\Scripts\MCP\Start-BBBMcpEditor.ps1 `
     -ProjectPath '<uproject绝对路径>' `
-    -EnginePath '<UE5.8根目录>' `
+    -EnginePath '<UE 5.9 根目录>' `
     -PerformanceProfile Balanced
 $env:BBB_MCP_URL = $hostInfo.Endpoint
 ```
@@ -77,6 +77,8 @@ $env:BBB_MCP_URL = $hostInfo.Endpoint
 - [第三方动作](Docs/BBBExternalMcp.md)
 
 ## 本轮更新
+
+2026-11-16：接入 UE 5.9 官方目录与蓝图 Graph DSL。启动器核验引擎版本和宿主身份，旧蓝图转译入口由原生工具接替。保存指定资产使用 `asset.save_asset`。蓝图 DSL 已验证创建、读取、修改、编译与清理。曲线、序列绑定和 Niagara 写入按引用内的资产路径排队。
 
 2026-11-14：MCP 服务独占回环端口；仅在独占绑定验证端口可用后启动服务，收回启动失败的子进程，并限制并发请求及读写等待。
 

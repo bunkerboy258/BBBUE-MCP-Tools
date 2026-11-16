@@ -7,8 +7,6 @@ import toolset_registry
 from BBBMcpCapabilities import mcp_tool
 from BBBAssetWritePolicy import require_write_access
 from toolset_registry.registration import Registration
-from editor_toolset.toolsets.blueprint import BlueprintTools
-from editor_toolset.toolsets import blueprint_dsl
 
 
 
@@ -70,7 +68,6 @@ MCP_INPUTS = {
             'additionalProperties': False,
         },
     },
-    'write_graph': {'node_aliases_json': {'$ref': '#/$defs/StringMap'}, 'pin_aliases_json': {'$ref': '#/$defs/StringMap'}},
 }
 
 
@@ -110,18 +107,6 @@ def _text(value, field, required=True):
     if value.strip() and not re.search(r"[\u4e00-\u9fff]", value):
         raise RuntimeError(field + " 必须包含简体中文说明")
     return value
-
-
-def _read_aliases(value):
-    aliases = json.loads(value)
-    if not isinstance(aliases, dict):
-        raise RuntimeError("节点映射必须为 JSON 对象")
-
-    for key, target in aliases.items():
-        if not isinstance(key, str) or not isinstance(target, str):
-            raise RuntimeError("节点映射的键和值必须为字符串")
-
-    return aliases
 
 
 def _capture_layout_graph(graph):
@@ -517,7 +502,7 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
             unreal.log("[BBBControlRigAlpha] 替换返回参数")
             if not editor.remove_graph_output_parameter("ReturnValue"):
                 raise RuntimeError("旧布尔返回参数移除失败")
-            BlueprintTools.add_function_param(graph, "ReturnValue", "float", False)
+            unreal.BlueprintToolset.add_function_param(graph, "ReturnValue", "float", False)
             unreal.BlueprintEditorLibrary.rename_graph(graph, alpha_function)
             editor.set_is_pure_function(True)
             editor.set_is_thread_safe_function(True)
@@ -550,12 +535,12 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
                     "alphaScaleBiasClamp": {"scale": 1.0, "bias": 0.0, "bInterpResult": False}}})):
                 raise RuntimeError("Control Rig 浮点权重模式配置失败")
 
-            BlueprintTools.compile_blueprint(blueprint, True)
+            unreal.BlueprintToolset.compile_blueprint(blueprint, True)
             unreal.log("[BBBControlRigAlpha] 连接新权重函数")
             new_caller = main_editor.add_call_function_node(blueprint.generated_class().get_path_name() + "." + alpha_function)
             new_caller.set_node_pos(unreal.IntPoint(callers[0]["x"], callers[0]["y"]))
             connect(new_caller.find_output_pin("ReturnValue"), node.find_input_pin("Alpha"))
-            BlueprintTools.compile_blueprint(blueprint, True)
+            unreal.BlueprintToolset.compile_blueprint(blueprint, True)
 
         after = json.loads(BBBBlueprintGraphToolset._graph_snapshot(main_graph.get_path_name()))
         preserved_before = {item["guid"]: item for item in main_before["nodes"] if item["guid"] not in {rig["guid"], callers[0]["guid"]}}
@@ -597,7 +582,7 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
         if graph is None:
             raise RuntimeError("蓝图函数图不存在")
 
-        entries = [node for node in BlueprintTools.find_nodes(graph) if node.get_class().get_name() == "K2Node_FunctionEntry"]
+        entries = [node for node in unreal.BlueprintToolset.find_nodes(graph) if node.get_class().get_name() == "K2Node_FunctionEntry"]
         if len(entries) != 1:
             raise RuntimeError("函数入口数量必须为一")
 
@@ -1030,7 +1015,7 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
         node = editor.create_node_from_name(matches[0], unreal.Vector2D(position_x, position_y), [])
         if node is None:
             raise RuntimeError("节点创建失败")
-        info = BlueprintTools._get_node_info(node)
+        info = unreal.BlueprintToolset.get_node_infos([node])[0]
         return json.dumps({"node": node.get_path_name(), "type": matches[0],
             "inputs": [{"name": pin.name, "index": pin.pin_id.index_id} for pin in info.input_pins],
             "outputs": [{"name": pin.name, "index": pin.pin_id.index_id} for pin in info.output_pins]}, ensure_ascii=False)
@@ -1043,67 +1028,6 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
         import BBBBlueprintFunctionRefactor
         return json.dumps(importlib.reload(BBBBlueprintFunctionRefactor).extract_update_function(
             graph_path, node_guids, function_name, dry_run), ensure_ascii=False)
-
-    @mcp_tool
-    @staticmethod
-    def write_graph(graph_path: str, code: str, node_aliases_json: str, pin_aliases_json: str) -> str:
-        """写入指定项目蓝图图表并编译 不自动保存 失败时保留撤销记录并明确报警"""
-        if not graph_path.startswith("/Game/"):
-            raise RuntimeError("只能编辑项目蓝图图表")
-
-        graph = unreal.load_object(None, graph_path)
-        if not isinstance(graph, unreal.EdGraph):
-            raise RuntimeError("目标不是蓝图图表")
-
-        blueprint = graph.get_outer()
-        if not isinstance(blueprint, unreal.Blueprint):
-            raise RuntimeError("图表必须直接属于蓝图")
-
-        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
-            raise RuntimeError("PIE 期间禁止修改蓝图图表")
-
-        aliases = _read_aliases(node_aliases_json)
-        pin_aliases = _read_aliases(pin_aliases_json)
-        reverse_aliases = {value: key for key, value in aliases.items()}
-
-        def create_node(target_graph, type_id, position):
-            return BlueprintTools.create_node(target_graph, aliases.get(type_id, type_id), position)
-
-        def node_info(node):
-            info = BlueprintTools._get_node_info(node)
-            info.type_id = reverse_aliases.get(info.type_id, info.type_id)
-            for attribute in ("input_pins", "output_pins"):
-                pins = list(getattr(info, attribute))
-                for pin in pins:
-                    pin.type_id = pin_aliases.get(pin.type_id, pin.type_id)
-                setattr(info, attribute, pins)
-            return info
-
-        def find_types(filter_text):
-            found = BlueprintTools.find_node_types(graph, aliases.get(filter_text, filter_text))
-            return [reverse_aliases.get(value, value) for value in found]
-
-        try:
-            with unreal.ScopedEditorTransaction("BBB Write Blueprint Graph"):
-                blueprint.modify()
-                graph.modify()
-                with toolset_registry.tool_raising_exceptions():
-                    blueprint_dsl.Transpiler(
-                        graph,
-                        create_node,
-                        BlueprintTools.connect_pins,
-                        node_info,
-                        BlueprintTools.set_pin_value,
-                        lambda target_graph: BlueprintTools.find_nodes(target_graph),
-                        delete_node_fn=BlueprintTools.delete_node,
-                        find_node_types_fn=find_types,
-                    ).transpile(code)
-                    BlueprintTools.compile_blueprint(blueprint)
-        except Exception as error:
-            unreal.log_error("蓝图图表写入失败 尚未保存 请检查图表或撤销本次操作 {} {}".format(graph_path, error))
-            raise
-
-        return json.dumps({"graph": graph_path, "saved": False, "status": str(blueprint.get_editor_property("status"))}, ensure_ascii=False)
 
 
 _registration = Registration([BBBBlueprintGraphToolset])

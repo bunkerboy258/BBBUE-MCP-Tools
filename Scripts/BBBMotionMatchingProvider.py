@@ -1,6 +1,5 @@
 import unreal
 from BBBAssetWritePolicy import require_asset_write
-from editor_toolset.toolsets.blueprint import BlueprintTools, ContainerType
 
 
 def _connect(output, input_pin):
@@ -53,14 +52,17 @@ def configure_database_provider(base_path, layer_path, standing_database_paths, 
         existing = set(str(value) for value in unreal.BlueprintEditorLibrary.list_member_variable_names(base, False))
         for name in variable_names:
             if name not in existing:
-                BlueprintTools.add_object_variable(base, name, unreal.PoseSearchDatabase.static_class(), container_type=ContainerType.ARRAY)
-                BlueprintTools.set_variable_category(base, name, "动作匹配")
+                unreal.BlueprintToolset.add_object_variable(base, name, unreal.PoseSearchDatabase.static_class(),
+                    unreal.BlueprintAddVariableOptions(container_type=unreal.BlueprintContainerType.ARRAY))
+                unreal.BlueprintToolset.set_variable_category(base, name, "动作匹配")
         graph = unreal.BlueprintEditorLibrary.find_graph(base, "SelectMMDatabases")
         if graph is None:
-            graph = BlueprintTools.add_function_graph(base, "SelectMMDatabases")
+            graph = unreal.BlueprintEditorLibrary.add_function_graph(base, "SelectMMDatabases")
             for name in ["Crouching", "Airborne", "Rising", "Landing"]:
-                BlueprintTools.add_function_param(graph, name, "bool", True)
-            BlueprintTools.add_object_function_param(graph, "Databases", unreal.PoseSearchDatabase.static_class(), False, ContainerType.ARRAY)
+                unreal.BlueprintToolset.add_function_param(graph, name, "bool", True)
+            pin_type = unreal.BlueprintEditorLibrary.get_object_reference_type(unreal.PoseSearchDatabase.static_class())
+            pin_type.container_type = unreal.PinContainerType.ARRAY
+            unreal.BlueprintGraphEditor.get_graph_editor(graph).add_graph_output_parameter("Databases", pin_type)
         editor = unreal.BlueprintGraphEditor.get_graph_editor(graph)
         body = [node for node in editor.list_all_nodes() if not isinstance(node, (unreal.K2Node_FunctionEntry, unreal.K2Node_FunctionResult))]
         editor.remove_nodes(body)

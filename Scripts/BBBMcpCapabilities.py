@@ -41,11 +41,12 @@ TOOL_DOMAINS = {
     "BBBMonsterGoreToolset": "monster_gore",
     "BBBSkeletalMeshImportToolset": "skeletal_import",
     "BBBRetargetAssetAuditToolset": "retarget",
-    "AssetTools": "asset",
-    "ObjectTools": "object",
-    "BlueprintTools": "blueprint_base",
+    "AssetToolset": "asset",
+    "ObjectToolset": "object",
+    "BlueprintToolset": "blueprint_base",
+    "BlueprintDslToolset": "blueprint_dsl",
+    "BlueprintDslTools": "blueprint_special_graph",
     "ControlRigTools": "control_rig_base",
-    "SequencerTools": "sequencer",
     "EditorAppToolset": "app",
 }
 TOOLSET_ROUTES = tuple(name for name in TOOL_DOMAINS if name.startswith("BBB"))
@@ -522,12 +523,19 @@ def _validate_arguments(value, schema, path, root, issues):
             issues.append(path + ": exclusiveMaximum")
 
 
-def tool_contract(toolset, name, schema, description=""):
+def tool_contract(toolset, name, schema, description="", annotations=None):
     """/** @param toolset 注册工具集 @param name 函数名称 @param schema 官方参数 @param description 原用途 @return 唯一工具契约 */"""
     definition = re.sub(r"_0x[0-9a-fA-F]{8}$", "", toolset.rsplit(".", 1)[-1])
     domain = TOOL_DOMAINS.get(definition)
     if domain is None and not definition.startswith("BBB") and definition != "ProgrammaticToolset":
         domain = re.sub(r"(?<!^)(?=[A-Z])", "_", definition.removesuffix("Tools")).lower()
+    if definition in {"ConsoleToolset", "FileSystemToolset", "LiveCodingToolset", "PluginToolset",
+            "CheatsToolset", "MCPClientToolset", "InputToolset", "PythonScriptingTools", "SourceControlHelpers"}:
+        return None
+    if definition == "ObjectToolset" and name == "ListProperties":
+        return None
+    if definition == "SlateInspectorToolset" and name not in {"Snapshot", "GetUMGInfo", "ListObservers", "LastRefusal"}:
+        return None
     if domain is None or name in BLOCKED_TOOLS or definition in {"BBBExternalToolset", "AgentSkillToolset"}:
         return None
     parameters = clean_schema(schema)
@@ -561,6 +569,10 @@ def tool_contract(toolset, name, schema, description=""):
         access = "read"
     if not definition.startswith("BBB") and name.startswith(("Get", "Is", "Has", "Search", "List", "WorldPosTo", "ScreenCoordsTo")):
         access = "read"
+    if not definition.startswith("BBB") and annotations is not None:
+        mode = annotations.get("accessMode")
+        if mode in {"read", "write", "execute"} and domain + "." + name not in TOOL_POLICIES:
+            access = "read" if mode == "read" else "write"
     if name in {"get_actor_transform_at_frame", "get_node_type_pins"}:
         access = "write"
     world = "any" if access == "read" else "editor"
@@ -573,8 +585,50 @@ def tool_contract(toolset, name, schema, description=""):
     if definition == "BBBGenericEditorToolset" and name == "run_automation_tests":
         access, world = "pie", "any"
     summary = re.sub(r"/\*\*|\*/|^\s*\*", "", description, flags=re.M).strip().split("\n")[0][:100]
-    return compile_contract({"id": domain + "." + name, "toolset": toolset, "name": name, "parameters": parameters,
-        "summary": summary or name, "access": access, "world": world, "definition": definition})
+    contract = {"id": domain + "." + name, "toolset": toolset, "name": name, "parameters": parameters,
+        "summary": summary or name, "access": access, "world": world, "definition": definition}
+    if definition == "ObjectToolset":
+        if name == "GetPropertySchema":
+            contract["id"] = "object.list_properties"
+        if name == "GetProperties":
+            contract["id"] = "object.get_properties"
+        if name == "SetProperties":
+            contract.update(id="object.set_properties", scope={"fields": ["instance"]})
+    if definition == "AssetToolset":
+        if name == "FindAssets":
+            contract["id"] = "asset.find_assets"
+        if name == "SaveAsset":
+            contract.update(id="asset.save_asset", scope={"fields": ["assetPath"]})
+        if name in {"Duplicate", "Delete", "SetMetadataTag", "RemoveMetadataTag"}:
+            fields = {"Duplicate": ["newPath"], "Delete": ["path"],
+                      "SetMetadataTag": ["assetPath"], "RemoveMetadataTag": ["assetPath"]}[name]
+            if set(fields) <= parameters.get("properties", {}).keys():
+                contract.update(scope={"fields": fields})
+    if definition == "BlueprintToolset" and name == "Create":
+        if {"folderPath", "assetName"} <= parameters.get("properties", {}).keys():
+            contract.update(scope={"join": ["folderPath", "assetName"]})
+            parameters["properties"]["assetName"]["pattern"] = r"^[A-Za-z0-9_]+$"
+    if definition == "BlueprintDslTools":
+        contract.update(world="editor")
+        if name in {"read_graph_dsl", "get_graph_dsl_docs", "diff"}:
+            contract.update(access="read")
+        if name == "write_graph_dsl" and "graph" in parameters.get("properties", {}):
+            contract.update(scope={"fields": ["graph"]})
+    if definition == "BlueprintDslToolset":
+        action = name.casefold()
+        contract["id"] = domain + "." + action
+        if action in {"read", "docs", "schema", "diff", "findnodereferences", "find_node_references"}:
+            contract.update(access="read", world="editor")
+        if action in {"edit", "write"}:
+            asset_field = next((field for field in parameters.get("properties", {}) if field.replace("_", "").casefold() == "assetpath"), None)
+            if asset_field is None:
+                return None
+            contract.update(scope={"fields": [asset_field]}, completion="verified_save")
+    contract = compile_contract(contract)
+    if annotations is not None and not definition.startswith("BBB") and contract["access"] == "write" and not contract["scope"]:
+        return None
+    return contract
+
 
 
 def resolve_access(contract, arguments):
@@ -617,8 +671,16 @@ def write_scope(contract, arguments, access=None, world=None):
         path = str(arguments.get(parent, "")).rstrip("/") + "/" + str(arguments.get(name, ""))
         return [path], bool(asset_targets(path))
     fields = scope.get("fields")
-    targets = [arguments.get(field, contract["parameters"].get("properties", {}).get(field, {}).get("default")) for field in fields or ()]
-    targets = [target for target in targets if target is not None]
+    targets = []
+    for field in fields or ():
+        key, *parts = field.split(".")
+        target = arguments.get(key, contract["parameters"].get("properties", {}).get(key, {}).get("default"))
+        for part in parts:
+            target = target.get(part) if isinstance(target, dict) else None
+        if parts and not asset_targets(target):
+            return [], False
+        if target is not None:
+            targets.append(target)
     scoped = access == "read" or world == "pie" or access == "pie" or (scope.get("kind") == "world" and not fields) or bool(fields and targets and asset_targets(targets))
     return targets, scoped
 
@@ -634,7 +696,7 @@ class ToolCatalog:
         for toolset, descriptors in backend.descriptors():
             for descriptor in descriptors:
                 name = descriptor["name"].rsplit(".", 1)[-1]
-                contract = tool_contract(toolset, name, descriptor.get("inputSchema", {"type": "object"}), descriptor.get("description", ""))
+                contract = tool_contract(toolset, name, descriptor.get("inputSchema", {"type": "object"}), descriptor.get("description", ""), descriptor.get("annotations"))
                 if contract is None or contract["definition"] == "BBBExternalToolset":
                     continue
                 self.add(contract)
@@ -695,8 +757,10 @@ class ToolCatalog:
             return [result]
         if any(word in normalized for word in ("当前任务与占用", "编辑器当前状态")):
             return [self.describe("inspect_tasks")]
-        if "保存" in normalized and "蓝图" in normalized and not any(word in normalized for word in ("不保存", "未保存", "无需保存")) and "asset.save_assets" in self.tools:
-            return [self.describe("asset.save_assets")]
+        if ("保存" in normalized and any(word in normalized for word in ("蓝图", "资产"))
+                and not any(word in normalized for word in ("不保存", "未保存", "无需保存"))
+                and "asset.save_asset" in self.tools):
+            return [self.describe("asset.save_asset")]
         groups = [values for word, values in ALIASES.items() if word in normalized]
         tokens = set(re.findall(r"[a-z]+", normalized))
         reading = any(word in normalized for word in ("读取", "查询", "检查", "获取", "查看", "列出", "查一下")) or bool(tokens & {"inspect", "get", "read", "list", "check", "show"})
@@ -740,7 +804,7 @@ class ToolCatalog:
                 score += 18 if "layout" in words else 0
             if ("蓝图" in normalized or "blueprint" in tokens) and "父类" not in normalized and identity.startswith("blueprint."):
                 score += 20
-            if "蓝图" in normalized and "父类" in normalized and identity == "blueprint_base.get_parent":
+            if "蓝图" in normalized and "父类" in normalized and identity == "blueprint_base.getparent":
                 score += 35
             if "数据表" in normalized and identity.startswith("data_table."):
                 score += 24
@@ -803,17 +867,15 @@ class ToolCatalog:
                 continue
             arguments = default_arguments(contract, arguments)
             access, world = resolve_access(contract, arguments)
-            if contract["id"] == "asset.save_assets" and not arguments.get("asset_paths"):
-                raise ValueError("SAVE_REQUIRES_EXPLICIT_ASSETS")
             targets, scoped = write_scope(contract, arguments, access, world)
             if not scoped and access != "read":
                 scope = contract["scope"]
                 fields = scope.get("fields", scope.get("join", []))
                 if "rows" in scope:
                     fields = [scope["rows"][0]]
-                field = next((name for name in fields if name in arguments), fields[0])
+                field = next((name for name in fields if name.split(".", 1)[0] in arguments), fields[0])
                 rule = "expected /Game asset path in scope fields " + ", ".join(fields)
-                issues.append("/operations/" + str(index) + "/arguments/" + field + ": " + rule)
+                issues.append("/operations/" + str(index) + "/arguments/" + field.replace(".", "/") + ": " + rule)
                 continue
             prepared.append({"contract": contract, "arguments": arguments, "access": access, "world": world, "targets": targets, "scoped": scoped})
         if issues:

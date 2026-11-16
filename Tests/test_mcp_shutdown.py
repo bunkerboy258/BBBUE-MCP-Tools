@@ -149,28 +149,20 @@ class ShutdownGatewayTests(unittest.TestCase):
         backend.task_name = "Task"
         backend.probe = lambda: {"process_id": 42, "host_instance": "host-a"}
         calls = []
-        backend._call = lambda name, arguments: {"tools": [{"name": "request_editor_shutdown"}]} if name == "describe_toolset" else calls.append(arguments) or {"status": "shutdown_requested", "process_id": 42, "host_instance": "host-a"}
+        backend._call = lambda name, arguments: calls.append(arguments) or {"status": "shutdown_requested", "process_id": 42, "host_instance": "host-a"}
         self.assertEqual(backend.shutdown()["process_id"], 42)
         self.assertEqual(calls[0]["tool_name"], "request_editor_shutdown")
-        backend._call = lambda name, arguments: {"tools": [{"name": "request_editor_shutdown"}]} if name == "describe_toolset" else {"status": "shutdown_requested", "process_id": 43}
+        backend._call = lambda name, arguments: {"status": "shutdown_requested", "process_id": 43}
         with self.assertRaises(McpBusinessError):
             backend.shutdown()
-
-    def test_old_editor_requires_loading_updated_toolset(self):
-        """/** @return 旧宿主明确报告工具集更新要求 */"""
-        backend = object.__new__(UnrealBackend)
-        backend.task_name = "Task"
-        backend.probe = lambda: {"process_id": 42, "host_instance": "host-a"}
-        backend._call = lambda name, arguments: {"tools": []}
-        with self.assertRaises(McpBusinessError) as caught:
-            backend.shutdown()
-        self.assertEqual(caught.exception.value["code"], "EDITOR_TOOLSET_RELOAD_REQUIRED")
 
     def test_offline_connection_requires_process_exit_readback(self):
         """/** @return 断开连接与实际进程退出分别显示 */"""
         editor = SimpleNamespace(shutdown_requested=True, activity={"process_id": 42})
         runtime = object.__new__(ProjectRuntime)
         runtime.lock = threading.RLock()
+        runtime._inspect_dialog = lambda: {"status": "offline"}
+        runtime.backend = None
         runtime.gateway = SimpleNamespace(jobs=SimpleNamespace(editor=editor, inspect=lambda *args: {"revision": 0, "host": {}}))
         runtime.state = "offline"
         runtime.identity = (42, "created")

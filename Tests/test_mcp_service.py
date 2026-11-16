@@ -21,6 +21,7 @@ from MCP.mcp_host_registry import HostRegistry, RegistryGuard, atomic_json, proc
 from MCP.mcp_project_host import project_identity
 from MCP.mcp_result import McpBusinessError
 from MCP.mcp_service import McpService, ProjectRuntime, ensure_service, make_service_server, service_health
+from MCP.mcp_source_version import source_version
 from test_mcp_task_gateway import FakeBackend, fixtures, operation
 
 
@@ -35,6 +36,7 @@ class ConnectedBackend(FakeBackend):
         self.url = url
         self.project = project
         self.process_id = pid
+        self.loaded_source_version = source_version()
         self.state.update(process_id=pid, host_instance=str(pid))
         self.guard = None
 

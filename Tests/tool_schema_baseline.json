@@ -8258,42 +8258,6 @@
         ]
       }
     },
-    "write_graph": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "graph_path": {
-            "type": "string"
-          },
-          "code": {
-            "type": "string"
-          },
-          "node_aliases_json": {
-            "type": "string"
-          },
-          "pin_aliases_json": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "graph_path",
-          "code",
-          "node_aliases_json",
-          "pin_aliases_json"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
     "inspect_blueprint_graph": {
       "inputSchema": {
         "type": "object",

@@ -3,7 +3,6 @@ import json
 import unreal
 from BBBAssetWritePolicy import require_asset_write
 from BBBWeaponHandlingTools import _Graph
-from editor_toolset.toolsets.blueprint import BlueprintTools
 
 
 _VALUES = {
@@ -132,10 +131,10 @@ def configure_native_weapon_presentation(main_path, base_path, layer_paths, dry_
         if not dry_run:
             for name in removed:
                 if unreal.BlueprintEditorLibrary.find_graph(asset, name) is not None:
-                    BlueprintTools.remove_function_graph(asset, name)
+                    unreal.BlueprintEditorLibrary.remove_function_graph(asset, name)
             for name in list(_VALUES) + (_RECOIL_VARIABLES if asset == assets[0] else []):
-                if name in BlueprintTools.list_variables(asset):
-                    BlueprintTools.remove_variable(asset, name)
+                if name in [item.name for item in unreal.BlueprintToolset.list_variables(asset, None)]:
+                    unreal.BlueprintToolset.remove_variable(asset, name)
             categories = {row['name']: _category(row['name']) for row in inventory['functions'] if row['name'] not in removed}
             config_names = {'EnableControlRig', 'OffsetRootBoneEnabled', 'HeavyLandSpeedThreshold',
                             'OffsetRootTranslationRadius', 'PlantSettings_Default', 'PlantSettings_Stops',
@@ -146,7 +145,7 @@ def configure_native_weapon_presentation(main_path, base_path, layer_paths, dry_
             variable_categories = {row['name']: _category(row['name']) for row in inventory['variables']
                                    if row['name'] not in config_names}
             summary['organization'] = json.loads(library.configure_blueprint_organization(asset, categories, variable_categories, False))
-            BlueprintTools.compile_blueprint(asset)
+            unreal.BlueprintToolset.compile_blueprint(asset)
             if asset.get_editor_property('status') != unreal.BlueprintStatus.BS_UP_TO_DATE:
                 raise RuntimeError('动画边界迁移编译失败或含警告 ' + asset.get_path_name())
         report['assets'].append(summary)

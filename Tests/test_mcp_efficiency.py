@@ -76,7 +76,7 @@ class EfficiencyTests(unittest.TestCase):
     def backend(self, blueprints=(), compile_failure=(), save_failure=()):
         """/** @param blueprints 蓝图 @param compile_failure 编译故障 @param save_failure 保存故障 @return 收尾后端与调用记录 */"""
         backend = object.__new__(UnrealBackend)
-        ids = ("editor.inspect_asset_properties", "blueprint_base.compile_blueprint", "assets.resave_assets")
+        ids = ("editor.inspect_asset_properties", "blueprint_base.CompileBlueprint", "assets.resave_assets")
         backend.catalog = SimpleNamespace(tools={key: {"id": key} for key in ids})
         calls = []
         compiled = set()
@@ -84,7 +84,7 @@ class EfficiencyTests(unittest.TestCase):
             """/** @param contract 契约 @param arguments 参数 @return 实际分阶段证据 */"""
             identity = contract["id"]
             calls.append((identity, copy.deepcopy(arguments)))
-            if identity == "blueprint_base.compile_blueprint":
+            if identity == "blueprint_base.CompileBlueprint":
                 compiled.add(arguments["blueprint"])
                 return True
             if identity == "assets.resave_assets":

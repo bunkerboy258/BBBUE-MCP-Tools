@@ -392,15 +392,15 @@ class HttpTests(unittest.TestCase):
             if arguments["tool_name"] == "check_asset_write":
                 raise McpExecutionError("rejected", "ASSET_WRITE_PRECHECK", "他人独占")
         backend._call = invoke
-        contract = tool_contract("ObjectTools", "set_properties", {"type": "object", "properties": {"instance": {"type": "string"}, "values": {"type": "object"}}})
+        contract = tool_contract("ObjectToolset", "SetProperties", {"type": "object", "properties": {"instance": {"type": "string"}, "values": {"type": "object"}}})
         with self.assertRaises(McpExecutionError):
             backend.invoke(contract, {"instance": "/Game/Target.Target", "values": {"source": "/Game/Source.Source"}})
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][1]["arguments"]["object_paths"], ["/Game/Target.Target"])
 
-    def test_node_pin_query_is_classified_by_its_actual_mutation(self):
-        contract = tool_contract("BlueprintTools", "get_node_type_pins", {"type": "object"})
-        self.assertEqual(contract["access"], "write")
+    def test_native_node_pin_query_uses_official_read_access(self):
+        contract = tool_contract("BlueprintToolset", "GetNodeTypePins", {"type": "object"}, annotations={"accessMode": "read"})
+        self.assertEqual(contract["access"], "read")
 
     def test_two_http_clients_complete_and_resume_one_key(self):
         backend, catalog, unused = fixtures()

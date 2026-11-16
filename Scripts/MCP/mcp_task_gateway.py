@@ -90,7 +90,22 @@ class UnrealBackend:
             if session is None:
                 session = McpSession(self.url, 30 if inspection else 600, private_backend=True)
                 self.sessions[channel] = session
-        return session.request(name, arguments)
+        for attempt in range(5):
+            try:
+                return session.request(name, arguments)
+            except McpBusinessError as error:
+                message = error.value.get("error", "")
+                if not isinstance(message, str):
+                    raise
+                if message.startswith("Not run: the Unreal Editor is showing a modal dialog,"):
+                    raise McpBusinessError({"status": "rejected", "code": "EDITOR_DIALOG_OPEN",
+                        "execution": {"state": "rejected"}, "next": next_call("control_task", action="inspect_dialog")}) from error
+                if not message.startswith("Not run: the Unreal Editor is running a slow task,"):
+                    raise
+                if attempt == 4:
+                    raise McpBusinessError({"status": "rejected", "code": "EDITOR_SLOW_TASK",
+                        "execution": {"state": "rejected"}}) from error
+                time.sleep(0.25 * (attempt + 1))
 
     def _toolsets(self):
         if self.names is None:
@@ -112,14 +127,21 @@ class UnrealBackend:
 
     def descriptors(self):
         """/** @return 注册工具参数 */"""
+        names = []
         for name in self._toolsets():
             definition = re.sub(r"_0x[0-9a-fA-F]{8}$", "", name.rsplit(".", 1)[-1])
             known = definition in TOOL_DOMAINS or not definition.startswith("BBB")
             if known and definition not in {"BBBExternalToolset", "ProgrammaticToolset", "AgentSkillToolset"}:
-                value = self._call("describe_toolset", {"toolset_name": name})
-                if isinstance(value, str):
-                    value = json.loads(value)
-                yield name, value["tools"]
+                names.append(name)
+        for offset in range(0, len(names), 4):
+            group = names[offset:offset + 4]
+            value = self._call("describe_toolsets", {"toolset_names": group, "include_schemas": True})
+            if isinstance(value, str):
+                value = json.loads(value)
+            if value.get("errors") or set(value["toolsets"]) != set(group):
+                raise RuntimeError("TOOLSET_DESCRIPTOR_UNAVAILABLE")
+            for name in group:
+                yield name, value["toolsets"][name]["tools"]
 
     def external_contracts(self):
         """/** @return 第三方动作的明确参数契约 */"""
@@ -209,7 +231,7 @@ class UnrealBackend:
             arguments = copy.deepcopy(arguments)
             arguments["values"] = native_property_values(requested["values"], {"properties": properties})
         if contract["id"] == "object.list_properties":
-            properties = property_schema(self._property_definitions(arguments["instance"]))
+            properties = property_schema(self._property_definitions(arguments["instance"], arguments.get("root"), arguments.get("maxDepth")))
             version = hashlib.sha256(json.dumps(properties, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:12]
             offset = arguments.get("offset", 0)
             if (offset and not arguments.get("expected_version")) or (arguments.get("expected_version") and arguments["expected_version"] != version):
@@ -233,20 +255,19 @@ class UnrealBackend:
                 raise McpBusinessError({"execution": {"state": "partial"}, "code": "PROPERTY_READBACK_MISMATCH", "next": None})
         return result
 
-    def _property_definitions(self, instance):
+    def _property_definitions(self, instance, root=None, max_depth=None):
         """/** @param instance\t对象或类路径 @return 当前反射字段的原生定义 */"""
         contract = self.catalog.tools["object.list_properties"]
-        return self._call("call_tool", {"toolset_name": contract["toolset"], "tool_name": contract["name"], "arguments": backend_arguments(contract, {"instance": instance})})
+        arguments = {"instance": instance}
+        if root is not None:
+            arguments["root"] = root
+        if max_depth is not None:
+            arguments["maxDepth"] = max_depth
+        return self._call("call_tool", {"toolset_name": contract["toolset"], "tool_name": contract["name"], "arguments": backend_arguments(contract, arguments)})
 
     def shutdown(self):
         """/** @return 正式请求空闲宿主退出 */"""
         current = self.probe()
-        definition = self._call("describe_toolset", {"toolset_name": self.task_name})
-        if isinstance(definition, str):
-            definition = json.loads(definition)
-        if not any(item["name"].rsplit(".", 1)[-1] == "request_editor_shutdown" for item in definition["tools"]):
-            raise McpBusinessError({"code": "EDITOR_TOOLSET_RELOAD_REQUIRED",
-                "hint": "当前编辑器加载了旧工具集；交接后启动新版编辑器加载正常退出工具", "next": next_call("inspect_tasks")})
         result = self._call("call_tool", {"toolset_name": self.task_name, "tool_name": "request_editor_shutdown",
             "arguments": {"process_id": current["process_id"], "host_instance": current["host_instance"]}})
         if result.get("status") != "shutdown_requested" or result.get("process_id") != current["process_id"] or result.get("host_instance") != current["host_instance"]:
@@ -320,7 +341,7 @@ class UnrealBackend:
                 stale = row["propertyErrors"] or "BS_UP_TO_DATE" not in str(row["properties"].get("status", ""))
                 if blueprint and stale:
                     try:
-                        self.invoke(self.catalog.tools["blueprint_base.compile_blueprint"], {"blueprint": package, "warnings_as_errors": False})
+                        self.invoke(self.catalog.tools["blueprint_base.CompileBlueprint"], {"blueprint": package})
                         proof["compiled"].append(package)
                         compiled.append(package)
                     except Exception as error:

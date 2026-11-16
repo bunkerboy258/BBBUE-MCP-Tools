@@ -2,7 +2,6 @@ import json
 
 import unreal
 from BBBAssetWritePolicy import require_write_access
-from editor_toolset.toolsets.blueprint import BlueprintTools
 from MCP.mcp_result import graph_view
 
 
@@ -63,7 +62,7 @@ def extract_update_function(graph_path, node_guids, function_name, dry_run):
     with unreal.ScopedEditorTransaction('提取线程安全更新函数'):
         blueprint.modify()
         graph.modify()
-        target_graph = BlueprintTools.add_function_graph(blueprint, function_name)
+        target_graph = unreal.BlueprintEditorLibrary.add_function_graph(blueprint, function_name)
         target_editor = unreal.BlueprintGraphEditor.get_graph_editor(target_graph)
         target_editor.set_is_thread_safe_function(True)
         entry = next(node for node in target_editor.list_all_nodes() if isinstance(node, unreal.K2Node_FunctionEntry))
@@ -77,7 +76,7 @@ def extract_update_function(graph_path, node_guids, function_name, dry_run):
         first = inbound[0]
         if not entry.find_then_pin().try_create_connection(mapping[first[2]].find_input_pin(first[3])):
             raise RuntimeError('新函数入口连接失败')
-        BlueprintTools.compile_blueprint(blueprint)
+        unreal.BlueprintToolset.compile_blueprint(blueprint)
         call = editor.add_call_function_node(blueprint.generated_class().get_path_name() + '.' + function_name)
         if call is None:
             raise RuntimeError('提取函数调用创建失败')
@@ -88,7 +87,7 @@ def extract_update_function(graph_path, node_guids, function_name, dry_run):
             if not call.find_then_pin().try_create_connection(objects[target].find_input_pin(target_pin)):
                 raise RuntimeError('原图出口连接失败')
         editor.remove_nodes([objects[guid] for guid in node_guids])
-        BlueprintTools.compile_blueprint(blueprint)
+        unreal.BlueprintToolset.compile_blueprint(blueprint)
         if blueprint.get_editor_property('status') != unreal.BlueprintStatus.BS_UP_TO_DATE:
             raise RuntimeError('提取后编译有错误或警告 未保存 可撤销本次事务')
         if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):

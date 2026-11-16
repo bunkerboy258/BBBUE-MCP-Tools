@@ -212,11 +212,16 @@ class BBBMcpTaskToolset(unreal.ToolsetDefinition):
             existing = []
             destinations = []
             for path in sorted(paths):
-                asset = unreal.load_object(None, path)
+                package_path = path.split(".", 1)[0].split(":", 1)[0]
+                asset = unreal.find_object(None, path)
+                if asset is None and unreal.EditorAssetLibrary.does_asset_exist(package_path):
+                    asset = unreal.EditorAssetLibrary.load_asset(package_path)
+                    if asset is None:
+                        raise RuntimeError("ASSET_WRITE_TARGET_UNREADABLE: " + package_path)
                 if asset is not None:
                     existing.append(asset)
                 if asset is None:
-                    destinations.append(path)
+                    destinations.append(package_path)
             require_asset_write(existing, destinations)
         except Exception as error:
             raise McpExecutionError("rejected", "ASSET_WRITE_PRECHECK", str(error)) from error

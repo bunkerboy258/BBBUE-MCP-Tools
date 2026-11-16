@@ -1,6 +1,6 @@
 Set-StrictMode -Version 1.0
 $ErrorActionPreference = 'Stop'
-foreach ($script in @('Start-BBBMcpService.ps1', 'Start-UE58OfficialMcpEditor.ps1'))
+foreach ($script in @('Start-BBBMcpService.ps1', 'Start-BBBMcpEditor.ps1'))
 {
     $tokens = $null
     $parseErrors = $null

@@ -4,7 +4,6 @@ import json
 import unreal
 
 from BBBAssetWritePolicy import require_asset_write, require_write_access
-from editor_toolset.toolsets.data_asset import DataAssetTools
 
 
 def _new_asset(path, asset_type):
@@ -13,7 +12,12 @@ def _new_asset(path, asset_type):
         raise ValueError("NEW_ASSET_REQUIRED")
     require_asset_write([], destinations=[path])
     folder, name = path.rsplit("/", 1)
-    return DataAssetTools.create(folder, name, asset_type.static_class())
+    factory = unreal.DataAssetFactory()
+    factory.set_editor_property("data_asset_class", asset_type.static_class())
+    asset = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, folder, asset_type.static_class(), factory)
+    if asset is None:
+        raise RuntimeError("DATA_ASSET_CREATE_FAILED")
+    return asset
 
 
 def _save(asset):

@@ -4,7 +4,6 @@ import unreal
 from BBBAssetWritePolicy import require_write_access
 from BBBMotionMatchingCleanup import _prune_graph
 from BBBWeaponHandlingTools import _Graph
-from editor_toolset.toolsets.blueprint import BlueprintTools
 
 
 def _copy_expression(source_graph, source_pin, target_graph):
@@ -102,8 +101,8 @@ def simplify_fact_adapter(blueprint_path, dry_run):
     require_write_access(blueprint)
     blueprint.modify()
     for name, kind in [('JustLandedThisFrame', 'bool'), ('LandingVelocity', 'Vector')]:
-        if name not in BlueprintTools.list_variables(blueprint):
-            BlueprintTools.add_variable(blueprint, name, kind)
+        if name not in [item.name for item in unreal.BlueprintToolset.list_variables(blueprint, None)]:
+            unreal.BlueprintToolset.add_variable(blueprint, name, kind)
     for current, node, path in access:
         g = _Graph(current)
         field = path[1].split('_')[0]
@@ -153,8 +152,8 @@ def simplify_fact_adapter(blueprint_path, dry_run):
     g.set('LandingVelocity', velocity, execute)
     editor.remove_nodes([setter, make])
     _prune_graph(graph)
-    BlueprintTools.remove_variable(blueprint, 'CharacterProperties')
-    BlueprintTools.compile_blueprint(blueprint)
+    unreal.BlueprintToolset.remove_variable(blueprint, 'CharacterProperties')
+    unreal.BlueprintToolset.compile_blueprint(blueprint)
     if blueprint.get_editor_property('status') != unreal.BlueprintStatus.BS_UP_TO_DATE:
         raise RuntimeError('适配结构清理后编译失败 未保存')
     if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):

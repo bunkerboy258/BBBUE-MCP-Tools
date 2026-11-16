@@ -100,6 +100,9 @@ def _register_repository_toolsets():
      */
     """
     global _loaded_source_version
+    engine_version = unreal.SystemLibrary.get_engine_version()
+    if not engine_version.startswith("5.9."):
+        raise RuntimeError("UE_5_9_REQUIRED: " + engine_version)
     version = source_version(force=True)
     if _loaded_source_version is not None and _loaded_source_version != version:
         raise RuntimeError("TOOLSET_UPDATE_REQUIRED: restart editor host")

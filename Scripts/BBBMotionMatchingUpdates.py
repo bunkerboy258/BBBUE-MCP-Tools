@@ -2,7 +2,6 @@ import json
 
 import unreal
 from BBBAssetWritePolicy import require_asset_write
-from editor_toolset.toolsets.blueprint import BlueprintTools
 
 
 def _link(source, target):

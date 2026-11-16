@@ -1153,7 +1153,6 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
          * @return			审计结果与备份路径
          */
         """
-        from editor_toolset.toolsets.asset import AssetTools
         from BBBAssetWritePolicy import require_write_access
 
         def fail(message: str) -> None:
@@ -1227,7 +1226,8 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
                 for time_seconds, value in zip(original_times, original_values)
             ]
 
-        is_dirty = AssetTools.is_dirty(asset_path)
+        is_dirty = any(package.get_path_name() == asset_path.split(".", 1)[0]
+            for package in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages())
         if is_dirty:
             fail("目标动画已有未保存修改: {}".format(asset_path))
 
@@ -5440,8 +5440,7 @@ return saturate(edge*3)*smoothstep(0.18,0.7,n)*0.8;
         result = json.loads(unreal.BBBAssetRepairEditorLibrary.prune_unused_material_expressions(material))
         if not result.get('success'):
             raise RuntimeError('材质清理前置检查失败')
-        from editor_toolset.toolsets.material import MaterialTools
-        MaterialTools.recompile(material)
+        unreal.MaterialEditingLibrary.recompile_material(material)
         if not unreal.EditorAssetLibrary.save_loaded_asset(material, False):
             raise RuntimeError('材质清理保存失败')
         if unreal.MaterialEditingLibrary.get_num_material_expressions(material) != result['remaining']:

@@ -7,7 +7,6 @@ import unreal
 from BBBMcpCapabilities import mcp_tool
 from BBBAssetWritePolicy import require_asset_write
 from toolset_registry.registration import Registration
-from editor_toolset.toolsets.blueprint import BlueprintTools
 
 
 _staging_root = None
@@ -454,13 +453,13 @@ class BBBMeleeToolset(unreal.ToolsetDefinition):
             "target_skeleton": mesh.get_editor_property("skeleton"), "preview_skeletal_mesh": mesh})
         folder, name = animation_blueprint_path.rsplit("/", 1)
         animation = tools.create_asset(name, folder, unreal.AnimBlueprint, factory)
-        graph = BlueprintTools.get_graph(animation, "AnimGraph")
-        outputs = [node for node in BlueprintTools.find_nodes(graph) if isinstance(node, unreal.AnimGraphNode_Root)]
-        types = BlueprintTools.find_node_types(graph, "参考姿势")
+        graph = unreal.BlueprintToolset.get_graph(animation, "AnimGraph")
+        outputs = [node for node in unreal.BlueprintToolset.find_nodes(graph) if isinstance(node, unreal.AnimGraphNode_Root)]
+        types = unreal.BlueprintToolset.find_node_types(graph, "参考姿势", None)
         matches = [value for value in types if "本地空间" in value or "Local Space" in value]
         if len(matches) != 1 or len(outputs) != 1:
             raise RuntimeError("参考姿势节点类型或输出不唯一 " + str(types))
-        pose = BlueprintTools.create_node(graph, matches[0], unreal.IntPoint(-240, 0))
+        pose = unreal.BlueprintToolset.create_node(graph, matches[0], unreal.IntPoint(-240, 0))
         if not _pin(pose, "Pose").try_create_connection(_pin(outputs[0], "Result")):
             raise RuntimeError("装备参考姿势图连接失败")
         unreal.BlueprintEditorLibrary.compile_blueprint(animation)

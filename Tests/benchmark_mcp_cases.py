@@ -1,7 +1,7 @@
 from test_mcp_discovery import DISCOVERY_CASES
 
 FULL_DISCOVERY_CASES = [
-    *[(query, ["asset.save_assets", "assets.resave_assets", "editor.resave_asset"] if query == "保存资产" else [tool]) for query, tool in DISCOVERY_CASES],
+    *[(query, ["asset.save_asset", "assets.resave_assets", "editor.resave_asset"] if query == "保存资产" else [tool]) for query, tool in DISCOVERY_CASES],
     ("给蓝图节点加区块注释", ["blueprint.add_blueprint_comment_node"]),
     ("整理蓝图节点布局", ["blueprint.format_blueprint_graph"]),
     ("查看蓝图图表逻辑", ["blueprint.inspect_blueprint_graph"]),
@@ -43,7 +43,7 @@ NATURAL_CASES = [
     ("列出数据表所有行名", ["data_table.list_rows"]),
     ("查看数据表所有字段", ["data_table.get_schema"]),
     ("读取数据表的所有行", ["external.data_table.get_rows_as_json"]),
-    ("查询一个蓝图的父类", ["blueprint_base.get_parent"]),
+    ("查询一个蓝图的父类", ["blueprint_base.GetParent"]),
     ("查找名为FAL的资产", ["asset.find_assets"]),
     ("检查静态网格LOD三角面数", ["editor.inspect_mesh_lod_statistics"]),
     ("编辑器当前状态", ["inspect_tasks"]),
@@ -51,7 +51,7 @@ NATURAL_CASES = [
     ("切换编辑器帧率为60", ["runtime.configure_mcp_resources"]),
     ("检查动画蓝图逻辑", ["blueprint.inspect_blueprint_graph"]),
     ("查看动画曲线", ["external.animation.list_curves"]),
-    ("保存指定蓝图", ["asset.save_assets"]),
+    ("保存指定蓝图", ["asset.save_asset"]),
     ("查看蓝图逻辑连线", ["blueprint.inspect_blueprint_graph"]),
     ("把蓝图节点摆整齐", ["blueprint.format_blueprint_graph"]),
     ("给蓝图加分组说明", ["blueprint.add_blueprint_comment_node"]),
@@ -61,7 +61,7 @@ NATURAL_CASES = [
     ("修改材质属性", ["object.set_properties"]),
     ("列出材质属性字段", ["object.list_properties"]),
     ("读取材质属性值", ["object.get_properties"]),
-    ("保存当前指定资产", ["asset.save_assets", "assets.resave_assets", "editor.resave_asset"]),
+    ("保存当前指定资产", ["asset.save_asset", "assets.resave_assets", "editor.resave_asset"]),
     ("查一下重定向器映射", ["retarget.inspect_retargeter"]),
     ("查看动画骨骼姿态", ["retarget.inspect_animation_poses"]),
     ("查看运行时手臂姿态", ["animation.inspect_pie_arm_pose"]),

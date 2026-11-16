@@ -86,7 +86,7 @@ class AutomaticCoordinationTests(unittest.TestCase):
 
     def test_actor_path_resolves_map_instead_of_unknown_scope(self):
         """/** @return 演员操作按所属地图登记范围 */"""
-        contract = {"id": "object.set_properties", "name": "set_properties", "definition": "ObjectTools", "parameters": {}, "scope": {"fields": ["instance"]}, "access": "write", "world": "editor"}
+        contract = {"id": "object.set_properties", "name": "set_properties", "definition": "ObjectToolset", "parameters": {}, "scope": {"fields": ["instance"]}, "access": "write", "world": "editor"}
         targets, scoped = write_scope(contract, {"instance": "/Game/Maps/Main.Main:PersistentLevel.Light_1"})
         self.assertTrue(scoped)
         self.assertEqual(conflicting_packages(["/Game/Maps/Main"], targets), {"/Game/Maps/Main"})

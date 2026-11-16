@@ -3,7 +3,6 @@ import json
 import unreal
 from BBBAssetWritePolicy import require_asset_write
 from BBBWeaponHandlingTools import _function, _weapon_get
-from editor_toolset.toolsets.blueprint import BlueprintTools
 
 
 def create_weapon_aim_additive(neutral_path, target_path, asset_path, reference_path):
@@ -51,9 +50,9 @@ def create_weapon_aim_additive(neutral_path, target_path, asset_path, reference_
 
 def _build_aim_update(base):
     """/** @param base 公共装备层 @return 线程安全举枪与独立 IK 门控更新已重建 */"""
-    fields = set(BlueprintTools.list_variables(base))
+    fields = set([item.name for item in unreal.BlueprintToolset.list_variables(base, None)])
     if "WeaponAimBlendPhase" not in fields:
-        BlueprintTools.add_variable(base, "WeaponAimBlendPhase", "float")
+        unreal.BlueprintToolset.add_variable(base, "WeaponAimBlendPhase", "float")
     g = _function(base, "UpdateWeaponAimData")
     g.editor.set_is_thread_safe_function(True)
     entry = next(node for node in g.editor.list_all_nodes() if isinstance(node, unreal.K2Node_FunctionEntry))

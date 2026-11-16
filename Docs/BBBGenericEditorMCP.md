@@ -276,7 +276,7 @@ UE5.8 以 `DefaultKeyMappings` 为实际映射来源 工具调用引擎的 `unma
 
 ## 蓝图图表语言映射
 
-实际发现的 `BBBBlueprintGraphToolset` 中 `write_graph` 复用官方蓝图 DSL 写入器 解决本地化节点名称和执行引脚类型与英文 DSL 不一致的问题. 参数为 `graph_path` `code` `node_aliases` `pin_aliases`.
+普通蓝图全文修改使用 UE 5.9 原生 Graph DSL，局部修改使用同一作用域的 Read 和 Edit。
 
 节点映射为英文 DSL 类型到当前编辑器实际类型的 结构化对象。引脚映射为当前编辑器类型到 DSL 类型的对象，例如 `{"执行":"Exec"}`。先使用官方 `find_node_types` 和 `get_node_type_pins` 验证实际名称，不猜测名称。工具只接受 `/Game/` 蓝图直属图表，拒绝 PIE 期间编辑，不修改引擎或编辑器语言。写入会修改目标图表并编译，但不自动保存。失败会明确报警且可能留下部分图表，须检查或撤销，禁止在失败后保存。调用前完成资产独占签出。
 

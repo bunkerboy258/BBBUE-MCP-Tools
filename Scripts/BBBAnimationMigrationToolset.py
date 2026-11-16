@@ -8,7 +8,6 @@ import time
 import unreal
 
 from BBBMcpCapabilities import mcp_tool
-from editor_toolset.toolsets.blueprint import BlueprintTools
 from toolset_registry.registration import Registration
 
 
@@ -689,10 +688,9 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
         if not isinstance(blueprint, unreal.AnimBlueprint) or not isinstance(animation, unreal.AnimSequence):
             raise RuntimeError("基础层或后坐力序列无效")
         from BBBAssetWritePolicy import require_asset_write
-        from editor_toolset.toolsets.blueprint import BlueprintTools
         require_asset_write([blueprint])
         BBBRecoilAnimationTools.bind_recoil_additive_inputs(blueprint, animation)
-        BlueprintTools.compile_blueprint(blueprint, warnings_as_errors=True)
+        unreal.BlueprintToolset.compile_blueprint(blueprint, warnings_as_errors=True)
         if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
             raise RuntimeError("后坐力输入保存失败")
         return json.dumps({"saved": True, "status": str(blueprint.get_editor_property("status"))}, ensure_ascii=False)
@@ -734,8 +732,8 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
         if len(before) != 1 or not after:
             raise RuntimeError("现有持枪执行链不完整")
         require_asset_write([blueprint])
-        BlueprintTools.add_object_variable(blueprint, "WeaponRecoilAnimation", unreal.AnimSequence.static_class())
-        BlueprintTools.set_variable_category(blueprint, "WeaponRecoilAnimation", "持枪表现")
+        unreal.BlueprintToolset.add_object_variable(blueprint, "WeaponRecoilAnimation", unreal.AnimSequence.static_class())
+        unreal.BlueprintToolset.set_variable_category(blueprint, "WeaponRecoilAnimation", "持枪表现")
         reset = graph.place(graph.editor.add_set_member_variable_node("WeaponRecoilAnimation"))
         selected = graph.place(graph.editor.add_set_member_variable_node("WeaponRecoilAnimation"))
         getter = graph.call("/Script/ABBB_Evac.BBBRifleAnimInstance.GetRecoilAnimation", graph.out(cast, "AsBBBRifleAnimInstance"))
@@ -757,7 +755,7 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
         evaluator.set_editor_property("node", data)
         if not unreal.BBBBlueprintEditorLibrary.bind_animation_node_input(evaluator, "Sequence", ["WeaponRecoilAnimation"]):
             raise RuntimeError("专属后坐力序列属性访问绑定失败")
-        BlueprintTools.compile_blueprint(blueprint, warnings_as_errors=True)
+        unreal.BlueprintToolset.compile_blueprint(blueprint, warnings_as_errors=True)
         if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
             raise RuntimeError("专属后坐力序列来源保存失败")
         return json.dumps({"saved": True, "variable": "WeaponRecoilAnimation", "status": str(blueprint.get_editor_property("status"))}, ensure_ascii=False)

@@ -48,7 +48,7 @@ class McpContractTests(unittest.TestCase):
         """/** @return 成员变量以蓝图定界 局部变量追加图表 无实际目标时仍拒绝 */"""
         schema = {"type": "object", "properties": {"blueprint": {"type": "string"},
             "graph": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None}}, "required": ["blueprint"]}
-        contract = capabilities.tool_contract("BlueprintTools", "add_variable", schema)
+        contract = capabilities.tool_contract("BlueprintToolset", "AddVariable", schema, annotations={"accessMode": "write"})
         path = "/Game/Animation/Main.Main"
         for arguments in ({"blueprint": path}, {"blueprint": path, "graph": None}):
             targets, scoped = capabilities.write_scope(contract, arguments)
@@ -57,6 +57,31 @@ class McpContractTests(unittest.TestCase):
         graph = path + ":Update"
         self.assertEqual(capabilities.write_scope(contract, {"blueprint": path, "graph": graph}), ([path, graph], True))
         self.assertEqual(capabilities.write_scope(contract, {"graph": None}), ([], False))
+
+    def test_native_nested_reference_uses_only_its_project_owner(self):
+        """/** @return 原生引用以所属系统或序列分配写入范围 */"""
+        reference = {"type": "object", "properties": {"refPath": {"type": "string"}}}
+        cases = [
+            ("NiagaraToolset_System", "SetModuleEnabled", "moduleRef", "system"),
+            ("MovieSceneSectionExtensions", "AddFloatKey", "channel", "section"),
+            ("MovieSceneBindingExtensions", "SetDisplayName", "inBinding", "sequence"),
+        ]
+        path = "/Game/Test/Asset.Asset:Owner"
+        for provider, tool, parameter, owner in cases:
+            schema = {"type": "object", "required": [parameter], "properties": {
+                parameter: {"type": "object", "properties": {owner: reference, "label": {"type": "string"}}}}}
+            contract = capabilities.tool_contract(provider, tool, schema, annotations={"accessMode": "write"})
+            capabilities.validate_scope_contract(contract)
+            target = {owner: {"refPath": path}, "label": "/Game/Other"}
+            self.assertEqual(capabilities.write_scope(contract, {parameter: target}), ([path], True))
+            del target[owner]
+            self.assertEqual(capabilities.write_scope(contract, {parameter: target}), ([], False))
+
+    def test_native_implicit_mutation_is_absent_from_catalog(self):
+        """/** @return 依赖编辑器选中状态的写操作通过专用工作流处理 */"""
+        schema = {"type": "object", "properties": {}}
+        self.assertIsNone(capabilities.tool_contract("LevelSequenceEditorSubsystem", "RemoveAllBindings",
+            schema, annotations={"accessMode": "write"}))
 
     def test_character_locomotion_authoring_and_observation_boundaries(self):
         """/** @return 连续循环构图需要原生依赖和明确写入范围 运动状态查询保持只读 */"""

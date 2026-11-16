@@ -3,7 +3,6 @@ import math
 import builtins
 
 import unreal
-from editor_toolset.toolsets.blueprint import BlueprintTools
 from BBBAssetWritePolicy import require_write_access
 
 
@@ -357,7 +356,7 @@ class _Graph:
 
 
 def _function(blueprint, name):
-    graph = BlueprintTools.add_function_graph(blueprint, name)
+    graph = unreal.BlueprintEditorLibrary.add_function_graph(blueprint, name)
     editor = unreal.BlueprintGraphEditor.get_graph_editor(graph)
     nodes = list(editor.list_all_nodes())
     editor.remove_nodes([node for node in nodes if not isinstance(node, (unreal.K2Node_FunctionEntry, unreal.K2Node_FunctionResult))])
@@ -547,8 +546,8 @@ def configure_continuous_bone_rotation(blueprint_path, bone_name, snapshot_prope
     if variables.intersection({"BarrelVisualSpeed", "BarrelVisualAngle", "BarrelVisualRotation"}):
         raise RuntimeError("连续旋转变量已存在 拒绝覆盖")
     for name, kind in [("BarrelVisualSpeed", "float"), ("BarrelVisualAngle", "float"), ("BarrelVisualRotation", "Rotator")]:
-        BlueprintTools.add_variable(blueprint, name, kind)
-        BlueprintTools.set_variable_category(blueprint, name, "枪管旋转表现")
+        unreal.BlueprintToolset.add_variable(blueprint, name, kind)
+        unreal.BlueprintToolset.set_variable_category(blueprint, name, "枪管旋转表现")
     g = _function(blueprint, "BlueprintThreadSafeUpdateAnimation")
     g.editor.set_is_thread_safe_function(True)
     entry = next(value for value in g.editor.list_all_nodes() if isinstance(value, unreal.K2Node_FunctionEntry))
@@ -644,7 +643,7 @@ def configure_camera_recoil(blueprint_path):
     fallback = g.editor.add_return_node()
     g.link(g.out(branch, "else"), fallback.find_execute_pin())
     fallback.find_input_pin("ReturnValue").set_pin_value("false")
-    BlueprintTools.compile_blueprint(blueprint)
+    unreal.BlueprintToolset.compile_blueprint(blueprint)
     return {"blueprint": blueprint_path, "nodes": len(g.nodes), "saved": False}
 
 

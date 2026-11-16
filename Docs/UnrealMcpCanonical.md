@@ -103,7 +103,7 @@
 
 ## 嵌套蓝图图表节点
 
-`blueprint.create_blueprint_graph_node` 通过目标图表自身的原生编辑器创建节点，支持状态转换等非直属图表。`node_type_id` 必须精确匹配该图可用类型；返回实际节点路径与引脚索引，后续使用 `blueprint_base.connect_pins` 连接。目标先经过项目资产写入校验，批次仍执行编译、保存与回读。
+`blueprint.create_blueprint_graph_node` 通过目标图表自身的原生编辑器创建节点，支持状态转换等非直属图表。`node_type_id` 必须精确匹配该图可用类型；返回实际节点路径与引脚索引，后续使用 `blueprint_base.ConnectPins` 连接。目标先经过项目资产写入校验，批次仍执行编译、保存与回读。
 
 ## 精简继续调用
 
@@ -146,3 +146,5 @@ SDK 缓存发现首项的完整契约，按响应 `catalog_version` 失效。工
 `inspect_tasks` 在编辑器等待模态选择时返回 `EDITOR_DIALOG_OPEN`、当前 `dialog` 和可用按钮。`control_task(action="inspect_dialog")` 通过独立本机通道读取提示；随后用 `respond_dialog` 提交同一快照的 `dialog` 与 `button` 标识。提交后重新检查弹窗和原批次，`queued`、`dispatched` 表示已提交选择。
 
 UE 模态循环由原生桥处理，系统对话框按宿主进程及原生控件处理。独立通道使用有界 I/O。原批次所属干员可回应，其他占用及手动提示沿零级权限处理；过期快照返回 `DIALOG_SNAPSHOT_CHANGED`。持续活动等待遇到提示时交付实际阻塞状态。编辑器完全失去消息处理能力时保留通道诊断。
+
+UE 5.9 普通蓝图使用 `blueprint_dsl.read` 读取明确资产与作用域。局部修改提交同一作用域的 `blueprint_dsl.edit` 和实际 revision，完整改写使用 `blueprint_dsl.write`。写入通过批次核验明确资产范围并保存回读。其他蓝图类型按实际工具契约搜索。

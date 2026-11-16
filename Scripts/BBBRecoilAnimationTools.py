@@ -5,7 +5,6 @@ import builtins
 
 import unreal
 from BBBAssetWritePolicy import require_asset_write
-from editor_toolset.toolsets.blueprint import BlueprintTools
 
 
 def recoil_envelope(time, peak_time, settle_time):
@@ -446,7 +445,7 @@ def merge_recoil_additives(interface_path, base_path, main_path, dependent_paths
     unreal.BlueprintEditorLibrary.remove_graph(interface, interface_old)
     results = []
     for asset in [interface, base] + dependents + [main]:
-        BlueprintTools.compile_blueprint(asset, warnings_as_errors=True)
+        unreal.BlueprintToolset.compile_blueprint(asset, warnings_as_errors=True)
         if unreal.BlueprintEditorLibrary.find_graph(asset, "FullBodyRecoil") is not None:
             raise RuntimeError("独立后坐力层移除后重新生成 尚未保存")
         results.append({"asset": asset.get_path_name(), "status": str(asset.get_editor_property("status"))})

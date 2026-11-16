@@ -1,9 +1,8 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [string]$ProjectPath,
-    [Parameter(Mandatory = $true)]
-    [string]$EnginePath,
+    [string]$EnginePath = '',
     [ValidateRange(1, 65535)]
     [int]$Port = 8000,
     [string]$PythonPath = '',
@@ -24,10 +23,69 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $projectFile = [IO.Path]::GetFullPath($ProjectPath)
-$editorPath = Join-Path ([IO.Path]::GetFullPath($EnginePath)) 'Engine\Binaries\Win64\UnrealEditor.exe'
-if (-not (Test-Path -LiteralPath $projectFile -PathType Leaf) -or -not (Test-Path -LiteralPath $editorPath -PathType Leaf))
+$projectPattern = '(?i)(?:^|\s)"?' + [Regex]::Escape($projectFile) + '"?(?=\s|$)'
+if (-not (Test-Path -LiteralPath $projectFile -PathType Leaf))
 {
-    throw '请提供现有 uproject 文件与 UE5.8 根目录'
+    throw '请提供现有 uproject 文件'
+}
+if (-not $EnginePath)
+{
+    $association = (Get-Content -LiteralPath $projectFile -Raw | ConvertFrom-Json).EngineAssociation
+    if ($association)
+    {
+        $sourceBuilds = Get-ItemProperty -LiteralPath 'HKCU:\Software\Epic Games\Unreal Engine\Builds' -ErrorAction SilentlyContinue
+        if ($sourceBuilds -and $sourceBuilds.PSObject.Properties[$association])
+        {
+            $EnginePath = $sourceBuilds.PSObject.Properties[$association].Value
+        }
+        if (-not $EnginePath)
+        {
+            $binaryBuild = Get-ItemProperty -LiteralPath ('HKLM:\SOFTWARE\EpicGames\Unreal Engine\' + $association) -ErrorAction SilentlyContinue
+            if ($binaryBuild)
+            {
+                $EnginePath = $binaryBuild.InstalledDirectory
+            }
+        }
+        if (-not $EnginePath)
+        {
+            $launcherFile = Join-Path $env:ProgramData 'Epic\UnrealEngineLauncher\LauncherInstalled.dat'
+            if (Test-Path -LiteralPath $launcherFile)
+            {
+                $install = (Get-Content -LiteralPath $launcherFile -Raw | ConvertFrom-Json).InstallationList |
+                    Where-Object AppName -eq ('UE_' + $association) | Select-Object -First 1
+                if ($install)
+                {
+                    $EnginePath = $install.InstallLocation
+                }
+            }
+        }
+    }
+    if (-not $EnginePath)
+    {
+        $running = @(Get-CimInstance Win32_Process -Filter "Name = 'UnrealEditor.exe'" |
+            Where-Object { $_.ExecutablePath -and $_.CommandLine -and
+                $_.CommandLine.Replace('/', '\') -match $projectPattern -and
+                $_.CommandLine -notmatch '(?i)-BBBMcpHostRole=Test(\s|$)' })
+        if ($running.Count -eq 1)
+        {
+            $EnginePath = [IO.Directory]::GetParent($running[0].ExecutablePath).Parent.Parent.Parent.FullName
+        }
+    }
+    if (-not $EnginePath)
+    {
+        throw '项目关联未找到已安装引擎 请指定 EnginePath'
+    }
+}
+$editorPath = Join-Path ([IO.Path]::GetFullPath($EnginePath)) 'Engine\Binaries\Win64\UnrealEditor.exe'
+if (-not (Test-Path -LiteralPath $editorPath -PathType Leaf))
+{
+    throw '引擎目录缺少 UnrealEditor.exe'
+}
+$versionFile = Join-Path ([IO.Path]::GetFullPath($EnginePath)) 'Engine\Build\Build.version'
+$version = Get-Content -LiteralPath $versionFile -Raw | ConvertFrom-Json
+if ($version.MajorVersion -ne 5 -or $version.MinorVersion -ne 9)
+{
+    throw 'MCP 需要 UE 5.9 编辑器'
 }
 if (-not $PythonPath)
 {
@@ -35,13 +93,18 @@ if (-not $PythonPath)
 }
 $service = & (Join-Path $PSScriptRoot 'Start-BBBMcpService.ps1') -ProjectPath $projectFile -Port $Port -PythonPath $PythonPath
 $env:BBB_MCP_PROJECT = $projectFile
-$route = & $PythonPath -B -c 'import os,sys;sys.path.insert(0,sys.argv[1]);from MCP.mcp_host_registry import project_key;print(project_key(os.environ["BBB_MCP_PROJECT"]))' (Split-Path $PSScriptRoot -Parent)
+$routeCode = @'
+import os,sys
+sys.path.insert(0,sys.argv[1])
+from MCP.mcp_host_registry import project_key
+print(project_key(os.environ['BBB_MCP_PROJECT']))
+'@
+$route = $routeCode | & $PythonPath -B - (Split-Path $PSScriptRoot -Parent)
 if ($LASTEXITCODE -ne 0)
 {
     throw '项目身份核验失败'
 }
 $endpoint = "http://127.0.0.1:$Port/projects/$route/mcp"
-$projectPattern = '(?i)(?:^|\s)"?' + [Regex]::Escape($projectFile) + '"?(?=\s|$)'
 $hashAlgorithm = [Security.Cryptography.SHA256]::Create()
 try
 {
@@ -68,6 +131,30 @@ try
         throw '项目编辑器正在启动 请稍后复用当前服务'
     }
     $editors = @(Get-CimInstance Win32_Process -Filter "Name = 'UnrealEditor.exe'" | Where-Object { $_.CommandLine -and $_.CommandLine.Replace('/', '\') -match $projectPattern -and $_.CommandLine -notmatch '(?i)-BBBMcpHostRole=Test(\s|$)' })
+    if ($editors.Count -gt 1 -or ($editors.Count -eq 1 -and $editors[0].ExecutablePath -ine $editorPath))
+    {
+        throw '项目已有其他编辑器宿主 请先核验归属并完成交接'
+    }
+    if ($editors.Count -eq 1)
+    {
+        $commandLine = $editors[0].CommandLine
+        if (($Visible -or $EnableRendering) -and $commandLine -match '(?i)(?:^|\s)-NullRHI(?:\s|$)')
+        {
+            throw '现有宿主为无渲染模式 请先完成宿主交接'
+        }
+        if ($EnableAudio -and $commandLine -notmatch '(?i)(?:^|\s)-ini:Engine:\[Audio\]:UnfocusedVolumeMultiplier=1\.0(?:\s|$)')
+        {
+            throw '现有宿主未开启后台音频 请先完成宿主交接'
+        }
+        if ($EnableAudio -and $commandLine -notmatch '(?i)-ini:EditorPerProjectUserSettings:\[/Script/UnrealEd\.LevelEditorMiscSettings\]:bAllowBackgroundAudio=True(?:\s|$)')
+        {
+            throw '现有宿主未开启编辑器后台音频 请先完成宿主交接'
+        }
+        if ($Culture -and $commandLine -notmatch ('(?i)(?:^|\s)-culture=' + [Regex]::Escape($Culture) + '(?:\s|$)'))
+        {
+            throw '现有宿主语言和请求不一致 请先完成宿主交接'
+        }
+    }
     if ($editors.Count -eq 0)
     {
         $frames = @{ HighThroughput = 120; Balanced = 60; Economy = 30; GamingBackground = 15 }[$PerformanceProfile]
@@ -77,7 +164,7 @@ try
         }
         $editorArguments = @('"' + $projectFile + '"', '-Multiprocess', '-NoSplash', '-AutoDeclinePackageRecovery',
             "-BBBMcpServicePort=$Port", ('-BBBMcpServicePython="' + $PythonPath + '"'), "-BBBMcpPerformanceProfile=$PerformanceProfile", "-BBBMcpMaxFPS=$frames",
-            '-ini:EditorPerProjectUserSettings:[/Script/ModelContextProtocolEngine.ModelContextProtocolSettings]:bAutoStartServer=False',
+            '-ini:EditorPerProjectUserSettings:[/Script/ModelContextProtocol.ModelContextProtocolSettings]:bAutoStartServer=False',
             ('-ExecCmds="t.MaxFPS ' + $frames + ',t.IdleWhenNotForeground 0"'))
         if (-not $EnableRendering -and -not $Visible)
         {
@@ -124,7 +211,7 @@ with McpSession(timeout_seconds=10) as session:
     deadline=time.monotonic()+int(os.environ['BBB_MCP_WAIT_SECONDS'])
     while time.monotonic()<deadline:
         state=session.inspect_tasks()
-        if state.get('connection')=='ready' and state['host']['verified']:
+        if state.get('connection')=='ready' and state['host']['verified'] and state.get('source',{}).get('current'):
             print(json.dumps({'Endpoint':os.environ['BBB_MCP_URL'],'ProcessId':state['host']['process_id'],'ServiceProcessId':None}))
             break
         time.sleep(1)

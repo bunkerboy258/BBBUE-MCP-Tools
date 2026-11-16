@@ -154,7 +154,13 @@ class DirtyScopeTests(unittest.TestCase):
          * @return 核验资产范围与批次交接
          */
         """
-        definitions = {domain: name for name, domain in TOOL_DOMAINS.items() if domain}
+        definitions = {}
+        for name, domain in TOOL_DOMAINS.items():
+            source = ROOT / "Scripts" / (name + ".py")
+            if domain and source.exists():
+                tree = ast.parse(source.read_text(encoding="utf-8-sig"))
+                functions = definitions.setdefault(domain, {})
+                functions.update({node.name: node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)})
         for tool, policy in TOOL_POLICIES.items():
             fields = policy.get("scope", {}).get("fields", [])
             if tool.startswith("external."):
@@ -162,13 +168,9 @@ class DirtyScopeTests(unittest.TestCase):
             domain, method = tool.split(".", 1)
             if domain not in definitions:
                 continue
-            source = ROOT / "Scripts" / (definitions[domain] + ".py")
-            if not source.exists():
-                continue
-            tree = ast.parse(source.read_text(encoding="utf-8-sig"))
-            functions = [node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == method]
-            self.assertTrue(functions, tool)
-            self.assertTrue(set(fields) <= {arg.arg for arg in functions[0].args.args}, tool)
+            function = definitions[domain].get(method)
+            self.assertIsNotNone(function, tool)
+            self.assertTrue(set(fields) <= {arg.arg for arg in function.args.args}, tool)
         self.assertTrue(all(not field.endswith("_json") for policy in TOOL_POLICIES.values() if "rows" in policy.get("scope", {}) for field, key in [policy["scope"]["rows"]]))
 
 

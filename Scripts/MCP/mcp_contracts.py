@@ -274,7 +274,6 @@ TOOL_POLICIES = {
     'asset.is_dirty': {'access': 'read'},
     'asset.list_folders': {'access': 'read'},
     'asset.move': {'scope': {'fields': ['path', 'new_path']}},
-    'asset.save_assets': {'scope': {'fields': ['asset_paths']}},
     'asset.update_metadata_tags': {'scope': {'fields': ['asset_path']}},
     'assets.configure_monster_blood_residue': {'scope': {'fields': ['settings_path']}},
     'assets.create_missing_path_recovery_redirector': {'scope': {'fields': ['source_package']}},
@@ -317,7 +316,6 @@ TOOL_POLICIES = {
     'blueprint.format_blueprint_graph': {'scope': {'fields': ['graph_path']}},
     'blueprint.remove_blueprint_comment_node': {'scope': {'fields': ['graph_path']}},
     'blueprint.set_blueprint_node_positions': {'scope': {'fields': ['graph_path']}},
-    'blueprint.write_graph': {'scope': {'fields': ['graph_path']}},
     'control_rig.add_pose_controls': {'scope': {'fields': ['asset_path']}},
     'control_rig.apply_baked_bone_deltas': {'scope': {'fields': ['baked_path']}},
     'control_rig.bake_control_rig_animation': {'scope': {'fields': ['animation_path']}},
@@ -595,6 +593,80 @@ class ScopeContractError(ValueError):
         super().__init__("TOOL_SCOPE_INVALID: " + tool + ": " + "; ".join(reasons))
 
 
+NATIVE_ASSET_OWNERS = {
+    "ObjectToolset": ("instance",),
+    "BlueprintToolset": ("blueprint", "graph", "node", "nodes", "pin", "inputPin", "outputPin", "component", "commentBox"),
+    "ControlRigTools": ("control_rig",),
+    "ControlRigSequencerEditorLibrary": ("levelSequence", "inSequence", "inTrack", "inSection", "optionalSectionToSet"),
+    "StateTreeToolset": ("state_tree",),
+    "SequencerDirectorToolset": ("sequence", "eventSection", "conditionHost"),
+    "MovieSceneSequenceExtensions": ("sequence", "inSequence"),
+    "MovieSceneSectionExtensions": ("section", "channel.section.refPath", "key.channel.section.refPath"),
+    "MovieSceneTrackExtensions": ("track", "section"),
+    "MovieSceneFolderExtensions": ("folder", "targetFolder", "folderToAdd", "folderToRemove", "inTrack"),
+    "MovieSceneBindingExtensions": ("inBinding.sequence.refPath", "trackToRemove"),
+    "MovieSceneBindingTagExtensions": ("sequence", "binding.sequence.refPath"),
+    "MovieSceneAnimMixerTrackExtensions": ("track",),
+    "MovieSceneAnimMixerTargetExtensions": ("track", "section"),
+    "MovieSceneAnimMixerLayerExtensions": ("layer",),
+    "MovieSceneAnimMixerTransitionExtensions": ("transition",),
+    "MovieSceneDecorationContainerExtensions": ("container", "decoration"),
+    "MovieSceneConditionExtensions": ("track", "section"),
+    "MovieSceneSectionEasingExtensions": ("section",),
+    "MovieSceneTimeWarpExtensions": ("section",),
+    "MovieScenePropertyTrackExtensions": ("track",),
+    "MovieSceneDoubleVectorTrackExtensions": ("track",),
+    "MovieSceneFloatVectorTrackExtensions": ("track",),
+    "MovieSceneEventTrackExtensions": ("inTrack",),
+    "DataflowScriptingSubsystem": ("dataflow", "asset"),
+    "DataflowAgentToolset": ("graph", "asset", "node", "fromNode", "toNode"),
+    "DeformerGraphScriptingSubsystem": ("deformer",),
+    "MaterialToolset": ("material", "materialOrFunction", "expression", "fromExpression", "toExpression"),
+    "MaterialInstanceToolset": ("instance",),
+    "DataTableToolset": ("dataTable",),
+    "CurveTableToolset": ("curveTable",),
+    "CurveAtlasToolset": ("atlas", "gradient"),
+    "SkeletalMeshToolset": ("mesh",),
+    "StaticMeshToolset": ("mesh",),
+    "StringTableToolset": ("stringTable",),
+    "SoundWaveToolset": ("soundWave",),
+    "TextureToolset": ("texture",),
+    "UserDefinedEnumToolset": ("enum",),
+    "UserDefinedStructToolset": ("struct",),
+    "MVVMToolset": ("widgetBlueprint", "viewModel"),
+    "WidgetBlueprintEditorSubsystem": ("widgetBlueprint",),
+    "WidgetAnimationToolset": ("widgetBlueprint", "animation"),
+    "PCGToolset": ("graph", "node", "fromNode", "toNode", "pCGVolume"),
+    "PCGSpatialToolset": ("graph",),
+    "PCGEditorSubsystem": ("graph", "embeddedGraph", "node", "fromNode", "toNode", "from", "to"),
+    "NiagaraToolset_System": ("system", "emitterRef.system.refPath", "moduleRef.system.refPath",
+        "rendererRef.system.refPath", "stackInputRef.system.refPath", "moduleLocationRef.system.refPath",
+        "newRendererLocation.system.refPath"),
+}
+
+NATIVE_DESTINATIONS = {
+    ("CurveAtlasToolset", "CreateAtlas"): ("folderPath", "assetName"),
+    ("CurveAtlasToolset", "CreateGradient"): ("folderPath", "assetName"),
+    ("DataflowAgentToolset", "CreateGraph"): ("path", "name"),
+    ("DataflowAgentToolset", "CreateDataflowCompatibleAsset"): ("path", "name"),
+    ("DataflowAgentToolset", "CreateDataflowCompatibleAssetFromTemplate"): ("path", "name"),
+    ("MVVMToolset", "CreateViewModel"): ("packagePath", "viewModelName"),
+    ("NiagaraToolset_System", "CreateNiagaraSystem"): ("assetPath", "assetName"),
+    ("PCGEditorSubsystem", "CreateGraph"): ("path", "name"),
+    ("PCGToolset", "CreateGraph"): ("path", "name"),
+}
+
+NATIVE_PACKAGES = {
+    ("AssetToolset", "UpdateMetadataTags"): ("assetPath",),
+    ("AssetToolset", "AddUserAssetTags"): ("assetPath",),
+    ("AssetToolset", "RemoveUserAssetTags"): ("assetPath",),
+    ("DataflowScriptingSubsystem", "CreateDataflow"): ("assetPath",),
+    ("DataflowScriptingSubsystem", "CreateAssetWithDataflow"): ("assetPath",),
+    ("DeformerGraphScriptingSubsystem", "CreateDeformer"): ("assetPath",),
+    ("PCGEditorSubsystem", "CollapseNodesToSubgraph"): ("graph", "assetPath"),
+}
+
+
 def _scope_variants(schema, root, depth=0):
     """/** @param schema 字段类型 @param root 完整参数 @return 可用类型分支 */"""
     if depth >= 16:
@@ -607,6 +679,36 @@ def _scope_variants(schema, root, depth=0):
         for branch in schema.get(key, []):
             result.extend(_scope_variants(branch, root, depth + 1))
     return result
+
+
+def _scope_field(schema, path):
+    root = schema
+    for part in path.split("."):
+        schema = resolve_schema(schema, root).get("properties", {}).get(part, {})
+    return resolve_schema(schema, root)
+
+
+def _native_asset_scope(definition, name, parameters):
+    properties = parameters["properties"]
+    route = (definition, name)
+    if route in NATIVE_PACKAGES:
+        return {"fields": list(NATIVE_PACKAGES[route])}
+    if route in {("PCGToolset", "SpawnGraphInstance"), ("PCGEditorSubsystem", "SpawnGraphInstance")}:
+        return {"kind": "world"}
+    destination = NATIVE_DESTINATIONS.get(route)
+    if destination is None and name in {"Create", "CreateMaterial", "CreateFunction",
+            "CreateParameterCollection", "CreateWidgetBlueprint", "ImportFile"}:
+        if {"folderPath", "assetName"} <= properties.keys():
+            if name == "ImportFile" and definition in {"SkeletalMeshToolset", "StaticMeshToolset"}:
+                return {"fields": ["folderPath"]}
+            destination = ("folderPath", "assetName")
+    if destination is not None:
+        folder, asset = destination
+        if {folder, asset} <= properties.keys():
+            properties[asset]["pattern"] = r"^[A-Za-z0-9_]+$"
+        return {"join": list(destination)}
+    fields = [field for field in NATIVE_ASSET_OWNERS.get(definition, ()) if _scope_field(parameters, field)]
+    return {"fields": fields} if fields else {}
 
 
 def validate_scope_contract(contract):
@@ -639,7 +741,7 @@ def validate_scope_contract(contract):
             reasons.append("join requires two fields")
         names.extend(fields)
         for name in fields:
-            variants = _scope_variants(properties.get(name, {}), root)
+            variants = _scope_variants(_scope_field(root, name), root)
             allowed = {"string"} if selector == "join" else {"string", "array", "object"}
             if not any(value.get("type") in allowed for value in variants):
                 reasons.append(name + " requires an asset path type")
@@ -662,7 +764,7 @@ def validate_scope_contract(contract):
                         for value in _scope_variants(item.get("properties", {}).get(key, {}), root)]
                     if not any(value.get("type") == "string" for value in values):
                         reasons.append(field + "/items/" + key + " requires an asset path string")
-    reasons.extend("unknown field " + name for name in names if name not in properties)
+    reasons.extend("unknown field " + name for name in names if not _scope_field(root, name))
     if reasons:
         raise ScopeContractError(contract["id"], reasons)
 
@@ -676,22 +778,8 @@ def compile_contract(contract):
     parameters = item["parameters"]
     properties = parameters.setdefault("properties", {})
     if not item["scope"]:
-        roles = {
-            "PCGToolset": ("graph", "node", "fromNode", "toNode", "pCGVolume"),
-            "ObjectTools": ("instance",), "BlueprintTools": ("blueprint", "graph", "node", "nodes", "pin", "input_pin", "output_pin", "component"),
-            "ControlRigTools": ("control_rig",), "SequencerTools": ("sequence",),
-            "MaterialTools": ("material", "material_or_function", "expression", "to_expression", "from_expression"),
-            "MaterialInstanceTools": ("instance",), "CurveTableTools": ("curve_table",), "DataTableTools": ("data_table",),
-            "SkeletalMeshTools": ("mesh",), "StaticMeshTools": ("mesh",), "StringTableTools": ("string_table",),
-        }
-        fields = [field for field in roles.get(item["definition"], ()) if field in properties]
-        if fields:
-            item["scope"] = {"fields": fields}
-        if item["definition"] in {"ActorTools", "SceneTools", "PrimitiveTools", "LevelTools", "LandscapeTools", "FoliageTools"}:
-            item["scope"] = {"kind": "world"}
-            paths = [field for field in ("level_path", "map_path", "expected_level") if field in properties]
-            if paths:
-                item["scope"] = {"fields": paths}
+        if item["access"] == "write":
+            item["scope"] = _native_asset_scope(item["definition"], item["name"], parameters)
         if item["id"].startswith(("external.actor.", "external.editor.", "external.light.", "external.level.", "external.layer.")) and item["access"] != "read":
             item["scope"] = {"kind": "world"}
             if "level_path" in properties:

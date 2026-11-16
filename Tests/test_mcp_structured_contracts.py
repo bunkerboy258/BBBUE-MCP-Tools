@@ -50,7 +50,7 @@ class StructuredContractTests(unittest.TestCase):
 
     def test_reference_and_property_inputs_use_public_native_boundaries(self):
         """/** @return 路径和属性字典在传输边界编码 */"""
-        contract = tool_contract("ObjectTools", "set_properties", {"type": "object", "properties": {"instance": {"type": "object", "properties": {"refPath": {"type": "string"}}}, "values": {"type": "string"}}, "required": ["instance", "values"]})
+        contract = tool_contract("ObjectToolset", "SetProperties", {"type": "object", "properties": {"instance": {"type": "object", "properties": {"refPath": {"type": "string"}}}, "values": {"type": "string"}}, "required": ["instance", "values"]})
         arguments = {"instance": "/Game/A.A", "values": {"TwoSided": True}}
         validate_arguments(arguments, contract["parameters"])
         encoded = backend_arguments(contract, arguments)

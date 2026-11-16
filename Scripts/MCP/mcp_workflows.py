@@ -61,7 +61,7 @@ PURPOSES = {
     "animation.run_pie_input_sequence": "按给定步骤注入玩法输入",
     "object.list_properties": "查找反射字段名称与类型",
     "object.get_properties": "读取指定反射字段当前值",
-    "asset.save_assets": "保存明确给出的目标资产",
+    "asset.save_asset": "保存指定资产",
     "assets.resave_assets": "按明确资产范围执行重新保存",
 }
 

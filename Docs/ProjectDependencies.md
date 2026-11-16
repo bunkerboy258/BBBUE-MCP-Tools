@@ -2,7 +2,7 @@
 
 ## 环境
 
-- Windows 与 UE5.8 官方 ModelContextProtocol、ToolsetRegistry、PythonScriptPlugin、EditorToolset。
+- Windows 与 UE 5.9 官方 ModelContextProtocol、ToolsetRegistry、PythonScriptPlugin、EditorToolset、BlueprintToolsets、GraphDsl。
 - 动画、Control Rig、Sequencer 操作使用对应官方工具与项目编辑器模块。
 - 外部 Python 客户端使用 `requests`。
 - 项目 `Content/Python/init_unreal.py` 加载本仓库 `Scripts/BBBMcpBootstrap.py`。
