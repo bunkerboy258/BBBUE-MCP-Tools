@@ -34,6 +34,7 @@ TOOL_DOMAINS = {
     "BBBMcpTaskToolset": None,
     "BBBAssetMaintenanceToolset": "assets",
     "BBBAnimationPreviewToolset": "preview",
+    "BBBKimodoToolset": "animation",
     "BBBAnimationGraphToolset": "animation_graph",
     "BBBAnimationFinishToolset": "animation_finish",
     "BBBMonsterTraversalToolset": "monster_traversal",

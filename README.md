@@ -78,6 +78,8 @@ $env:BBB_MCP_URL = $hostInfo.Endpoint
 
 ## 本轮更新
 
+2026-11-18：新增 UE 5.9 Kimodo / AnimGenOffline MCP 准备工具，按目标骨骼网格创建批量生成工作序列及武器专属 AnimSequence 导出路径；新增异步准备状态查询与序列切换入口。UE 原生路径数组与反射属性映射已核验，六个区段全部准备就绪。当前编辑器设置为 GPU 模型、CPU 文本编码器、NF4；本机尚未配置可访问 `meta-llama/Meta-Llama-3-8B-Instruct` 的 Hugging Face 令牌，实际推理、导出与 AnimSequence 回读待本地设置令牌后完成。编辑器私有回环端口在临时端口绑定失败时会改试高位端口。详见 [BBBKimodoMCP](Docs/BBBKimodoMCP.md)。
+
 2026-11-16：接入 UE 5.9 官方目录与蓝图 Graph DSL。启动器核验引擎版本和宿主身份，旧蓝图转译入口由原生工具接替。保存指定资产使用 `asset.save_asset`。蓝图 DSL 已验证创建、读取、修改、编译与清理。曲线、序列绑定和 Niagara 写入按引用内的资产路径排队。
 
 UE 5.9 编辑器 V8 构建通过。249 项 MCP 离线测试通过。真实宿主上的 82 条搜索 79 条首位命中，82 条前三命中。临时枚举写入、保存与跨客户端回读均已验证。

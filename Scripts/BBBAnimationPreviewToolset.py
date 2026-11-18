@@ -7,6 +7,7 @@ import csv
 import math
 
 import unreal
+import BBBKimodoToolset
 from BBBMcpCapabilities import mcp_tool
 from MCP.mcp_result import McpExecutionError
 from toolset_registry.registration import Registration

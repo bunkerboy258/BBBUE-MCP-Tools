@@ -32,9 +32,19 @@ def _argument(command, name, default):
 
 def _port_available(port):
     """/** @param port 需要核验的本机端口 @return 当前可绑定的端口 */"""
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", port))
-        return probe.getsockname()[1]
+    candidates = [port]
+    if port == 0:
+        start = 54000 + secrets.randbelow(6000)
+        candidates.extend(54000 + (start - 54000 + offset) % 6000 for offset in range(128))
+    last_error = None
+    for candidate in candidates:
+        try:
+            with socket.socket() as probe:
+                probe.bind(("127.0.0.1", candidate))
+                return probe.getsockname()[1]
+        except OSError as error:
+            last_error = error
+    raise last_error
 
 
 def _heartbeat(state):
