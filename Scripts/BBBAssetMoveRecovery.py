@@ -1,8 +1,6 @@
-"""Recover a recorded native asset move after its editor host has restarted."""
-
+import importlib
 import json
 import os
-import importlib
 
 import unreal
 
@@ -10,91 +8,155 @@ import BBBAssetMaintenanceToolset as maintenance
 from MCP.mcp_result import McpExecutionError
 
 
-def finish_redirectors(report):
+def _object_path(package):
+    """/** @param package	已核验的包路径 @return 主资产对象路径 */"""
+    return package + "." + package.rsplit("/", 1)[-1]
+
+
+def _inspect_sources(assets, registry, scope):
     """
     /**
-     * 接续原生合并产生的精确重定向器清理阶段
-     * @param report	原批次迁移映射与执行证据
-     * @return 已完成结果 或尚未进入此阶段时返回空值
+     * 核对已保存目标并区分旧副本 重定向器和已清理路径
+     * @param assets	原批次已改名的映射
+     * @param registry	已扫描的资产注册表
+     * @param scope	原批次明确的写入范围
+     * @return 待合并副本 已登记重定向器和真正空的原包
      */
     """
-    registry = maintenance._move_registry()
-    sources = []
-    for item in report['assets']:
-        records = registry.get_assets_by_package_name(item['source'])
-        if not records or any(maintenance._move_class_path(row.asset_class_path) != '/Script/CoreUObject.ObjectRedirector' for row in records):
-            return None
-        for row in records:
-            target = str(row.get_tag_value('DestinationObject') or '')
-            if "'" in target:
-                target = target.split("'", 1)[1].rstrip("'")
-            if target != item['destination_object']:
-                raise McpExecutionError('rejected', 'MOVE_REDIRECTOR_TARGET_CHANGED', '旧包重定向目标不符合原迁移映射')
-        sources.append(item['source'])
-    rows = json.dumps(report['assets'])
-    before = json.loads(maintenance._verify_asset_moves_json(rows))
-    unsaved = {path for row in before['results'] for path in row.get('unsaved_packages', [])}
-    destinations = {item['destination'] for item in report['assets']}
-    if unsaved - destinations:
-        raise McpExecutionError('rejected', 'MOVE_UNEXPECTED_DIRTY_PACKAGE', '迁移收尾包含目标以外的未保存包')
-    if unsaved:
-        maintenance.require_asset_write(unsaved)
-        for path in sorted(unsaved):
-            package = unreal.find_object(None, path, follow_redirectors=False)
-            if package is None or package.get_path_name() != path or not unreal.EditorLoadingAndSavingUtils.save_packages([package], False):
-                raise McpExecutionError('rejected', 'MOVE_TARGET_SAVE_FAILED', '正式目标保存失败')
-        before = json.loads(maintenance._verify_asset_moves_json(rows))
-    if not all(row['success'] and not row['old_referencers'] for row in before['results']):
-        raise McpExecutionError('rejected', 'MOVE_REDIRECTOR_REFERENCES', '正式目标或旧路径引用尚未核验通过')
-    maintenance.BBBAssetMaintenanceToolset.delete_asset_redirectors(sources, True)
-    cleanup = json.loads(maintenance.BBBAssetMaintenanceToolset.delete_asset_redirectors(sources, False))
-    verification = json.loads(maintenance._verify_asset_moves_json(rows))
-    current = {**report, 'redirector_cleanup': cleanup, 'verification': verification}
-    current['success'] = cleanup.get('success') is True and verification.get('success') is True
-    if not current['success']:
-        raise McpExecutionError('partial', 'ASSET_MOVE_INCOMPLETE', '重定向器清理未完成', {'recovery': current})
-    return current
+    copies = {}
+    redirectors = []
+    empty = []
+    for item in assets:
+        source = item["source"]
+        destination = item["destination"]
+        target = list(maintenance._move_primary_assets(registry.get_assets_by_package_name(destination)))
+        if (not os.path.isfile(maintenance._move_filename(destination)) or len(target) != 1
+                or str(target[0].asset_name) != destination.rsplit("/", 1)[-1]
+                or maintenance._move_class_path(target[0].asset_class_path) != item["class_path"]):
+            raise McpExecutionError("rejected", "MOVE_TARGET_CHANGED", "正式目标路径或类型变化", {"package": destination})
+        refs = set(maintenance._move_referencers(registry, source))
+        if refs - scope:
+            raise McpExecutionError("rejected", "MOVE_REFERENCER_REQUIRED", "旧包出现原批次范围外引用", {"package": source, "referencers": sorted(refs - scope)})
+        records = list(registry.get_assets_by_package_name(source))
+        filename = maintenance._move_filename(source)
+        if not os.path.isfile(filename):
+            if records or refs:
+                raise McpExecutionError("rejected", "MOVE_SOURCE_STATE_REQUIRED", "缺失旧文件仍有注册对象或引用", {"package": source})
+            continue
+        if records and all(maintenance._move_class_path(row.asset_class_path) == "/Script/CoreUObject.ObjectRedirector" for row in records):
+            for row in records:
+                tag = str(row.get_tag_value("DestinationObject") or "")
+                actual = tag.split("'", 1)[1].rstrip("'") if "'" in tag else tag
+                expected = destination + "." + str(row.asset_name)
+                if actual != expected:
+                    raise McpExecutionError("rejected", "MOVE_SOURCE_CHANGED", "旧重定向器不指向正式目标对象", {"package": source})
+                if expected != item["destination_object"]:
+                    blueprint = unreal.load_object(None, item["destination_object"], follow_redirectors=False)
+                    generated = blueprint.generated_class() if isinstance(blueprint, unreal.Blueprint) else None
+                    default = unreal.get_default_object(generated) if generated is not None else None
+                    if expected not in {obj.get_path_name() for obj in (generated, default) if obj is not None}:
+                        raise McpExecutionError("rejected", "MOVE_SOURCE_CHANGED", "重定向器的蓝图子对象身份不符", {"package": source})
+            redirectors.append(source)
+            continue
+        if maintenance._move_file_sha256(filename) != item["source_sha256"]:
+            raise McpExecutionError("rejected", "MOVE_SOURCE_CHANGED", "旧副本摘要与原批次不符", {"package": source})
+        primary = list(maintenance._move_primary_assets(records))
+        if not records:
+            empty.append(source)
+            continue
+        if (len(primary) != 1 or str(primary[0].asset_name) != source.rsplit("/", 1)[-1]
+                or maintenance._move_class_path(primary[0].asset_class_path) != item["class_path"]
+                or item["class_path"] in {"/Script/Engine.World", "/Script/Engine.MapBuildDataRegistry"}):
+            raise McpExecutionError("rejected", "MOVE_SOURCE_STATE_REQUIRED", "旧副本对象身份不符", {"package": source})
+        copies[source] = (item, refs)
+    return copies, redirectors, empty
+
+
+def _consolidation_order(copies):
+    """/** @param copies	已核验副本与引用者 @return 优先处理依赖旧包的副本 */"""
+    remaining = set(copies)
+    while remaining:
+        package = min(remaining, key=lambda path: (len((copies[path][1] & remaining) - {path}), path))
+        remaining.remove(package)
+        yield copies[package][0]
 
 
 def resume(report):
-    """Use verified native consolidation if both original and renamed assets remain on disk."""
+    """
+    /**
+     * 使用原批次证据接续保存失败的混合迁移
+     * @param report	所属批次的已执行映射与原始摘要
+     * @return 正式目标和旧路径均已核验的实际结果
+     */
+    """
     global maintenance
     maintenance = importlib.reload(maintenance)
-    assets = report['assets']
-    renamed = {row['source'] for row in report['object_results'] if row['renamed']}
-    if not assets or len(assets) > 64 or len(renamed) != len(assets):
+    renamed = {row["source"] for row in report["object_results"] if row["renamed"]}
+    assets = [item for item in report["assets"] if item["source"] in renamed]
+    if not assets or len(assets) > 5000:
         return maintenance._resume_asset_moves(report)
-    finished = finish_redirectors(report)
-    if finished is not None:
-        return finished
-    registry = maintenance._move_registry()
+
+    scope = {maintenance._move_path(p) for p in report["referencer_packages"]}
+    sources = set()
+    destinations = set()
     for item in assets:
-        source = item['source']
-        target = item['destination']
-        old_records = maintenance._move_primary_assets(registry.get_assets_by_package_name(source))
-        target_records = maintenance._move_primary_assets(registry.get_assets_by_package_name(target))
-        if not (len(old_records) == len(target_records) == 1
-                and maintenance._move_class_path(old_records[0].asset_class_path) == item['class_path']
-                and maintenance._move_class_path(target_records[0].asset_class_path) == item['class_path']
-                and os.path.isfile(maintenance._move_filename(source))
-                and os.path.isfile(maintenance._move_filename(target))
-                and maintenance._move_file_sha256(maintenance._move_filename(source)) == item['source_sha256']):
-            return maintenance._resume_asset_moves(report)
-    # Both complete, registered copies exist after a host restart.  The original
-    # bytes still match the move's pre-write evidence; reject dirty packages and
-    # let UE's native consolidation replace references, never delete files directly.
-    rows = json.dumps(assets, ensure_ascii=False)
-    preview = json.loads(maintenance.BBBAssetMaintenanceToolset.consolidate_verified_asset_copies(rows, True))
-    if preview.get('count') != len(assets):
-        raise McpExecutionError('rejected', 'MOVE_CONSOLIDATION_PREFLIGHT', '旧包合并预检未通过')
-    result = json.loads(maintenance.BBBAssetMaintenanceToolset.consolidate_verified_asset_copies(rows, False))
-    if result.get('success') is True:
-        finished = finish_redirectors({**report, 'consolidation': result})
-        if finished is not None:
-            return finished
-    verification = json.loads(maintenance._verify_asset_moves_json(rows))
-    current = {**report, 'consolidation': result, 'verification': verification}
-    current['success'] = result.get('success') is True and verification.get('success') is True
-    if not current['success']:
-        raise McpExecutionError('partial', 'ASSET_MOVE_INCOMPLETE', '原生合并未完成，保留批次占用', {'recovery': current})
-    return current
+        source = maintenance._move_path(item["source"])
+        destination = maintenance._move_path(item["destination"])
+        if (item["source_object"] != _object_path(source) or item["destination_object"] != _object_path(destination)
+                or source.casefold() in sources or destination.casefold() in destinations):
+            raise McpExecutionError("rejected", "MOVE_RECOVERY_INVALID", "迁移对象身份或映射不符", {"package": source})
+        sources.add(source.casefold())
+        destinations.add(destination.casefold())
+        scope.update((source, destination))
+    if sources & destinations:
+        raise McpExecutionError("rejected", "MOVE_RECOVERY_INVALID", "迁移源和目标包重叠")
+
+    registry = maintenance._move_registry()
+    copies, redirectors, empty = _inspect_sources(assets, registry, scope)
+    if not copies and not redirectors:
+        return maintenance._resume_asset_moves(report)
+    if empty:
+        raise McpExecutionError("rejected", "MOVE_SOURCE_STATE_REQUIRED", "混合批次发现未注册的旧文件", {"packages": empty})
+    if maintenance._move_dirty_packages():
+        raise McpExecutionError("rejected", "MOVE_RECOVERY_GUARD", "原生合并前编辑器仍有未保存的项目包")
+    maintenance.require_asset_write(scope)
+
+    pairs = []
+    for item in _consolidation_order(copies):
+        original = unreal.load_object(None, item["source_object"], follow_redirectors=False)
+        target = unreal.load_object(None, item["destination_object"], follow_redirectors=False)
+        if any(obj is None or obj.get_path_name() != item[key] for obj, key in
+                ((original, "source_object"), (target, "destination_object"))):
+            raise McpExecutionError("rejected", "MOVE_SOURCE_STATE_REQUIRED", "无法加载精确的副本与目标", {"package": item["source"]})
+        pairs.append((item, original, target))
+    if maintenance._move_dirty_packages():
+        raise McpExecutionError("rejected", "MOVE_RECOVERY_GUARD", "加载副本产生脏包")
+
+    completed = []
+    try:
+        for item, original, target in pairs:
+            if not unreal.EditorAssetLibrary.consolidate_assets(target, [original]):
+                raise RuntimeError("原生合并失败: " + item["source"])
+            completed.append(item["source"])
+        registry.scan_paths_synchronous(sorted({path.rsplit("/", 1)[0] for path in scope}), force_rescan=True)
+        remaining, redirectors, empty = _inspect_sources(assets, registry, scope)
+        if remaining or empty or maintenance._move_dirty_packages():
+            raise RuntimeError("合并后仍有副本、未知文件或未保存的项目包")
+        for start in range(0, len(redirectors), 64):
+            group = redirectors[start:start + 64]
+            if any(maintenance._move_referencers(registry, path) for path in group):
+                maintenance.BBBAssetMaintenanceToolset.fixup_redirector_references(group, False)
+        registry.scan_paths_synchronous(sorted({path.rsplit("/", 1)[0] for path in scope}), force_rescan=True)
+        if redirectors:
+            cleanup = json.loads(maintenance.BBBAssetMaintenanceToolset.delete_asset_redirectors(redirectors, False))
+            if not cleanup.get("success"):
+                raise RuntimeError("原生重定向器清理失败")
+        verification = json.loads(maintenance._verify_asset_moves_json(json.dumps(assets)))
+        if not verification["success"] or any(row["old_file_exists"] or row["old_referencers"] for row in verification["results"]):
+            raise RuntimeError("旧包磁盘状态或引用回读失败")
+    except Exception as error:
+        unreal.log_error("[BBBAssetMoveRecovery] 已合并 {} 个旧包: {}".format(len(completed), error))
+        raise McpExecutionError("partial", "MOVE_RECOVERY_GUARD", str(error), {"completed": completed}) from error
+
+    unreal.log("[BBBAssetMoveRecovery] 核验 {} 个目标并清除旧包".format(len(assets)))
+    return {"success": True, "verification": verification, "consolidated": completed}
