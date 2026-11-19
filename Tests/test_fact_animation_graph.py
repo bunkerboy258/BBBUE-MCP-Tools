@@ -149,9 +149,9 @@ class FactAnimationSamplingTests(unittest.TestCase):
             capture(*arguments, sample_seconds=[0.0], bone_names=[], file_prefix="Test")
         for speed in (-1.0, math.nan, math.inf, 10001.0):
             with self.assertRaises(RuntimeError):
-                capture(*arguments, speed, 0.0, [0.0], [], "Test")
+                capture(*arguments, speed, 0.0, [0.0], [], "Test", 0, [1.0, 0.0, 0.0])
             with self.assertRaises(RuntimeError):
-                capture(*arguments, 0.0, speed, [0.0], [], "Test")
+                capture(*arguments, 0.0, speed, [0.0], [], "Test", 0, [1.0, 0.0, 0.0])
         engine.load_asset.assert_not_called()
         calls = [node for node in ast.walk(method) if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "call_method"]
         state_calls = [node for node in calls if node.args[0].value == "ApplyPresentationState"]

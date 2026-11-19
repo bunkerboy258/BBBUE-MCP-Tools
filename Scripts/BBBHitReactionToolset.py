@@ -665,7 +665,8 @@ class BBBHitReactionToolset(unreal.ToolsetDefinition):
         return json.dumps({"profile": profile.get_path_name(), "weight": profile.max_blend_weight,
             "rate": profile.bone_blend_rate, "in": profile.blend_params.blend_in.blend_time,
             "hold": profile.blend_params.blend_hold_time, "out": profile.blend_params.blend_out.blend_time,
-            "boneWeights": {str(name): value.blend_weight_scalar for name, value in profile.bone_overrides.items()}}, ensure_ascii=False)
+            "boneWeights": {str(name): value.blend_weight_scalar for name, value in profile.bone_overrides.items()},
+            "disableBones": [str(name) for name, value in profile.bone_overrides.items() if value.b_disable_physics]}, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod

@@ -12,7 +12,11 @@
 
 PIE 意外结束时玩家采样立即标记失败并注销采样回调 不访问已随世界销毁的相机。相机清理或报告落盘失败同样结束进行中状态并保留明确错误 防止旧采样持续占用共享宿主。
 
+持枪验收的 sample_weapon_handling_runtime.equip 读取指定装备类的正式 Definition 并在延迟生成的现有 BP_ItemDebug 上设置物品定义 再完成 BeginPlay. 物品仍经公开入包入口加入当前 PIE 不直接写角色状态 不修改默认背包或进入世界规则 不再引用已删除的装备注入蓝图.
+
 碎肢池的 landed 为活动槽位中已发生真实地面碰撞回调的数量. 回调依赖全池共用的无 Tick 无网络复制载体 不为每块部件创建 Actor. 首次接触即可触发落地声 稳定冻结不再延后补播.
+
+正式场景的近距身体也可能使用 LOD2. 碎肢生成支持 LOD0 至 LOD2 不强制提高身体细节. 二十五米距离门槛与三十二个同时模拟上限仍生效 断口附加几何保留原近距细节预算.
 
 `spawn_mass_hit_acceptance_population` 使用正式实体配置的 LOD、生命、动画预算与行为，每种配置生成一个实体。同一 PIE 只允许一次；与强制全骨骼的检查展示用途不同。正式玩家验收不调用 `create_actor_stress_config`。
 
@@ -72,7 +76,7 @@ aging_time_scale 默认一 允许一至二十。只在六秒后且飞行血滴�
 
 `editor.prepare_temporary_test_level(asset_path=原项目地图包路径 action=begin)` 在没有 PIE 和未保存资产时切换到空白临时编辑关卡 并将关卡包标为 transient. 之后启动 PIE 再创建命中场景 可排除正式地图生成器和 AI 的更新开销. 退出 PIE 后用 `action=restore` 恢复原项目关卡. 不支持嵌套和覆盖外部另行切换的世界. 场景关卡与灯光靶相机均不落入项目资产目录.
 
-`hit.configure_hit_reaction_profile(asset_path, tuning)` 支持项目内独立或内嵌的 HitReactProfile 使用与轨迹诊断相同的原生应用函数配置 `weight rate in hold out cleanOverrides boneWeights` 其中 boneWeights 为骨骼到零至一权重的映射 覆盖包含该骨骼及下级 骨骼映射和混合阶段都先校验再写入 禁止 PIE 修改正式资产 批次保存后返回实际参数
+`hit.configure_hit_reaction_profile(asset_path, tuning)` 支持项目内独立或内嵌的 HitReactProfile 使用与轨迹诊断相同的原生应用函数配置 `weight rate in hold out cleanOverrides boneWeights` 其中 boneWeights 为骨骼到零至一权重的映射 覆盖包含该骨骼及下级 权重 0 写入为禁物理覆盖 与脚部同语义 骨骼映射和混合阶段都先校验再写入 禁止 PIE 修改正式资产 批次保存后返回实际参数
 
 `start_skeletal_hit_reaction_capture` 的 `preview_residue_seconds` 默认零 允许零至三十五秒. 非零时延长固定靶采样并读取完整断肢池状态. 初段按最多六十帧采图 后段每半秒采图 跟随环境血迹落点观察 尾段六秒转开视线 九秒转回. 不再读取已经移除的小碎肉字段.
 

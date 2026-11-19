@@ -3512,137 +3512,6 @@
         ]
       }
     },
-    "import_skeletal_animation_set": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "source_files_json": {
-            "type": "string",
-            "description": "明确的 FBX 路径数组 *"
-          },
-          "destination_path": {
-            "type": "string",
-            "description": "新目标目录 *"
-          },
-          "mesh_name": {
-            "type": "string",
-            "description": "源网格名称 *"
-          }
-        },
-        "required": [
-          "source_files_json",
-          "destination_path",
-          "mesh_name"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string",
-            "description": "已保存网格 骨架及动画 */"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "create_animation_set_retargeter": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "source_mesh_path": {
-            "type": "string",
-            "description": "源网格 *"
-          },
-          "target_rig_path": {
-            "type": "string",
-            "description": "已有目标 Rig 不修改 *"
-          },
-          "source_rig_path": {
-            "type": "string",
-            "description": "新的源 Rig *"
-          },
-          "retargeter_path": {
-            "type": "string",
-            "description": "新的重定向器 *"
-          }
-        },
-        "required": [
-          "source_mesh_path",
-          "target_rig_path",
-          "source_rig_path",
-          "retargeter_path"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string",
-            "description": "实际链映射与辅助骨映射 */"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "migrate_actor_blueprint": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "source_path": {
-            "type": "string",
-            "description": "原蓝图包路径 *"
-          },
-          "destination_path": {
-            "type": "string",
-            "description": "不存在的新蓝图包路径 *"
-          },
-          "parent_class_path": {
-            "type": "string",
-            "description": "已编译目标演员类 *"
-          },
-          "defaults_json": {
-            "type": "string",
-            "description": "明确默认值 对象引用使用 refPath *"
-          },
-          "level_paths": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "全部引用关卡 不支持分区关卡 *"
-          },
-          "dry_run": {
-            "type": "boolean",
-            "description": "默认只预检 *",
-            "default": true
-          }
-        },
-        "required": [
-          "source_path",
-          "destination_path",
-          "parent_class_path",
-          "defaults_json",
-          "level_paths"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string",
-            "description": "保存关卡与旧路径清理结果 */"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
     "create_primitive_texture_blend_material": {
       "inputSchema": {
         "type": "object",
@@ -4283,7 +4152,8 @@
         "type": "object",
         "properties": {
           "returnValue": {
-            "type": "string"
+            "type": "string",
+            "description": "末帧定格与五十毫秒淡出的编译保存结果 */"
           }
         },
         "required": [
@@ -4318,7 +4188,8 @@
         "type": "object",
         "properties": {
           "returnValue": {
-            "type": "string"
+            "type": "string",
+            "description": "硬表面 金属 血肉三类批量反馈的编译保存结果 */"
           }
         },
         "required": [
@@ -4348,7 +4219,8 @@
         "type": "object",
         "properties": {
           "returnValue": {
-            "type": "string"
+            "type": "string",
+            "description": "新材质路径 拒绝覆盖现有资产 */"
           }
         },
         "required": [
@@ -5570,7 +5442,8 @@
         "type": "object",
         "properties": {
           "returnValue": {
-            "type": "string"
+            "type": "string",
+            "description": "原始边界与逐项保存结果 */"
           }
         },
         "required": [
@@ -5672,7 +5545,8 @@
         "type": "object",
         "properties": {
           "returnValue": {
-            "type": "string"
+            "type": "string",
+            "description": "原位更新并保存的资产路径与尺寸 */"
           }
         },
         "required": [
@@ -12323,6 +12197,57 @@
           "returnValue"
         ]
       }
+    },
+    "import_asset_pack_archive": {
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "archive_path": {
+            "type": "string",
+            "description": "原始 ZIP 文件 *"
+          },
+          "archive_content_root": {
+            "type": "string",
+            "description": "ZIP 内原包内容根 *"
+          },
+          "source_package_root": {
+            "type": "string",
+            "description": "资源包原始 Game 根 *"
+          },
+          "destination_root": {
+            "type": "string",
+            "description": "不存在的第三方目标根 *"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "仅检查文件和路径 *",
+            "default": true
+          },
+          "finalize_only": {
+            "type": "boolean",
+            "description": "迁移中断后只核验目标并清理无引用源跳转 不再解压或移动 *",
+            "default": false
+          }
+        },
+        "required": [
+          "archive_path",
+          "archive_content_root",
+          "source_package_root",
+          "destination_root"
+        ]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "returnValue": {
+            "type": "string",
+            "description": "文件清单与原生引用迁移结果 */"
+          }
+        },
+        "required": [
+          "returnValue"
+        ]
+      }
     }
   },
   "BBBAnimationPreviewToolset": {
@@ -14955,73 +14880,6 @@
     }
   },
   "BBBMeleeToolset": {
-    "stage_upper_body_blend": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "blueprint_path": {
-            "type": "string",
-            "description": "自有角色主动画蓝图 *"
-          },
-          "task_directory": {
-            "type": "string",
-            "description": "独立项目 Saved/temp 下的暂存目录 *"
-          },
-          "source_project_directory": {
-            "type": "string",
-            "description": "正式项目根目录 *"
-          },
-          "expected_source_sha256": {
-            "type": "string",
-            "description": "正式资产预检摘要 *"
-          }
-        },
-        "required": [
-          "blueprint_path",
-          "task_directory",
-          "source_project_directory",
-          "expected_source_sha256"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string",
-            "description": "严格编译后的暂存文件与摘要 不保存正式资产 */"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
-    "inspect_upper_body_mask": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "blueprint_path": {
-            "type": "string",
-            "description": "角色主动画蓝图 *"
-          }
-        },
-        "required": [
-          "blueprint_path"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string",
-            "description": "遮罩模式及实际骨骼权重 不修改骨架 */"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
     "register_melee_equipment": {
       "inputSchema": {
         "type": "object",

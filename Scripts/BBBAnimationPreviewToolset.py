@@ -925,7 +925,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def capture_monster_animation_transition(actor_blueprint_path: str, initial_state: int, target_state: int, initial_progress: float, target_progress: float, initial_speed: float, target_speed: float, sample_seconds: list[float], bone_names: list[str], file_prefix: str) -> str:
+    def capture_monster_animation_transition(actor_blueprint_path: str, initial_state: int, target_state: int, initial_progress: float, target_progress: float, initial_speed: float, target_speed: float, sample_seconds: list[float], bone_names: list[str], file_prefix: str, hit_region: int, hit_direction: list[float]) -> str:
         """
         /**
          * 在无 Mass 实体的临时表现演员上渲染真实动画蓝图切换 不写玩法状态
@@ -939,6 +939,8 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
          * @param sample_seconds			切换后秒数 从左至右 至多三项
          * @param bone_names			需要记录的组件空间骨骼 可为空
          * @param file_prefix			唯一截图前缀
+         * @param hit_region			六部位编号
+         * @param hit_direction			世界空间命中方向
          * @return 实际蓝图类 采样时间 骨骼位置与临时对象清理结果
          */
         """
@@ -953,6 +955,9 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
         if not re.fullmatch(r"[A-Za-z0-9_-]+", file_prefix):
             raise RuntimeError("截图前缀无效")
 
+        sample_seconds = list(sample_seconds)
+        if hit_region not in range(6) or len(hit_direction) != 3 or sum(value * value for value in hit_direction) <= 0.000001:
+            raise RuntimeError("命中部位或方向无效")
         if initial_state not in range(6) or target_state not in range(6) or not 0.0 <= initial_progress <= 1.0 or not 0.0 <= target_progress <= 1.0:
             raise RuntimeError("表现状态或逻辑进度无效")
 
@@ -998,6 +1003,8 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
                         presentation.set_editor_property(name, [])
 
                     mesh.set_component_tick_enabled(False)
+                    if not library.set_preview_hit_facts(mesh, hit_region, unreal.Vector(*hit_direction), 10.0):
+                        raise RuntimeError("受击预览快照写入失败")
                     presentation.call_method("ApplyPresentationState", (states[initial_state], initial_speed, 1.0, 1, initial_progress))
                     if not library.evaluate_animation_blueprint_frame(mesh, 0.001):
                         raise RuntimeError("初始动画蓝图求值失败")
@@ -1016,6 +1023,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
                     before = {name: mesh.get_socket_transform(name, unreal.RelativeTransformSpace.RTS_COMPONENT).translation for name in bone_names}
                     yield
                     presentation.call_method("ApplyPresentationState", (states[target_state], target_speed, 2.0, 2, target_progress))
+                    library.set_preview_hit_facts(mesh, hit_region, unreal.Vector(*hit_direction), 0.0)
                     if not library.evaluate_animation_blueprint_frame(mesh, 0.0001):
                         raise RuntimeError("目标动画蓝图求值失败")
 
@@ -1023,6 +1031,7 @@ class BBBAnimationPreviewToolset(unreal.ToolsetDefinition):
                     while elapsed < seconds - 0.000001:
                         delta = min(1.0 / 60.0, seconds - elapsed)
                         yield
+                        library.set_preview_hit_facts(mesh, hit_region, unreal.Vector(*hit_direction), elapsed + delta)
                         if not library.evaluate_animation_blueprint_frame(mesh, delta):
                             raise RuntimeError("过渡动画蓝图求值失败")
 
