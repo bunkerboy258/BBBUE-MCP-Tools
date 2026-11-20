@@ -48,13 +48,13 @@ def _inspect_sources(assets, registry, scope):
                 tag = str(row.get_tag_value("DestinationObject") or "")
                 actual = tag.split("'", 1)[1].rstrip("'") if "'" in tag else tag
                 expected = destination + "." + str(row.asset_name)
-                if actual != expected:
+                if actual.casefold() != expected.casefold():
                     raise McpExecutionError("rejected", "MOVE_SOURCE_CHANGED", "旧重定向器不指向正式目标对象", {"package": source})
                 if expected != item["destination_object"]:
                     blueprint = unreal.load_object(None, item["destination_object"], follow_redirectors=False)
                     generated = blueprint.generated_class() if isinstance(blueprint, unreal.Blueprint) else None
                     default = unreal.get_default_object(generated) if generated is not None else None
-                    if expected not in {obj.get_path_name() for obj in (generated, default) if obj is not None}:
+                    if expected.casefold() not in {obj.get_path_name().casefold() for obj in (generated, default) if obj is not None}:
                         raise McpExecutionError("rejected", "MOVE_SOURCE_CHANGED", "重定向器的蓝图子对象身份不符", {"package": source})
             redirectors.append(source)
             continue
@@ -125,8 +125,8 @@ def resume(report):
     for item in _consolidation_order(copies):
         original = unreal.load_object(None, item["source_object"], follow_redirectors=False)
         target = unreal.load_object(None, item["destination_object"], follow_redirectors=False)
-        if any(obj is None or obj.get_path_name() != item[key] for obj, key in
-                ((original, "source_object"), (target, "destination_object"))):
+        if (original is None or original.get_path_name() != item["source_object"]
+                or target is None or target.get_path_name().casefold() != item["destination_object"].casefold()):
             raise McpExecutionError("rejected", "MOVE_SOURCE_STATE_REQUIRED", "无法加载精确的副本与目标", {"package": item["source"]})
         pairs.append((item, original, target))
     if maintenance._move_dirty_packages():
