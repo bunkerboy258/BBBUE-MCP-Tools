@@ -312,6 +312,7 @@ TOOL_POLICIES = {
     'blueprint.add_blueprint_comment_node': {'scope': {'fields': ['graph_path']}},
     'blueprint.create_blueprint_graph_node': {'scope': {'fields': ['graph_path']}},
     'blueprint.configure_blueprint_function_thread_safety': {'scope': {'fields': ['blueprint_path']}},
+    'blueprint.rename_animation_blueprint_function': {'access': 'write', 'world': 'editor', 'scope': {'fields': ['blueprint_path']}, 'completion': 'verified_save'},
     'blueprint.configure_control_rig_curve_alpha': {'scope': {'fields': ['blueprint_path']}},
     'blueprint.edit_blueprint_graph_comments': {'scope': {'fields': ['graph_path']}},
     'blueprint.inspect_blueprint_graph': {'access': 'read', 'input_rules': {'properties': {'view': {'type': 'string', 'enum': ['overview', 'logic', 'geometry'], 'default': 'overview'}, 'node_guids': {'type': 'array', 'items': {'type': 'string'}, 'maxItems': 128, 'default': []}, 'offset': {'type': 'integer', 'minimum': 0, 'default': 0}, 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 128, 'default': 40}, 'expected_snapshot': {'type': 'string', 'default': ''}}, 'if': {'properties': {'offset': {'minimum': 1}}, 'required': ['offset']}, 'then': {'required': ['expected_snapshot'], 'properties': {'expected_snapshot': {'minLength': 1}}}}},

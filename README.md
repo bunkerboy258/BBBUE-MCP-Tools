@@ -71,6 +71,8 @@ $env:BBB_MCP_URL = $hostInfo.Endpoint
 
 ## 参考
 
+`blueprint.rename_animation_blueprint_function` 用于原地重命名动画蓝图的本地函数图。工具调用 UE 的图表改名接口，编译后核对动画节点的属性绑定路径，再保存目标蓝图。已用 `BBBABP_UA` 回读确认函数节点和连线保留，`NotifyRecencyTimeOut` 绑定已更新，`BlendTime` 绑定保持原样。
+
 - [公开契约](Docs/UnrealMcpCanonical.md)
 - [调度与恢复](Docs/BBBMcpTaskProtection.md)
 - [项目依赖](Docs/ProjectDependencies.md)

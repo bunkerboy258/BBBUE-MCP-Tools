@@ -569,6 +569,82 @@ class BBBBlueprintGraphToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def rename_animation_blueprint_function(blueprint_path: str, old_name: str, new_name: str) -> str:
+        """
+        /**
+         * 原地重命名动画蓝图函数并核对动画节点属性绑定
+         * @param blueprint_path	目标动画蓝图
+         * @param old_name	现有函数图名称
+         * @param new_name	目标函数名称
+         * @return 保存结果和更新的绑定数量
+         */
+        """
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", new_name) or old_name.casefold() == new_name.casefold():
+            raise RuntimeError("请指定不同的有效函数名")
+
+        if unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).is_in_play_in_editor():
+            raise RuntimeError("PIE 期间禁止重命名动画蓝图函数")
+
+        blueprint = unreal.EditorAssetLibrary.load_asset(blueprint_path)
+        if not isinstance(blueprint, unreal.AnimBlueprint):
+            raise RuntimeError("目标不是动画蓝图")
+
+        editor = unreal.BlueprintEditorLibrary
+        graph = editor.find_graph(blueprint, old_name)
+        if graph is None or graph.get_outer() != blueprint or editor.find_graph(blueprint, new_name) is not None:
+            raise RuntimeError("原函数图不存在或新名称已被使用")
+
+        if not any(node.get_class().get_name() == "K2Node_FunctionEntry" for node in unreal.BlueprintToolset.find_nodes(graph)):
+            raise RuntimeError("目标图没有蓝图函数入口")
+
+        def binding_paths():
+            report = json.loads(unreal.BBBBlueprintEditorLibrary.export_animation_blueprint_graphs(blueprint))
+            if report.get("status") != "ok" or report.get("incomplete"):
+                raise RuntimeError("动画蓝图图表导出不完整")
+            return {
+                (node["guid"], binding["property"]): binding["propertyPath"]
+                for exported_graph in report["graphs"]
+                for node in exported_graph["nodes"]
+                for binding in node.get("propertyBindings", [])
+                if binding.get("bound")
+            }
+
+        require_write_access(blueprint)
+        before = binding_paths()
+        expected = {
+            key: [new_name, *path[1:]] if path and path[0] == old_name else path
+            for key, path in before.items()
+        }
+        with unreal.ScopedEditorTransaction("重命名动画蓝图函数"):
+            blueprint.modify()
+            editor.rename_graph(graph, new_name)
+            try:
+                if graph.get_name() != new_name or editor.find_graph(blueprint, old_name) is not None:
+                    raise RuntimeError("引擎没有将函数改为指定名称")
+                editor.compile_blueprint(blueprint)
+                if blueprint.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+                    raise RuntimeError("重命名后动画蓝图编译未通过")
+                if binding_paths() != expected:
+                    raise RuntimeError("重命名后的动画节点属性绑定与预期不符")
+                if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
+                    raise RuntimeError("重命名后的动画蓝图保存失败")
+            except Exception:
+                if graph.get_name() != old_name:
+                    editor.rename_graph(graph, old_name)
+                    editor.compile_blueprint(blueprint)
+                unreal.log_error("动画蓝图函数重命名失败 {}".format(blueprint_path))
+                raise
+
+        return json.dumps({
+            "blueprint": blueprint.get_path_name(),
+            "oldName": old_name,
+            "newName": new_name,
+            "updatedBindings": sum(before[key] != path for key, path in expected.items()),
+            "saved": True,
+        }, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def configure_blueprint_function_thread_safety(blueprint_path: str, function_name: str, thread_safe: bool, dry_run: bool = True) -> str:
         """检查或设置蓝图函数线程安全声明 编译失败时不保存"""
         if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
