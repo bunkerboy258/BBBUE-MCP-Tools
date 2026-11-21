@@ -1304,7 +1304,7 @@ def _copy_sequence(sequence, scope, name):
     return copied
 
 
-def _export(sequence, source, mesh, scope, name, duplicate=True):
+def _export(sequence, source, mesh, scope, name, duplicate=True, require_source_tracks=True):
     """/** @param sequence\t制作序列 @param source\t源动画 @param mesh\t网格 @param scope\t瞬态作用域 @param name\t名称 @return\t官方直接导出结果 */"""
     copied = sequence
     if duplicate:
@@ -1336,7 +1336,7 @@ def _export(sequence, source, mesh, scope, name, duplicate=True):
         raise RuntimeError('NATIVE_ACTION_EXPORT_FAILED')
     expected_bones = set(source.data_model_interface.get_bone_track_names())
     exported_bones = set(result.data_model_interface.get_bone_track_names())
-    if not expected_bones or not expected_bones.issubset(exported_bones):
+    if not exported_bones or (require_source_tracks and not expected_bones) or not expected_bones.issubset(exported_bones):
         raise RuntimeError('NATIVE_ACTION_EXPORT_MISSING_BONES: expected=' + str(len(expected_bones))
             + ' exported=' + str(len(exported_bones)))
     encoded = unreal.EditorAssetLibrary.get_metadata_tag(sequence, 'BBB_RuntimeRightWristPreview')

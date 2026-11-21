@@ -416,6 +416,39 @@ def _pose(animation, mesh, time):
     return unreal.AnimPoseExtensions.get_anim_pose_at_time(animation, time, options)
 
 
+def _bake_existing_animation(sequence, animation, mesh):
+    """/** @param sequence 已审核的制作序列 @param animation 已有正式动画 @param mesh 预览网格 @return 保持时序和元数据的骨轨更新结果 */"""
+    from BBBAnimationTrajectoryTools import replace_tracks
+    from BBBManualActionNative import _export
+
+    require_write_access(animation)
+    if animation.get_editor_property('additive_anim_type') != unreal.AdditiveAnimationType.AAT_NONE:
+        raise RuntimeError('现有加法动画须使用对应的加法烘焙流程')
+
+    outer = unreal.new_object(unreal.LevelSequence, name='BBBPoseBake_' + uuid.uuid4().hex)
+    baked = _export(sequence, animation, mesh, outer, 'ApprovedPose', require_source_tracks=False)
+    data = animation.data_model_interface
+    rate = data.get_frame_rate()
+    source_names = data.get_bone_track_names() or baked.data_model_interface.get_bone_track_names()
+    names = [str(name) for name in source_names]
+    options = unreal.AnimPoseEvaluationOptions()
+    options.optional_skeletal_mesh = mesh
+    options.should_retarget = False
+    options.evaluation_type = unreal.AnimDataEvalType.RAW
+    tracks = {name: [] for name in names}
+    for frame in range(data.get_number_of_keys()):
+        time = min(baked.get_play_length(), frame * rate.denominator / rate.numerator)
+        pose = unreal.AnimPoseExtensions.get_anim_pose_at_time(baked, time, options)
+        for name in names:
+            value = unreal.AnimPoseExtensions.get_bone_pose(pose, name, unreal.AnimPoseSpaces.LOCAL)
+            tracks[name].append(_read_transform(value))
+
+    path = animation.get_path_name().split('.')[0]
+    result = json.loads(replace_tracks(path, json.dumps(tracks)))
+    result.update({'animation': animation.get_path_name(), 'length': animation.get_play_length(), 'metadata_preserved': True})
+    return json.dumps(result)
+
+
 def _set_pose(rig, pose):
     hierarchy = rig.get_hierarchy()
     for name in unreal.AnimPoseExtensions.get_bone_names(pose):
@@ -1525,65 +1558,38 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         if len(source_animations) > 1:
             raise RuntimeError("序列包含多个不同源动作 无法确定控制曲线来源")
 
-        if unreal.EditorAssetLibrary.does_asset_exist(animation_path):
-            animation = _asset(animation_path, unreal.AnimSequence)
-            require_write_access(animation)
+        from BBBWeaponSequencePreview import export_animation
 
-        if not unreal.EditorAssetLibrary.does_asset_exist(animation_path):
-            require_asset_write([], destinations=[animation_path])
-            factory = unreal.AnimSequenceFactory()
-            factory.target_skeleton = mesh.get_editor_property("skeleton")
-            factory.preview_skeletal_mesh = mesh
-            folder, name = animation_path.rsplit("/", 1)
-            animation = unreal.AssetToolsHelpers.get_asset_tools().create_asset(
-                name, folder, unreal.AnimSequence, factory)
+        require_asset_write([], destinations=[animation_path])
+        factory = unreal.AnimSequenceFactory()
+        factory.target_skeleton = mesh.get_editor_property("skeleton")
+        factory.preview_skeletal_mesh = mesh
+        folder, name = animation_path.rsplit("/", 1)
+        animation = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, folder, unreal.AnimSequence, factory)
+        if animation is None:
+            raise RuntimeError("无法创建烘焙动画")
 
-        root_motion = animation.get_editor_property("enable_root_motion")
-        curve_snapshot = None
-        if unreal.AnimationLibrary.get_animation_curve_names(animation, unreal.RawCurveTrackTypes.RCT_FLOAT):
-            curve_snapshot = unreal.AssetToolsHelpers.get_asset_tools().duplicate_asset(
-                "CurveSnapshot_" + uuid.uuid4().hex, "/Game/__BBBControlRigBake", animation)
-            if not isinstance(curve_snapshot, unreal.AnimSequence):
-                raise RuntimeError("无法建立目标曲线的内存快照 禁止烘焙")
+        options = unreal.AnimSeqExportOption()
+        options.export_transforms = True
+        options.export_morph_targets = False
+        options.export_attribute_curves = True
+        options.export_material_curves = False
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+        if not export_animation(world, sequence, animation, options, binding) or animation.sequence_length <= 0.0:
+            raise RuntimeError("官方控制绑定动画烘焙失败")
 
-        try:
-            options = unreal.AnimSeqExportOption()
-            options.export_transforms = True
-            options.export_morph_targets = False
-            options.export_attribute_curves = True
-            options.export_material_curves = False
-            world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
-            if not unreal.SequencerTools.export_anim_sequence(world, sequence, animation, options, binding, False):
-                raise RuntimeError("官方控制绑定动画烘焙失败")
+        copied_curves = 0
+        curve_source = source_animations[0] if source_animations else None
+        curve_type = unreal.RawCurveTrackTypes.RCT_FLOAT
+        if curve_source is not None and unreal.AnimationLibrary.get_animation_curve_names(curve_source, curve_type):
+            copied_curves = unreal.BBBBlueprintEditorLibrary.copy_animation_float_curves(curve_source, animation)
+            if copied_curves < 0:
+                raise RuntimeError("保留浮点曲线失败 禁止保存烘焙结果")
+        elif unreal.AnimationLibrary.get_animation_curve_names(animation, curve_type):
+            raise RuntimeError("无浮点曲线来源的烘焙意外产生浮点曲线 禁止保存")
 
-            if animation.sequence_length <= 0.0:
-                raise RuntimeError("烘焙结果为空")
-
-            if animation.get_editor_property("enable_root_motion") != root_motion:
-                animation.set_editor_property("enable_root_motion", root_motion)
-            if animation.get_editor_property("enable_root_motion") != root_motion:
-                raise RuntimeError("烘焙改变了目标 Root Motion 设置")
-
-            copied_curves = 0
-            curve_source = curve_snapshot
-            if curve_source is None and source_animations:
-                curve_source = source_animations[0]
-            source_float_curves = []
-            if curve_source is not None:
-                source_float_curves = unreal.AnimationLibrary.get_animation_curve_names(curve_source, unreal.RawCurveTrackTypes.RCT_FLOAT)
-            if source_float_curves:
-                copied_curves = unreal.BBBBlueprintEditorLibrary.copy_animation_float_curves(curve_source, animation)
-                if copied_curves < 0:
-                    raise RuntimeError("保留浮点曲线失败 禁止保存烘焙结果")
-            if not source_float_curves and unreal.AnimationLibrary.get_animation_curve_names(animation, unreal.RawCurveTrackTypes.RCT_FLOAT):
-                raise RuntimeError("无浮点曲线来源的烘焙意外产生浮点曲线 禁止保存")
-
-            if not unreal.EditorAssetLibrary.save_loaded_asset(animation, False):
-                raise RuntimeError("保存烘焙动画失败")
-        finally:
-            if curve_snapshot is not None:
-                if not unreal.EditorAssetLibrary.delete_loaded_asset(curve_snapshot):
-                    raise RuntimeError("清理曲线内存快照失败 " + curve_snapshot.get_path_name())
+        if not unreal.EditorAssetLibrary.save_loaded_asset(animation, False):
+            raise RuntimeError("保存烘焙动画失败")
 
         return json.dumps({"animation": animation.get_path_name(), "length": animation.sequence_length, "copiedFloatCurves": copied_curves})
 
@@ -1594,6 +1600,10 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         /**
          * 读取绑定实际导入的参考骨骼局部与组件姿势
          * @param asset_path	控制绑定
+        if unreal.EditorAssetLibrary.does_asset_exist(animation_path):
+            animation = _asset(animation_path, unreal.AnimSequence)
+            return _bake_existing_animation(sequence, animation, mesh)
+
          * @param bone_names	明确骨骼列表
          * @return 原始参考变换
          */

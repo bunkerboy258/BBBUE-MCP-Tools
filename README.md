@@ -1,5 +1,7 @@
 # BBBUE MCP Tools
 
+`control_rig.bake_control_rig_animation` 更新已有动作时先做瞬态烘焙，再按正式帧时刻写入骨骼轨道。UE 5.9 已对 AKM 装备和换弹回读 51 与 67 帧，原曲线、蒙太奇片段和通知一致。
+
 `control_rig.prepare_weapon_action_review` 从同类武器的已审底稿建立独立动作序列。核对样板关键帧、挂接变换、显隐轨道和播放区间，更换目标枪体及明确映射的配件。UE 5.9 已从 SG550 建立 AKM 装备底稿，回读 47820 个角色关键帧，并在四处采样核对枪体显隐及手部位置。操作见 [Control Rig 动画编辑](Docs/BBBControlRigAuthoringMCP.md)。
 
 2026-11-05 新增 `cinematic` 通用入口. 在当前可见编辑器创建带原生摄影机切换的推进序列并通过宿主内 Movie Render Queue 输出 PNG 同时提供顶点染色标题与普通二维媒体 UI 材质. 八个序列与两项材质创建保存回读通过 第一镜实际输出 60 帧 4K PNG. 使用与证据范围见 [摄影序列](Docs/BBBCinematicMCP.md).
