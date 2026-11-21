@@ -41,7 +41,7 @@ def _instance(sequence):
 
 def _bake_static(sequence, animation, mesh):
     """/** @param sequence 人工静态序列 @param animation 正式握姿 @param mesh 实际网格 @return 官方瞬态导出及原位骨轨保存 不创建备份资产 */"""
-    from BBBWeaponSequencePreview import mesh_binding as _mesh_binding
+    from BBBWeaponSequencePreview import export_animation, mesh_binding as _mesh_binding
     from BBBAnimationTrajectoryTools import _track_metadata
 
     metadata = _track_metadata(animation)
@@ -55,7 +55,7 @@ def _bake_static(sequence, animation, mesh):
     options.use_custom_frame_rate = True
     options.custom_frame_rate = animation.data_model_interface.get_frame_rate()
     world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
-    if not unreal.SequencerTools.export_anim_sequence(world, sequence, output, options, _mesh_binding(sequence, mesh), False):
+    if not export_animation(world, sequence, output, options, _mesh_binding(sequence, mesh)):
         raise RuntimeError('STATIC_GRIP_BAKE_FAILED')
     if abs(output.get_play_length() - animation.get_play_length()) > 0.0001:
         raise RuntimeError('STATIC_GRIP_BAKE_LENGTH_CHANGED')

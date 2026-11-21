@@ -11,6 +11,21 @@ PREVIEW_BINDING_TAG = 'BBB_WeaponCharacterPreview'
 WEAPON_ROOT = '/Game/_Project/Characters/BBBC_UA/Items/Equipment/'
 
 
+def export_animation(world, sequence, animation, options, binding):
+    """/** @param world 编辑器世界 @param sequence 制作序列 @param animation 输出动画 @param options 导出设置 @param binding 角色绑定 @return 原生导出结果并回收本次生成的实例 */"""
+    sequencer_tag = 'SequencerActor'
+    before = set(unreal.GameplayStatics.get_all_actors_with_tag(world, sequencer_tag))
+    try:
+        return unreal.SequencerTools.export_anim_sequence(world, sequence, animation, options, binding, False)
+    finally:
+        after = set(unreal.GameplayStatics.get_all_actors_with_tag(world, sequencer_tag))
+        for actor in after - before:
+            actor.destroy_actor()
+        remaining = set(unreal.GameplayStatics.get_all_actors_with_tag(world, sequencer_tag)) - before
+        if remaining:
+            raise RuntimeError('SEQUENCER_EXPORT_ACTORS_REMAIN: ' + ', '.join(sorted(actor.get_path_name() for actor in remaining)))
+
+
 def mesh_binding(sequence, mesh):
     """/** @param sequence\t制作序列 @param mesh\t计算或显示网格 @return\t精确网格或明确映射的角色绑定 */"""
     matches = [binding for binding in sequence.get_bindings()

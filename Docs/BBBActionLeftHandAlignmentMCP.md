@@ -8,6 +8,8 @@
 
 写入前在瞬态候选上核对逐帧握持目标、非目标骨轨、元数据及手指来源，成功后才原位写入并保存。临时对象清除，不建立磁盘备份或备用动画。
 
+武器动作及握姿烘焙在原生导出结束后回收本次新增并带有 `SequencerActor` 标签的实例。以导出前的实例集合为准保留编辑器中原有的预览角色和关卡对象。导出失败时也执行回收。
+
 分段动作的指骨接缝通过现有 ManualAction `prepare_action` 独立处理：`restore_action_fingers_request` 显式设置 `seam: true`、`bone_names`、`animation`、`reference_frame`、`frames` 和 `preserve_frames`。仅向当前 LS 的所选指骨旋转加法通道写入接缝与保护锚点；参考段 LS 不写入。瞬态原生导出先验证接缝及保护锚点，再核对其余通道的完整键值、默认值和切线摘要。该步骤独立于左手位置对齐，必须由调用者明确选择。
 
 已有 ManualAction 制作序列可设置 refresh_weapon_animation_request，通过 prepare_action 仅同步枪体预览速度和骨骼隐藏窗口。write_paths 明确列出 sequence 与 preview_animation；该操作核对实际制作输入摘要，不依赖已清理的公共目录清单，不重建身体、手指或 Offset 层。

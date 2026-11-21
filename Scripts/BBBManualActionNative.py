@@ -7,7 +7,7 @@ import unreal
 
 from BBBAssetWritePolicy import require_asset_write
 from BBBControlRigAuthoringToolset import _asset
-from BBBWeaponSequencePreview import mesh_binding as _mesh_binding
+from BBBWeaponSequencePreview import export_animation, mesh_binding as _mesh_binding
 from BBBManualActionAuthoring import _source, _save, _digest
 
 
@@ -1329,7 +1329,7 @@ def _export(sequence, source, mesh, scope, name, duplicate=True):
         binding = _mesh_binding(copied, mesh)
     except RuntimeError as error:
         raise RuntimeError('NATIVE_ACTION_EXPORT_BINDING: ' + copied.get_path_name() + ' mesh=' + mesh.get_path_name()) from error
-    if not unreal.SequencerTools.export_anim_sequence(world, copied, result, options, binding, False):
+    if not export_animation(world, copied, result, options, binding):
         raise RuntimeError('NATIVE_ACTION_EXPORT_FAILED')
     expected_bones = set(source.data_model_interface.get_bone_track_names())
     exported_bones = set(result.data_model_interface.get_bone_track_names())
