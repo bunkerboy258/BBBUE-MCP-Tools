@@ -10,7 +10,9 @@ import subprocess
 import threading
 import time
 
+from BBBMcpCapabilities import allows_test
 from MCP.mcp_jobs import JobQueue, JobConflict
+from MCP.mcp_result import McpBusinessError
 from MCP.mcp_test_process import TestProcess
 from MCP.mcp_scheduler import ordered
 from MCP.mcp_response import response
@@ -266,6 +268,7 @@ class ProjectJobs:
         self.tests = {}
         self.contexts = {}
         self.condition = threading.Condition(threading.RLock())
+        self.on_change = None
         self.revision = 0
         self.signature = None
         self.closed = False
@@ -345,6 +348,23 @@ class ProjectJobs:
             self._dispatch()
             self.condition.notify_all()
 
+    def _signal(self):
+        """/** @return 发布测试批次或宿主状态变化 */"""
+        self.condition.notify_all()
+        if self.on_change is not None:
+            self.on_change()
+
+    def continuation_backend(self, client, test_host):
+        """/** @param client 当前客户端 @param test_host 首次测试批次 @return 所属测试宿主已核验的执行端 */"""
+        with self.condition:
+            context = self.contexts.get(test_host)
+            if context is None or context["owner"] != client:
+                raise JobConflict("TEST_HOST_OWNERSHIP")
+            queue = context["queue"]
+            if context["state"] == "running" and queue is not None and not context["close_requested"]:
+                return queue.backend
+            return None
+
     def operator_jobs(self):
         """/** @return 适合干员池展示的当前任务快照 */"""
         with self.editor.changed:
@@ -370,10 +390,10 @@ class ProjectJobs:
         if self.factory is None:
             raise JobConflict("TEST_HOST_CONFIGURATION_REQUIRED")
         prepared = self.editor.catalog.prepare(operations)
-        if any(item["access"] != "read" and item["world"] != "pie" and item["access"] != "pie" for item in prepared):
+        if any(not allows_test(item["access"], item["world"]) for item in prepared):
             raise JobConflict("TEST_HOST_READ_ONLY")
         with self.condition:
-            if self.closed or self.editor.draining:
+            if self.closed or self.stopping or (test_host is None and self.editor.draining):
                 raise JobConflict("HOST_DRAINING")
             if sum(not record["finished"] for record in self.tests.values()) >= 64:
                 raise JobConflict("QUEUE_CAPACITY", {"next": None})
@@ -392,6 +412,8 @@ class ProjectJobs:
                     raise JobConflict("TEST_OPTIONS_FIXED")
                 if context["state"] not in {"starting", "running", "queued"} or context["close_requested"]:
                     raise JobConflict("TEST_HOST_CLOSED", {"next": None})
+                if context["queue"] is not None:
+                    self.editor.catalog.verify_host(prepared, context["queue"].backend)
             record = {"batch": batch, "test_host": context["id"], "owner": client, "label": label,
                 "status": "queued", "completed": 0, "environment": "test", "operations": copy.deepcopy(operations),
                 "options": context["options"], "submitted_at": time.monotonic(), "host": None,
@@ -401,7 +423,7 @@ class ProjectJobs:
             with self.editor.changed:
                 self.editor.client_owners.add(client)
             self._dispatch()
-            self.condition.notify_all()
+            self._signal()
             return self._view(record)
 
     def _records(self, context):
@@ -475,7 +497,7 @@ class ProjectJobs:
                 for record in self._records(context):
                     record["host"] = host.backend.process_id
                     self._checkpoint_test(record)
-                self.condition.notify_all()
+                self._signal()
             while not self.closed and not context["close_requested"]:
                 with self.editor.changed:
                     expires = self.editor.clients.get(context["owner"], 0)
@@ -487,8 +509,17 @@ class ProjectJobs:
                 with self.condition:
                     pending = [record for record in self._records(context) if record["status"] == "queued" and "child" not in record]
                 for record in pending:
-                    record.setdefault("input_version", self.version(record))
-                    child = queue.submit(context["owner"], record["operations"], record["label"])["batch"]
+                    try:
+                        if "input_version" not in record:
+                            record["input_version"] = self.version(record)
+                        child = queue.submit(context["owner"], record["operations"], record["label"])["batch"]
+                    except McpBusinessError as error:
+                        with self.condition:
+                            record.update(status="rejected", code=error.value.get("code"),
+                                          outcome={**error.value, "failure": error.value}, finished=True)
+                            self._checkpoint_test(record)
+                            self._signal()
+                        continue
                     with self.condition:
                         record.update(child=child, queue=queue, host=context["host"], code=None)
                         self._checkpoint_test(record)
@@ -503,18 +534,25 @@ class ProjectJobs:
                     with queue.changed:
                         view = queue._job_view(queue.jobs[record["child"]], True)
                     with self.condition:
+                        previous = (record["status"], record["completed"], record["code"], record.get("settling"))
                         self._publish(record, view, context)
-                        self._checkpoint_test(record)
-                        self.condition.notify_all()
+                        current = (record["status"], record["completed"], record["code"], record.get("settling"))
+                        if current != previous:
+                            self._checkpoint_test(record)
+                            self._signal()
                 state = queue.observe(force=True)
                 with self.condition:
-                    context["host_state"] = {"pie": bool(state.get("pie_active")), "activities": len(state.get("activities", [])),
+                    host_state = {"pie": bool(state.get("pie_active")), "activities": len(state.get("activities", [])),
                         "dirty": len(state.get("dirty_packages", [])), "verified": state.get("host_verified", False),
                         "owned_activities": sorted(key for key, owner in queue.activity_owners.items() if owner == context["owner"])}
+                    if host_state != context.get("host_state"):
+                        context["host_state"] = host_state
+                        self._signal()
                     pending = any(record["status"] in {"queued", "running"} for record in self._records(context))
                     active = state.get("pie_active") or state.get("worlds") or state.get("activities")
                     if not pending and not active:
                         context["state"] = "finishing"
+                        self._signal()
                         break
                     for record in self._records(context):
                         if "outcome" in record:
@@ -550,9 +588,9 @@ class ProjectJobs:
                                 outcome={**record.get("outcome", {}), "failure": failure})
                         record.update(queue=None, finished=True)
                     self._dispatch()
-                    self.condition.notify_all()
+                    self._signal()
 
-    def _view(self, record, detail=False):
+    def _view(self, record, detail=False, summary=False):
         signature = (record["status"], record["completed"], record["code"], record.get("input_stable"), record["finished"], self.contexts[record["test_host"]]["state"], tuple(self.contexts[record["test_host"]].get("host_state", {}).get("owned_activities", [])), self.contexts[record["test_host"]].get("host_state", {}).get("verified", False))
         if signature != record.get("signature"):
             record["signature"] = signature
@@ -578,7 +616,7 @@ class ProjectJobs:
                     action["arguments"].update(environment="test", test_host=context["id"])
                 if context["state"] not in {"starting", "running", "recovering"}:
                     result["next"] = None
-        if detail or record["status"] in {"completed", "failed", "rejected", "cancelled", "closed"}:
+        if not summary and (detail or record["status"] in {"completed", "failed", "rejected", "cancelled", "closed"}):
             result["results"] = copy.deepcopy(record["results"])
             result["elapsed_seconds"] = int(time.monotonic() - record["submitted_at"])
             for key in ("input_version", "input_stable"):
@@ -611,6 +649,17 @@ class ProjectJobs:
                         "dirty": len(state.get("dirty_packages", [])), "verified": state.get("host_verified", False),
                         "owned_activities": sorted(key for key, owner in queue.activity_owners.items() if owner == context["owner"])}
         deadline = time.monotonic() + wait_seconds
+        if batch is not None:
+            with self.condition:
+                while True:
+                    record = self.tests.get(batch)
+                    if record is None or record["owner"] != client:
+                        raise JobConflict("BATCH_OWNERSHIP")
+                    view = self._view(record, detail, summary=True)
+                    remaining = deadline - time.monotonic()
+                    if after_revision != view["revision"] or remaining <= 0:
+                        return self._view(record, detail)
+                    self.condition.wait(remaining)
         while True:
             editor = self.editor.inspect(client, None, detail)
             with self.condition:
@@ -620,15 +669,8 @@ class ProjectJobs:
                 if signature != self.signature:
                     self.signature = signature
                     self.revision += 1
-                revision = self._view(self.tests[batch])["revision"] if batch in self.tests else self.revision
+                revision = self.revision
                 if after_revision is None or after_revision != revision or time.monotonic() >= deadline:
-                    if batch in self.tests:
-                        record = self.tests[batch]
-                        if record["owner"] != client:
-                            raise JobConflict("BATCH_OWNERSHIP")
-                        return self._view(record, detail)
-                    if batch:
-                        return {**self.editor.inspect(client, batch, detail), "revision": self.revision, "environment": "editor"}
                     editor["revision"] = self.revision
                     running = [context for context in self.contexts.values() if context["state"] in {"starting", "running", "finishing", "recovering"}]
                     editor["tests"] = {"running": len(running), "queued": sum(context["state"] == "queued" for context in self.contexts.values()), "limit": self.limit}
@@ -643,7 +685,7 @@ class ProjectJobs:
                     if not owned and editor.get("batch", {}).get("status") not in {"queued", "running", "failed"}:
                         owned = [record for record in self.tests.values() if record["owner"] == client]
                     if owned:
-                        editor["batch"] = self._view(owned[-1])
+                        editor["batch"] = self._view(owned[-1], summary=True)
                         editor["next"] = editor["batch"]["next"]
                     return response(editor)
                 self.condition.wait(min(0.5, max(0, deadline - time.monotonic())))

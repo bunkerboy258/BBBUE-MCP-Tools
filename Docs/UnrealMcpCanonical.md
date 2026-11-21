@@ -36,7 +36,7 @@
 
 目标参数缺失或路径无效时返回 `ARGUMENT_INVALID`，`needs` 定位到对应范围字段。当前地图需要已保存的项目包，否则返回 `EDITOR_WORLD_REQUIRED`。地图演员按地图及外部 Actor/Object 包协调；当前地图改变时返回 `EDITOR_WORLD_CHANGED`。
 
-`scene.load_level` 合并当前地图与目标地图的范围；Entry 和临时空地图可直接打开已保存的目标地图。排队期间的当前地图变化沿世界绑定核验。
+当前地图使用 `level_toolset.GetCurrentLevel`。独立 PIE 在首批 `test_options.map` 指定地图。
 
 `ARGUMENT_INVALID` 的 `needs` 返回具体字段路径、操作序号与准确字段契约。校验阶段实际修改为零的批次立即结束；部分成功的批次保存已知修改并保留 `failure`。执行结果不确定时，自动核实证据写入 `proof.reconciled`，原执行状态继续标为 `unknown`。
 
@@ -87,7 +87,7 @@
 
 `inspect_tasks` 的 `service` 表示服务状态，`connection` 使用 `offline`、`connecting`、`ready`、`unresponsive`。`hosts` 返回脱敏进程清单；`stale=true` 表示资产与活动来自最近快照。编辑器离线时提交返回 `EDITOR_OFFLINE` 或 `EDITOR_CONNECTING`，按 `retry_after_seconds` 与 `inspect_tasks` 等待后重新提交。响应中的 `batch` 才代表批次已被接受。
 
-上次核验的工具目录保存在 `Saved/McpState/catalog.json`，编辑器暂离线时继续支持发现；首次接入后建立目录。客户端身份与结果存储持续保留，编辑器切换后按原归属查询。
+首次接入后记录契约快照。编辑器离线或版本切换时仍可查契约，`catalog.state` 为 `cached`。提交核验实际宿主源码版本。已就绪的所属独立测试可继续提交，后续资产版本由测试宿主读取。
 
 服务重启后核验原测试进程，已派发且结果缺失的操作标记 `TEST_EXECUTION_UNCERTAIN`，实际 PIE 与后续批次沿原测试宿主接续。编辑器进程变化后保留原写入证据，重新回读当前资产。
 
@@ -107,7 +107,7 @@
 
 ## 精简继续调用
 
-`next` 为 `{tool, arguments}` 或 `null`，对象包含下一次公开调用的完整参数。`needs` 表示待补充字段；图表快照变化给出重新读取逻辑的调用，AI 按新快照重新分析后应用。
+`next` 是下一次公开调用。`needs` 给出待补充字段。排队按返回版本等待，终态按批次读取完整结果和保存证据。搜索首项携带参数；`test_arguments` 给出可在测试宿主执行的参数条件。
 
 SDK 缓存发现首项的完整契约，按响应 `catalog_version` 失效。工具详情按目标提供短用途、区别与完成条件；属性配置、蓝图注释、武器验收附带短路线。
 

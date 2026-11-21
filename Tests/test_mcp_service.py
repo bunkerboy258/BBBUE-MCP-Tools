@@ -208,6 +208,7 @@ class ServiceTests(unittest.TestCase):
         self.attach(101)
         backend = FakeBackend()
         backend.process_id = 201
+        backend.loaded_source_version = source_version()
         backend.state["process_id"] = 201
         host = types.SimpleNamespace(backend=backend, close=lambda: backend.state.update(pie_active=False, worlds=[]))
         jobs = self.runtime.gateway.jobs
@@ -235,6 +236,7 @@ class ServiceTests(unittest.TestCase):
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline and second.gateway.jobs.contexts[result["test_host"]]["state"] != "running":
                 time.sleep(0.02)
+            second.state = "offline"
             end = second.submit(owner, [operation("StopPIE")], environment="test", test_host=result["test_host"])
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:

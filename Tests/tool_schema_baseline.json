@@ -5245,30 +5245,6 @@
         ]
       }
     },
-    "resave_asset": {
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "asset_path": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "asset_path"
-        ]
-      },
-      "outputSchema": {
-        "type": "object",
-        "properties": {
-          "returnValue": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "returnValue"
-        ]
-      }
-    },
     "remove_empty_animation_notify_track": {
       "inputSchema": {
         "type": "object",

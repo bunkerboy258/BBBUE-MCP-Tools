@@ -8,7 +8,7 @@ import hashlib
 from pathlib import Path
 import re
 
-from MCP.mcp_result import require_business_success, McpExecutionError
+from MCP.mcp_result import require_business_success, McpBusinessError, McpExecutionError
 from MCP.mcp_asset_scope import asset_targets
 from MCP.mcp_discovery import ALIASES, HINTS, SUMMARIES
 from MCP.mcp_workflows import guidance, ROUTES, PURPOSES
@@ -660,6 +660,24 @@ def resolve_access(contract, arguments):
     return access, world
 
 
+def allows_test(access, world):
+    """/** @param access 实际权限 @param world 实际世界 @return 是否允许在测试宿主上执行 */"""
+    return access in {"read", "pie"} or world == "pie"
+
+
+def test_arguments(contract):
+    """/** @param contract 工具契约 @return 允许测试的默认或指定参数组合 */"""
+    defaults = default_arguments(contract, {})
+    if allows_test(*resolve_access(contract, defaults)):
+        return [{}]
+    choices = {"action": ("inspect", "audit", "review", "status"),
+               "dry_run": (True,), "pause_game": (False,), "generate": (False,)}
+    properties = contract["parameters"].get("properties", {})
+    return [{name: value} for name, values in choices.items() if name in properties
+            for value in values if value in properties[name].get("enum", values)
+            and allows_test(*resolve_access(contract, {**defaults, name: value}))]
+
+
 def write_scope(contract, arguments, access=None, world=None):
     """/** @param contract 契约 @param arguments 本次参数 @param access 权限 @param world 世界 @return 目标字段值与范围证据 */"""
     if access is None:
@@ -743,7 +761,7 @@ class ToolCatalog:
         signature = tuple((identity, item["version"], item["summary"]) for identity, item in self.tools.items())
         cached = getattr(self, "_version_cache", None)
         if cached is None or cached[0] != signature:
-            version = hashlib.sha256(json.dumps([sorted(signature), ROUTES, PURPOSES], ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:12]
+            version = hashlib.sha256(json.dumps([sorted(signature), ROUTES, PURPOSES, ALIASES, HINTS], ensure_ascii=False, sort_keys=True).encode()).hexdigest()[:12]
             cached = (signature, version)
             self._version_cache = cached
             self._search_cache = None
@@ -772,6 +790,11 @@ class ToolCatalog:
             return [result]
         if any(word in normalized for word in ("当前任务与占用", "编辑器当前状态")):
             return [self.describe("inspect_tasks")]
+        current_map = re.fullmatch(r"(?:查看|读取|查询|检查|获取)?当前(?:关卡|地图)(?:名称|路径)?[？?]?", normalized)
+        if current_map and "level_toolset.GetCurrentLevel" in self.tools:
+            return [self.describe("level_toolset.GetCurrentLevel")]
+        if any(word in normalized for word in ("重存资产", "重新序列化", "强制保存资产", "resave assets")) and "assets.resave_assets" in self.tools:
+            return [self.describe("assets.resave_assets")]
         if ("保存" in normalized and any(word in normalized for word in ("蓝图", "资产"))
                 and not any(word in normalized for word in ("不保存", "未保存", "无需保存"))
                 and "asset.save_asset" in self.tools):
@@ -781,6 +804,10 @@ class ToolCatalog:
         reading = any(word in normalized for word in ("读取", "查询", "检查", "获取", "查看", "列出", "查一下")) or bool(tokens & {"inspect", "get", "read", "list", "check", "show"})
         writing = any(word in normalized for word in ("修改", "改一下", "设置", "切换", "添加", "增加", "创建", "删除", "保存", "导入", "导出", "移动", "重建", "调整", "注释", "布局", "排版", "整理", "摆整齐", "排整齐")) or bool(tokens & {"set", "edit", "add", "create", "delete", "configure", "annotate", "layout", "write", "save", "resave", "import", "export", "move", "rebuild"})
         groups.extend((token,) for token in re.findall(r"[a-z][a-z0-9]*(?:\.[a-z_]+)*", normalized) if token not in {"the", "a", "of", "for", "to", "and"} and not re.search(r"\d", token))
+        phrases = re.findall(r"[\u4e00-\u9fff]{2,}", normalized)
+        graph_task = ("蓝图" in normalized or "blueprint" in tokens) and "父类" not in normalized
+        graph_details = any(word in normalized for word in ("注释", "节点位置", "几何", "布局", "排版", "整理", "摆整齐", "排整齐", "连线", "引脚", "comment", "geometry", "layout", "annotate", "pins", "connections"))
+        specialized_graph = any(word in normalized for word in ("动画蓝图", "动画图", "状态机", "anim blueprint", "animation blueprint", "state machine"))
         cache = getattr(self, "_search_cache", None)
         if cache is None or cache[0] is not self.tools:
             entries = []
@@ -795,17 +822,20 @@ class ToolCatalog:
             cache = (self.tools, entries)
             self._search_cache = cache
         candidates = []
+        missing = getattr(getattr(self, "backend", None), "unavailable_native", None)
         for contract, identity, words, text in cache[1]:
             exact_name = contract.get("action", contract["name"]).casefold()
-            score = 1000 if normalized == identity or normalized == exact_name else 0
+            exact = normalized in {identity, exact_name}
+            score = 1000 if exact else 0
             matched = 0
             for values in groups:
                 weight = max((12 if value in words else 6 if value in text else 0 for value in values), default=0)
                 score += weight + (3 if values[0] in words else 0)
                 matched += bool(weight)
-            for word in re.findall(r"[\u4e00-\u9fff]{2,}", normalized):
-                if word in contract["summary"]:
-                    score += 8
+            phrase_matches = sum(word in text for word in phrases)
+            score += 8 * phrase_matches
+            if not exact and not phrase_matches and (not groups or matched < min(2, len(groups))):
+                continue
             if matched:
                 score += 16 * matched / max(1, len(groups))
             if reading:
@@ -818,8 +848,10 @@ class ToolCatalog:
                 score += 18 if "annotate" in words else 0
             if any(word in normalized for word in ("布局", "排版", "layout", "整理", "摆整齐", "排整齐")) and not any(word in normalized for word in ("注释", "comment", "annotate", "区块")):
                 score += 18 if "layout" in words else 0
-            if ("蓝图" in normalized or "blueprint" in tokens) and "父类" not in normalized and identity.startswith("blueprint."):
+            if graph_task and graph_details and identity.startswith("blueprint."):
                 score += 20
+            if graph_task and not graph_details and not specialized_graph and identity == ("blueprint_dsl.edit" if writing and not reading else "blueprint_dsl.read"):
+                score += 45
             if "蓝图" in normalized and "父类" in normalized and identity == "blueprint_base.getparent":
                 score += 35
             if "数据表" in normalized and identity.startswith("data_table."):
@@ -830,11 +862,15 @@ class ToolCatalog:
                 score += 35
             if "通知" in normalized and not any(word in normalized for word in ("添加", "修改", "删除", "设置", "创建")):
                 score += 16 if contract["access"] == "read" else -16
+                if identity == "editor.inspect_animation_notifies" and "动画" in normalized:
+                    score += 20
             if "验收" in normalized and "换弹" in normalized:
                 score += 12 if "acceptance" in words else 0
             if {"remove", "delete"} & words and not any(value in {"remove", "delete"} for group in groups for value in group):
                 score -= 12
-            if score and (not groups or matched >= min(2, len(groups)) or score >= 1000):
+            if missing and any(dependency in missing or dependency.split(".", 1)[0] in missing for dependency in contract["dependencies"]):
+                score -= 25
+            if score > 0 or exact:
                 candidates.append((score, contract["id"], contract))
         candidates.sort(key=lambda item: (-item[0], item[1]))
         result = [{key: item[key] for key in ("id", "summary", "access")} for score, identity, item in candidates[:min(limit, 3)]]
@@ -854,9 +890,17 @@ class ToolCatalog:
         result.update({key: item[key] for key in ("scope", "completion", "version")})
         if item["dependencies"]:
             result["dependencies"] = item["dependencies"]
+            missing = getattr(getattr(self, "backend", None), "unavailable_native", None)
+            if missing:
+                unavailable = [dependency for dependency in item["dependencies"] if dependency in missing or dependency.split(".", 1)[0] in missing]
+                if unavailable:
+                    result["unavailable_editor_dependencies"] = unavailable
         result["environments"] = ["editor"]
-        if item["access"] in {"read", "pie"} or item["world"] == "pie" or "dry_run" in item["parameters"].get("properties", {}):
+        options = test_arguments(item)
+        if options:
             result["environments"].append("test")
+        if options and options != [{}]:
+            result["test_arguments"] = options
         result.update(guidance(item, self.tools))
         return result
 
@@ -894,3 +938,20 @@ class ToolCatalog:
         if issues:
             raise ArgumentValidationError(issues)
         return prepared
+
+    def verify_host(self, prepared, backend):
+        """/** @param prepared 已校验的调用 @param backend 实际执行端 @return 确定缺少依赖时拒绝提交 */"""
+        missing = getattr(backend, "unavailable_native", None)
+        if not missing:
+            return
+        for index, item in enumerate(prepared):
+            contract = item["contract"]
+            if not contract["dependencies"]:
+                continue
+            requirements = _walk_native_requirements(contract["definition"], contract["name"], set(), item["arguments"])
+            unavailable = sorted(name for name in requirements if name in missing)
+            unavailable.extend(sorted(name + "." + method for name, methods in requirements.items()
+                                      for method in methods if name not in missing and name + "." + method in missing))
+            if unavailable:
+                raise McpBusinessError({"status": "rejected", "code": "NATIVE_DEPENDENCY_MISSING",
+                    "tool": contract["id"], "operation": index, "missing": unavailable})

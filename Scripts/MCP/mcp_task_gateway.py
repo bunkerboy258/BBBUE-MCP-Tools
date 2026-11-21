@@ -79,6 +79,7 @@ class UnrealBackend:
         self.external_name = None
         self.remap = False
         self.loaded_source_version = None
+        self.unavailable_native = None
 
     def _call(self, name, arguments):
         if self.guard is not None and hasattr(self.guard, "verify"):
@@ -182,6 +183,9 @@ class UnrealBackend:
         self.loaded_source_version = value.get("source_version")
         if value["process_id"] != self.process_id or project_identity(value["project_root"]) != self.project:
             raise RuntimeError("HOST_IDENTITY_CHANGED")
+        unavailable = value.get("unavailable_native")
+        if isinstance(unavailable, list):
+            self.unavailable_native = frozenset(unavailable)
         if self.guard is not None:
             value["project_hosts"] = self.guard.inspect()
         return value
@@ -520,8 +524,6 @@ class TaskGateway:
             if name not in self.tools:
                 raise ValueError("TOOL_UNKNOWN")
             validate_arguments(arguments, self.tools[name]["inputSchema"])
-            if name in {"find_tools", "describe_tool"} and hasattr(self.jobs, "require_current"):
-                self.jobs.require_current()
             if name == "control_task":
                 if arguments["action"] == "respond_dialog" and (not arguments.get("dialog") or not arguments.get("button")):
                     raise ValueError("/arguments/dialog: dialog and button required")
@@ -534,7 +536,10 @@ class TaskGateway:
                 self.jobs.wake()
                 return reply(value)
             if name == "find_tools":
-                return reply(self.catalog.find(**arguments))
+                matches = self.catalog.find(**arguments)
+                if matches and not matches[0].get("direct") and hasattr(self.jobs, "catalog_state"):
+                    matches[0]["catalog"] = self.jobs.catalog_state()
+                return reply(matches)
             if name == "describe_tool":
                 if arguments["tool"] in self.catalog.scope_errors:
                     return reply({"status": "rejected", "code": "TOOL_SCOPE_INVALID", "tool": arguments["tool"],
@@ -542,7 +547,12 @@ class TaskGateway:
                 if arguments["tool"] not in self.tools and arguments["tool"] not in self.catalog.tools:
                     return reply({"status": "rejected", "code": "TOOL_UNKNOWN", "tool": arguments["tool"],
                         "next": next_call("find_tools", query=arguments["tool"])}, True)
-                return reply(self.tools[arguments["tool"]] if arguments["tool"] in self.tools else self.catalog.describe(arguments["tool"]))
+                if arguments["tool"] in self.tools:
+                    return reply(self.tools[arguments["tool"]])
+                contract = self.catalog.describe(arguments["tool"])
+                if hasattr(self.jobs, "catalog_state"):
+                    contract["catalog"] = self.jobs.catalog_state()
+                return reply(contract)
             if name == "submit_batch":
                 self.clients.operators.require(client)
                 identity = parameters.get("_meta", {}).get("bbb/request_id", session_id + ":" + str(request_id))

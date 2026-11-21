@@ -1,10 +1,10 @@
 from test_mcp_discovery import DISCOVERY_CASES
 
 FULL_DISCOVERY_CASES = [
-    *[(query, ["asset.save_asset", "assets.resave_assets", "editor.resave_asset"] if query == "保存资产" else [tool]) for query, tool in DISCOVERY_CASES],
+    *[(query, {"保存资产": ["asset.save_asset"], "读取蓝图逻辑": ["blueprint_dsl.read"]}.get(query, [tool])) for query, tool in DISCOVERY_CASES],
     ("给蓝图节点加区块注释", ["blueprint.add_blueprint_comment_node"]),
     ("整理蓝图节点布局", ["blueprint.format_blueprint_graph"]),
-    ("查看蓝图图表逻辑", ["blueprint.inspect_blueprint_graph"]),
+    ("查看蓝图图表逻辑", ["blueprint_dsl.read"]),
     ("读取动画通知", ["editor.inspect_animation_notifies", "editor.inspect_animation_notify_properties"]),
     ("inspect animation montage segments", ["editor.inspect_animation_montage_segments"]),
     ("inspect retargeter", ["retarget.inspect_retargeter"]),
@@ -61,7 +61,7 @@ NATURAL_CASES = [
     ("修改材质属性", ["object.set_properties"]),
     ("列出材质属性字段", ["object.list_properties"]),
     ("读取材质属性值", ["object.get_properties"]),
-    ("保存当前指定资产", ["asset.save_asset", "assets.resave_assets", "editor.resave_asset"]),
+    ("保存当前指定资产", ["asset.save_asset"]),
     ("查一下重定向器映射", ["retarget.inspect_retargeter"]),
     ("查看动画骨骼姿态", ["retarget.inspect_animation_poses"]),
     ("查看运行时手臂姿态", ["animation.inspect_pie_arm_pose"]),

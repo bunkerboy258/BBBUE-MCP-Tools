@@ -22,11 +22,12 @@ def response(value):
     recovery = result.get("assets", {}).get("phase") == "fault"
     transient = result.get("code") in {"HOST_UNVERIFIED", "EXECUTION_UNVERIFIED", "GATEWAY_RESTARTED", "EDITOR_OFFLINE", "EDITOR_CONNECTING", "HOST_BUSY", "HOST_DRAINING", "BATCH_ACTIVE", "TEST_HOST_STARTING", "TEST_BATCH_ACTIVE", "OWNED_ACTIVITY_PENDING"}
     if active or recovery or transient:
-        arguments = {"wait_seconds": min(30, result.get("retry_after_seconds", 30))}
+        arguments = {}
         if result.get("batch") and isinstance(result["batch"], str) and (active or recovery):
             arguments["batch"] = result["batch"]
         if "revision" in result:
             arguments["after_revision"] = result["revision"]
+            arguments["wait_seconds"] = min(30, result.get("retry_after_seconds", 30))
         result["next"] = next_call("inspect_tasks", **arguments)
     blocked = result.get("blocked")
     if isinstance(blocked, dict):

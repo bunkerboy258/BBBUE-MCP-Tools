@@ -242,6 +242,7 @@ class BBBMcpTaskToolset(unreal.ToolsetDefinition):
         return json.dumps({
             "process_id": os.getpid(),
             "source_version": __import__("BBBMcpBootstrap")._loaded_source_version,
+            "unavailable_native": __import__("BBBMcpBootstrap")._unavailable_native,
             "host_role": os.environ.get("BBB_MCP_HOST_ROLE", "editor"),
             "saved_directory": os.path.realpath(unreal.Paths.project_saved_dir()),
             "project_root": os.path.realpath(unreal.Paths.project_dir()),

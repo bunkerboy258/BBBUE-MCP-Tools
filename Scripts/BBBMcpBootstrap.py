@@ -11,6 +11,7 @@ import BBBMcpCapabilities
 from BBBMcpCapabilities import TOOLSET_ROUTES, HELPER_MODULES
 
 _loaded_source_version = None
+_unavailable_native = None
 
 
 def get_repository_root():
@@ -99,7 +100,7 @@ def _register_repository_toolsets():
      * @return 注册与依赖报告
      */
     """
-    global _loaded_source_version
+    global _loaded_source_version, _unavailable_native
     engine_version = unreal.SystemLibrary.get_engine_version()
     if not engine_version.startswith("5.9."):
         raise RuntimeError("UE_5_9_REQUIRED: " + engine_version)
@@ -148,6 +149,8 @@ def _register_repository_toolsets():
                 unreal.log_warning("[BBBMcpBootstrap]原生依赖缺失 {} {}".format(module_name, (status["missing_native_classes"] + status["missing_native_functions"])))
         if source_version(force=True) != version:
             raise RuntimeError("TOOLSET_SOURCE_CHANGED_DURING_LOAD")
+        _unavailable_native = sorted({name for status in report["modules"].values()
+                                      for name in status["missing_native_classes"] + status["missing_native_functions"]})
         _loaded_source_version = version
         report["source_version"] = version
         unreal.log("[BBBMcpBootstrap]注册完成 {}".format(get_repository_root()))

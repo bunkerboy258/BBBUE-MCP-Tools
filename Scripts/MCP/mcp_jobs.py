@@ -31,6 +31,7 @@ class JobQueue:
         backend.catalog = catalog
         self.clock = clock
         self.changed = threading.Condition(threading.RLock())
+        self.on_change = None
         self.jobs = {}
         self.assets = AssetCoordination()
         self.queue = []
@@ -91,6 +92,8 @@ class JobQueue:
                 job["revision"] = job.get("revision", 0) + 1
                 self._checkpoint(job)
         self.changed.notify_all()
+        if self.on_change is not None:
+            self.on_change()
 
     def _checkpoint(self, job):
         """/** @param job\t当前批次 @return 单向身份与执行边界的恢复证据 */"""
@@ -240,6 +243,7 @@ class JobQueue:
         self.touch(client)
         registration = self.clients.operators.identity(client)
         prepared = self.catalog.prepare(operations)
+        self.catalog.verify_host(prepared, self.backend)
         for item in prepared:
             if item["contract"].get("scope", {}).get("kind") == "world" and item["access"] != "read":
                 item["world_targets"] = sorted(asset_targets(self.activity.get("editor_world")))
@@ -981,7 +985,7 @@ class JobQueue:
                 return {"batch": batch, "status": "closed"}
         raise JobConflict("CONTROL_ACTION")
 
-    def _job_view(self, job, detail=False):
+    def _job_view(self, job, detail=False, summary=False):
         result = {"batch": job["id"], "status": job["status"], "completed": job["completed"]}
         result["operator"] = self.clients.operators.identity(job["owner"])
         result["level"] = self.clients.operators.level(job["owner"])
@@ -1014,7 +1018,7 @@ class JobQueue:
                 result["save_failure"] = copy.deepcopy(job["save_failure"])
             if job.get("recovery_failure"):
                 result["recovery_failure"] = copy.deepcopy(job["recovery_failure"])
-        if detail or job["status"] in {"completed", "failed", "rejected", "cancelled", "closed"}:
+        if not summary and (detail or job["status"] in {"completed", "failed", "rejected", "cancelled", "closed"}):
             result["results"] = copy.deepcopy(job["results"])
         if detail:
             result.update({"dirty": list(job["dirty"]), "failed_index": job["failed_index"]})
@@ -1024,7 +1028,7 @@ class JobQueue:
                 result["failure"] = copy.deepcopy(job["failure"])
             if job.get("execution"):
                 result["execution"] = job["execution"]
-        if job.get("proof") and (detail or job["status"] in {"completed", "failed", "rejected", "cancelled", "closed"}):
+        if not summary and job.get("proof") and (detail or job["status"] in {"completed", "failed", "rejected", "cancelled", "closed"}):
             result["proof"] = copy.deepcopy(job["proof"])
             if job["proof"].get("move_recovery", {}).get("success") and claim["phase"] == "released":
                 result["hint"] = "迁移收尾已核验并释放资产；原执行错误保留，后续按当前资产状态继续"
@@ -1087,9 +1091,7 @@ class JobQueue:
                     if not owned:
                         owned = [job for job in self.jobs.values() if job["owner"] == client]
                     if owned:
-                        result["batch"] = self._job_view(owned[-1])
-                        result["batch"].pop("results", None)
-                        result["batch"].pop("proof", None)
+                        result["batch"] = self._job_view(owned[-1], summary=True)
                         result["next"] = result["batch"]["next"]
                     if detail:
                         result["evidence"] = copy.deepcopy(self.activity)

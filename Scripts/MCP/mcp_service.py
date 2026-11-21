@@ -23,7 +23,7 @@ from MCP.mcp_source_version import install_source_loader
 
 install_source_loader()
 
-from BBBMcpCapabilities import ToolCatalog
+from BBBMcpCapabilities import TOOL_DOMAINS, ToolCatalog, source_index
 from MCP.mcp_clients import ClientRegistry
 from MCP.mcp_host_registry import HostRegistry, RegistryGuard, atomic_json, private_directory, process_identity, project_key, service_directory
 from MCP.mcp_project_host import project_identity
@@ -170,6 +170,9 @@ class CachedCatalog(ToolCatalog):
             try:
                 value = json.loads(self.path.read_text(encoding="utf-8"))
                 for contract in value["tools"].values():
+                    definition = contract["definition"]
+                    if definition in TOOL_DOMAINS and definition.startswith("BBB") and contract["name"] not in source_index(definition)["public_tools"]:
+                        continue
                     self.add(contract)
                 self.version()
             except (OSError, ValueError, KeyError, TypeError):
@@ -196,6 +199,8 @@ class ProjectRuntime:
         self.registry = registry
         self.test_limit = test_limit
         self.lock = threading.RLock()
+        self.progress = threading.Condition()
+        self.progress_revision = 0
         self.state = "offline"
         self.error = None
         self.identity = None
@@ -218,15 +223,27 @@ class ProjectRuntime:
         self.protocol.jobs = self
         self.protocol.tools = {row["name"]: row for row in public_tools()}
 
-    def source_state(self):
+    def source_state(self, backend=None):
         """/** @return 磁盘与两个执行进程的源码版本 */"""
         expected = source_version()
-        host = self.backend.loaded_source_version if self.backend is not None else None
+        target = backend if backend is not None else self.backend
+        host = getattr(target, "loaded_source_version", None)
         return {"expected": expected, "service": _loaded_source_version, "host": host, "current": expected == _loaded_source_version == host}
 
-    def require_current(self):
+    def catalog_state(self):
+        """/** @return 契约版本和当前执行端是否已核验 */"""
+        current = self.state == "ready" and self.source_state()["current"]
+        return {"version": self.catalog.version(), "state": "current" if current else "cached"}
+
+    def notify_progress(self):
+        """/** @return 唤醒等候项目或批次变化的请求 */"""
+        with self.progress:
+            self.progress_revision += 1
+            self.progress.notify_all()
+
+    def require_current(self, backend=None):
         """/** @return 版本一致时允许发现与新任务 */"""
-        state = self.source_state()
+        state = self.source_state(backend)
         if not state["current"]:
             if self.backend is None:
                 raise McpBusinessError({"status": "waiting", "code": "EDITOR_OFFLINE", "next": None,
@@ -328,6 +345,8 @@ class ProjectRuntime:
                         if not client.startswith("@"):
                             self.gateway.jobs.connect(client)
                     previous_backend.close()
+                self.gateway.jobs.on_change = self.notify_progress
+                self.gateway.jobs.editor.on_change = self.notify_progress
                 self.backend = backend
                 self.identity = identity
                 self.state = "ready"
@@ -344,7 +363,13 @@ class ProjectRuntime:
 
     def _test_factory(self, batch, options):
         """/** @param batch 批次 @param options 测试配置 @return 受限原项目测试宿主 */"""
-        return TestHost(batch, options, self.project_file, Path(self.identity_row()["editor_path"]), self.backend.guard, UnrealBackend)
+        host = TestHost(batch, options, self.project_file, Path(self.identity_row()["editor_path"]), self.backend.guard, UnrealBackend)
+        try:
+            self.require_current(host.backend)
+        except McpBusinessError:
+            host.close()
+            raise
+        return host
 
     def _restore_test(self, batch, options, pid):
         """/** @param batch 原测试 @param options 原配置 @param pid 原进程 @return 核验后接回的测试宿主 */"""
@@ -367,24 +392,35 @@ class ProjectRuntime:
         from MCP.mcp_asset_scope import asset_targets
         if "input_files" not in record:
             paths = sorted({record["options"]["map"]} | asset_targets(record["operations"]))
-            self.backend._toolsets()
-            record["input_files"] = self.backend._call("call_tool", {"toolset_name": self.backend.task_name,
+            backend = self.backend
+            if record["test_host"] != record["batch"]:
+                backend = self.gateway.jobs.continuation_backend(record["owner"], record["test_host"])
+                if backend is None:
+                    raise RuntimeError("TEST_HOST_NOT_READY")
+                self.require_current(backend)
+            backend._toolsets()
+            record["input_files"] = backend._call("call_tool", {"toolset_name": backend.task_name,
                 "tool_name": "inspect_saved_test_inputs", "arguments": {"asset_paths": paths}})["files"]
         return project_version(self.project, record["input_files"])
 
     def submit(self, client, operations, label="", environment="editor", test_options=None, test_host=None):
         """/** @param client 所属客户端 @param operations 操作 @param label 用途 @param environment 执行环境 @param test_options 测试配置 @param test_host 测试归属 @return 已提交批次 */"""
         with self.lock:
-            if self.gateway is None or self.state != "ready":
+            backend = None
+            if self.gateway is not None and environment == "test" and test_host is not None:
+                backend = self.gateway.jobs.continuation_backend(client, test_host)
+            if backend is None and (self.gateway is None or self.state != "ready"):
                 raise McpBusinessError({"status": "waiting", "code": "EDITOR_CONNECTING" if self.state == "connecting" else "EDITOR_OFFLINE",
-                    "next": None, "retry_after_seconds": 2, "hint": "编辑器接入后重新提交；使用 inspect_tasks 等待状态变为 ready"})
-            self.require_current()
+                    "revision": self.view_revision, "retry_after_seconds": 2, "hint": "编辑器接入后重新提交"})
+            self.require_current(backend)
             return self.gateway.jobs.submit(client, operations, label, environment, test_options, test_host)
 
     def inspect(self, client, batch=None, detail=False, after_revision=None, wait_seconds=0):
         """/** @param client 所属客户端 @param batch 批次 @param detail 详细信息 @param after_revision 上次版本 @param wait_seconds 等待上限 @return 项目与连接状态 */"""
         deadline = time.monotonic() + wait_seconds
         while True:
+            with self.progress:
+                observed = self.progress_revision
             dialog = self._inspect_dialog()
             if dialog.get("code") == "EDITOR_DIALOG_OPEN" and (batch is None or (self.gateway is not None and batch in self.gateway.jobs.editor.jobs)):
                 result = dict(dialog)
@@ -443,7 +479,10 @@ class ProjectRuntime:
                 revision = value.get("revision", 0)
             if after_revision is None or after_revision != revision or time.monotonic() >= deadline:
                 return response(value)
-            time.sleep(min(0.2, max(0, deadline - time.monotonic())))
+            interval = 0.5 if gateway and gateway.jobs.editor.call_active else 3
+            with self.progress:
+                if observed == self.progress_revision:
+                    self.progress.wait(min(interval, max(0, deadline - time.monotonic())))
 
     def wake(self):
         """/** @return 唤醒已连接宿主调度 */"""
@@ -451,6 +490,7 @@ class ProjectRuntime:
             gateway = self.gateway
         if gateway:
             gateway.jobs.wake()
+        self.notify_progress()
 
     def operator_jobs(self):
         """/** @return 已连接的当前干员任务 */"""
@@ -541,8 +581,12 @@ class McpService:
                             self.projects[key] = ProjectRuntime(path, self.registry, self.test_limit)
                 self.registry.refresh()
                 for context in list(self.projects.values()):
+                    before = (context.state, context.revision, context.clients.operators.revision)
                     context.reconcile()
                     context.clients.operators.collect()
+                    after = (context.state, context.revision, context.clients.operators.revision)
+                    if before != after:
+                        context.notify_progress()
             except Exception as error:
                 logging.error("host_monitor_failed type=%s", type(error).__name__)
             self.stop_event.wait(3)

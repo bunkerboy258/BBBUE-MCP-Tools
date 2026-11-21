@@ -2119,24 +2119,6 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def resave_asset(asset_path: str) -> str:
-        """按当前类定义重新序列化已经独占签出的资产"""
-        from BBBAssetWritePolicy import require_write_access
-
-        if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
-            raise RuntimeError("PIE 期间禁止重新保存资产")
-
-        asset = unreal.EditorAssetLibrary.load_asset(asset_path)
-        if asset is None:
-            raise RuntimeError("资产不存在: {}".format(asset_path))
-        require_write_access(asset)
-        if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
-            raise RuntimeError("重新保存资产失败")
-
-        return json.dumps({"asset": asset_path, "class": asset.get_class().get_path_name()}, ensure_ascii=False)
-
-    @mcp_tool
-    @staticmethod
     def inspect_animation_montage_segments(asset_path: str) -> str:
         """
         /**

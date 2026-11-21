@@ -161,6 +161,8 @@ class ShutdownGatewayTests(unittest.TestCase):
         editor = SimpleNamespace(shutdown_requested=True, activity={"process_id": 42})
         runtime = object.__new__(ProjectRuntime)
         runtime.lock = threading.RLock()
+        runtime.progress = threading.Condition()
+        runtime.progress_revision = 0
         runtime._inspect_dialog = lambda: {"status": "offline"}
         runtime.backend = None
         runtime.gateway = SimpleNamespace(jobs=SimpleNamespace(editor=editor, inspect=lambda *args: {"revision": 0, "host": {}}))

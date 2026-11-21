@@ -87,7 +87,7 @@
 
 `Game.Scripts.BBBGenericEditorToolset.BBBGenericEditorToolset.inspect_animation_notify_properties(asset_path, class_path, property_names)` 只读核对动画中唯一通知实例的网格 骨骼 变换和时间参数
 
-`Game.Scripts.BBBGenericEditorToolset.BBBGenericEditorToolset.resave_asset(asset_path)` 对已独占签出的资产按当前类定义重新序列化 用于清理已删除的配置属性 拒绝 PIE 中执行
+`assets.resave_assets(asset_paths)` 按当前类定义重新序列化指定资产。单个资产也传数组，元素使用 `/Game` 包路径。
 
 `Game.Scripts.BBBGenericEditorToolset.BBBGenericEditorToolset.inspect_animation_montage_segments(asset_path)` 只读返回蒙太奇每个插槽的动画片段引用 起止时间和播放速率 用于核验资产重建后的真实引用
 
