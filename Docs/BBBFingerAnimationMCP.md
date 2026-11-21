@@ -8,40 +8,23 @@
 
 恢复实现BBBFingerSequenceRestore.py由现有入口热加载。LS恢复批次2d25988aeed758d5、制作记录恢复批次4fd6b840437835b1均保存回读通过；九条成品最终全轨核对通过。本轮新增FAL_FingerRepair.json.source已删除，不保留这次已取消修复的生效记录。恢复不等于再次通过人体自然度验收；已确认人工握姿不应套用指根归零规则。
 
-## 2026-10-23 当前实现：实际网格绑定与最终姿势
+## 四指逐节单轴屈曲
 
-用户再次指出网格扭曲后，确认此前使用共享Skeleton的参考姿势是错误基准：SK_UA_BasicArms实际绑定与Skeleton参考中，食指01局部旋转相差约19.9度、食指03约14度、中指03约16.5度。旧版所谓接近零的扭转只对错误基准成立，不能当作网格自然度验收。
+`editor.process_animation_fingers` 的 `geometry_chain` 模式逐帧处理左右手的食指、中指、无名指和小指，共 24 根指骨。指根、中节和末节使用同一约束。掌心方向由指定握姿的第 0 帧确定，指骨的零屈曲方向和局部屈曲轴由实际蒙皮网格的绑定父链计算。每节将源动画的指骨方向投影到屈曲平面，重建只含 0～120 度向内屈曲的旋转。反向屈曲回到中性，轴向扭转和侧摆归零。含 `root_spread_degrees` 的旧配置须去掉该字段。
 
-当前从原生 `BBBGripGeometryEditorLibrary.sample_skeletal_mesh_surface` 读取实际网格的referenceLocal和父骨，基于真实绑定姿势建立中性朝向；各动画逐帧通过明确optional_skeletal_mesh、should_retarget=true和RAW求值取得最终局部骨长方向。求值旋转与原轨差异超0.01度时拒绝直接写入，避免存在额外旋转映射时错误保存。原始位移缩放仍保留，仅写24根四指旋转。网格绑定摘要参与检查方案签名。
-
-现版原生批次 `d6d94a7e435789e5` 已修复保存 MM_Shotgun_Reload 并成功打开前台窗口，86采样、24骨。最终姿势回读的指根轴向扭转约0.00000104度、指根卷曲约0.00000238度、俯视展开最大3.000007度；重复求解最大差0.00003112度。当前源轨摘要 `104a53f80462f38d4a2e4bd4ba7f1a6da14de2728331e24fba0f4b1abfe91c89`。非目标轨和动画元数据保持，实际观感待用户播放确认。本次没有运行PIE或另选测试动画。
-
-## 上轮硬约束记录：绑定基准错误，结果被用户否决
-
-用户再次指出第一节仍有长轴扭转，当前重建改为明确的最短摆动，不再通过横向坐标框对齐指根。先把实际骨长方向以无扭转摆动对齐共同前向，再重建指根旋转；指根绕长轴的附加扭转严格为0。指根仅允许俯视平面内的小幅摆动，`root_spread_degrees` 默认正负3度，允许配置范围0至5度；指根向掌心的卷曲归零，第二、第三节保留正向内卷。报告新增 `maximumRootAxialTwistDegrees` 和 `maximumRootSpreadDegrees`，检查方案摘要包含算法版本及展开限制。
-
-重建轴逐帧读取动画实际子骨平移，避免把参考骨长方向与动画局部骨长方向混用；先去除原始指根展开，再提取掌心卷曲量，避免重复处理时因投影缩短而改变卷曲。保存回读另外计算实际指根相对中性基准的轴向扭转，超0.01度拒绝；继续检查非目标轨、元数据及重复求解稳定性。首个无扭转版本在重复求解检查中发现0.201度漂移，因此未作为成功验收，随后修正实际骨长与投影计算。
-
-最终原生批次 `2191df32e20fb67a` 已实际保存该动画24骨、86采样。输入指根最大卷曲84.414度；保存回读的指根轴向扭转最大0.00001837度、卷曲最大0.00001550度、俯视展开最大0.478495度，重复求解最大差0.00002867度。其他骨轨、位移缩放及元数据保持。当前摘要 `56feb90c139045ba91636e31cf13d754af5a394788b94afb658b6502820e2258`；前台打开批次 `e82b5ddca030053f`，待用户播放复核。首轮与上版保存摘要均已被此结果替代。
-
-用户拒绝首轮保留参考偏置的结果，要求激进清除错误旋转。当前人物四指修复使用 `geometry_chain=true`，不使用下面旧的宽容关节配置。左右手分别在掌空间建立共同前向和掌心方向；四指指根对齐共同前向，仅允许上述小幅俯视摆动；中末节相对卷曲限于0至120度。这是本工具参数，不是人体医学界限。完整重建每节旋转，清除侧弯、轴向扭转和反向弯曲，不保留原始错误偏置。拇指独立，本次不修改。
-
-同一公共入口的 `profile` 示例：
+`profile` 示例：
 
 ```json
 {
   "geometry_chain": true,
-  "root_spread_degrees": 3,
   "mesh_path": "/Game/_Project/Characters/BBBC_UA/BasicOutfit/Meshes/SK_UA_BasicArms",
-  "reference_animation": "/Game/_Project/Characters/BBBC_UA/Animation/UsedAnimation/rifle/MM_Rifle_Idle_Hipfire"
+  "reference_animation": "/Game/_Project/Characters/Animation/UsedAnimation/Continuous/Idle/MM_Rifle_Idle_Hipfire"
 }
 ```
 
-先 `inspect`，再把返回的 `planSignature` 作为 `expected_plan_signature`，逐资产 `signature` 作为 `expected_signatures`，用同一配置调用 `repair`。参考握姿只确定左右掌心方向；实际骨长、父骨和局部轴从网格骨架读取，不把四元数欧拉角当作生物屈曲方向。末节虚拟方向由参考骨架相邻骨长方向构建。变换含非单位缩放时拒绝。
+先用 `inspect` 取得 `planSignature` 和逐资产 `signature`，再使用同一配置调用 `repair`，传入 `expected_plan_signature` 及 `expected_signatures`。只写四指的旋转。原始位移、缩放、拇指、腕部、帧数、曲线与通知均保留。实际网格 RAW 求值与源骨轨旋转必须一致，保存前通过 `readbackHinges` 复核各指节的离轴和反向旋转，保留阈值为浮点回读容差 0.01 度。实现位于 `Scripts/BBBFingerPlanarTools.py`。人工握姿仍应单独处理。
 
-上版曾在原生批次 `ee9c3d5f14862f39` 重建双手24骨、全部86个采样并保存。逐骨核对其他旋转、全部位移缩放和元数据保持，但用户继续指出第一节问题；旧摘要 `20497201ee9605d9562d54086e3a04b556863142be4fd8cde1231e812cf22c99` 已被本节最终结果替代。没有重新烘焙武器专属动作或修改LS人工层。
-
-实现 `BBBFingerPlanarTools.py` 经现有入口热加载，无需重启编辑器。保留逐轨保存回读；不另选测试动画，不以约束数值代替用户观感验收。
+UE 5.9 在 `AS_SG550_Reload_Fingers_Repaired` 对照副本上逐帧烘焙并回读 265 个采样。全指节最大离轴残差约 0.000032 度，最大反向屈曲残差约 0.000015 度，指根最大向内屈曲约 82.05 度。观感由用户在动画编辑器播放对照。
 
 ## 首轮结果已被用户否决
 
