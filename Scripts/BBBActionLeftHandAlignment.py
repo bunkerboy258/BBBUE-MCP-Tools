@@ -59,12 +59,11 @@ def _write(animation, tracks):
         controller.close_bracket(False)
 
 
-def _authored(job, target, mesh, scope):
-    """/** @param job 动作项 @param target 正式动画 @param mesh 网格 @param scope 瞬态归属 @return 未对齐的原生制作求值 */"""
+def _authoring_binding(job, mesh):
+    """/** @param job 动作项 @param mesh 默认网格 @return 正式制作序列与烘焙网格 */"""
     request = job.get('authoring_input')
     if request is None:
-        return target
-    from BBBManualActionNative import _copy_sequence, _export
+        return None, mesh
     if request.get('source_recipe'):
         project = Path(unreal.Paths.project_dir()).resolve()
         path = (project / request['source_recipe']).resolve()
@@ -73,32 +72,17 @@ def _authored(job, target, mesh, scope):
         data = json.loads(path.read_text(encoding='utf-8-sig'))
         if data['output_animation'] != job['animation']:
             raise RuntimeError('LEFT_HAND_ALIGNMENT_AUTHORING_OUTPUT')
-        from BBBManualActionAuthoring import _digest
-        source_animation = _asset(data['animation'], unreal.AnimSequence)
-        if _digest(source_animation) != data['source_track_digest']:
-            raise RuntimeError('LEFT_HAND_ALIGNMENT_AUTHORING_SOURCE_CHANGED')
-        sequence = _asset(data['sequence'], unreal.LevelSequence)
-        source = _asset(data['finger_animation'], unreal.AnimSequence)
-        return _export(sequence, source, _asset(data['mesh'], unreal.SkeletalMesh), scope, 'Authored')
-    sequence = _asset(request['sequence'], unreal.LevelSequence)
-    return _export(sequence, target, mesh, scope, 'Authored')
+        return _asset(data['sequence'], unreal.LevelSequence), _asset(data['mesh'], unreal.SkeletalMesh)
+    return _asset(request['sequence'], unreal.LevelSequence), mesh
 
 
-def _request_digest(job, data, reference, curves):
-    """/** @param job 动作项 @param data 校准配置 @param reference 握持参考 @param curves 原曲线 @return 当前制作输入指纹 */"""
+def _request_digest(job, data, reference, curves, authored):
+    """/** @param job 动作项 @param data 校准配置 @param reference 握持参考 @param curves 原曲线 @param authored 原生烘焙输入 @return 当前制作输入指纹 */"""
     from BBBManualActionAuthoring import _digest
-    from BBBManualActionNative import _channel_digest
     values = {'reference': _digest(reference), 'reference_space': data['reference_space'],
               'rig': data['left_hand_rig'], 'curves': curves, 'constant': job.get('constant_reference', False)}
-    request = job.get('authoring_input')
-    if request:
-        sequence_path = request.get('sequence')
-        if request.get('source_recipe'):
-            path = Path(unreal.Paths.project_dir()) / request['source_recipe']
-            authored = json.loads(path.read_text(encoding='utf-8-sig'))
-            sequence_path = authored['sequence']
-            values['finger_input'] = _digest(_asset(authored['finger_animation'], unreal.AnimSequence))
-        values['sequence'] = _channel_digest(_asset(sequence_path, unreal.LevelSequence))
+    if authored is not None:
+        values['authored_pose'] = _digest(authored)
     return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
 
 
@@ -254,8 +238,8 @@ def match_finger_seam(path, data, write_paths):
         unreal.purge_object_references(scope, True)
 
 
-def _prepare(animation, job, data, reference, mesh, scope):
-    """/** @param animation 正式动画 @param job 动作项 @param data 基准配置 @param reference 唯一握姿 @param mesh 网格 @param scope 瞬态归属 @return 完整验证的候选骨轨与证据 */"""
+def _prepare(animation, job, data, reference, mesh, scope, authored):
+    """/** @param animation 正式动画 @param job 动作项 @param data 基准配置 @param reference 唯一握姿 @param mesh 网格 @param scope 瞬态归属 @param authored 人工制作求值 @return 完整验证的候选骨轨与证据 */"""
     from BBBActionRetargetTools import _blend
     from BBBHandRetargetBatchToolset import _LEFT_ARM_BONES, _fit_contact_shoulder, _validate_contact_reach
     from BBBLeftHandMotionCalibration import _sync_left_ik
@@ -265,7 +249,8 @@ def _prepare(animation, job, data, reference, mesh, scope):
     model = animation.data_model_interface
     count = model.get_number_of_keys()
     rate = model.get_frame_rate()
-    authored = _authored(job, animation, mesh, scope)
+    if authored is None:
+        authored = animation
     if abs(authored.get_play_length() - animation.get_play_length()) > 0.00001:
         raise RuntimeError('LEFT_HAND_ALIGNMENT_AUTHORING_LENGTH')
     names = unreal.AnimationLibrary.get_animation_curve_names(animation, unreal.RawCurveTrackTypes.RCT_FLOAT)
@@ -378,6 +363,7 @@ def finalize(recipe_path, write_paths):
     from BBBActionRetargetTools import _save
     from BBBManualActionAuthoring import _digest
     from BBBAnimationCurveTools import _curve_values
+    from BBBManualActionNative import _export
     project = Path(unreal.Paths.project_dir()).resolve()
     path = (project / recipe_path).resolve()
     if not path.is_relative_to(project / 'Content/_Project/Characters') or unreal.EditorLevelLibrary.get_pie_worlds(False):
@@ -397,16 +383,20 @@ def finalize(recipe_path, write_paths):
         protected_tracks = _tracks(animation)
         curves = _curve_values(animation)
         before = _digest(animation)
-        request_digest = _request_digest(job, data, reference, curves)
-        previous = job.get('validation', {})
-        if previous.get('mode') == 'left_hand_relative_curve' and previous.get('request_digest') == request_digest:
-            if before == job.get('aligned_digest'):
-                reports.append(previous)
-                continue
-            raise RuntimeError('LEFT_HAND_ALIGNMENT_SAVED_TARGET_CHANGED')
+        sequence, authoring_mesh = _authoring_binding(job, mesh)
         scope = unreal.new_object(unreal.LevelSequence, name='BBBActionLeftHand_' + uuid.uuid4().hex)
         try:
-            tracks, allowed, report = _prepare(animation, job, data, reference, mesh, scope)
+            authored = None
+            if sequence is not None:
+                authored = _export(sequence, animation, authoring_mesh, scope, 'Authored')
+            request_digest = _request_digest(job, data, reference, curves, authored)
+            previous = job.get('validation', {})
+            if previous.get('mode') == 'left_hand_relative_curve' and previous.get('request_digest') == request_digest:
+                if before == job.get('aligned_digest'):
+                    reports.append(previous)
+                    continue
+                raise RuntimeError('LEFT_HAND_ALIGNMENT_SAVED_TARGET_CHANGED')
+            tracks, allowed, report = _prepare(animation, job, data, reference, mesh, scope, authored)
             if _digest(animation) != before:
                 raise RuntimeError('LEFT_HAND_ALIGNMENT_INPUT_CHANGED')
             require_asset_write([animation])
