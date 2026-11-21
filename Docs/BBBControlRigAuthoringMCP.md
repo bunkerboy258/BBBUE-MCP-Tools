@@ -197,3 +197,7 @@ control_rig.set_sequence_control_local_keys(sequence_path, keys) 只编辑既有
 握姿阶段使用 `grip.author_weapon` 的 `manual_apply_and_open_fire`。开火握姿保存后使用 `manual_apply_fire` 并给出 `next_sequence_path`，会应用开火握姿并打开已核对的本型号装备序列。
 
 `control_rig.configure_weapon_actions` 从明确的模板复制一套本型号独立蒙太奇及序列。`grenade_definition_paths` 为 `[]` 时绑定目标武器的 `QuickMeleeMontage`，提供手雷定义时以目标武器物品标识绑定专属投掷蒙太奇。默认只预检。实际应用以蒙太奇引用本型号序列、配置保存并回读为完成条件。
+
+`control_rig.prepare_weapon_action_wrist` 为本型号装备和换弹底稿准备独立 Rig。`write_paths` 列明两份关卡序列和目标 Rig。先核对瞬态序列的关键帧和补偿后的骨轨，再保存正式预览。既有配置和姿势维持原值。
+
+`control_rig.apply_saved_fire_grip` 处理已有开火关卡序列。以保存的第 0 帧烘焙固定握姿，核对双腕与未开火参考，并在同一次调用内打开装备审核。`write_paths` 列明正式开火动画和下一份装备序列。两个工具都默认只预检。

@@ -419,7 +419,7 @@ def _pose(animation, mesh, time):
     return unreal.AnimPoseExtensions.get_anim_pose_at_time(animation, time, options)
 
 
-def _bake_existing_animation(sequence, animation, mesh, validate_bake=None):
+def _bake_existing_animation(sequence, animation, mesh, validate_bake=None, static_frame=False):
     """/** @param sequence 已审核的制作序列 @param animation 已有正式动画 @param mesh 预览网格 @param validate_bake 可选的瞬态候选检查 @return 保持时序和元数据的骨轨更新结果 */"""
     from BBBAnimationTrajectoryTools import replace_tracks
     from BBBManualActionNative import _export
@@ -442,7 +442,7 @@ def _bake_existing_animation(sequence, animation, mesh, validate_bake=None):
     options.evaluation_type = unreal.AnimDataEvalType.RAW
     tracks = {name: [] for name in names}
     for frame in range(data.get_number_of_keys()):
-        time = min(baked.get_play_length(), frame * rate.denominator / rate.numerator)
+        time = 0.0 if static_frame else min(baked.get_play_length(), frame * rate.denominator / rate.numerator)
         pose = unreal.AnimPoseExtensions.get_anim_pose_at_time(baked, time, options)
         for name in names:
             value = unreal.AnimPoseExtensions.get_bone_pose(pose, name, unreal.AnimPoseSpaces.LOCAL)
@@ -764,6 +764,31 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         if next_sequence:
             result.update(review.open_review(definition, next_sequence, next_action, reference))
         return json.dumps(result)
+
+    @mcp_tool
+    @staticmethod
+    def prepare_weapon_action_wrist(definition_path: str, equip_sequence_path: str, reload_sequence_path: str,
+                                   rig_path: str, write_paths: list[str], dry_run: bool = True) -> str:
+        """保留动作关键帧并准备本型号独立右腕预览。"""
+        from BBBWeaponActionReview import prepare_action_wrist
+
+        definition = _asset(definition_path, unreal.DataAsset)
+        actions = [(_asset(equip_sequence_path, unreal.LevelSequence), 'equip'),
+                   (_asset(reload_sequence_path, unreal.LevelSequence), 'reload')]
+        return json.dumps(prepare_action_wrist(definition, actions, rig_path, write_paths, dry_run))
+
+    @mcp_tool
+    @staticmethod
+    def apply_saved_fire_grip(definition_path: str, sequence_path: str, equip_sequence_path: str,
+                              reference_animation_path: str, write_paths: list[str], dry_run: bool = True) -> str:
+        """从明确的已保存序列应用静态开火握姿，准备并打开装备审核。"""
+        from BBBWeaponActionReview import apply_fire_grip
+
+        definition = _asset(definition_path, unreal.DataAsset)
+        sequence = _asset(sequence_path, unreal.LevelSequence)
+        next_sequence = _asset(equip_sequence_path, unreal.LevelSequence)
+        reference = _asset(reference_animation_path, unreal.AnimSequence)
+        return json.dumps(apply_fire_grip(definition, sequence, next_sequence, reference, write_paths, dry_run))
 
     @mcp_tool
     @staticmethod

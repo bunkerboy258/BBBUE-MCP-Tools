@@ -1,5 +1,7 @@
 # BBBUE MCP Tools
 
+装备和换弹底稿支持本型号独立右腕预览，替换 Rig 前后核对关键帧与烘焙补偿。已有开火握姿关卡序列支持直接烘焙和交接装备审核。详见 [Control Rig 动画编辑](Docs/BBBControlRigAuthoringMCP.md)。
+
 武器审核交接使用本型号的运行配置核对预览枪、右腕和手持弹匣，打开装备与换弹序列前校验公共握姿。UE 5.9 已验证 UMP45 换弹序列交接和 AKM 专属投掷动作复制、保存与配置回读。AKM 手调后的重新烘焙等待审核。
 
 武器动作审核分开核对目标武器接触和公共握姿交接，正式应用前按现有 `DisableLeftHandIK` 曲线验证交接帧。UE 5.9 已对 UMP45 装备和换弹运行瞬态候选检查，四个端点相对 FAL 基准的位置误差均小于 0.001 cm。详见 [Control Rig 动画编辑](Docs/BBBControlRigAuthoringMCP.md)。

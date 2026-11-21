@@ -110,6 +110,190 @@ def check_preview(definition, sequence, weapon):
     _check_wrist(definition, sequence)
 
 
+_RIG_KEY_FIELDS = ('interpolation_mode', 'tangent_mode', 'tangent_weight_mode', 'arrive_tangent',
+                   'leave_tangent', 'arrive_tangent_weight', 'leave_tangent_weight')
+
+
+def _rig_channel_values(channel):
+    """按控制器通道名核对默认值、关键帧和可用的切线。"""
+    keys = []
+    for key in channel.get_keys():
+        stamp = key.get_time(unreal.MovieSceneTimeUnit.TICK_RESOLUTION)
+        attributes = {field: getattr(key, 'get_' + field)() for field in _RIG_KEY_FIELDS
+                      if hasattr(key, 'get_' + field)}
+        keys.append((stamp.frame_number.value, stamp.sub_frame, key.get_value(), attributes))
+    return (channel.get_default() if channel.has_default() else None, keys)
+
+
+def _rig_sections(track):
+    """记录原生替换前的 Rig 通道 原生重建时通道显示顺序允许变化。"""
+    sections = []
+    for section in track.get_sections():
+        channels = {str(channel.channel_name): _rig_channel_values(channel) for channel in section.get_all_channels()}
+        if len(channels) != len(section.get_all_channels()):
+            raise RuntimeError('动作 Rig 通道重名')
+        sections.append(channels)
+    return sections
+
+
+def _restore_rig_sections(track, snapshots):
+    """恢复原生替换时发生变化的关键帧及默认值。"""
+    sections = track.get_sections()
+    if len(sections) != len(snapshots):
+        raise RuntimeError('替换动作 Rig 时区段数量发生变化')
+    for section, snapshot in zip(sections, snapshots):
+        channels = {str(channel.channel_name): channel for channel in section.get_all_channels()}
+        missing = set(snapshot) - set(channels)
+        if missing:
+            raise RuntimeError('替换动作 Rig 后缺少通道：' + ', '.join(sorted(missing)[:8]))
+        for name, value in snapshot.items():
+            channel = channels[name]
+            if _rig_channel_values(channel) == value:
+                continue
+            default, keys = value
+            for key in list(channel.get_keys()):
+                channel.remove_key(key)
+            if default is not None:
+                channel.set_default(default)
+            elif channel.has_default():
+                channel.remove_default()
+            for frame, subframe, key_value, attributes in keys:
+                key = channel.add_key(unreal.FrameNumber(value=frame), key_value, subframe, unreal.MovieSceneTimeUnit.TICK_RESOLUTION)
+                for field, attribute in attributes.items():
+                    getattr(key, 'set_' + field)(attribute)
+            if _rig_channel_values(channel) != value:
+                raise RuntimeError('动作 Rig 通道回读不一致：' + name)
+
+
+def prepare_action_wrist(definition, actions, rig_path, write_paths, dry_run):
+    """为本型号动作复制并应用独立的右腕预览 Rig。"""
+    from BBBManualActionNative import _channel_digest, _compare, _copy_sequence, _export, set_right_wrist_preview_delta
+
+    root = definition.get_path_name().rsplit('/', 1)[0] + '/Animation/work/'
+    targets = {sequence.get_path_name().split('.')[0] for sequence, _ in actions}
+    if not actions or len(targets) != len(actions) or set(write_paths) != targets | {rig_path}:
+        raise RuntimeError('右腕准备须明确列出各序列和本型号 Rig 的写入路径')
+    if any(path.rsplit('/', 1)[0] + '/' != root for path in targets | {rig_path}):
+        raise RuntimeError('右腕准备只接受本型号 Animation/work 直属资产')
+    library = unreal.EditorAssetLibrary
+    rows = []
+    for sequence, action in actions:
+        _, animation, mesh, proxy, _ = action_inputs(definition, sequence, action)
+        source_path = proxy.control_rig.get_class().get_path_name().split('.')[0]
+        rows.append((sequence, animation, mesh, proxy, source_path))
+    templates = {path for _, _, _, _, path in rows if path != rig_path}
+    if len(templates) > 1:
+        raise RuntimeError('目标动作使用了不同的源 Rig，请分别准备')
+    if library.does_asset_exist(rig_path):
+        rig = library.load_asset(rig_path)
+        others = set(library.find_package_referencers_for_asset(rig_path, False)) - targets
+        if others:
+            raise RuntimeError('目标 Rig 还有未列入的序列依赖：' + ', '.join(sorted(others)))
+        if not isinstance(rig, unreal.ControlRigBlueprint):
+            raise RuntimeError('目标 Rig 类型无效')
+    else:
+        rig = None
+    delta = definition.get_editor_property('right_hand_grip_rotation_offset').quaternion().normalized()
+    encoded = json.dumps(list(delta.to_tuple()))
+    result = {'rig': rig_path, 'sequences': sorted(targets), 'runtime_delta': list(delta.to_tuple()), 'dry_run': dry_run}
+    if dry_run:
+        return result
+    if rig and not templates and all(library.get_metadata_tag(row[0], 'BBB_RuntimeRightWristPreview') == encoded for row in rows):
+        result['unchanged'] = True
+        return result
+
+    require_asset_write([row[0] for row in rows] + ([rig] if rig else []), [] if rig else [rig_path])
+    scope = unreal.new_object(unreal.LevelSequence, name='BBBActionWrist_' + uuid.uuid4().hex)
+    try:
+        before = [_export(sequence, animation, mesh, scope, f'Original{index}')
+                  for index, (sequence, animation, mesh, _, _) in enumerate(rows)]
+        if rig is None:
+            rig = library.duplicate_asset(next(iter(templates)), rig_path)
+            if not isinstance(rig, unreal.ControlRigBlueprint):
+                raise RuntimeError('创建本型号动作 Rig 失败')
+        rig.modify()
+        set_right_wrist_preview_delta(rig, delta)
+        rig_class = rig.get_control_rig_class()
+        reference = unreal.ControlRigSequencerLibrary.make_control_rig_reference(rig_class.get_path_name())
+
+        def replace(sequence, proxy):
+            old_sections = proxy.track.get_sections()
+            signature = _channel_digest(sequence, old_sections, relative_paths=True)
+            if proxy.control_rig.get_class() != rig_class:
+                snapshots = _rig_sections(proxy.track)
+                new_rig = unreal.ControlRigSequencerLibrary.replace_control_rig_from_reference(proxy.track, reference)
+                if not new_rig or new_rig.get_class() != rig_class:
+                    raise RuntimeError('原生替换动作 Rig 失败 ' + sequence.get_path_name())
+                _restore_rig_sections(proxy.track, snapshots)
+            if _channel_digest(sequence, proxy.track.get_sections(), relative_paths=True) != signature:
+                raise RuntimeError('动作 Rig 替换影响了其它轨道 ' + sequence.get_path_name())
+            library.set_metadata_tag(sequence, 'BBB_RuntimeRightWristPreview', encoded)
+
+        errors = []
+        for index, (sequence, animation, mesh, _, _) in enumerate(rows):
+            candidate = _copy_sequence(sequence, scope, f'Preview{index}')
+            proxies = unreal.ControlRigSequencerLibrary.get_control_rigs(candidate)
+            if len(proxies) != 1:
+                raise RuntimeError('瞬态验证序列的动作 Rig 不唯一')
+            replace(candidate, proxies[0])
+            after = _export(candidate, animation, mesh, scope, f'Compensated{index}')
+            errors.append(_compare(before[index], after))
+        for sequence, _, _, proxy, _ in rows:
+            sequence.modify()
+            replace(sequence, proxy)
+            _check_wrist(definition, sequence)
+        for asset in [rig] + [row[0] for row in rows]:
+            if not library.save_loaded_asset(asset, False):
+                raise RuntimeError('右腕预览保存失败 ' + asset.get_path_name())
+        result['baked_maximum_error_cm'] = max(errors)
+        result['saved'] = True
+        return result
+    finally:
+        unreal.purge_object_references(scope, True)
+
+
+def apply_fire_grip(definition, sequence, next_sequence, reference, write_paths, dry_run):
+    """应用正式开火握姿，核对两手沿用本型号已确认的静态基准。"""
+    from BBBControlRigAuthoringToolset import _bake_existing_animation, _pose, _weapon_review_bindings
+
+    root = definition.get_path_name().rsplit('/', 1)[0] + '/Animation/'
+    animation = definition.get_editor_property('character_fire_grip_pose')
+    hold = definition.get_editor_property('character_grip_pose')
+    for asset in (animation, hold):
+        if not isinstance(asset, unreal.AnimSequence) or not asset.get_path_name().startswith(root + 'Sequence/'):
+            raise RuntimeError('未开火和开火握姿须是目标武器独立动画')
+    if animation == hold or any(not asset.get_path_name().startswith(root + 'work/') for asset in (sequence, next_sequence)):
+        raise RuntimeError('开火应用只允许本型号的独立握姿和审核序列')
+    expected = {asset.get_path_name().split('.')[0] for asset in (animation, next_sequence)}
+    if set(write_paths) != expected:
+        raise RuntimeError('开火应用须列出正式开火握姿和下一份装备审核序列')
+    proxies, weapon = _weapon_review_bindings(sequence, definition.get_editor_property('equipment_mesh'))
+    if len(proxies) != 1 or _attachment_changes(definition, weapon)[1]:
+        raise RuntimeError('开火握姿预览枪须沿用已应用的未开火挂接偏移')
+    mesh = proxies[0].proxy.get_object_template().skeletal_mesh_component.get_skeletal_mesh_asset()
+    action_inputs(definition, next_sequence, 'equip')
+    _check_wrist(definition, next_sequence)
+    result = {'animation': animation.get_path_name(), 'next_sequence': next_sequence.get_path_name(), 'dry_run': dry_run}
+    if dry_run:
+        return result
+    editor = unreal.LevelSequenceEditorBlueprintLibrary
+    if editor.get_current_level_sequence() != sequence or sequence.get_outermost() in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages():
+        raise RuntimeError('应用前须在已打开的开火握姿序列保存编辑')
+    editor.force_update()
+    base_pose = _pose(hold, mesh, 0.0)
+
+    def validate(baked):
+        pose = _pose(baked, mesh, 0.0)
+        for name in ('hand_r', 'hand_l', 'lowerarm_l', 'lowerarm_r'):
+            position, angle = _pose_error(_bone(pose, name), _bone(base_pose, name))
+            if position > 0.1 or angle > 1.0:
+                raise RuntimeError(f'开火握姿 {name} 偏离未开火基准 {position:.3f} cm / {angle:.2f} deg')
+
+    result['bake'] = json.loads(_bake_existing_animation(sequence, animation, mesh, validate, static_frame=True))
+    result.update(open_review(definition, next_sequence, 'equip', reference))
+    return result
+
+
 def audit_recoil(definition, mesh):
     """检查正式角色后坐资源的所属型号、加法基底和实际骨轨。"""
     recoil = definition.get_editor_property('character_recoil_animation')
@@ -370,6 +554,16 @@ def fit(definition, sequence, animation, mesh, rig_proxy, weapon, reference, con
                    if curve < 0.9999 or contact > 0.0001}
         anchors = {neighbor for frame in changed for neighbor in (frame - 1, frame + 1)
                    if 0 <= neighbor < count and neighbor not in changed}
+
+        def control_values(frame, target):
+            local = target.make_relative(offset)
+            angles = local.rotation.rotator()
+            values = list(local.translation.to_tuple()) + [angles.roll, angles.pitch, angles.yaw]
+            for index in range(3, 6):
+                current = base_samples[frame][index] + edits[frame][index]
+                values[index] += 360.0 * round((current - values[index]) / 360.0)
+            return [value - base_samples[frame][i] for i, value in enumerate(values)]
+
         for frame, time in enumerate(times):
             pose = _pose(before, mesh, time)
             left = _bone(pose, 'hand_l')
@@ -390,13 +584,7 @@ def fit(definition, sequence, animation, mesh, rig_proxy, weapon, reference, con
             desired = baseline.lerp(authored, weights[frame])
             arm = {name: _bone(pose, name) for name in ('upperarm_l', 'lowerarm_l', 'hand_l')}
             _validate_contact_reach(arm, desired)
-            local = desired.make_relative(offset)
-            angles = local.rotation.rotator()
-            values = list(local.translation.to_tuple()) + [angles.roll, angles.pitch, angles.yaw]
-            for index in range(3, 6):
-                current = base_samples[frame][index] + edits[frame][index]
-                values[index] += 360.0 * round((current - values[index]) / 360.0)
-            plan[frame] = ([value - base_samples[frame][i] for i, value in enumerate(values)], desired)
+            plan[frame] = (control_values(frame, desired), desired)
         report = {'source_signature': signature, 'before_error_cm': errors, 'frames': count,
                   'reference': reference.get_path_name(), 'before_handoff_error_cm': handoff_errors,
                   'before_handoff_error_deg': handoff_angles,
@@ -423,17 +611,36 @@ def fit(definition, sequence, animation, mesh, rig_proxy, weapon, reference, con
         _, candidate_defaults = _attachment_defaults(tested_weapon, definition.get_editor_property('spawn_offset'))
         write(candidate, tested_edit, candidate_defaults)
         after = _export(candidate, animation, mesh, scope, 'After', require_source_tracks=False)
-        maximum = 0.0
-        max_rotation = 0.0
-        for frame in frames:
-            time = min(after.get_play_length(), frame * rate.denominator / rate.numerator)
-            actual = _bone(_pose(after, mesh, time), 'hand_l')
-            expected = plan[frame][1] if frame in plan else _bone(_pose(before, mesh, time), 'hand_l')
-            error = _pose_error(actual, expected)
-            maximum = max(maximum, error[0])
-            max_rotation = max(max_rotation, error[1])
+
+        def measured(baked):
+            rows = []
+            for frame, time in enumerate(times):
+                actual = _bone(_pose(baked, mesh, min(baked.get_play_length(), time)), 'hand_l')
+                expected = plan[frame][1] if frame in plan else _bone(_pose(before, mesh, time), 'hand_l')
+                rows.append((frame, actual, expected, *_pose_error(actual, expected)))
+            return rows
+
+        rows = measured(after)
+        for attempt in range(2):
+            corrections = [row for row in rows if row[3] > 0.8]
+            if not corrections:
+                break
+            for frame, actual, expected, _, _ in corrections:
+                if frame not in changed:
+                    plan[frame] = (edits[frame], expected)
+                    continue
+                command = unreal.Transform(location=expected.translation + (expected.translation - actual.translation),
+                                           scale=expected.scale3d)
+                command.rotation = expected.rotation
+                plan[frame] = (control_values(frame, command), expected)
+            write(candidate, tested_edit, candidate_defaults)
+            after = _export(candidate, animation, mesh, scope, f'Refined{attempt}', require_source_tracks=False)
+            rows = measured(after)
+        worst = max(rows, key=lambda row: row[3])
+        maximum = worst[3]
+        max_rotation = max(row[4] for row in rows)
         if maximum > 0.8 or max_rotation > 5.0:
-            raise RuntimeError(f'校正候选未通过 姿势误差 {maximum:.3f} cm / {max_rotation:.2f} deg')
+            raise RuntimeError(f'校正候选未通过 第 {worst[0]} 帧位置误差 {maximum:.3f} cm 最大旋转误差 {max_rotation:.2f} deg')
         handoff = _verify_handoff(after, animation, mesh, common)
         report.update({'maximum_error_cm': maximum, 'maximum_rotation_error_deg': max_rotation, 'handoff': handoff})
         if dry_run:

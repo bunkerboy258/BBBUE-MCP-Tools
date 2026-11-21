@@ -717,6 +717,38 @@ def sync_reload_timing(path, data, write_paths):
     return {'timing': data['reload_timing_applied'], 'montages': reports, 'manual_keys_modified': False}
 
 
+def set_right_wrist_preview_delta(asset, delta):
+    """配置编辑预览使用的右腕增量。"""
+    graph = asset.get_controller()
+    names = ('RuntimeWristRead', 'RuntimeWristRotation', 'RuntimeWristApply')
+    existing = graph.get_graph().find_node_by_name(names[2])
+    if existing is None:
+        specs = [(names[0], '/Script/ControlRig.RigUnit_GetTransform', {'Item': '(Type=Bone,Name="hand_r")', 'Space': 'LocalSpace'}),
+                 (names[1], '/Script/RigVM.RigVMFunction_MathQuaternionMul', {}),
+                 (names[2], '/Script/ControlRig.RigUnit_SetTransform', {'Item': '(Type=Bone,Name="hand_r")', 'Space': 'LocalSpace', 'bPropagateToChildren': 'True'})]
+        for name, struct, defaults in specs:
+            if graph.add_unit_node_from_struct_path(struct, 'Execute', unreal.Vector2D(1600, 1000), name, False, False) is None:
+                raise RuntimeError('WRIST_PREVIEW_NODE: ' + name)
+            for prop, value in defaults.items():
+                if not graph.set_pin_default_value(name + '.' + prop, value, True, False, False, False):
+                    raise RuntimeError('WRIST_PREVIEW_PIN: ' + prop)
+        graph.break_link('Apply_ik_hand_l.ExecutePin', 'FKApply_thumb_01_l.ExecutePin', False)
+        links = [('Apply_ik_hand_l.ExecutePin', names[2]+'.ExecutePin'),
+                 (names[2]+'.ExecutePin', 'FKApply_thumb_01_l.ExecutePin'),
+                 (names[0]+'.Transform.Rotation', names[1]+'.B'),
+                 (names[1]+'.Result', names[2]+'.Value.Rotation'),
+                 (names[0]+'.Transform.Translation', names[2]+'.Value.Translation'),
+                 (names[0]+'.Transform.Scale3D', names[2]+'.Value.Scale3D')]
+        for start, end in links:
+            if not graph.add_link(start, end, False, False):
+                raise RuntimeError('WRIST_PREVIEW_LINK: ' + start + ' -> ' + end)
+    value = '(X=%s,Y=%s,Z=%s,W=%s)' % delta.to_tuple()
+    if not graph.set_pin_default_value(names[1]+'.A', value, True, False, False, False):
+        raise RuntimeError('WRIST_PREVIEW_DELTA')
+    graph.set_pin_default_value('RuntimeWristApply.Weight', '1.0', True, False, False, False)
+    asset.recompile_vm()
+
+
 def prepare_right_wrist_preview(data, sequence):
     """Show the runtime parent-bone wrist correction; export removes it to avoid double application."""
     if not data.get('runtime_right_wrist_preview'):
@@ -739,31 +771,7 @@ def prepare_right_wrist_preview(data, sequence):
     scope = unreal.new_object(unreal.LevelSequence, name='BBBWristPreview_' + uuid.uuid4().hex)
     try:
         before = _export(sequence, source, mesh, scope, 'BeforeWrist')
-        if existing is None:
-            specs = [(names[0], '/Script/ControlRig.RigUnit_GetTransform', {'Item': '(Type=Bone,Name="hand_r")', 'Space': 'LocalSpace'}),
-                     (names[1], '/Script/RigVM.RigVMFunction_MathQuaternionMul', {}),
-                     (names[2], '/Script/ControlRig.RigUnit_SetTransform', {'Item': '(Type=Bone,Name="hand_r")', 'Space': 'LocalSpace', 'bPropagateToChildren': 'True'})]
-            for name, struct, defaults in specs:
-                if graph.add_unit_node_from_struct_path(struct, 'Execute', unreal.Vector2D(1600, 1000), name, False, False) is None:
-                    raise RuntimeError('WRIST_PREVIEW_NODE: ' + name)
-                for prop, value in defaults.items():
-                    if not graph.set_pin_default_value(name + '.' + prop, value, True, False, False, False):
-                        raise RuntimeError('WRIST_PREVIEW_PIN: ' + prop)
-            graph.break_link('Apply_ik_hand_l.ExecutePin', 'FKApply_thumb_01_l.ExecutePin', False)
-            links = [('Apply_ik_hand_l.ExecutePin', names[2]+'.ExecutePin'),
-                     (names[2]+'.ExecutePin', 'FKApply_thumb_01_l.ExecutePin'),
-                     (names[0]+'.Transform.Rotation', names[1]+'.B'),
-                     (names[1]+'.Result', names[2]+'.Value.Rotation'),
-                     (names[0]+'.Transform.Translation', names[2]+'.Value.Translation'),
-                     (names[0]+'.Transform.Scale3D', names[2]+'.Value.Scale3D')]
-            for start, end in links:
-                if not graph.add_link(start, end, False, False):
-                    raise RuntimeError('WRIST_PREVIEW_LINK: ' + start + ' -> ' + end)
-        value = '(X=%s,Y=%s,Z=%s,W=%s)' % delta.to_tuple()
-        if not graph.set_pin_default_value(names[1]+'.A', value, True, False, False, False):
-            raise RuntimeError('WRIST_PREVIEW_DELTA')
-        graph.set_pin_default_value('RuntimeWristApply.Weight', '1.0', True, False, False, False)
-        asset.recompile_vm()
+        set_right_wrist_preview_delta(asset, delta)
         unreal.EditorAssetLibrary.set_metadata_tag(sequence, tag, encoded)
         unreal.LevelSequenceEditorBlueprintLibrary.refresh_current_level_sequence()
         after = _export(sequence, source, mesh, scope, 'AfterWrist')

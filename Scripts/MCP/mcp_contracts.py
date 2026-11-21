@@ -347,6 +347,8 @@ TOOL_POLICIES = {
     'control_rig.normalize_authoring_bindings': {'scope': {'fields': ['sequence_path']}},
     'control_rig.prepare_weapon_action_review': {'scope': {'fields': ['sequence_path']}, 'world': 'editor', 'completion': 'verified_save'},
     'control_rig.configure_weapon_actions': {'scope': {'fields': ['write_paths']}, 'world': 'editor', 'completion': 'verified_save'},
+    'control_rig.prepare_weapon_action_wrist': {'scope': {'fields': ['write_paths']}, 'world': 'editor', 'completion': 'verified_save'},
+    'control_rig.apply_saved_fire_grip': {'scope': {'fields': ['write_paths']}, 'world': 'editor', 'completion': 'verified_save'},
     'control_rig.review_weapon_action': {'scope': {'fields': ['write_paths']}, 'world': 'editor', 'completion': 'verified_save',
                                          'input_rules': {'properties': {'operation': {'enum': ['inspect', 'fit', 'open', 'accept', 'skip']},
                                                                         'action': {'enum': ['equip', 'reload', 'reload_start', 'reload_end']},
