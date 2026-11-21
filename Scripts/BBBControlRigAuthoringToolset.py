@@ -419,8 +419,8 @@ def _pose(animation, mesh, time):
     return unreal.AnimPoseExtensions.get_anim_pose_at_time(animation, time, options)
 
 
-def _bake_existing_animation(sequence, animation, mesh):
-    """/** @param sequence 已审核的制作序列 @param animation 已有正式动画 @param mesh 预览网格 @return 保持时序和元数据的骨轨更新结果 */"""
+def _bake_existing_animation(sequence, animation, mesh, validate_bake=None):
+    """/** @param sequence 已审核的制作序列 @param animation 已有正式动画 @param mesh 预览网格 @param validate_bake 可选的瞬态候选检查 @return 保持时序和元数据的骨轨更新结果 */"""
     from BBBAnimationTrajectoryTools import replace_tracks
     from BBBManualActionNative import _export
 
@@ -430,6 +430,8 @@ def _bake_existing_animation(sequence, animation, mesh):
 
     outer = unreal.new_object(unreal.LevelSequence, name='BBBPoseBake_' + uuid.uuid4().hex)
     baked = _export(sequence, animation, mesh, outer, 'ApprovedPose', require_source_tracks=False)
+    if validate_bake is not None:
+        validate_bake(baked)
     data = animation.data_model_interface
     rate = data.get_frame_rate()
     source_names = data.get_bone_track_names() or baked.data_model_interface.get_bone_track_names()
@@ -692,7 +694,8 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
     @mcp_tool
     @staticmethod
     def review_weapon_action(definition_path: str, sequence_path: str, action: str, operation: str,
-                             write_paths: list[str], contacts_json: str = '[]', next_sequence_path: str = '') -> str:
+                             write_paths: list[str], reference_animation_path: str = '', contacts_json: str = '[]',
+                             next_sequence_path: str = '', dry_run: bool = False) -> str:
         """
         /**
          * 预检并校正目标装备接触 或应用审核结果并打开下一份
@@ -701,8 +704,10 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
          * @param action	装备或换弹动作名称
          * @param operation	inspect fit accept skip
          * @param write_paths	本次准确写入范围
+         * @param reference_animation_path	显式公共握姿动画
          * @param contacts_json	左手在枪体上的显示帧区间
          * @param next_sequence_path	已准备的下一份序列
+         * @param dry_run	校正候选通过后仅返回证据
          * @return 当前动作核对结果及下一份
          */
         """
@@ -721,8 +726,15 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         required = {'inspect': {sequence_path}, 'fit': {sequence_path}, 'accept': {sequence_path, target}, 'skip': {sequence_path}}
         if set(write_paths) != required[operation]:
             raise RuntimeError('审核写入范围不符 ' + ', '.join(sorted(required[operation])))
+        if operation != 'skip':
+            if not reference_animation_path:
+                raise RuntimeError('审核必须显式指定公共握姿动画')
+            reference = _asset(reference_animation_path, unreal.AnimSequence)
+        if dry_run and operation not in ('inspect', 'fit'):
+            raise RuntimeError('仅支持预检和校正候选的 dry_run')
         if operation in ('inspect', 'fit'):
-            return json.dumps(review.fit(definition, sequence, animation, mesh, rig, weapon, json.loads(contacts_json), operation == 'inspect'))
+            return json.dumps(review.fit(definition, sequence, animation, mesh, rig, weapon, reference,
+                                         json.loads(contacts_json), operation == 'inspect', dry_run))
         editor = unreal.LevelSequenceEditorBlueprintLibrary
         next_sequence = _asset(next_sequence_path, unreal.LevelSequence) if next_sequence_path else None
         if operation == 'skip':
@@ -731,7 +743,7 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
             if next_sequence and not editor.open_level_sequence(next_sequence):
                 raise RuntimeError('下一份序列打开失败')
             return json.dumps({'skipped': sequence_path, 'next': next_sequence_path})
-        return json.dumps(review.apply(sequence, animation, mesh, next_sequence))
+        return json.dumps(review.apply(sequence, animation, mesh, reference, next_sequence))
 
     @mcp_tool
     @staticmethod
