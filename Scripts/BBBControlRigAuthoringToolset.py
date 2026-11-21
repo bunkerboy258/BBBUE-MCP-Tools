@@ -722,10 +722,15 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
             raise RuntimeError('未知审核操作 ' + operation)
         sequence = _asset(sequence_path, unreal.LevelSequence)
         definition = _asset(definition_path, unreal.DataAsset)
-        _, animation, mesh, rig, weapon = review.action_inputs(definition, sequence, action)
+        montage, animation, mesh, rig, weapon = review.action_inputs(definition, sequence, action)
         target = animation.get_path_name().split('.')[0]
         required = {'inspect': {sequence_path}, 'fit': {sequence_path}, 'open': {sequence_path},
                     'accept': {sequence_path, target}, 'skip': {sequence_path}}
+        offsets = []
+        if operation == 'accept' and action.startswith('reload'):
+            offsets = review.magazine_offsets(montage, sequence)
+            if offsets:
+                required['accept'].add(montage.get_path_name().split('.')[0])
         next_sequence = None
         if next_sequence_path:
             if operation not in ('accept', 'skip') or next_sequence_path.rsplit('/', 1)[0] != root + '/Animation/work':
@@ -757,10 +762,12 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
             result = {'skipped': sequence_path}
         else:
             review.check_preview(definition, sequence, weapon)
-            recoil = review.audit_recoil(definition, mesh) if action in ('reload', 'reload_end') else None
-            result = review.apply(sequence, animation, mesh, reference)
-            if recoil:
-                result['recoil'] = recoil
+            result = review.apply(sequence, animation, mesh, reference, montage, offsets)
+            if action in ('reload', 'reload_end'):
+                try:
+                    result['recoil'] = review.audit_recoil(definition, mesh)
+                except RuntimeError as error:
+                    result['recoil'] = {'status': 'needs_review', 'error': str(error)}
         if next_sequence:
             result.update(review.open_review(definition, next_sequence, next_action, reference))
         return json.dumps(result)

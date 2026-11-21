@@ -64,8 +64,9 @@ def _attachment_changes(definition, weapon):
     return _transform_changes(weapon, definition.get_editor_property('spawn_offset'))
 
 
-def _magazine_changes(montage, sequence):
-    """按正式换弹通知核对预览弹匣的挂接骨和偏移。"""
+def magazine_offsets(montage, sequence):
+    """读取已编辑的弹匣偏移 并核对它与正式通知使用同一个挂接骨。"""
+    from BBBControlRigAuthoringToolset import _attachment_defaults
     from BBBManualActionAuthoring import _notify_events
 
     labels = {'BBBCharacterOldMagazineDisplayAnimNotifyState': 'OldMagazine',
@@ -86,9 +87,55 @@ def _magazine_changes(montage, sequence):
         sections = [section for track in tracks for section in track.get_sections() if section.is_active()]
         if not sections or any(str(section.get_editor_property('attach_socket_name')) != bone for section in sections):
             raise RuntimeError(f'{sequence.get_path_name()} 的 {label} 弹匣应挂接到 {bone}')
-        section, changes = _transform_changes(binding, state.get_editor_property('hand_magazine_transform'))
-        result.append((section, changes, {'binding': label, 'bone': bone, 'start': start, 'end': end}))
+        if any(details['binding'] == label for _, _, details in result):
+            raise RuntimeError(f'{montage.get_path_name()} 的 {label} 通知不唯一')
+        _, fields = _attachment_defaults(binding, state.get_editor_property('hand_magazine_transform'))
+        values = {str(channel.channel_name): float(channel.get_default()) for channel, _ in fields if channel.has_default()}
+        names = [f'{kind}.{axis}' for kind in ('Location', 'Rotation', 'Scale') for axis in 'XYZ']
+        if set(values) != set(names) or any(not math.isfinite(value) for value in values.values()):
+            raise RuntimeError(f'{sequence.get_path_name()} 的 {label} 需要完整的固定变换值')
+        position = unreal.Vector(*(values[f'Location.{axis}'] for axis in 'XYZ'))
+        scale = unreal.Vector(*(values[f'Scale.{axis}'] for axis in 'XYZ'))
+        rotation = unreal.Rotator(roll=values['Rotation.X'], pitch=values['Rotation.Y'], yaw=values['Rotation.Z'])
+        transform = unreal.Transform(location=position, rotation=rotation, scale=scale)
+        result.append((state, transform, {'binding': label, 'bone': bone, 'start': start, 'end': end}))
     return result
+
+
+def _apply_magazine_offsets(montage, offsets):
+    """原位更新运行通知的弹匣变换，保持时间、挂点和通知实例。"""
+    from BBBControlRigAuthoringToolset import _read_transform
+    from BBBManualActionAuthoring import _notify_events
+
+    def matches(state, expected):
+        actual = state.get_editor_property('hand_magazine_transform')
+        actual_rotation = actual.rotation.normalized().to_tuple()
+        expected_rotation = expected.rotation.normalized().to_tuple()
+        rotation_error = min(math.dist(actual_rotation, tuple(sign * value for value in expected_rotation))
+                             for sign in (1, -1))
+        return ((actual.translation - expected.translation).length() < 0.00001 and rotation_error < 0.00001
+                and (actual.scale3d - expected.scale3d).length() < 0.00001)
+
+    def timing():
+        return [(state.get_path_name() if state else None, start, end) for state, start, end in _notify_events(montage)]
+
+    changed = [(state, transform) for state, transform, _ in offsets if not matches(state, transform)]
+    if changed:
+        require_asset_write([montage])
+        events = timing()
+        with unreal.ScopedEditorTransaction('应用换弹弹匣生成偏移'):
+            montage.modify()
+            for state, transform in changed:
+                state.modify()
+                state.set_editor_property('hand_magazine_transform', transform)
+        if timing() != events:
+            raise RuntimeError('弹匣通知时序回读失败 ' + montage.get_path_name())
+        if any(not matches(state, transform) for state, transform in changed):
+            raise RuntimeError('弹匣通知偏移回读失败 ' + montage.get_path_name())
+        if not unreal.EditorAssetLibrary.save_loaded_asset(montage, False):
+            raise RuntimeError('弹匣偏移保存失败 ' + montage.get_path_name())
+    return [{**details, 'transform': _read_transform(state.get_editor_property('hand_magazine_transform'))}
+            for state, _, details in offsets]
 
 
 def _check_wrist(definition, sequence):
@@ -408,26 +455,22 @@ def open_review(definition, sequence, action, reference):
     _check_wrist(definition, sequence)
     proof = fit(definition, sequence, animation, mesh, rig, weapon, reference, [], True, True)
     weapon_section, changes = _attachment_changes(definition, weapon)
-    magazines = _magazine_changes(montage, sequence) if action.startswith('reload') else []
+    magazines = magazine_offsets(montage, sequence) if action.startswith('reload') else []
     handoff = proof['before_handoff_error_cm']
     if not handoff:
         raise RuntimeError(f'{animation.get_path_name()} 没有左手 IK 完全接管的帧')
     if max(handoff.values()) > 0.8 or max(proof['before_handoff_error_deg'].values()) > 5.0:
         proof = fit(definition, sequence, animation, mesh, rig, weapon, reference, [], False, False)
         changes = []
-    if changes or any(rows for _, rows, _ in magazines):
+    if changes:
         require_asset_write([sequence])
         with unreal.ScopedEditorTransaction('同步武器审核挂接'):
             sequence.modify()
-            for section, rows, _ in [(weapon_section, changes, None)] + magazines:
-                if rows:
-                    section.modify()
-                    for channel, value in rows:
-                        channel.set_default(value)
+            weapon_section.modify()
+            for channel, value in changes:
+                channel.set_default(value)
         if _attachment_changes(definition, weapon)[1]:
             raise RuntimeError('预览挂接回读与武器配置不一致')
-        if magazines and any(rows for _, rows, _ in _magazine_changes(montage, sequence)):
-            raise RuntimeError('预览弹匣回读与正式换弹通知不一致')
         if not unreal.EditorAssetLibrary.save_loaded_asset(sequence, False):
             raise RuntimeError('同步预览挂接后保存失败')
 
@@ -660,8 +703,8 @@ def fit(definition, sequence, animation, mesh, rig_proxy, weapon, reference, con
         unreal.purge_object_references(scope, True)
 
 
-def apply(sequence, animation, mesh, reference):
-    """/** @param sequence 已审核序列 @param animation 正式动作 @param mesh 角色网格 @param reference 公共基准动画 @param next_sequence 已准备的下一份 @return 保存和交接结果 */"""
+def apply(sequence, animation, mesh, reference, montage, offsets):
+    """烘焙已保存的动作并应用弹匣偏移。"""
     from BBBControlRigAuthoringToolset import _bake_existing_animation
     from BBBManualActionAuthoring import _digest
     from BBBManualActionNative import _channel_digest
@@ -669,14 +712,16 @@ def apply(sequence, animation, mesh, reference):
 
     library = unreal.EditorAssetLibrary
     editor = unreal.LevelSequenceEditorBlueprintLibrary
+    if editor.get_current_level_sequence() != sequence:
+        raise RuntimeError('当前打开的序列与待应用序列不一致')
+    if sequence.get_outermost() in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages():
+        raise RuntimeError('须先保存当前审核序列')
     editor.force_update()
     tag = 'BBBWeaponActionApplied'
     signature = _channel_digest(sequence, relative_paths=True) + _digest(reference) + repr(_float_curve_signature(animation))
     fingerprint = hashlib.sha256((signature + _digest(animation)).encode()).hexdigest()
     result = {'already_applied': library.get_metadata_tag(sequence, tag) == fingerprint}
     if not result['already_applied']:
-        if editor.get_current_level_sequence() != sequence:
-            raise RuntimeError('当前打开的序列与待应用序列不一致')
         require_asset_write([sequence, animation])
         common = _grip_relative(reference, mesh)
 
@@ -687,4 +732,6 @@ def apply(sequence, animation, mesh, reference):
         library.set_metadata_tag(sequence, tag, hashlib.sha256((signature + _digest(animation)).encode()).hexdigest())
         if not library.save_loaded_asset(sequence, False):
             raise RuntimeError('正式动画已保存 审核交接状态保存失败')
+    if offsets:
+        result['magazines'] = _apply_magazine_offsets(montage, offsets)
     return result
