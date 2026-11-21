@@ -695,19 +695,20 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
     @staticmethod
     def review_weapon_action(definition_path: str, sequence_path: str, action: str, operation: str,
                              write_paths: list[str], reference_animation_path: str = '', contacts_json: str = '[]',
-                             next_sequence_path: str = '', dry_run: bool = False) -> str:
+                             next_sequence_path: str = '', dry_run: bool = False, next_action: str = '') -> str:
         """
         /**
          * 预检并校正目标装备接触 或应用审核结果并打开下一份
          * @param definition_path	目标武器配置
          * @param sequence_path	当前审核序列
          * @param action	装备或换弹动作名称
-         * @param operation	inspect fit accept skip
+         * @param operation	inspect fit open accept skip
          * @param write_paths	本次准确写入范围
          * @param reference_animation_path	显式公共握姿动画
          * @param contacts_json	左手在枪体上的显示帧区间
          * @param next_sequence_path	已准备的下一份序列
          * @param dry_run	校正候选通过后仅返回证据
+         * @param next_action	下一份序列对应的动作
          * @return 当前动作核对结果及下一份
          */
         """
@@ -717,33 +718,65 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         root = definition_path.rsplit('/', 1)[0]
         if not root.startswith(WEAPON_ROOT) or sequence_path.rsplit('/', 1)[0] != root + '/Animation/work':
             raise RuntimeError('审核序列应属于武器型号的工作目录')
-        if operation not in ('inspect', 'fit', 'accept', 'skip'):
+        if operation not in ('inspect', 'fit', 'open', 'accept', 'skip'):
             raise RuntimeError('未知审核操作 ' + operation)
         sequence = _asset(sequence_path, unreal.LevelSequence)
         definition = _asset(definition_path, unreal.DataAsset)
         _, animation, mesh, rig, weapon = review.action_inputs(definition, sequence, action)
         target = animation.get_path_name().split('.')[0]
-        required = {'inspect': {sequence_path}, 'fit': {sequence_path}, 'accept': {sequence_path, target}, 'skip': {sequence_path}}
+        required = {'inspect': {sequence_path}, 'fit': {sequence_path}, 'open': {sequence_path},
+                    'accept': {sequence_path, target}, 'skip': {sequence_path}}
+        next_sequence = None
+        if next_sequence_path:
+            if operation not in ('accept', 'skip') or next_sequence_path.rsplit('/', 1)[0] != root + '/Animation/work':
+                raise RuntimeError('下一份序列须是同型号的审核动作')
+            next_action = next_action or {'equip': 'reload', 'reload_start': 'reload_end'}.get(action, '')
+            if not next_action or next_sequence_path == sequence_path:
+                raise RuntimeError('请指定下一份审核动作及其序列')
+            next_sequence = _asset(next_sequence_path, unreal.LevelSequence)
+            review.action_inputs(definition, next_sequence, next_action)
+            required[operation].add(next_sequence_path)
         if set(write_paths) != required[operation]:
             raise RuntimeError('审核写入范围不符 ' + ', '.join(sorted(required[operation])))
-        if operation != 'skip':
+        reference = None
+        if operation != 'skip' or next_sequence:
             if not reference_animation_path:
                 raise RuntimeError('审核必须显式指定公共握姿动画')
             reference = _asset(reference_animation_path, unreal.AnimSequence)
         if dry_run and operation not in ('inspect', 'fit'):
             raise RuntimeError('仅支持预检和校正候选的 dry_run')
+        if operation == 'open':
+            return json.dumps(review.open_review(definition, sequence, action, reference))
         if operation in ('inspect', 'fit'):
             return json.dumps(review.fit(definition, sequence, animation, mesh, rig, weapon, reference,
                                          json.loads(contacts_json), operation == 'inspect', dry_run))
         editor = unreal.LevelSequenceEditorBlueprintLibrary
-        next_sequence = _asset(next_sequence_path, unreal.LevelSequence) if next_sequence_path else None
         if operation == 'skip':
             if editor.get_current_level_sequence() != sequence:
                 raise RuntimeError('当前打开的序列与待交接序列不一致')
-            if next_sequence and not editor.open_level_sequence(next_sequence):
-                raise RuntimeError('下一份序列打开失败')
-            return json.dumps({'skipped': sequence_path, 'next': next_sequence_path})
-        return json.dumps(review.apply(sequence, animation, mesh, reference, next_sequence))
+            result = {'skipped': sequence_path}
+        else:
+            review.check_preview(definition, sequence, weapon)
+            recoil = review.audit_recoil(definition, mesh) if action in ('reload', 'reload_end') else None
+            result = review.apply(sequence, animation, mesh, reference)
+            if recoil:
+                result['recoil'] = recoil
+        if next_sequence:
+            result.update(review.open_review(definition, next_sequence, next_action, reference))
+        return json.dumps(result)
+
+    @mcp_tool
+    @staticmethod
+    def configure_weapon_actions(source_montage_path: str, definition_path: str, montage_path: str,
+                                 animation_path: str, write_paths: list[str], grenade_definition_paths: list[str],
+                                 dry_run: bool = True) -> str:
+        """复制并绑定目标型号的快速近战或手雷投掷动作。"""
+        from BBBWeaponActionReview import copy_weapon_action
+
+        source = _asset(source_montage_path, unreal.AnimMontage)
+        definition = _asset(definition_path, unreal.DataAsset)
+        grenades = [_asset(path, unreal.BBBGrenadeDefinition) for path in (grenade_definition_paths or [])]
+        return json.dumps(copy_weapon_action(source, definition, montage_path, animation_path, grenades, write_paths, dry_run))
 
     @mcp_tool
     @staticmethod

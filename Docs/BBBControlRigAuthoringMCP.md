@@ -192,3 +192,8 @@ control_rig.restore_sequence_fk_reference(sequence_path, animation_path, mesh_pa
 ## 已有控制器局部关键帧写入
 
 control_rig.set_sequence_control_local_keys(sequence_path, keys) 只编辑既有Rig的欧拉控制器局部增量，不重建轨道、不修改控制器Offset。keys逐项提供frame、control、完整value(position/quaternion XYZW/scale)。支持骨骼父级的FK，写键后逐项回读位置、旋转和缩放再保存。适用于明确授权的误平移清零并保留当前旋转，不通过组件空间接口修改父级控制器，不放宽manual_apply的手指平移检查。
+`review_weapon_action` 的 `open` 在交接前读取本型号的 `SpawnOffset`，校正并回读预览枪与换弹弹匣的挂接数据。弹匣共用同一挂接骨时，从正式通知同步局部变换。右腕预览记录与运行时偏移不符时返回资产路径与原因。`accept` 传入 `next_sequence_path` 时先应用当前动作，再执行同一核验并打开下一份。`write_paths` 包含当前序列、正式动画、下一份序列。`equip` 的下一份默认是 `reload`，可用 `next_action` 明确指定。
+
+握姿阶段使用 `grip.author_weapon` 的 `manual_apply_and_open_fire`。开火握姿保存后使用 `manual_apply_fire` 并给出 `next_sequence_path`，会应用开火握姿并打开已核对的本型号装备序列。
+
+`control_rig.configure_weapon_actions` 从明确的模板复制一套本型号独立蒙太奇及序列。`grenade_definition_paths` 为 `[]` 时绑定目标武器的 `QuickMeleeMontage`，提供手雷定义时以目标武器物品标识绑定专属投掷蒙太奇。默认只预检。实际应用以蒙太奇引用本型号序列、配置保存并回读为完成条件。

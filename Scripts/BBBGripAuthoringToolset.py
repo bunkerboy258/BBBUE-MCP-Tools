@@ -610,13 +610,14 @@ class BBBGripAuthoringToolset(unreal.ToolsetDefinition):
     @mcp_tool
     @staticmethod
     def author_weapon(weapon_root: str, recipe_path: str, action: str = 'inspect', python_executable: str = '', review_note: str = '',
-                      definition_path: str = '', character_mesh_path: str = '', reference_animation_path: str = '') -> str:
+                      definition_path: str = '', character_mesh_path: str = '', reference_animation_path: str = '',
+                      next_sequence_path: str = '') -> str:
         """
         /**
          * 按唯一制作源执行握姿求解 保存 数值检查和人工审核交接
          * @param weapon_root\t明确武器型号根
          * @param recipe_path\t项目相对Source/Animation制作文件.json.source
-         * @param action\tinitialize inspect solve save audit review accept adopt
+         * @param action\tinitialize inspect solve save_draft save audit review accept adopt
          * @param python_executable\t已安装NumPy的外部python.exe
          * @param review_note\t仅accept使用的人类明确审核意见
          * @param definition_path\t仅initialize使用的明确武器定义
@@ -625,7 +626,7 @@ class BBBGripAuthoringToolset(unreal.ToolsetDefinition):
          * @return 当前结果 唯一下一步及实际验收边界
          */
         """
-        if action not in ('initialize', 'inspect', 'solve', 'save', 'audit', 'review', 'accept', 'adopt', 'manual_prepare', 'manual_apply', 'manual_prepare_fire', 'manual_apply_fire'):
+        if action not in ('initialize', 'inspect', 'solve', 'save_draft', 'save', 'audit', 'review', 'accept', 'adopt', 'manual_prepare', 'manual_apply', 'manual_prepare_fire', 'manual_apply_fire', 'manual_apply_and_open_fire'):
             raise RuntimeError('GRIP_ACTION_INVALID')
         if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
             raise RuntimeError('PIE_ACTIVE: 握姿制作须在PIE退出后执行')
@@ -636,18 +637,52 @@ class BBBGripAuthoringToolset(unreal.ToolsetDefinition):
         if not path.is_file():
             return json.dumps({'status': 'needs_recipe', 'next': {'action': 'configure_recipe', 'documentation': 'Docs/BBBGripAuthoringMCP.md'}, 'recipe': str(path)})
         recipe = _recipe(path, weapon_root)
+        if next_sequence_path and action != 'manual_apply_fire':
+            raise RuntimeError('只在应用开火握姿后指定装备审核序列')
         if action in ('manual_prepare_fire', 'manual_apply_fire'):
             import importlib
             import BBBGripFireAuthoring as fire
 
             importlib.reload(fire)
-            function = {'manual_prepare_fire': fire.prepare, 'manual_apply_fire': fire.apply}[action]
-            return json.dumps(function(recipe, path, project), ensure_ascii=False)
-        if action in ('manual_prepare', 'manual_apply'):
+            if action == 'manual_prepare_fire':
+                return json.dumps(fire.prepare(recipe, path, project), ensure_ascii=False)
+            if next_sequence_path:
+                import BBBWeaponActionReview as action_review
+
+                if next_sequence_path.rsplit('/', 1)[0] != weapon_root + '/Animation/work':
+                    raise RuntimeError('只允许交接本型号的装备审核序列')
+                sequence = _asset(next_sequence_path, unreal.LevelSequence)
+                definition = _asset(recipe['definition'], unreal.DataAsset)
+                reference = _asset(recipe['reference_animation'], unreal.AnimSequence)
+                action_review.action_inputs(definition, sequence, 'equip')
+                editor = unreal.LevelSequenceEditorBlueprintLibrary
+                fire_path = path.with_name(path.name.replace('_HandGrip_', '_FireGrip_'))
+                fire_recipe = _recipe(fire_path, weapon_root)
+                if editor.get_current_level_sequence() == _asset(fire_recipe['sequence'], unreal.LevelSequence):
+                    editor.set_current_time(0)
+                result = fire.apply(recipe, path, project)
+                result.update(action_review.open_review(definition, sequence, 'equip', reference))
+                return json.dumps(result, ensure_ascii=False)
+            return json.dumps(fire.apply(recipe, path, project), ensure_ascii=False)
+        if action in ('manual_prepare', 'manual_apply', 'manual_apply_and_open_fire'):
             import importlib
             import BBBGripManualAuthoring as manual
 
             importlib.reload(manual)
+            if action == 'manual_apply_and_open_fire':
+                import BBBGripFireAuthoring as fire
+
+                if recipe.get('grip_role') == 'fire':
+                    raise RuntimeError('交接须从本型号未开火握姿开始')
+                fire_path = path.with_name(path.name.replace('_HandGrip_', '_FireGrip_'))
+                if fire_path == path:
+                    raise RuntimeError('未开火制作源须使用 HandGrip 命名')
+                editor = unreal.LevelSequenceEditorBlueprintLibrary
+                if editor.get_current_level_sequence() == _asset(recipe['sequence'], unreal.LevelSequence):
+                    editor.set_current_time(0)
+                applied = manual.apply(recipe, path, project)
+                opened = fire.prepare(recipe, path, project)
+                return json.dumps({'applied': applied, 'opened': opened}, ensure_ascii=False)
             function = {'manual_prepare': manual.prepare, 'manual_apply': manual.apply}[action]
             return json.dumps(function(recipe, path, project), ensure_ascii=False)
         if recipe.get('manual_edit', {}).get('format') == 'BBBGripManual' and action in ('solve', 'save', 'save_draft', 'adopt'):
