@@ -1,5 +1,7 @@
 # BBBUE MCP Tools
 
+武器握姿可通过 `control_rig.prepare_weapon_grip_review` 从同类武器的已审底稿建立独立序列。UE 5.9 已以 AKM 验证目标网格、挂接变换和 594 个握姿关键帧。操作见 [Control Rig 动画编辑](Docs/BBBControlRigAuthoringMCP.md)。
+
 2026-11-05 新增 `cinematic` 通用入口. 在当前可见编辑器创建带原生摄影机切换的推进序列并通过宿主内 Movie Render Queue 输出 PNG 同时提供顶点染色标题与普通二维媒体 UI 材质. 八个序列与两项材质创建保存回读通过 第一镜实际输出 60 帧 4K PNG. 使用与证据范围见 [摄影序列](Docs/BBBCinematicMCP.md).
 
 2026-11-05 骨轨复制入口新增 `match_source_timing` 显式选项 支持无曲线 通知及标记的同骨架动画原位同步源帧数与帧率 不删除资产或断开引用。保存前核对全部骨轨与元数据 实际资产回读结果见工具返回。不以此替代 PIE 视觉验收。接口说明见 [动画迁移](Docs/BBBAnimationMigrationMCP.md)。

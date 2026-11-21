@@ -312,6 +312,46 @@ def _read_transform(value):
     return {"position": list(value.translation.to_tuple()), "rotation": list(value.rotation.to_tuple()), "scale": list(value.scale3d.to_tuple())}
 
 
+def _attachment_defaults(binding, transform):
+    """/** @param binding 附件绑定 @param transform 挂接变换 @return 已校验的区段及默认值写入项 */"""
+    tracks = binding.find_tracks_by_type(unreal.MovieScene3DTransformTrack)
+    if len(tracks) != 1 or len(tracks[0].get_sections()) != 1:
+        raise RuntimeError('附件变换轨道必须唯一')
+    section = tracks[0].get_sections()[0]
+    channels = section.get_all_channels()
+    rotation = transform.rotation.rotator()
+    values = list(transform.translation.to_tuple()) + [rotation.roll, rotation.pitch, rotation.yaw] + list(transform.scale3d.to_tuple())
+    if len(channels) != len(values) or any(channel.get_keys() for channel in channels):
+        raise RuntimeError('附件需要九个未打关键帧的变换通道')
+    return section, list(zip(channels, values))
+
+
+def _grip_preview_bindings(sequence, weapon_mesh):
+    """/** @param sequence 握姿底稿 @param weapon_mesh 所用装备网格 @return 已验证的角色和装备绑定 */"""
+    proxies = unreal.ControlRigSequencerLibrary.get_control_rigs(sequence)
+    if len(proxies) != 1:
+        raise RuntimeError('握姿底稿须有一条角色 Control Rig 轨道')
+    character = proxies[0].proxy
+    actor = character.get_object_template()
+    if not isinstance(actor, unreal.SkeletalMeshActor) or not actor.skeletal_mesh_component.does_socket_exist('WeaponGrip_R'):
+        raise RuntimeError('角色预览缺少 WeaponGrip_R 挂接点')
+    weapons = []
+    for binding in sequence.get_bindings():
+        template = binding.get_object_template()
+        if isinstance(template, unreal.SkeletalMeshActor) and template.skeletal_mesh_component.get_skeletal_mesh_asset() == weapon_mesh:
+            weapons.append(binding)
+    if len(weapons) != 1 or len(sequence.get_bindings()) != 2:
+        raise RuntimeError('握姿底稿须仅有一个角色和一件装备')
+    attachments = weapons[0].find_tracks_by_type(unreal.MovieScene3DAttachTrack)
+    if len(attachments) != 1 or len(attachments[0].get_sections()) != 1:
+        raise RuntimeError('装备挂接区段必须唯一')
+    section = attachments[0].get_sections()[0]
+    parent_guid = section.get_constraint_binding_id().get_editor_property('guid').export_text()
+    if str(section.get_editor_property('attach_socket_name')) != 'WeaponGrip_R' or parent_guid != character.get_id().export_text():
+        raise RuntimeError('装备必须挂接到角色 WeaponGrip_R')
+    return proxies[0], weapons[0]
+
+
 def _pose(animation, mesh, time):
     options = unreal.AnimPoseEvaluationOptions()
     options.optional_skeletal_mesh = mesh
@@ -559,6 +599,106 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def prepare_weapon_grip_review(source_sequence_path: str, source_definition_path: str, target_definition_path: str,
+                                   sequence_path: str, dry_run: bool = True) -> str:
+        """
+        /**
+         * 从同类武器握姿底稿创建独立时间轴 采用目标装备实际挂接变换
+         * @param source_sequence_path	样板关卡序列
+         * @param source_definition_path	样板装备配置
+         * @param target_definition_path	目标装备配置
+         * @param sequence_path	新关卡序列包
+         * @param dry_run	预检后返回计划
+         * @return 审核底稿计划或保存和回读结果
+         */
+        """
+        from BBBManualActionNative import _channel_digest
+        from BBBWeaponSequencePreview import PREVIEW_BINDING_TAG, WEAPON_ROOT
+
+        library = unreal.EditorAssetLibrary
+        for path in (source_definition_path, target_definition_path, source_sequence_path, sequence_path):
+            if not path.startswith(WEAPON_ROOT) or any(not part.isidentifier() for part in path[len(WEAPON_ROOT):].split('/')):
+                raise RuntimeError('请输入武器目录中的规范资产包路径 ' + path)
+        source_root = source_definition_path.rsplit('/', 1)[0]
+        target_root = target_definition_path.rsplit('/', 1)[0]
+        if source_root == target_root or source_sequence_path.rsplit('/', 1)[0] != source_root + '/Animation/work':
+            raise RuntimeError('样板应来自另一件武器的 Animation/work')
+        if sequence_path.rsplit('/', 1)[0] != target_root + '/Animation/work':
+            raise RuntimeError('新底稿只能写入目标武器的 Animation/work')
+        if library.does_asset_exist(sequence_path):
+            raise RuntimeError('保留已有底稿 ' + sequence_path)
+
+        source_definition = _asset(source_definition_path, unreal.DataAsset)
+        target_definition = _asset(target_definition_path, unreal.DataAsset)
+        source_mesh = source_definition.get_editor_property('equipment_mesh')
+        target_mesh = target_definition.get_editor_property('equipment_mesh')
+        if not isinstance(source_mesh, unreal.SkeletalMesh) or not isinstance(target_mesh, unreal.SkeletalMesh):
+            raise RuntimeError('样板与目标都必须配置有效的装备网格')
+
+        source = _asset(source_sequence_path, unreal.LevelSequence)
+        proxy, weapon = _grip_preview_bindings(source, source_mesh)
+        tracks = proxy.track.get_sections()
+        if len(tracks) != 1 or not tracks[0].is_active():
+            raise RuntimeError('握姿须有一个启用的 Control Rig 区段')
+        transform = target_definition.get_editor_property('spawn_offset')
+        original_section, _ = _attachment_defaults(weapon, transform)
+        report = {'sequence': sequence_path, 'source': source_sequence_path, 'weapon_mesh': target_mesh.get_path_name(),
+                  'rig_class': proxy.control_rig.get_class().get_path_name(), 'attachment': _read_transform(transform),
+                  'writes': [sequence_path], 'dry_run': dry_run}
+        if dry_run:
+            return json.dumps(report)
+
+        require_asset_write([], [sequence_path])
+        editor = unreal.LevelSequenceEditorBlueprintLibrary
+        previous = editor.get_current_level_sequence()
+        previous_frame = editor.get_current_time() if previous else None
+        try:
+            editor.open_level_sequence(source)
+            editor.force_update()
+            key_count = sum(len(channel.get_keys()) for channel in tracks[0].get_all_channels())
+            if key_count == 0:
+                raise RuntimeError('样板握姿轨道没有可读的关键帧')
+            preserved = _channel_digest(source, [original_section], relative_paths=True)
+            sequence = library.duplicate_asset(source_sequence_path, sequence_path)
+            if not sequence:
+                raise RuntimeError('底稿复制失败 ' + sequence_path)
+            preview_mapping = library.get_metadata_tag(source, PREVIEW_BINDING_TAG)
+            if preview_mapping:
+                library.set_metadata_tag(sequence, PREVIEW_BINDING_TAG, preview_mapping)
+            _, cloned_weapon = _grip_preview_bindings(sequence, source_mesh)
+            section, defaults = _attachment_defaults(cloned_weapon, transform)
+            component = cloned_weapon.get_object_template().skeletal_mesh_component
+            with unreal.ScopedEditorTransaction('准备武器握姿审核底稿'):
+                sequence.modify()
+                component.modify()
+                component.set_skeletal_mesh_asset(target_mesh)
+                component.set_editor_property('override_materials', [])
+                for channel, value in defaults:
+                    channel.set_default(value)
+
+            editor.open_level_sequence(sequence)
+            editor.force_update()
+            actual_proxy, _ = _grip_preview_bindings(sequence, target_mesh)
+            if actual_proxy.control_rig.get_class().get_path_name() != report['rig_class']:
+                raise RuntimeError('握姿 Rig 回读失败')
+            if _channel_digest(sequence, [section], relative_paths=True) != preserved:
+                raise RuntimeError('握姿关键帧或默认值在更新预览时发生变化')
+            if any(not math.isclose(channel.get_default(), value, abs_tol=0.00001) for channel, value in defaults):
+                raise RuntimeError('装备实际挂接变换回读失败')
+            if not library.save_loaded_asset(sequence, False):
+                raise RuntimeError('握姿审核底稿保存失败')
+        finally:
+            if previous:
+                editor.open_level_sequence(previous)
+                editor.set_current_time(previous_frame)
+            else:
+                editor.close_level_sequence()
+
+        report.update({'key_count': key_count, 'keys_preserved': True, 'verified': True, 'saved': True})
+        return json.dumps(report)
+
+    @mcp_tool
+    @staticmethod
     def set_sequence_attachment_transform(sequence_path: str, label: str, transform_json: str) -> str:
         """
         /**
@@ -576,17 +716,8 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
             raise RuntimeError("附件绑定必须唯一")
 
         transform = _transform(json.loads(transform_json))
-        rotation = transform.rotation.rotator()
-        values = list(transform.translation.to_tuple()) + [rotation.roll, rotation.pitch, rotation.yaw] + list(transform.scale3d.to_tuple())
-        tracks = bindings[0].find_tracks_by_type(unreal.MovieScene3DTransformTrack)
-        if len(tracks) != 1 or len(tracks[0].get_sections()) != 1:
-            raise RuntimeError("附件变换轨道必须唯一")
-
-        channels = tracks[0].get_sections()[0].get_all_channels()
-        for channel, value in zip(channels, values):
-            if channel.get_keys():
-                raise RuntimeError("拒绝覆盖已有变换关键帧")
-
+        _, defaults = _attachment_defaults(bindings[0], transform)
+        for channel, value in defaults:
             channel.set_default(value)
 
         unreal.EditorAssetLibrary.save_loaded_asset(sequence)

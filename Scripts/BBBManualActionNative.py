@@ -1048,7 +1048,7 @@ def configure_visible_controls(data, sequence):
     return {'visible_controls': sorted(allowed), 'all_keys_preserved': True, 'controls_deleted': False}
 
 
-def _channel_digest(sequence, excluded_sections=()):
+def _channel_digest(sequence, excluded_sections=(), relative_paths=False):
     """/** @param sequence\t现有制作序列 @return\t全部通道时间值及默认值摘要 */"""
     rows = []
     for binding in sequence.get_bindings():
@@ -1066,7 +1066,10 @@ def _channel_digest(sequence, excluded_sections=()):
                     if hasattr(channel, 'get_default'):
                         default = str(channel.get_default())
                     channels.append([str(channel.channel_name), default, keys])
-                rows.append([binding.get_id().export_text(), section.get_path_name(), channels])
+                path = section.get_path_name()
+                if relative_paths:
+                    path = path.split(':', 1)[-1]
+                rows.append([binding.get_id().export_text(), path, channels])
     return hashlib.sha256(json.dumps(rows, ensure_ascii=False).encode()).hexdigest()
 
 

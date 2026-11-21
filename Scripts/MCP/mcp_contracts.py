@@ -346,6 +346,7 @@ TOOL_POLICIES = {
     'control_rig.inspect_mesh_bounds': {'access': 'read'},
     'control_rig.inspect_sequence_bindings': {'access': 'read'},
     'control_rig.normalize_authoring_bindings': {'scope': {'fields': ['sequence_path']}},
+    'control_rig.prepare_weapon_grip_review': {'scope': {'fields': ['sequence_path']}, 'world': 'editor', 'completion': 'verified_save'},
     'control_rig.prepare_animation_sequence': {'scope': {'fields': ['sequence_path']}},
     'control_rig.remap_animation_bone_times': {'scope': {'fields': ['animation_path']}},
     'control_rig.set_sequence_attachment_transform': {'scope': {'fields': ['sequence_path']}},

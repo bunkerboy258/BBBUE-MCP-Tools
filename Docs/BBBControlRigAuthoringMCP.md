@@ -1,5 +1,11 @@
 # Control Rig 动画编辑 MCP
 
+## 武器握姿审核底稿
+
+`control_rig.prepare_weapon_grip_review` 接收样板序列、两件武器配置和新序列路径。默认 `dry_run=true`，返回目标挂接变换及预计写入的关卡序列。正式执行只创建目标武器 `Animation/work` 中的新底稿，遇到已有包即停止。
+
+新底稿复制角色时间轴及握姿关键帧，复用样板 Rig 蓝图。关键帧修改保存在目标序列。预览使用目标配置的网格和 `spawn_offset`，挂接于角色 `WeaponGrip_R`。未开火和开火握姿分别提交。完成手部审核后，通过已有烘焙入口将核准姿势导入正式动画。
+
 ## 2026-10-18 控制器批量写键
 
 `configure_sequence_rig` 将同一无父级欧拉变换控制器的原始组件空间目标与显示帧数组交给既有 `BBBHandRetargetBatchToolset._set_component_keys`。运行时导入该公共写键辅助函数，按实际初始控制偏移转换后，直接写入九条原生 MovieScene 通道并展开跨越 ±180° 的欧拉角。各控制器保持输入分组顺序，不逐键切换预览时间。UE5.8 官方复数欧拉写键接口在真实 varying-key 验证中出现帧值重复，因此此入口统一使用已有通道写键路径。
