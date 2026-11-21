@@ -13,6 +13,9 @@ from BBBAssetWritePolicy import require_write_access, require_asset_write
 
 
 MCP_INPUTS = {
+    'review_weapon_action': {'contacts_json': {'type': 'array', 'maxItems': 12, 'items': {'type': 'object', 'properties': {
+        'start_frame': {'type': 'integer'}, 'end_frame': {'type': 'integer'}, 'fade_in_frames': {'type': 'integer'},
+        'fade_out_frames': {'type': 'integer'}}, 'required': ['start_frame', 'end_frame'], 'additionalProperties': False}}},
     'prepare_weapon_action_review': {'accessory_meshes_json': {'type': 'object', 'additionalProperties': {'type': 'string', 'minLength': 1}},
                                      'preview_animations_json': {'type': 'object', 'additionalProperties': {'type': 'string', 'minLength': 1}}},
     'set_sequence_control_local_keys': {'keys_json': {'type': 'array', 'minItems': 1, 'maxItems': 600, 'items': {'type': 'object', 'properties': {'frame': {'type': 'integer'}, 'control': {'type': 'string'}, 'value': {'$ref': '#/$defs/TransformQuaternion'}}, 'required': ['frame', 'control', 'value'], 'additionalProperties': False}}},
@@ -685,6 +688,50 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
             raise RuntimeError("机构时间轴保存失败")
 
         return json.dumps({"animation": animation_path, "source": source_animation_path, "length": animation.get_play_length(), "frames": frames, "bones": list(resolved), "bakedTransformCurves": [str(name) for name in transform_curves]})
+
+    @mcp_tool
+    @staticmethod
+    def review_weapon_action(definition_path: str, sequence_path: str, action: str, operation: str,
+                             write_paths: list[str], contacts_json: str = '[]', next_sequence_path: str = '') -> str:
+        """
+        /**
+         * 预检并校正目标装备接触 或应用审核结果并打开下一份
+         * @param definition_path	目标武器配置
+         * @param sequence_path	当前审核序列
+         * @param action	装备或换弹动作名称
+         * @param operation	inspect fit accept skip
+         * @param write_paths	本次准确写入范围
+         * @param contacts_json	左手在枪体上的显示帧区间
+         * @param next_sequence_path	已准备的下一份序列
+         * @return 当前动作核对结果及下一份
+         */
+        """
+        import BBBWeaponActionReview as review
+        from BBBWeaponSequencePreview import WEAPON_ROOT
+
+        root = definition_path.rsplit('/', 1)[0]
+        if not root.startswith(WEAPON_ROOT) or sequence_path.rsplit('/', 1)[0] != root + '/Animation/work':
+            raise RuntimeError('审核序列应属于武器型号的工作目录')
+        if operation not in ('inspect', 'fit', 'accept', 'skip'):
+            raise RuntimeError('未知审核操作 ' + operation)
+        sequence = _asset(sequence_path, unreal.LevelSequence)
+        definition = _asset(definition_path, unreal.DataAsset)
+        _, animation, mesh, rig, weapon = review.action_inputs(definition, sequence, action)
+        target = animation.get_path_name().split('.')[0]
+        required = {'inspect': {sequence_path}, 'fit': {sequence_path}, 'accept': {sequence_path, target}, 'skip': {sequence_path}}
+        if set(write_paths) != required[operation]:
+            raise RuntimeError('审核写入范围不符 ' + ', '.join(sorted(required[operation])))
+        if operation in ('inspect', 'fit'):
+            return json.dumps(review.fit(definition, sequence, animation, mesh, rig, weapon, json.loads(contacts_json), operation == 'inspect'))
+        editor = unreal.LevelSequenceEditorBlueprintLibrary
+        next_sequence = _asset(next_sequence_path, unreal.LevelSequence) if next_sequence_path else None
+        if operation == 'skip':
+            if editor.get_current_level_sequence() != sequence:
+                raise RuntimeError('当前打开的序列与待交接序列不一致')
+            if next_sequence and not editor.open_level_sequence(next_sequence):
+                raise RuntimeError('下一份序列打开失败')
+            return json.dumps({'skipped': sequence_path, 'next': next_sequence_path})
+        return json.dumps(review.apply(sequence, animation, mesh, next_sequence))
 
     @mcp_tool
     @staticmethod

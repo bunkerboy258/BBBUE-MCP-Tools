@@ -1,5 +1,7 @@
 # BBBUE MCP Tools
 
+`control_rig.review_weapon_action` 对装备和换弹底稿读取目标武器握点 校正明确的枪体接触区间 并把审核应用与下一份打开合为一步。UMP45 装备已在 UE 5.9 核对 51 帧 校正后最大误差 0.143 cm 与 0.04°。详见 [Control Rig 动画编辑](Docs/BBBControlRigAuthoringMCP.md)。
+
 `control_rig.bake_control_rig_animation` 更新已有动作时先做瞬态烘焙，再按正式帧时刻写入骨骼轨道。UE 5.9 已对 AKM 装备和换弹回读 51 与 67 帧，原曲线、蒙太奇片段和通知一致。
 
 `control_rig.prepare_weapon_action_review` 从同类武器的已审底稿建立独立动作序列。核对样板关键帧、挂接变换、显隐轨道和播放区间，更换目标枪体及明确映射的配件。UE 5.9 已从 SG550 建立 AKM 装备底稿，回读 47820 个角色关键帧，并在四处采样核对枪体显隐及手部位置。操作见 [Control Rig 动画编辑](Docs/BBBControlRigAuthoringMCP.md)。
