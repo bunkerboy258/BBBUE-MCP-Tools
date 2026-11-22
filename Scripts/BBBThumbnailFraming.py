@@ -40,6 +40,19 @@ if __name__ == "__main__":
     import sys
     from PIL import Image
 
+    if len(sys.argv) == 5:
+        source, color, white = (Path(value) for value in sys.argv[1:4])
+        with Image.open(source) as original:
+            rgba = original.convert("RGBA")
+        if source.resolve() != color.resolve():
+            rgba.save(color)
+        mask = Image.new("RGBA", rgba.size, (255, 255, 255, 0))
+        mask.putalpha(rgba.getchannel("A"))
+        framed, bounds = frame_alpha_image(mask, float(sys.argv[4]), 256)
+        framed.save(white)
+        print(json.dumps({"bounds": bounds}))
+        sys.exit(0)
+
     source = Path(sys.argv[1]).resolve()
     if source.suffix.lower() != ".png" or source.parent.parent.name != "ThumbnailFraming":
         raise ValueError("只允许处理本工具导出的临时 PNG")

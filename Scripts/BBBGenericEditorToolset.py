@@ -82,6 +82,8 @@ MCP_INPUTS = {
                     'source': {'type': 'string'},
                     'destination': {'type': 'string'},
                     'silhouette_destination': {'type': 'string'},
+                    'source_png': {'type': 'string'},
+                    'silhouette_occupancy': {'type': 'number', 'minimum': 0.65, 'maximum': 0.94},
                     'diagnostic_only': {'type': 'boolean'},
                     'scalar_parameters': {'type': 'object', 'additionalProperties': {'type': 'number'}},
                     'material_overrides': {'$ref': '#/$defs/StringMap'},
@@ -1949,6 +1951,8 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
     @staticmethod
     def render_asset_thumbnails(requests_json: str) -> str:
         """按显式源网格与目标纹理列表生成真实部件缩略图 每项保存并返回结果"""
+        import subprocess
+
         if unreal.EditorLevelLibrary.get_pie_worlds(False):
             raise RuntimeError("请先停止 PIE 再生成并导入缩略图")
 
@@ -1984,18 +1988,46 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             if not isinstance(scene_options, dict):
                 raise RuntimeError("离屏场景参数必须是 JSON 对象")
             scene_options = scene_options.copy()
-            if silhouette:
+            source_png = request.get("source_png")
+            occupancy = request.get("silhouette_occupancy", 0.86 if source_png else None)
+            if occupancy is not None and not silhouette:
+                raise RuntimeError("白色图标取景必须指定白图目标")
+            if silhouette and occupancy is None:
                 scene_options["white_output"] = names[1]
 
-            image_path = unreal.BBBAssetThumbnailEditorLibrary.render_mesh_thumbnail(
-                source, names[0], float(request.get("yaw", 0.0 if scene_options.get("studio_level") else 75.0)),
-                str(request.get("excluded_material_slots", "")),
-                str(request.get("output_directory", "AssetThumbnails")), bool(request.get("orthographic", False)),
-                bool(request.get("pack_sides", False)), json.dumps(scalar_parameters, ensure_ascii=False),
-                json.dumps(material_overrides, ensure_ascii=False), json.dumps(scene_options, ensure_ascii=False, allow_nan=False))
+            output = request.get("output_directory", "AssetThumbnails")
+            if source_png:
+                source_png = Path(source_png).resolve(strict=True)
+                content = Path(unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_content_dir())).resolve()
+                if not source_png.is_relative_to(content) or source_png.suffix.lower() != ".png":
+                    raise RuntimeError("源 PNG 必须位于项目 Content")
+                temp = Path(unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_saved_dir())).resolve() / "temp"
+                directory = (temp / output).resolve()
+                if not directory.is_relative_to(temp):
+                    raise RuntimeError("输出目录必须位于 Saved/temp")
+                directory.mkdir(parents=True, exist_ok=True)
+                image_path = str(directory / names[0])
+            else:
+                image_path = unreal.BBBAssetThumbnailEditorLibrary.render_mesh_thumbnail(
+                    source, names[0], float(request.get("yaw", 0.0 if scene_options.get("studio_level") else 75.0)),
+                    str(request.get("excluded_material_slots", "")), output, bool(request.get("orthographic", False)),
+                    bool(request.get("pack_sides", False)), json.dumps(scalar_parameters, ensure_ascii=False),
+                    json.dumps(material_overrides, ensure_ascii=False), json.dumps(scene_options, ensure_ascii=False, allow_nan=False))
             if not image_path:
                 results.append({"destination": destination, "error": "网格渲染失败"})
                 continue
+
+            if occupancy is not None:
+                interpreter = os.path.realpath(os.path.join(unreal.Paths.engine_dir(),
+                    "Binaries", "ThirdParty", "Python3", "Win64", "python.exe"))
+                helper = os.path.join(os.path.dirname(__file__), "BBBThumbnailFraming.py")
+                white_path = str(Path(image_path).with_name(names[1]))
+                completed = subprocess.run([interpreter, "-B", helper, str(source_png or image_path), image_path,
+                    white_path, str(occupancy)], capture_output=True, text=True, timeout=30,
+                    creationflags=subprocess.CREATE_NO_WINDOW)
+                if completed.returncode:
+                    results.append({"destination": destination, "error": completed.stderr[-1200:]})
+                    continue
 
             for path, name in zip(destinations, names):
                 image = str(Path(image_path).with_name(name))
