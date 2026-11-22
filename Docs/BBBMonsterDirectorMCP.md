@@ -1,33 +1,21 @@
-# 副本小怪导演基础资产
+# BBB Monster Director MCP 工具
 
-`editor.create_monster_director_assets` 使用项目原生 `BBBMonsterDirectorEditorLibrary` 在共享资产编辑宿主创建九个基础资产 编译蓝图 保存并返回结构校验 不修改地图 不启动生成 不覆盖已有目标
+领域名：`monster_director`（对应 `Scripts/BBBMonsterDirectorToolset.py` 与引擎原生 `UBBBMonsterDirectorEditorLibrary`）。
 
-调用参数 `asset_paths` 必须完整提供以下路径
+用于操作推进式关卡导演系统（固有僵尸 `Population` / 周期动态波次 `DynamicHorde` / 预制事件波次 `EventWave` / 禁刷区 `BlockSpawn`）。
 
-```json
-[
-  "/Game/_Project/Mass/Monster/Director/BP_BBBMonsterDirector",
-  "/Game/_Project/Mass/Monster/Director/BP_BBBMonsterSpawnRegion_Box",
-  "/Game/_Project/Mass/Monster/Director/BP_BBBMonsterSpawnRegion_Cylinder",
-  "/Game/_Project/Mass/Monster/Director/MEC_BBBMonsterDirector",
-  "/Game/_Project/Mass/Monster/Director/DA_BBBMonsterSpawnPool_Default",
-  "/Game/_Project/Mass/Monster/Director/EQS_BBBMonsterDirectorSpawnLocations",
-  "/Game/_Project/Mass/Monster/Director/DA_BBBMonsterDirector_Once",
-  "/Game/_Project/Mass/Monster/Director/DA_BBBMonsterDirector_Waves",
-  "/Game/_Project/Mass/Monster/Director/DA_BBBMonsterDirector_Refill"
-]
-```
+## 公开工具
 
-先执行 Perforce 新目标预检 所有目标必须尚不存在 缺少项目原生库时契约明确不可用
-
-默认小怪池引用现有康纳 智浩 迈克尔 森田 伦佐 樱田 爱丽丝 清 世津子 由奈十种定义 权重相同 每种定义继续使用自己的 Mass 配置
-
-默认规则为一次生成 20 只 分波阶段 10/15/20 只 或补员总额度 60 只 分波与补员每批最多 5 只 间隔 10 秒 导演存活上限 20 世界存活上限 80 第一阶段等待玩家进入 后续阶段自动激活 导演蓝图默认关闭自动开始
-
-`editor.validate_monster_director_assets` 无参数 可在独立只读测试宿主执行 只加载并校验蓝图默认对象 规则 小怪组合 Mass Trait 与 EQS 生成器 不保存资产 宿主冷启动后的校验用于确认磁盘内容
-
-测试前缀 `UBBB.Mass.MonsterDirector` 验证预算 请求失效 多导演归属 区域采样与现有小怪批量初始化 实际地图选点 导航 多人同步和战斗验收仍须在指定地图执行
-
-`editor.run_automation_tests` 归为运行控制 可通过公开网关进入独立测试宿主 首次批次传入 `test_options={"map":"/Engine/Maps/Entry"}` 不要求启动 PIE 测试宿主资产写入限制继续生效 日志最终通过结果需要核验
-
-编辑器工具入口为 `工具 > 副本小怪导演` 地图放置导演和区域蓝图后绑定区域引用 每个区域标识在该导演内唯一 阶段通过区域标识选择区域 方盒与圆柱使用原生移动 旋转与缩放工具 地图必须具有适合小怪胶囊的导航数据
+- `monster_director.inspect_directors(expected_level="")`
+  - 只读列出当前编辑关卡中的导演实例、区域用途统计、事件波次列表及校验状态。
+- `monster_director.collect_regions(expected_level="", director_name="", save_level=False)`
+  - 将关卡内全部 `ABBBMonsterSpawnRegionPresentationActor` 一键绑定到目标导演，可选直接保存当前关卡。
+- `monster_director.validate_director(expected_level="", director_name="")`
+  - 校验导演定义资产、实体模板与区域绑定完整性。
+- `monster_director.preview_spawn(expected_level="", director_name="", mode="DynamicHorde", target_id="")`
+  - 以当前编辑视口相机作为参考玩家，在场景绘制合格出生点（绿球）与排除点（红点）并返回原因统计 JSON。
+  - `mode` 支持 `Population`、`DynamicHorde`、`EventWave`。
+- `monster_director.read_pie_status(director_name="")`
+  - 读取 PIE 主机世界中导演的只读实时状态（运行开关、存活/累计/预留数、固有区激活进度、动态波次冷却、运行中事件列表）。
+- `monster_director.control_pie(action, director_name="", event_id="")`
+  - 控制 PIE 主机导演，`action` 支持：`Start`、`Stop`、`PauseDynamicHorde`、`ResumeDynamicHorde`、`TriggerEventWave`、`StopEventWave`。
