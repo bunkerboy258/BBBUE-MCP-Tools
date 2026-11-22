@@ -415,27 +415,50 @@ class UnrealBackend:
 
     def reconcile(self, packages):
         """/** @param packages	待核实包或目录 @return 当前磁盘与可加载资产证据 保留原操作的不确定结果 */"""
-        evidence = []
         content = Path(self.project) / "Content"
+        root = content.resolve()
+        scope = {}
+        files_by_asset = {}
         for package in packages:
             base = content / package.removeprefix("/Game/")
             files = [base.with_suffix(extension) for extension in (".uasset", ".umap") if base.with_suffix(extension).is_file()]
             if base.is_dir():
                 files = sorted(path for path in base.rglob("*") if path.suffix in {".uasset", ".umap"})
-            if len(files) > 256:
-                raise McpBusinessError({"code": "RECOVERY_SCOPE_TOO_LARGE", "package": package})
-            assets = []
+            scope[package] = []
             for file in files:
-                if file.is_symlink() or not file.resolve().is_relative_to(content.resolve()):
+                if file.is_symlink() or not file.resolve().is_relative_to(root):
                     raise McpBusinessError({"code": "RECOVERY_PATH_INVALID", "package": package})
                 asset_path = "/Game/" + file.relative_to(content).with_suffix("").as_posix()
-                asset = self.invoke(self.catalog.tools["editor.inspect_asset_properties"], {"asset_paths": [asset_path], "property_names": []})["assets"][0]
+                scope[package].append(asset_path)
+                files_by_asset[asset_path] = file
+
+        inspector = self.catalog.tools["editor.inspect_asset_properties"]
+        readback = {}
+        paths = sorted(files_by_asset)
+        for offset in range(0, len(paths), 64):
+            chunk = paths[offset:offset + 64]
+            rows = self.invoke(inspector, {"asset_paths": chunk, "property_names": ["status"]})["assets"]
+            indexed = {row["assetPath"].split(".", 1)[0]: row for row in rows}
+            missing = sorted(set(chunk) - set(indexed))
+            if missing:
+                packages = self.invoke(self.catalog.tools["assets.inspect_asset_packages"], {"asset_paths": missing})["packages"]
+                for package in packages:
+                    records = package["records"]
+                    if package["file_exists"] and len(records) == 1 and records[0]["class_path"] == "/Script/CoreUObject.ObjectRedirector":
+                        record = records[0]
+                        indexed[package["package"]] = {"assetPath": record["object"], "classPath": record["class_path"],
+                            "properties": {"DestinationObject": record["destination"]}, "propertyErrors": {}}
+            if len(rows) != len(chunk) or set(chunk) - set(indexed):
+                raise McpBusinessError({"code": "RECOVERY_READBACK_CHANGED", "packages": chunk})
+            for asset_path in chunk:
+                asset = indexed[asset_path]
                 if asset["classPath"].endswith((".Blueprint", ".AnimBlueprint", ".ControlRigBlueprint")):
-                    status = self.invoke(self.catalog.tools["editor.inspect_asset_properties"], {"asset_paths": [asset_path], "property_names": ["status"]})["assets"][0]
-                    if status["propertyErrors"] or "BS_UP_TO_DATE" not in str(status["properties"].get("status", "")):
+                    if asset["propertyErrors"] or "BS_UP_TO_DATE" not in str(asset["properties"].get("status", "")):
                         raise McpBusinessError({"code": "COMPILE_VALIDATION_FAILED", "asset": asset_path})
-                assets.append({"asset": asset, "size": file.stat().st_size, "mtime_ns": file.stat().st_mtime_ns})
-            evidence.append({"package": package, "assets": assets, "exists_on_disk": bool(files)})
+                state = files_by_asset[asset_path].stat()
+                readback[asset_path] = {"asset": asset, "size": state.st_size, "mtime_ns": state.st_mtime_ns}
+        evidence = [{"package": package, "assets": [readback[path] for path in paths], "exists_on_disk": bool(paths)}
+            for package, paths in scope.items()]
         return {"observed": evidence, "operation_replayed": False}
 
     def close(self):

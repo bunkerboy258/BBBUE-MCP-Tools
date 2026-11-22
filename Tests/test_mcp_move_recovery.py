@@ -2,6 +2,7 @@ import copy
 import json
 from pathlib import Path
 import sys
+from tempfile import TemporaryDirectory
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -13,6 +14,47 @@ from MCP.mcp_jobs import JobQueue
 from MCP.mcp_task_gateway import TaskGateway, UnrealBackend
 from test_mcp_task_gateway import fixtures, operation
 import test_asset_move_persistence as persistence_tests
+
+
+class MoveRecoveryReadbackTests(unittest.TestCase):
+    """/** 大目录的已保存包应分批回读 */"""
+
+    def test_reconcile_reads_large_directory_without_repeating_packages(self):
+        """/** @return 保留目录与单包证据且每个资产只读一次 */"""
+        with TemporaryDirectory() as project:
+            folder = Path(project) / "Content" / "Items"
+            folder.mkdir(parents=True)
+            for index in range(257):
+                (folder / f"Asset{index:03}.uasset").write_bytes(b"package")
+            backend = object.__new__(UnrealBackend)
+            backend.project = project
+            (folder / "Redirector.uasset").write_bytes(b"redirector")
+            inspector = {}
+            registry = {}
+            backend.catalog = SimpleNamespace(tools={"editor.inspect_asset_properties": inspector,
+                "assets.inspect_asset_packages": registry})
+            chunks = []
+
+            def invoke(contract, arguments):
+                """/** @param contract 工具定义 @param arguments 请求参数 @return 已保存资产的回读 */"""
+                paths = arguments["asset_paths"]
+                if contract is registry:
+                    self.assertEqual(paths, ["/Game/Items/Redirector"])
+                    return {"packages": [{"package": paths[0], "file_exists": True, "records": [{
+                        "object": paths[0] + ".Redirector", "class_path": "/Script/CoreUObject.ObjectRedirector",
+                        "destination": "/Game/Items/Asset000.Asset000"}]}]}
+                chunks.append(paths)
+                paths = ["/Game/Items/Asset000" if path.endswith("/Redirector") else path for path in paths]
+                return {"assets": [{"assetPath": f"{path}.{path.rsplit('/', 1)[-1]}",
+                    "classPath": "/Script/Engine.Blueprint", "properties": {"status": "BS_UP_TO_DATE"},
+                    "propertyErrors": {}} for path in paths]}
+
+            backend.invoke = invoke
+            result = backend.reconcile(["/Game/Items", "/Game/Items/Asset000", "/Game/Old"])
+            self.assertEqual([len(chunk) for chunk in chunks], [64, 64, 64, 64, 2])
+            self.assertEqual([len(row["assets"]) for row in result["observed"]], [258, 1, 0])
+            self.assertEqual(result["observed"][0]["assets"][-1]["asset"]["classPath"], "/Script/CoreUObject.ObjectRedirector")
+            self.assertFalse(result["operation_replayed"])
 
 
 class MoveRecoveryTests(unittest.TestCase):

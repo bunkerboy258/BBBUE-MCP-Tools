@@ -8,7 +8,7 @@ from BBBAssetWritePolicy import require_asset_write
 
 FULL_CHARACTER_MESH = '/Game/_ThirdParty/Characters/UkraineSoldier/Meshes/Sk_CombinedMesh'
 PREVIEW_BINDING_TAG = 'BBB_WeaponCharacterPreview'
-WEAPON_ROOT = '/Game/_Project/Characters/BBBC_UA/Items/Equipment/'
+WEAPON_ROOT = '/Game/_Project/Characters/Items/Equipment/'
 
 
 def export_animation(world, sequence, animation, options, binding):
