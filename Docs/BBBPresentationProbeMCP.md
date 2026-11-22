@@ -12,7 +12,8 @@
 - `hasMuzzle`、`muzzleInHandR`、`aimTargetComponent`：枪口是否有效、右手空间枪口变换、组件空间目标。
 - `hasLeftHandTarget`、`leftHandTargetInHandR`：左手握持目标是否有效及其右手空间位置。
 - `mainCurves`、`layers[].curves`：禁用 AimIK、左手 IK、左右握姿的长短名称曲线，供核验实际使用名称，不能仅凭短名为零认定曲线缺失。
-- `layers`：实际链接层的端枪权重、AimIK 权重、跟随速率与角色后坐力时间、权重。不存在的字段写入 `missingProperties`。
+- `layers`：实际链接层的端枪权重、AimIK 权重、跟随速率及后向震动强度。不存在的蓝图权重写入 `missingProperties`。
+- `weapon`、`weaponPoseOffsetAngles`：当前武器动画实例、发射序号、距最近一次发射的时间，以及主实例发布的后坐力与摇摆合成角度。空手时 `weapon` 为 `null`。
 
 该模块只读，不强制求值骨骼，不调整网格更新策略、动画属性、控制器或输入。向量与四元数非有限数值会明确报错，由现有探针错误记录处理。有效性标记为 false 时，不把对应目标当作真实握持或枪口数据。
 

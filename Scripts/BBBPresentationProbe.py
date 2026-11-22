@@ -11,7 +11,7 @@ BONES = (
 CURVES = (
     "DisableAimIK", "DisableLHandIK", "DisableLeftHandIK",
     "DisableLHandPoseOverride", "DisableRHandPoseOverride",
-    "DisableLeftHandPoseOverride", "DisableRightHandPoseOverride",
+    "DisableLeftHandPoseOverride", "DisableRightHandPoseOverride", "DisableRightHandGripRotation",
 )
 
 
@@ -53,6 +53,14 @@ def snapshot(mesh, main, runtime):
     result["aiming"] = main.is_aiming()
     result["running"] = main.is_running()
     result["fireIntent"] = main.has_fire_intent()
+    angles = main.get_weapon_pose_offset_angles()
+    result["weaponPoseOffsetAngles"] = [float(angles.x), float(angles.y)]
+    weapon = main.try_get_weapon_anim_instance()
+    result["weapon"] = {
+        "instance": weapon.get_path_name(),
+        "fireSequence": int(weapon.get_fire_sequence()),
+        "timeSinceLastFire": float(weapon.get_time_since_last_fire_seconds()),
+    } if weapon is not None else None
     result["hasMuzzle"] = main.has_muzzle()
     result["aimTargetComponent"] = vector(main.get_aim_target_component_space())
     result["muzzleInHandR"] = transform(main.try_get_muzzle_transform_hand_r_space())
@@ -60,7 +68,9 @@ def snapshot(mesh, main, runtime):
     result["leftHandTargetInHandR"] = vector(main.get_left_hand_ik_position())
     result["mainCurves"] = {name: float(main.get_curve_value(name)) for name in CURVES}
     for layer in runtime.get("linkedLayers", []):
-        instance = unreal.load_object(None, layer["path"])
+        instance = unreal.find_object(None, layer["path"])
+        if not isinstance(instance, unreal.BBBAnimInstance):
+            continue
         values = {"path": layer["path"], "missingProperties": []}
         for name in ("WeaponAimAlpha", "LocomotionAimIKAlpha"):
             try:
@@ -69,7 +79,6 @@ def snapshot(mesh, main, runtime):
                 values["missingProperties"].append(name)
         values["WeaponAimFollowSpeed"] = float(instance.get_weapon_aim_follow_speed())
         values["WeaponBackwardRecoilStrength"] = float(instance.get_weapon_backward_recoil_strength())
-        values["WeaponRecoilTime"] = float(instance.get_weapon_recoil_time())
         values["curves"] = {name: float(instance.get_curve_value(name)) for name in CURVES}
         result["layers"].append(values)
     return result
