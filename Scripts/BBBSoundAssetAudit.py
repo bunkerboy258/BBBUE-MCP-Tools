@@ -20,7 +20,7 @@ def _paths(asset_paths):
         raise RuntimeError("声音检查每批需要 1 至 256 个路径")
     packages = []
     for path in asset_paths:
-        if not isinstance(path, str) or not re.fullmatch(r"/Game/(?:[A-Za-z0-9_]+/)*[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)?", path):
+        if not isinstance(path, str) or not re.fullmatch(r"/Game/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)?", path):
             raise RuntimeError("声音资产路径无效")
         package = path.split(".")[0]
         if "." in path and path.split(".")[1] != package.rsplit("/", 1)[1]:

@@ -841,6 +841,23 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def configure_sound_cue(asset_path: str, wave_paths: list[str], fade_distances: list[float], attenuation_path: str) -> str:
+        """
+        /**
+         * 原生创建或更新单波形及距离淡化 Sound Cue 并保存回读
+         * @param asset_path\t目标 Sound Cue 资产包
+         * @param wave_paths\t按输入顺序提供的波形资产路径
+         * @param fade_distances\t逐层淡入起止及淡出起止距离 单层提供空数组 单位厘米
+         * @param attenuation_path\t衰减资产路径
+         * @return 已保存 Cue 的图表引用和距离参数
+         */
+        """
+        from BBBSoundCueAuthoring import configure_sound_cue
+
+        return json.dumps(configure_sound_cue(asset_path, wave_paths, fade_distances, attenuation_path), ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def inspect_sound_assets(asset_paths: list[str]) -> str:
         """
         /**

@@ -1,5 +1,7 @@
 # BBBUE MCP Tools
 
+2026-11-22 新增 `editor.configure_sound_cue`。通过 UE 5.9 原生声音图创建或更新单波形和距离淡化 Cue，保存前回读连接顺序、淡化距离和衰减设置。详见 [通用编辑器工具](Docs/BBBGenericEditorMCP.md)。
+
 2026-11-22 特感动画工具支持按阶段重建动作分支及使用同骨架参考姿势衔接片段。UE 5.9 已编译、保存并回读四种特感的正式动画蓝图及骨骼轨迹。详见 [动画图工具](Docs/BBBAnimationGraphMCP.md)。
 
 2026-11-22 物品摄影可读取独立关卡的灯光和机位并同步输出彩色预览和白色缩略图. UE 5.9 已保存 22 把武器和 5 个消耗品的双图并核对透明度与取景. 详见 [通用编辑器工具](Docs/BBBGenericEditorMCP.md).

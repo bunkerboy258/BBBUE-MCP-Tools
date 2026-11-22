@@ -470,3 +470,7 @@ PIE 反射调用中的 Guid 返回值按标准字符串序列化 位置参数可
 ## 官方 PCG 构图范围
 
 PCGToolset 的 graph node fromNode toNode 与 pCGVolume 用于确定实际编辑目标 CreateGraph 使用 path 与 name 拼接目标包 SpawnGraphInstance 使用当前编辑器世界范围。subGraphForNode 是只读引用 不把官方插件资源登记为写入目标。生成通过 ExecuteGraphInstance 显式执行 完成后保存地图并回读实际生成实例 保持全局自动刷新关闭。
+
+## 声音提示图表
+
+`editor.configure_sound_cue` 使用 UE 5.9 的 `SoundCueEditorSubsystem` 创建或原位更新单波形及距离淡化 Cue。传入正式目标 `asset_path`、依序排列的 `wave_paths`、`attenuation_path` 和 `fade_distances`。距离以厘米为单位，每个波形依次对应淡入起止和淡出起止四个值。相邻层使用相同的交叠区间，单波形提供空数组。保存前核对根节点、输入顺序、淡化值和衰减引用。

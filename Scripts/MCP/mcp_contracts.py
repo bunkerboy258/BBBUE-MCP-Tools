@@ -406,6 +406,7 @@ TOOL_POLICIES = {
     'editor.inspect_pie_player_control': {'access': 'read'},
     'editor.inspect_pie_static_mesh_instances': {'access': 'read'},
     'editor.inspect_skeletal_mesh_skinning': {'access': 'read'},
+    'editor.configure_sound_cue': {'scope': {'fields': ['asset_path']}},
     'editor.inspect_sound_assets': {'access': 'read'},
     'editor.inspect_static_mesh_bounds': {'access': 'read'},
     'editor.invoke_pie_object_function': {'summary': '调用所属 PIE 世界对象的反射函数'},
