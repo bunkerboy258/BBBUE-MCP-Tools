@@ -455,6 +455,123 @@ def merge_recoil_additives(interface_path, base_path, main_path, dependent_paths
     return {"saved": True, "landingAlpha": landing_alpha, "mainAlpha": 1.0, "recoilAlphaPath": ["GetWeaponBackwardRecoilStrength"], "compiled": results}
 
 
+def configure_continuous_body_recoil(base_path, main_path, animation_path, source_path, definition_path):
+    """
+    /**
+     * @param base_path	原有基础动画层
+     * @param main_path	原有主动画蓝图
+     * @param animation_path	共享加法序列
+     * @param source_path	角色握姿基准
+     * @param definition_path	枪口轴参考配置
+     * @return 编译和后震姿势保存结果
+     */
+    """
+    base, main, animation = [unreal.load_asset(path) for path in (base_path, main_path, animation_path)]
+    source, _, pose, forward = _context(source_path, definition_path)
+    if not isinstance(base, unreal.AnimBlueprint) or not isinstance(main, unreal.AnimBlueprint):
+        raise RuntimeError("后震需要既有基础层与主动画蓝图")
+    if not isinstance(animation, unreal.AnimSequence) or animation.get_skeleton() != source.get_skeleton():
+        raise RuntimeError("共享后震序列与基准骨架不一致")
+    if unreal.AnimationLibrary.get_animation_notify_events(animation) or unreal.AnimationLibrary.get_animation_curve_names(animation, unreal.RawCurveTrackTypes.RCT_FLOAT):
+        raise RuntimeError("共享后震序列包含事件或曲线")
+    require_asset_write([base, main, animation])
+
+    edits = unreal.BlueprintEditorLibrary
+    source_graph = edits.find_graph(base, "FullBodyAdditives")
+    graph = edits.find_graph(base, "FullBody_SkeletalControls")
+    main_graph = edits.find_graph(main, "AnimGraph")
+    if not source_graph or not graph or not main_graph:
+        raise RuntimeError("找不到当前角色后震链")
+    source_editor, editor, main_editor = [unreal.BlueprintGraphEditor.get_graph_editor(g) for g in (source_graph, graph, main_graph)]
+    library = unreal.BBBBlueprintEditorLibrary
+    snapshot = lambda g: json.loads(library.inspect_blueprint_graph_logical_snapshot(g))
+    old_layer_record = _unique(snapshot(main_graph)["nodes"], lambda n: n.get("animNode", {}).get("properties", {}).get("Layer") == "FullBodyAdditives", "原后震调用")
+    old_layer = unreal.load_object(None, old_layer_record["path"])
+    old_apply = old_layer.find_output_pin("Pose").list_connected_pins()[0].get_owning_node()
+    if old_apply.get_class().get_name() != "AnimGraphNode_ApplyAdditive":
+        raise RuntimeError("原后震叠加连接异常")
+    original_pose = _unique(list(old_apply.find_input_pin("Base").list_connected_pins()), lambda _: True, "原姿势")
+    next_pose = _unique(list(old_apply.find_output_pin("Pose").list_connected_pins()), lambda _: True, "后震原后继")
+    fabrik = _unique(list(editor.list_all_nodes()), lambda n: n.get_class().get_name() == "AnimGraphNode_Fabrik", "左手求解")
+    convert = _unique(list(fabrik.find_input_pin("ComponentPose").list_connected_pins()), lambda _: True, "左手输入").get_owning_node()
+    if convert.get_class().get_name() != "AnimGraphNode_LocalToComponentSpace":
+        raise RuntimeError("左手求解前缺少局部姿势入口")
+    destination = convert.find_input_pin("LocalPose")
+    prior = _unique(list(destination.list_connected_pins()), lambda _: True, "瞄准后输出")
+    source_nodes = list(source_editor.list_all_nodes())
+    evaluator = next(n for n in source_nodes if n.get_class().get_name() == "AnimGraphNode_SequenceEvaluator")
+    apply = next(n for n in source_nodes if n.get_class().get_name() == "AnimGraphNode_ApplyAdditive")
+    copied_nodes = [evaluator, apply]
+    copied_paths = {n.get_path_name() for n in copied_nodes}
+    guids = {n["path"]: n["guid"] for n in snapshot(source_graph)["nodes"] if n["path"] in copied_paths}
+    root = _unique(source_nodes, lambda n: n.get_class().get_name() == "AnimGraphNode_Root", "原加法层输出")
+    identity = _unique(source_nodes, lambda n: n.get_class().get_name() == "AnimGraphNode_IdentityPose", "原加法层中性姿势")
+
+    with unreal.ScopedEditorTransaction("迁移连续身体后震"):
+        for name in ("Sequence", "ExplicitTime"):
+            evaluator.find_input_pin(name).break_pin_links()
+        evaluator.find_output_pin("Pose").break_pin_links()
+        for name in ("Base", "Additive", "Alpha"):
+            apply.find_input_pin(name).break_pin_links()
+        apply.find_output_pin("Pose").break_pin_links()
+        copied = json.loads(library.copy_blueprint_graph_nodes(source_graph, graph,
+            [guids[n.get_path_name()] for n in copied_nodes], {}, False))
+        if copied.get("error") or len(copied.get("created", [])) != 2:
+            raise RuntimeError("复制后震节点失败 " + str(copied))
+        by_guid = {row["sourceGuid"].lower(): unreal.load_object(None, row["path"]) for row in copied["created"]}
+        eval_node, blend_node = [by_guid[guids[n.get_path_name()].lower()] for n in copied_nodes]
+        position = convert.get_node_pos()
+        eval_node.set_node_pos(unreal.IntPoint(position.x - 330, position.y + 220))
+        blend_node.set_node_pos(unreal.IntPoint(position.x - 225, position.y + 65))
+        eval_node.find_input_pin("ExplicitTime").set_pin_value("0.0")
+        if not library.bind_animation_node_input(eval_node, "Sequence", ["GetWeaponRecoilAnimation"]):
+            raise RuntimeError("后震序列绑定失败")
+        if not library.bind_animation_node_input(blend_node, "Alpha", ["GetWeaponBackwardRecoilStrength"]):
+            raise RuntimeError("后震强度绑定失败")
+        destination.break_pin_links()
+        _link(prior, blend_node.find_input_pin("Base"))
+        _link(eval_node.find_output_pin("Pose"), blend_node.find_input_pin("Additive"))
+        _link(blend_node.find_output_pin("Pose"), destination)
+        next_pose.break_pin_links()
+        _link(original_pose, next_pose)
+        main_editor.remove_nodes([old_layer, old_apply])
+        source_editor.remove_nodes([node for node in source_nodes if node not in (root, identity)])
+        _link(identity.find_output_pin("Pose"), root.find_input_pin("Result"))
+
+    for blueprint in (base, main):
+        unreal.BlueprintToolset.compile_blueprint(blueprint, warnings_as_errors=True)
+        if blueprint.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+            raise RuntimeError("连续后震蓝图编译失败 " + blueprint.get_path_name())
+
+    space = unreal.AnimPoseSpaces
+    pelvis, spine, parent, chest = [pose.get_bone_pose(name, space.WORLD)
+        for name in ("pelvis", "spine_01", "spine_02", "spine_03")]
+    lever = chest.translation - spine.translation
+    bend = unreal.MathLibrary.quat_find_between_vectors(lever, lever - forward * 3.0)
+    spine_rotation = (pelvis.rotation.inversed() * bend * spine.rotation).normalized()
+    chest_rotation = ((bend * parent.rotation).inversed() * chest.rotation).normalized()
+    controller = animation.controller
+    controller.open_bracket("写入由胸肩整体承担的后震姿势", False)
+    try:
+        controller.set_number_of_frames(unreal.FrameNumber(1), False)
+        for bone in animation.data_model_interface.get_bone_track_names():
+            value = pose.get_bone_pose(bone, space.LOCAL)
+            if str(bone).lower() == "spine_01":
+                value.rotation = spine_rotation
+            if str(bone).lower() == "spine_03":
+                value.rotation = chest_rotation
+            if not controller.set_bone_track_keys(bone, [value.translation] * 2, [value.rotation] * 2, [value.scale3d] * 2, False):
+                raise RuntimeError("共享后震骨轨写入失败 " + str(bone))
+    finally:
+        controller.close_bracket(False)
+    if animation.get_editor_property("ref_pose_seq") != source or animation.data_model_interface.get_number_of_keys() != 2:
+        raise RuntimeError("共享后震加法基准或关键帧异常")
+    for asset in (animation, base, main):
+        if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
+            raise RuntimeError("连续后震保存失败 " + asset.get_path_name())
+    return {"saved": True, "peakDistanceCm": 3.0, "sampleTime": 0.0, "nodes": [eval_node.get_path_name(), blend_node.get_path_name()]}
+
+
 def sample_recoil_runtime(action, seconds, file_prefix):
     """
     /**
@@ -525,7 +642,6 @@ def sample_recoil_runtime(action, seconds, file_prefix):
                 row["reloading"] = bool(weapon.is_reloading)
             if layer is not None:
                 row["alpha"] = layer.get_weapon_backward_recoil_strength()
-                row["recoilTime"] = layer.get_weapon_recoil_time()
             state["samples"].append(row)
             if row["time"] >= seconds:
                 finish()

@@ -792,6 +792,25 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def configure_continuous_body_recoil(base_path: str, main_path: str, animation_path: str,
+                                         source_path: str, definition_path: str) -> str:
+        """
+        /**
+         * 在瞄准和左手求解之间应用持续后震
+         * @param base_path	基础动画层
+         * @param main_path	调用基础层的主动画蓝图
+         * @param animation_path	已有共享后震序列
+         * @param source_path	共享加法基准
+         * @param definition_path	枪口方向参考配置
+         * @return 骨轨与节点的编译保存结果
+         */
+        """
+        import BBBRecoilAnimationTools
+        return json.dumps(BBBRecoilAnimationTools.configure_continuous_body_recoil(
+            base_path, main_path, animation_path, source_path, definition_path), ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def inspect_backward_recoil_context(source_path: str, definition_path: str) -> str:
         """
         /**

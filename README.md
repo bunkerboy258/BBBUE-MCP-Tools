@@ -1,5 +1,7 @@
 # BBBUE MCP Tools
 
+`animation.configure_continuous_body_recoil` 将共享身体后震叠加移动到左手求解前并绑定持续强度。只保存指定的两个角色蓝图和共享加法序列。
+
 `animation.rewrite_animation_node_binding_paths` 接受空旧路径 供未连接的动画节点输入建立属性访问。已在 UE 5.9 核对 AimIK 最小目标距离引脚与读取路径并编译保存。
 
 2026-11-22 物品摄影支持对有透明度的模型渲染图和图集单元生成统一占幅的白色图标. UE 5.9 已保存并核验 139 件穿戴物的双图.
