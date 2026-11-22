@@ -336,6 +336,8 @@ class JobQueue:
             self.observe(force=True)
             return True
         with self.changed:
+            if self.writer is not None:
+                return False
             now = self.clock()
             for identity in list(self.queue):
                 job = self.jobs[identity]
@@ -376,6 +378,8 @@ class JobQueue:
         with self.changed:
             if selected["status"] != "queued" or selected["id"] not in self.queue:
                 return True
+            if self.writer is not None:
+                return False
             self.queue.remove(selected["id"])
             selected["status"], selected["code"] = "running", None
             selected.pop("blocked", None)
@@ -845,6 +849,38 @@ class JobQueue:
                     self.writer = None
                 self._signal()
 
+    def _cancel_recovery(self, client, job, scope):
+        """/** @param client 当前归属 @param job 已保留执行槽的故障批次 @param scope 核验范围 @return 已收尾的批次 */"""
+        batch = job["id"]
+        try:
+            current = self.observe(force=True)
+            if self.draining or not current["host_verified"] or current.get("pie_active") or current.get("worlds"):
+                raise JobConflict("HOST_UNVERIFIED")
+            if conflicting_packages(current.get("dirty_packages", []), scope):
+                raise JobConflict("DIRTY_RECOVERY_PACKAGES")
+            evidence = self.backend.reconcile(scope)
+            current = self.observe(force=True)
+            if self.draining or not current["host_verified"]:
+                raise JobConflict("HOST_UNVERIFIED")
+            if conflicting_packages(current.get("dirty_packages", []), scope):
+                raise JobConflict("DIRTY_RECOVERY_PACKAGES")
+            with self.changed:
+                job.setdefault("proof", {})["cancelled_recovery"] = evidence
+                if job.get("move_recovery"):
+                    job["proof"]["cancelled_move_recovery"] = job.pop("move_recovery")
+                job["uncertain"].clear()
+                job["owned_dirty"].clear()
+                job.update(status="cancelled", code="RECOVERY_CANCELLED", execution="partial", dirty=[])
+                self.assets.release(batch)
+                self.clients.operators.record(client, "cancel", batch, result="recovery_cancelled_after_readback")
+                self._checkpoint(job)
+                return self._job_view(job)
+        finally:
+            with self.changed:
+                self.call_active = False
+                self.writer = None
+                self._signal()
+
     def control(self, client, action, batch=None):
         """/** @param client	客户端 @param action	控制动作 @param batch	所属批次 @return 控制结果或恢复请求 */"""
         self.touch(client)
@@ -899,6 +935,7 @@ class JobQueue:
                 raise
             return {"status": "shutdown_requested", "process_id": self.activity["process_id"],
                 "next": {"tool": "inspect_tasks", "arguments": {"wait_seconds": 2}}}
+        cancel_scope = None
         with self.changed:
             job = self.jobs.get(batch)
             if job is None:
@@ -939,35 +976,17 @@ class JobQueue:
                 if job["status"] in {"failed", "cancelled"} and claim is not None and claim["phase"] == "fault":
                     if self.writer is not None or job["activities"] & set(self.activity_owners) or self.pie_batch == batch:
                         raise JobConflict("OWNED_ACTIVITY_PENDING")
-                    current = self.observe(force=True)
-                    if self.draining or not current["host_verified"] or current.get("pie_active") or current.get("worlds"):
-                        raise JobConflict("HOST_UNVERIFIED")
-                    scope = sorted(claim["packages"])
-                    if conflicting_packages(current.get("dirty_packages", []), scope):
-                        raise JobConflict("DIRTY_RECOVERY_PACKAGES")
-                    evidence = self.backend.reconcile(scope)
-                    current = self.observe(force=True)
-                    if self.draining or not current["host_verified"]:
-                        raise JobConflict("HOST_UNVERIFIED")
-                    if conflicting_packages(current.get("dirty_packages", []), scope):
-                        raise JobConflict("DIRTY_RECOVERY_PACKAGES")
-                    job.setdefault("proof", {})["cancelled_recovery"] = evidence
-                    if job.get("move_recovery"):
-                        job["proof"]["cancelled_move_recovery"] = job.pop("move_recovery")
-                    job["uncertain"].clear()
-                    job["owned_dirty"].clear()
-                    job.update(status="cancelled", code="RECOVERY_CANCELLED", execution="partial", dirty=[])
+                    cancel_scope = sorted(claim["packages"])
+                    self.writer = batch
+                    self.call_active = True
+                else:
+                    if job["status"] != "queued" or job["completed"]:
+                        raise JobConflict("BATCH_ALREADY_DISPATCHED")
+                    self.queue.remove(batch)
+                    job["status"] = "cancelled"
                     self.assets.release(batch)
-                    self.clients.operators.record(client, action, batch, result="recovery_cancelled_after_readback")
                     self._signal()
                     return self._job_view(job)
-                if job["status"] != "queued" or job["completed"]:
-                    raise JobConflict("BATCH_ALREADY_DISPATCHED")
-                self.queue.remove(batch)
-                job["status"] = "cancelled"
-                self.assets.release(batch)
-                self._signal()
-                return self._job_view(job)
             if action == "close":
                 if self.pie_batch == batch or job["activities"] & set(self.activity_owners):
                     raise JobConflict("OWNED_ACTIVITY_PENDING")
@@ -983,6 +1002,8 @@ class JobQueue:
                 self._clean_outputs(batch)
                 self._signal()
                 return {"batch": batch, "status": "closed"}
+        if cancel_scope is not None:
+            return self._cancel_recovery(client, job, cancel_scope)
         raise JobConflict("CONTROL_ACTION")
 
     def _job_view(self, job, detail=False, summary=False):

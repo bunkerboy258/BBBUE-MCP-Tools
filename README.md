@@ -1,6 +1,6 @@
 # BBBUE MCP Tools
 
-武器预览与烘焙使用迁移后的 `/Game/_Project/Characters/Items/Equipment/`。迁移故障收尾分批读取已保存的包并核验蓝图状态。
+武器预览与烘焙使用迁移后的 `/Game/_Project/Characters/Items/Equipment/`。迁移故障收尾分批读取已保存的包并核验蓝图状态。收尾期间保留写入槽 宿主状态轮询可继续。
 
 2026-11-21 四指几何修复逐帧限制指根、中节和末节仅向掌心屈曲，清除侧摆和轴向扭转。UE 5.9 已烘焙并回读 SG550 换弹对照副本的 24 条指骨旋转与 265 个采样。详见 [手指动画修复](Docs/BBBFingerAnimationMCP.md)。
 

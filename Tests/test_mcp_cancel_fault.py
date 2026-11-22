@@ -1,3 +1,4 @@
+import threading
 import unittest
 
 from test_mcp_task_gateway import fixtures, operation
@@ -37,6 +38,28 @@ class CancelFaultTests(unittest.TestCase):
             self.queue.control(self.owner, "cancel", batch)
         self.assertEqual(caught.exception.value["code"], "DIRTY_RECOVERY_PACKAGES")
         self.assertIn(batch, self.queue.assets.claims)
+
+    def test_cancel_readback_leaves_host_observation_available(self):
+        batch = self.fault()
+        observed = threading.Event()
+        workers = []
+
+        def reconcile(packages):
+            def observe():
+                self.queue.observe(force=True)
+                observed.set()
+
+            worker = threading.Thread(target=observe, daemon=True)
+            workers.append(worker)
+            worker.start()
+            self.assertTrue(observed.wait(1))
+            self.assertFalse(self.queue.run_once())
+            return {"operation_replayed": False}
+
+        self.backend.reconcile = reconcile
+        self.assertEqual(self.queue.control(self.owner, "cancel", batch)["status"], "cancelled")
+        for worker in workers:
+            worker.join()
 
     def test_cancelled_move_releases_pending_recovery_after_host_change(self):
         batch = self.fault()
