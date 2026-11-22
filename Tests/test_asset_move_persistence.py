@@ -30,7 +30,7 @@ class AssetMovePersistenceTests(unittest.TestCase):
         registry = types.SimpleNamespace(scan_paths_synchronous=lambda paths, **options: self.calls.append(("scan", paths, options)))
         self.runtime.update({
             "_move_registry": lambda: registry,
-            "_move_filename": lambda path: path + ".uasset",
+            "_move_filename": lambda path, extension=".uasset": path + extension,
             "_move_file_sha256": lambda path: "source-sha",
             "os": __import__("os"),
             "_move_dirty_packages": lambda scope: [],

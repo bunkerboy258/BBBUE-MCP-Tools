@@ -2069,13 +2069,33 @@ class BBBAssetMaintenanceToolset(unreal.ToolsetDefinition):
         if dry_run:
             return json.dumps(report, ensure_ascii=False)
         require_asset_write(affected, [])
+        referencers = sorted({ref for item, _, _ in pairs for ref in _move_referencers(registry, item["source"])})
+        for path in referencers:
+            if unreal.load_package(path) is None:
+                raise RuntimeError("不能加载明确引用者包: " + path)
+        if _move_dirty_packages(sorted(affected)):
+            raise RuntimeError("加载引用者产生脏包 拒绝合并")
         for item, source, destination in pairs:
-            if not unreal.EditorAssetLibrary.consolidate_assets(destination, [source]):
+            source_path = item["source"]
+            if not unreal.BBBAssetRepairEditorLibrary.consolidate_verified_asset_copy(source, destination):
                 unreal.log_error("[BBBAssetConsolidate]原生合并未通过 必须检查部分结果")
                 report["success"] = False
-                report["failed_source"] = item["source"]
+                report["failed_source"] = source_path
                 return json.dumps(report, ensure_ascii=False)
-            report["completed"].append(item["source"])
+            retained_mesh = item["class_path"] == "/Script/Engine.SkeletalMesh"
+            if retained_mesh:
+                folders = {path.rsplit("/", 1)[0] for path in affected}
+                registry.scan_paths_synchronous(sorted(folders), force_rescan=True)
+                if _move_referencers(registry, source_path):
+                    report["success"] = False
+                    report["failed_source"] = source_path
+                    return json.dumps(report, ensure_ascii=False)
+            records = registry.get_assets_by_package_name(source_path)
+            if not retained_mesh and any(_move_class_path(data.asset_class_path) != "/Script/CoreUObject.ObjectRedirector" for data in records):
+                report["success"] = False
+                report["failed_source"] = source_path
+                return json.dumps(report, ensure_ascii=False)
+            report["completed"].append(source_path)
         report["success"] = not _move_dirty_packages([item[key] for item in requests for key in ("source", "destination")] + [ref for item in requests for ref in _move_referencers(registry, item["source"])])
         unreal.log("[BBBAssetConsolidate]完成 {} 个旧副本".format(len(report["completed"])))
         return json.dumps(report, ensure_ascii=False)
