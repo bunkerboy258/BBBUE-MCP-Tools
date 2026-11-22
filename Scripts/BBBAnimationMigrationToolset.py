@@ -36,7 +36,7 @@ MCP_INPUTS = {
                 'properties': {
                     'nodePath': {'type': 'string'},
                     'property': {'type': 'string'},
-                    'oldPath': {'$ref': '#/$defs/Names'},
+                    'oldPath': {'type': 'array', 'items': {'type': 'string'}},
                     'newPath': {'$ref': '#/$defs/Names'},
                 },
                 'required': ['nodePath', 'property', 'oldPath', 'newPath'],
@@ -1902,9 +1902,9 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
     ) -> str:
         """
         /**
-         * 将指定动画节点的唯一隐藏绑定改为显式属性访问 不自动保存
+         * 将指定动画节点的输入接到显式属性访问 不自动保存
          * @param blueprint_path	已签出的目标动画蓝图
-         * @param replacements_json	包含 nodePath property oldPath newPath 的请求数组
+         * @param replacements_json	包含 nodePath property oldPath newPath 的请求 空旧路径仅新增到未连接输入
          * @param dry_run	仅核验全部旧路径而不修改资产
         * @return 命中节点与编译状态
          */
@@ -1937,6 +1937,15 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
             graph_snapshot = json.loads(unreal.BBBBlueprintEditorLibrary.inspect_blueprint_graph_snapshot(node.get_outer()))
             node_snapshot = next(value for value in graph_snapshot["nodes"] if value["path"] == node_path)
             bindings = node_snapshot.get("propertyBindings", [])
+            if not item["newPath"]:
+                raise RuntimeError("必须提供目标属性路径: {}".format(identity))
+            if not item["oldPath"]:
+                if any(binding["property"] == str(key) for binding in bindings) or any(
+                    pin["name"] == str(key) and pin["links"] for pin in node_snapshot["pins"]
+                ):
+                    raise RuntimeError("目标输入已有连接或绑定: {}".format(identity))
+                prepared.append((node, key, item))
+                continue
             if len(bindings) != 1 or bindings[0]["property"] != str(key):
                 raise RuntimeError("节点必须只有请求指定的一项隐藏绑定: {}".format(identity))
 
@@ -1944,16 +1953,18 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
                 raise RuntimeError("仅支持不含类型提升与活跃阶段限制的有效绑定: {}".format(identity))
 
             old_path = bindings[0]["propertyPath"]
-            if old_path != item["oldPath"] or not item["newPath"]:
+            if old_path != item["oldPath"]:
                 raise RuntimeError("绑定路径与请求不一致: {} {}".format(identity, old_path))
 
             prepared.append((node, key, item))
 
         if not dry_run:
+            from BBBAssetWritePolicy import require_write_access
+            require_write_access(blueprint)
             blueprint.modify()
             for node, key, item in prepared:
                 node.modify()
-                if not unreal.ToolsetLibrary.set_object_properties(node, json.dumps({"Binding": None})):
+                if item["oldPath"] and not unreal.ToolsetLibrary.set_object_properties(node, json.dumps({"Binding": None})):
                     raise RuntimeError("旧隐藏绑定清理失败: {}".format(item["nodePath"]))
 
                 if not unreal.BBBBlueprintEditorLibrary.bind_animation_node_input(node, key, item["newPath"]):

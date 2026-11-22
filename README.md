@@ -1,5 +1,7 @@
 # BBBUE MCP Tools
 
+`animation.rewrite_animation_node_binding_paths` 接受空旧路径 供未连接的动画节点输入建立属性访问。已在 UE 5.9 核对 AimIK 最小目标距离引脚与读取路径并编译保存。
+
 2026-11-22 物品摄影支持对有透明度的模型渲染图和图集单元生成统一占幅的白色图标. UE 5.9 已保存并核验 139 件穿戴物的双图.
 
 2026-11-22 新增 `editor.configure_sound_cue`。通过 UE 5.9 原生声音图创建或更新单波形和距离淡化 Cue，保存前回读连接顺序、淡化距离和衰减设置。详见 [通用编辑器工具](Docs/BBBGenericEditorMCP.md)。
