@@ -81,6 +81,7 @@ MCP_INPUTS = {
                 'properties': {
                     'source': {'type': 'string'},
                     'destination': {'type': 'string'},
+                    'silhouette_destination': {'type': 'string'},
                     'diagnostic_only': {'type': 'boolean'},
                     'scalar_parameters': {'type': 'object', 'additionalProperties': {'type': 'number'}},
                     'material_overrides': {'$ref': '#/$defs/StringMap'},
@@ -96,6 +97,7 @@ MCP_INPUTS = {
                             'focus_extent': {'$ref': '#/$defs/Vector3'},
                             'cast_shadows': {'type': 'boolean'},
                             'ambient_occlusion': {'type': 'boolean'},
+                            'studio_level': {'type': 'string'},
                         },
                         'additionalProperties': False,
                     },
@@ -1939,18 +1941,22 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
         results = []
         for request in requests:
-            source = str(request["source"])
-            destination = str(request["destination"])
-            if not source.startswith("/Game/") or not destination.startswith("/Game/") or "." in destination:
+            source = request["source"]
+            destination = request["destination"]
+            silhouette = request.get("silhouette_destination")
+            destinations = [destination, silhouette] if silhouette else [destination]
+            names = [path.rsplit("/", 1)[-1] + ".png" for path in destinations]
+            if (not source.startswith("/Game/") or any(not path.startswith("/Game/") or "." in path
+                    for path in destinations) or len({name.casefold() for name in names}) != len(names)):
                 raise RuntimeError("源资产与目标包必须位于 Game 目录")
 
-            exists = unreal.EditorAssetLibrary.does_asset_exist(destination)
             diagnostic_only = bool(request.get("diagnostic_only", False))
-            if exists and not diagnostic_only and not unreal.EditorAssetLibrary.checkout_asset(destination):
+            existing = {path for path in destinations if unreal.EditorAssetLibrary.does_asset_exist(path)}
+            if not diagnostic_only and unreal.SourceControl.is_enabled() and any(
+                    not unreal.EditorAssetLibrary.checkout_asset(path) for path in existing):
                 results.append({"destination": destination, "error": "独占签出失败"})
                 continue
 
-            file_name = destination.rsplit("/", 1)[1] + ".png"
             scalar_parameters = request.get("scalar_parameters", {})
             if not isinstance(scalar_parameters, dict):
                 raise RuntimeError("预览材质标量参数必须是 JSON 对象")
@@ -1960,9 +1966,12 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             scene_options = request.get("scene_options", {})
             if not isinstance(scene_options, dict):
                 raise RuntimeError("离屏场景参数必须是 JSON 对象")
+            scene_options = scene_options.copy()
+            if silhouette:
+                scene_options["white_output"] = names[1]
 
             image_path = unreal.BBBAssetThumbnailEditorLibrary.render_mesh_thumbnail(
-                source, file_name, float(request.get("yaw", 75.0)),
+                source, names[0], float(request.get("yaw", 0.0 if scene_options.get("studio_level") else 75.0)),
                 str(request.get("excluded_material_slots", "")),
                 str(request.get("output_directory", "AssetThumbnails")), bool(request.get("orthographic", False)),
                 bool(request.get("pack_sides", False)), json.dumps(scalar_parameters, ensure_ascii=False),
@@ -1971,33 +1980,33 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
                 results.append({"destination": destination, "error": "网格渲染失败"})
                 continue
 
-            if diagnostic_only:
-                results.append({"source": source, "image": image_path, "saved": False})
-                continue
-
-            task = unreal.AssetImportTask()
-            task.filename = image_path
-            task.destination_path = destination.rsplit("/", 1)[0]
-            task.destination_name = destination.rsplit("/", 1)[1]
-            task.automated = True
-            task.replace_existing = exists
-            task.save = False
-            unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])
-            if not task.imported_object_paths:
-                results.append({"destination": destination, "error": "纹理导入未返回结果"})
-                continue
-
-            texture = unreal.EditorAssetLibrary.load_asset(destination)
-            if not isinstance(texture, unreal.Texture2D):
-                results.append({"destination": destination, "error": "纹理导入失败"})
-                continue
-
-            texture.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_EDITOR_ICON)
-            texture.set_editor_property("lod_group", unreal.TextureGroup.TEXTUREGROUP_UI)
-            texture.set_editor_property("never_stream", True)
-            texture.set_editor_property("mip_gen_settings", unreal.TextureMipGenSettings.TMGS_NO_MIPMAPS)
-            saved = unreal.EditorAssetLibrary.save_loaded_asset(texture, False)
-            results.append({"destination": destination, "source": source, "image": image_path, "saved": saved})
+            for path, name in zip(destinations, names):
+                image = str(Path(image_path).with_name(name))
+                result = {"destination": path, "source": source, "image": image, "saved": False}
+                results.append(result)
+                if diagnostic_only:
+                    continue
+                task = unreal.AssetImportTask()
+                task.filename = image
+                task.destination_path, task.destination_name = path.rsplit("/", 1)
+                task.automated = True
+                task.replace_existing = path in existing
+                task.save = False
+                unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])
+                if not any(str(imported).split(".", 1)[0] == path for imported in task.imported_object_paths):
+                    result["error"] = "纹理导入未返回目标对象"
+                    continue
+                texture = unreal.EditorAssetLibrary.load_asset(path)
+                if not isinstance(texture, unreal.Texture2D):
+                    result["error"] = "纹理导入失败"
+                    continue
+                texture.set_editor_property("compression_settings", unreal.TextureCompressionSettings.TC_EDITOR_ICON)
+                texture.set_editor_property("lod_group", unreal.TextureGroup.TEXTUREGROUP_UI)
+                texture.set_editor_property("never_stream", True)
+                texture.set_editor_property("mip_gen_settings", unreal.TextureMipGenSettings.TMGS_NO_MIPMAPS)
+                if silhouette:
+                    texture.set_editor_property("max_texture_size", 256 if path == silhouette else 512)
+                result["saved"] = unreal.EditorAssetLibrary.save_loaded_asset(texture, False)
 
         return json.dumps(results, ensure_ascii=False)
 
