@@ -811,6 +811,21 @@ class BBBAnimationMigrationToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def configure_split_body_recoil(main_path: str, animation_path: str, definition_path: str) -> str:
+        """
+        /**
+         * 将共用后震分别放在瞄准求解前和头部稳定后
+         * @param main_path        主动画蓝图 *
+         * @param animation_path   共用后震序列 *
+         * @param definition_path  持枪基准参照装备 *
+         * @return 骨骼回读 编译与保存结果
+         */
+        """
+        import BBBRecoilAnimationTools
+        return json.dumps(BBBRecoilAnimationTools.configure_split_body_recoil(main_path, animation_path, definition_path), ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
     def inspect_backward_recoil_context(source_path: str, definition_path: str) -> str:
         """
         /**

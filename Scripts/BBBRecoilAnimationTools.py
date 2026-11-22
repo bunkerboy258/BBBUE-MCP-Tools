@@ -572,6 +572,170 @@ def configure_continuous_body_recoil(base_path, main_path, animation_path, sourc
     return {"saved": True, "peakDistanceCm": 3.0, "sampleTime": 0.0, "nodes": [eval_node.get_path_name(), blend_node.get_path_name()]}
 
 
+def configure_split_body_recoil(main_path, animation_path, definition_path):
+    """
+    /**
+     * @param main_path        现有角色主动画蓝图
+     * @param animation_path   现有共用后震序列
+     * @param definition_path  持枪基准的枪械配置
+     * @return 骨骼范围 连线和编译保存结果
+     */
+    """
+    main = unreal.load_asset(main_path)
+    animation = unreal.load_asset(animation_path)
+    if not isinstance(main, unreal.AnimBlueprint) or not isinstance(animation, unreal.AnimSequence):
+        raise RuntimeError("角色主蓝图或共用后震序列无效")
+    require_asset_write([main, animation])
+
+    source = animation.get_editor_property("ref_pose_seq")
+    if source is None or animation.get_editor_property("ref_frame_index") != 0:
+        raise RuntimeError("共用后震缺少首帧持枪基准")
+    if animation.get_editor_property("additive_anim_type") != unreal.AdditiveAnimationType.AAT_LOCAL_SPACE_BASE:
+        raise RuntimeError("共用后震必须是局部空间加法")
+    if animation.data_model_interface.get_number_of_keys() != 2:
+        raise RuntimeError("预期共用后震为双键固定姿势")
+    _, _, reference, forward = _context(source.get_path_name(), definition_path)
+    options = unreal.AnimPoseEvaluationOptions()
+    options.evaluation_type = unreal.AnimDataEvalType.RAW
+    options.should_retarget = False
+    options.retrieve_additive_as_full_pose = True
+    peak = animation.get_anim_pose_at_frame(0, options)
+    space = unreal.AnimPoseSpaces
+    pelvis, spine, spine_parent, chest = [
+        reference.get_bone_pose(name, space.WORLD)
+        for name in ("pelvis", "spine_01", "spine_02", "spine_03")
+    ]
+    lever = chest.translation - spine.translation
+    bend = unreal.MathLibrary.quat_find_between_vectors(lever, lever - forward * 9.0)
+    rotations = {
+        "spine_01": (pelvis.rotation.inversed() * bend * spine.rotation).normalized(),
+        "spine_03": ((bend * spine_parent.rotation).inversed() * chest.rotation).normalized(),
+        "head": peak.get_bone_pose("head", space.LOCAL).rotation,
+    }
+
+    for side in ("l", "r"):
+        upper_name = "upperarm_" + side
+        lower_name = "lowerarm_" + side
+        upper = reference.get_bone_pose(upper_name, space.WORLD)
+        lower = reference.get_bone_pose(lower_name, space.WORLD)
+        hand = reference.get_bone_pose("hand_" + side, space.WORLD)
+        shoulder = reference.get_bone_pose("clavicle_" + side, space.WORLD)
+        joint, end = unreal.AnimGraphLibrary.two_bone_ik(
+            upper.translation, lower.translation, hand.translation,
+            lower.translation, hand.translation - forward * 1.5, False, 1.0, 1.0)
+        upper_rotation = unreal.MathLibrary.quat_find_between_vectors(
+            lower.translation - upper.translation, joint - upper.translation) * upper.rotation
+        lower_rotation = unreal.MathLibrary.quat_find_between_vectors(
+            hand.translation - lower.translation, end - joint) * lower.rotation
+        rotations[upper_name] = (shoulder.rotation.inversed() * upper_rotation).normalized()
+        rotations[lower_name] = (upper_rotation.inversed() * lower_rotation).normalized()
+
+    tracks = {str(bone).lower(): bone for bone in animation.data_model_interface.get_bone_track_names()}
+    if not rotations.keys() <= tracks.keys():
+        raise RuntimeError("共用后震缺少必要的脊柱 手臂或头部骨轨")
+    neutral_bones = ("hand_l", "hand_r", "ik_hand_root", "ik_hand_l", "ik_hand_r")
+    for name in neutral_bones:
+        for frame in (0, 1):
+            original = reference.get_bone_pose(name, space.LOCAL)
+            current = animation.get_anim_pose_at_frame(frame, options).get_bone_pose(name, space.LOCAL)
+            if _angle(original.rotation, current.rotation) > 0.02 or _length(original.translation - current.translation) > 0.002:
+                raise RuntimeError("原共用后震包含额外手部偏移 " + name)
+
+    library = unreal.BBBBlueprintEditorLibrary
+    graph = unreal.BlueprintEditorLibrary.find_graph(main, "AnimGraph")
+    if graph is None:
+        raise RuntimeError("主动画图缺失")
+    snapshot = json.loads(library.inspect_blueprint_graph_logical_snapshot(graph))
+    skeletal = _unique(snapshot["nodes"], lambda node: node.get("animNode", {}).get("properties", {}).get("Layer") == "FullBody_SkeletalControls", "骨骼控制层")
+    head = _unique(snapshot["nodes"], lambda node: "CR_BBB_HeadStabilization." in node.get("animNodeProperties", {}).get("controlRigAssetReference", {}).get("blueprintRigClass", ""), "头部稳定节点")
+    skeletal_node = unreal.load_object(None, skeletal["path"])
+    head_node = unreal.load_object(None, head["path"])
+    head_apply = _unique(list(head_node.find_output_pin("Pose").list_connected_pins()), lambda _: True, "头部稳定输出").get_owning_node()
+    if head_apply.get_class().get_name() != "AnimGraphNode_ApplyAdditive":
+        raise RuntimeError("头部稳定之后的共用后震节点不匹配")
+    evaluator_pin = _unique(list(head_apply.find_input_pin("Additive").list_connected_pins()), lambda _: True, "共用姿势输出")
+    alpha_pin = _unique(list(head_apply.find_input_pin("Alpha").list_connected_pins()), lambda _: True, "共用权重输出")
+    if evaluator_pin.get_owning_node().get_class().get_name() != "AnimGraphNode_SequenceEvaluator":
+        raise RuntimeError("后震序列评估器不匹配")
+    pre_aim_input = skeletal_node.find_input_pin("InPose")
+    pre_aim_base = _unique(list(pre_aim_input.list_connected_pins()), lambda _: True, "骨骼控制原输入")
+    if pre_aim_base.get_owning_node().get_class().get_name() == "AnimGraphNode_ApplyAdditive":
+        raise RuntimeError("骨骼控制之前已存在后震叠加")
+
+    body_filters = (("spine_01", 0), ("neck_01", -1), ("hand_l", -1), ("hand_r", -1))
+    head_filters = (("neck_01", 0),)
+
+    def mask_node(filters, position):
+        """ /** @param filters 骨骼分支 @param position 图表位置 @return 局部加法筛选节点 */ """
+        node = library.create_native_animation_node(graph, unreal.AnimGraphNode_LayeredBoneBlend.static_class(), position)
+        runtime = node.get_editor_property("node")
+        branches = []
+        for name, depth in filters:
+            branch = unreal.BranchFilter()
+            branch.set_editor_properties({"bone_name": name, "blend_depth": depth})
+            branches.append(branch)
+        layer = unreal.InputBlendPose()
+        layer.set_editor_property("branch_filters", branches)
+        runtime.set_editor_property("layer_setup", [layer])
+        node.set_editor_property("node", runtime)
+        return node
+
+    body_position = skeletal_node.get_node_pos()
+    head_position = head_apply.get_node_pos()
+    with unreal.ScopedEditorTransaction("分配共用后震骨骼"):
+        neutral = library.create_native_animation_node(graph, unreal.AnimGraphNode_IdentityPose.static_class(),
+            unreal.IntPoint(head_position.x - 640, head_position.y + 360))
+        body_mask = mask_node(body_filters, unreal.IntPoint(body_position.x - 610, body_position.y + 190))
+        head_mask = mask_node(head_filters, unreal.IntPoint(head_position.x - 260, head_position.y + 190))
+        body_apply = library.create_native_animation_node(graph, unreal.AnimGraphNode_ApplyAdditive.static_class(),
+            unreal.IntPoint(body_position.x - 240, body_position.y))
+        for mask in (body_mask, head_mask):
+            _link(neutral.find_output_pin("Pose"), mask.find_input_pin("BasePose"))
+            _link(evaluator_pin, mask.find_input_pin("BlendPoses_0"))
+
+        pre_aim_input.break_pin_links()
+        _link(pre_aim_base, body_apply.find_input_pin("Base"))
+        _link(body_mask.find_output_pin("Pose"), body_apply.find_input_pin("Additive"))
+        _link(alpha_pin, body_apply.find_input_pin("Alpha"))
+        _link(body_apply.find_output_pin("Pose"), pre_aim_input)
+        head_apply.find_input_pin("Additive").break_pin_links()
+        _link(head_mask.find_output_pin("Pose"), head_apply.find_input_pin("Additive"))
+
+        controller = animation.controller
+        controller.open_bracket("写入共用躯干 双臂与头部后震", False)
+        try:
+            for name, rotation in rotations.items():
+                value = reference.get_bone_pose(name, space.LOCAL)
+                if not controller.set_bone_track_keys(tracks[name], [value.translation] * 2, [rotation] * 2, [value.scale3d] * 2, False):
+                    raise RuntimeError("写入后震骨轨失败 " + name)
+        finally:
+            controller.close_bracket(False)
+
+    actual = {}
+    for name in (*rotations, *neutral_bones):
+        original = reference.get_bone_pose(name, space.LOCAL)
+        actual[name] = []
+        for frame in (0, 1):
+            pose = animation.get_anim_pose_at_frame(frame, options)
+            value = pose.get_bone_pose(name, space.LOCAL)
+            angle = _angle(original.rotation, value.rotation)
+            expected = rotations.get(name, original.rotation)
+            if _angle(expected, value.rotation) > 0.025 or _length(original.translation - value.translation) > 0.002:
+                raise RuntimeError("后震轨道回读不一致 " + name)
+            actual[name].append(angle)
+        if name in rotations and max(actual[name]) < 0.025:
+            raise RuntimeError("后震轨道没有有效旋转 " + name)
+
+    unreal.BlueprintToolset.compile_blueprint(main, warnings_as_errors=True)
+    if main.get_editor_property("status") != unreal.BlueprintStatus.BS_UP_TO_DATE:
+        raise RuntimeError("主动画蓝图编译失败 尚未保存")
+    for asset in (animation, main):
+        if not unreal.EditorAssetLibrary.save_loaded_asset(asset, False):
+            raise RuntimeError("后震资产保存失败 " + asset.get_path_name())
+    return {"saved": True, "compiled": True, "bodyFilters": body_filters, "headFilters": head_filters,
+            "angles": actual, "sequence": animation.get_path_name()}
+
+
 def sample_recoil_runtime(action, seconds, file_prefix):
     """
     /**

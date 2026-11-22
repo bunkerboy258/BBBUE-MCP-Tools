@@ -199,6 +199,7 @@ TOOL_POLICIES = {
     'animation.inspect_pie_arm_pose': {'access': 'read'},
     'animation.limit_hand_swing_tracks': {'scope': {'fields': ['animation_paths']}},
     'animation.merge_recoil_into_full_body_additives': {'scope': {'fields': ['interface_path', 'base_path', 'main_path', 'dependent_paths']}},
+    'animation.configure_split_body_recoil': {'scope': {'fields': ['main_path', 'animation_path']}},
     'animation.configure_continuous_body_recoil': {'scope': {'fields': ['base_path', 'main_path', 'animation_path']}},
     'animation.migrate_animation_data_accesses': {'scope': {'fields': ['blueprint_paths']}},
     'animation.probe_animation_assets': {'access': 'read'},

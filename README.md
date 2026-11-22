@@ -1,5 +1,7 @@
 # BBBUE MCP Tools
 
+`animation.configure_split_body_recoil` 通过同一共用加法序列和权重 分别在骨骼控制前应用躯干及双臂后震 在头部稳定后应用头颈后震。UE 5.9 主动画蓝图编译与保存通过 已回读两个骨骼筛选 双臂旋转和双手零额外偏移。
+
 `animation.configure_continuous_body_recoil` 将共享身体后震叠加移动到左手求解前并绑定持续强度。只保存指定的两个角色蓝图和共享加法序列。
 
 `animation.rewrite_animation_node_binding_paths` 接受空旧路径 供未连接的动画节点输入建立属性访问。已在 UE 5.9 核对 AimIK 最小目标距离引脚与读取路径并编译保存。
