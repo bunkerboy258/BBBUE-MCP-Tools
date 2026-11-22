@@ -196,6 +196,32 @@ def _finish(sequence, spec):
         raise RuntimeError('动作裁剪范围错误 '+sequence.get_path_name())
     poses = [sequence.get_anim_pose_at_frame(i, _options()) for i in range(start, end+1)]
     names = list(model.get_bone_track_names())
+    root_frame = spec.get('root_lock_frame', 0)
+    if not 0 <= root_frame <= total:
+        raise RuntimeError('根骨基准帧超出动作范围')
+    root_pose = sequence.get_anim_pose_at_frame(root_frame, _options()).get_bone_pose('root', unreal.AnimPoseSpaces.LOCAL)
+    if 'root_reference' in spec:
+        reference = _asset(spec['root_reference'], unreal.AnimSequence)
+        if reference == sequence or reference.get_skeleton() != sequence.get_skeleton():
+            raise RuntimeError('根骨基准动作与目标骨架不符')
+        root_pose = reference.get_anim_pose_at_frame(0, _options()).get_bone_pose('root', unreal.AnimPoseSpaces.LOCAL)
+    pose_adjustments = {}
+    for role in ('entry_pose', 'exit_pose', 'body_pose'):
+        if role not in spec:
+            continue
+        definition = spec[role]
+        reference = _asset(definition['asset'], unreal.AnimSequence)
+        frame = definition['frame']
+        frames = definition.get('blend_frames', 6)
+        strength = definition.get('strength', 1.0)
+        bones = {str(name) for name in names}
+        selected = set(definition.get('bones', bones)) - {'root'}
+        if reference == sequence or reference.get_skeleton() != sequence.get_skeleton() or not selected or not selected <= bones:
+            raise RuntimeError('动作衔接姿势与目标骨架或骨轨不匹配 '+role)
+        if not 0 <= frame < reference.data_model_interface.get_number_of_keys() or not 2 <= frames <= len(poses) or not 0 < strength <= 1:
+            raise RuntimeError('动作衔接采样或混合范围无效 '+role)
+        pose = reference.get_anim_pose_at_frame(frame, _options())
+        pose_adjustments[role] = (pose, frames, strength, selected)
     controller = sequence.controller
     controller.open_bracket('打磨自有特感动作', False)
     try:
@@ -207,11 +233,34 @@ def _finish(sequence, spec):
         for name in names:
             values = [pose.get_bone_pose(name, unreal.AnimPoseSpaces.LOCAL) for pose in poses]
             if str(name) == 'root':
-                values = [values[0] for _ in values]
+                values = [root_pose for _ in values]
+            if str(name) == 'pelvis' and spec.get('preserve_component_pelvis'):
+                for value, pose in zip(values, poses):
+                    pelvis = pose.get_bone_pose(name, unreal.AnimPoseSpaces.WORLD)
+                    value.translation = root_pose.inverse_transform_location(pelvis.translation)
+            for role, (pose, frames, strength, selected) in pose_adjustments.items():
+                if str(name) not in selected:
+                    continue
+                target = pose.get_bone_pose(name, unreal.AnimPoseSpaces.LOCAL)
+                indices = range(len(values))
+                if role == 'entry_pose':
+                    indices = range(frames)
+                if role == 'exit_pose':
+                    indices = range(len(values)-frames, len(values))
+                for index in indices:
+                    alpha = strength
+                    if role == 'entry_pose':
+                        alpha *= _ease(1-index/(frames-1))
+                    if role == 'exit_pose':
+                        alpha *= _ease((index-(len(values)-frames))/(frames-1))
+                    value = values[index]
+                    value.translation = value.translation*(1-alpha)+target.translation*alpha
+                    value.rotation = _slerp(value.rotation, target.rotation, alpha)
+                    value.scale3d = value.scale3d*(1-alpha)+target.scale3d*alpha
+                    values[index] = value
             if spec.get('loop'):
                 for index in range(len(values)-tail, len(values)):
-                    alpha = (index-(len(values)-tail))/(tail-1)
-                    alpha = alpha*alpha*alpha*(alpha*(alpha*6-15)+10)
+                    alpha = _ease((index-(len(values)-tail))/(tail-1))
                     value = values[index]
                     target = values[0]
                     value.translation = value.translation*(1-alpha)+target.translation*alpha
@@ -225,6 +274,11 @@ def _finish(sequence, spec):
     sequence.set_editor_property('enable_root_motion', False)
     sequence.set_editor_property('force_root_lock', True)
     return _motion(sequence, 9)
+
+
+def _ease(alpha):
+    """呈现端点混合在首尾平缓进入和退出。"""
+    return alpha*alpha*alpha*(alpha*(alpha*6-15)+10)
 
 
 def _pin_helpers(sequence, mesh):

@@ -47,14 +47,15 @@ class BBBAnimationGraphToolset(unreal.ToolsetDefinition):
     @mcp_tool
     @staticmethod
     def configure_special_infected_actions(asset_path: str, sequence_paths: list[str]) -> str:
-        """/** @param asset_path 自有特感事实动画图 @param sequence_paths 蓄力 冲撞 恢复 喷吐四个同骨架序列 @return 编译保存结果 */"""
-        if not asset_path.startswith('/Game/_Project/') or len(sequence_paths) != 4:
-            raise RuntimeError('需要明确的特感动画图与四个动作')
+        """/** @param asset_path 自有特感事实动画图 @param sequence_paths 同骨架动作按阶段编号排列 未使用位留空 @return 编译保存结果 */"""
+        if not asset_path.startswith('/Game/_Project/Mass/Monster/SpecialInfected/') or not 1 <= len(sequence_paths) <= 10 or not any(sequence_paths):
+            raise RuntimeError('需要明确的特感动画图与一至十个动作位置')
         if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
             raise RuntimeError('PIE 期间等待特感构图')
         blueprint = unreal.load_asset(asset_path)
-        sequences = [unreal.load_asset(path) for path in sequence_paths]
-        if not isinstance(blueprint, unreal.AnimBlueprint) or any(not isinstance(value, unreal.AnimSequence) for value in sequences):
+        sequences = [unreal.load_asset(path) if path else None for path in sequence_paths]
+        if not isinstance(blueprint, unreal.AnimBlueprint) or any(path and not isinstance(value, unreal.AnimSequence)
+                for path, value in zip(sequence_paths, sequences)):
             raise RuntimeError('动画图或序列类型错误')
         require_asset_write([blueprint])
         if not unreal.BBBAnimationGraphEditorLibrary.configure_special_infected_actions(blueprint, sequences):

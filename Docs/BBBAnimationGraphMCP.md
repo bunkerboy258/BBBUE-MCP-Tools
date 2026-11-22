@@ -55,13 +55,15 @@
 
 普通运动由 GASP MM 生成 倒地等待 接受救援 帮扶与起身使用后置 FullBody 蒙太奇。主图清理使用 [运动匹配工具](BBBMotionMatchingMCP.md) 的 motion_matching.configure_character_montage_graph 不修改空手库和装备层。僵尸事实动画工具保持独立。
 
-`configure_special_infected_actions(asset_path, sequence_paths)` 只用于已重建的特感事实图.四个同骨架序列依次为蓄力 冲撞 恢复 喷吐.冲撞读取 SpecialLoopPhaseFact 按实际移动速度与表现配置步幅循环采样.其余阶段读取 SpecialProgressFact.五个入口通过线程安全 GetSpecialBlendDuration 读取唯一表现配置中的混合时长.死亡 爬行 踉跄与攀爬优先于技能姿态.原生构图后无警告编译并保存.不在 PIE 期间编辑.
+`configure_special_infected_actions(asset_path, sequence_paths)` 在特感事实图上原位重建动作分支。最多十个同骨架序列，依次是蓄力、冲撞、恢复、喷吐、潜行、狂攻起势、受阻收势、左移、右移和后退。未使用的位置传空字符串。冲撞按实际推进距离与表现步幅读取 `SpecialLoopPhaseFact`。潜行和三个方向步态读取 `LoopPhaseFact`，其余动作读取 `SpecialProgressFact`。混合时长由表现配置提供。死亡、爬行、踉跄与攀爬优先于此分支。工具编译并保存蓝图，等待 PIE 结束后再操作。
 
 `build_special_infected_assets(destination_root, prefab_root, recipe)` 为四类特感的明确自有目录建立逻辑 表现 实体模板 载体 动画蓝图和速度混合.制作描述必须指定 source_logic source_presentation source_actor mesh sequences sample_speeds logic_properties presentation_properties 以及可选 special_properties.九个同骨架序列依次为待机 行走 跑步 攻击 死亡 蓄力 冲撞 恢复 喷吐.预制资源目录必须是 Shared/Injury 下同名变体.已有输出只允许复用相同制作描述指纹 并拒绝覆盖其它来源.通过标准 IK Rig 与 IK Retargeter 生成同骨架的正式序列 并装配爬行 踉跄和攀爬.制作描述 stage=animations 可在无渲染宿主仅准备二十二个动作序列.材质适配和完整表现校验后保存完成标记 失败前已经保存的自有输出可按相同指纹继续.预制网格必须提前离线制作 不进行运行时切割.
 
-同一入口支持离线打磨阶段. `stage=survey` 与 `sources` 明确列出一至三十二份序列 返回头 手 脚及骨盆轨迹和首尾误差. `stage=polish_animations` 的 `animations` 按角色名指定 `source` 与可选 `frames:[首帧,末帧]` 和 `loop` 使用原位重定向 锁根及尾部混合保存动作.制作指纹只复用相同输入 拒绝覆盖非本工具资产. `stage=polish_physics` 使用现有物理与受击配置内核写入 `physics` `profiles` 及 `hit_properties` 不改变血量与触发裁决.
+同一入口支持离线打磨。`stage=survey` 使用 `sources` 指定一至三十二份序列，回读骨盆、头、手、脚的组件空间轨迹和首尾误差。`stage=polish_animations` 在 `animations` 中为每个动作指定 `source`，可选 `frames` 裁剪区间和 `loop` 循环收尾。`root_lock_frame` 默认使用重定向源的第 0 帧，连续片段应共用同一根骨基准。可按需加入 `entry_pose`、`exit_pose` 或 `body_pose`。每项用 `asset` 和 `frame` 选择同骨架的参考姿态，可用 `bones` 限定骨轨，用 `strength` 调整权重，并用 `blend_frames` 控制首尾混合长度。工具拒绝覆盖非本工具制作的资产。`stage=polish_physics` 使用现有物理与受击配置内核写入 `physics`、`profiles` 与 `hit_properties`。
 
 `stage=polish_retargeters` 先按双肩横向校准目标根骨朝向 再清空旧姿势偏移. 原生同形身体保持源参考姿势 共享动作按校准后的目标重新对齐. 两套重定向器复制源根轨并固定辅助骨到实际手脚. 随后通过 `polish_animations` 原位重建明确动作 动作复用指纹包含当前姿势与操作栈. 原生动作额外保留参考姿势及父级一致的非链附属骨 例如触须 下颌和扭转骨 参考姿势不一致时拒绝直接复制. 循环收尾后重新生成辅助手脚轨道 并记录明确制作参数 不改变源第三方资源或运行时逻辑.
+
+不同原片的动作可用 `root_reference` 指定同骨架参考序列的首帧根骨。已通过组件空间采样确认原片为原地动作时，可用 `preserve_component_pelvis` 保留锁根前的骨盆位置，避免裁掉根骨运动后把原来被抵消的位移留在骨盆上。
 
 `stage=polish_motion_timing` 从当前三份速度混合空间读取既有六个速度点 按新动作的支撑脚位移重算步频和突进步幅. 仅保存唯一表现配置 不重建动画图 不改变速度与技能时机. 在 `polish_animations` 完成后调用.
 
