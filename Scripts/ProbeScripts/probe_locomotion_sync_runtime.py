@@ -207,28 +207,20 @@ class BBBLocomotionSyncRuntimeProbe:
 
     def find_local_anim_instances(self, world):
         results = []
-        actors = unreal.GameplayStatics.get_all_actors_of_class(
-            world,
-            unreal.Character,
-        )
-
-        for actor in actors:
-            try:
-                if not actor.is_locally_controlled():
-                    continue
-
-                mesh = actor.get_component_by_class(unreal.SkeletalMeshComponent)
-                if mesh is None:
-                    continue
-
-                anim_instance = mesh.get_anim_instance()
-                if anim_instance is None:
-                    continue
-
-                results.append((actor, mesh, anim_instance))
-            except Exception:
+        for index in range(unreal.GameplayStatics.get_num_player_controllers(world)):
+            controller = unreal.GameplayStatics.get_player_controller(world, index)
+            if controller is None or not controller.is_local_controller():
                 continue
-
+            actor = controller.get_controlled_pawn()
+            if not isinstance(actor, unreal.Character):
+                continue
+            mesh = actor.get_editor_property("mesh")
+            if mesh is None:
+                continue
+            anim_instance = mesh.get_anim_instance()
+            if not isinstance(anim_instance, unreal.BBBAnimInstance):
+                continue
+            results.append((actor, mesh, anim_instance))
         return results
 
     def read_curves(self, anim_instance):

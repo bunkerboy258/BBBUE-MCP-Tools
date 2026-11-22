@@ -89,6 +89,8 @@ with McpSession(task="核对资产") as session:
 
 正常关闭共享编辑器使用 `control_task(action="shutdown_host")`。零级支持 `pause_operator`、`resume_operator`、`cancel_blocker` 和 `terminate_host`；暂停默认六十秒，上限三百秒。
 
+2026-11-22：移动动画逐帧探针通过本地玩家控制器锁定项目角色动画实例。用报告中的 runtime_sample 和 actor 身份确认开始采集；本地玩家、远端玩家和非项目动画实例混合时的选择逻辑已检查。
+
 ## 启动与更新
 
 环境为 Windows、UE 5.9、项目编辑器模块、Python 与 `requests`。项目 Python 搜索路径指向本仓库 `Scripts`，由 `init_unreal.py` 接入独立常驻服务。
