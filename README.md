@@ -1,5 +1,7 @@
 # BBBUE MCP Tools
 
+2026-11-23 角色内描边使用明确的自定义模板纹理编号 分开计算邻点坐标 修复 UE 5.9 误识别纹理编号后回退默认材质的问题
+
 2026-11-22 新增 `monster_director` 领域工具（`inspect_directors` / `collect_regions` / `validate_director` / `preview_spawn` / `read_pie_status` / `control_pie`），桥接 `UBBBMonsterDirectorEditorLibrary`，支持 L4D 推进式关卡导演的检查、区域收集、三通道出生预览与 PIE 调试。详见 [关卡导演工具](Docs/BBBMonsterDirectorMCP.md)。
 
 `animation.configure_split_body_recoil` 通过同一共用加法序列和权重 分别在骨骼控制前应用躯干及双臂后震 在头部稳定后应用头颈后震。UE 5.9 主动画蓝图编译与保存通过 已回读两个骨骼筛选 双臂旋转和双手零额外偏移。

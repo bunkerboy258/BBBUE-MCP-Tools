@@ -35,7 +35,7 @@ def configure_inner_outline_material(material_path):
         inputs.append(entry)
     custom.set_editor_property("inputs", inputs)
     custom.set_editor_property("code", r"""
-float2 uv = GetDefaultSceneTextureUV(Parameters, 25);
+float2 uv = GetDefaultSceneTextureUV(Parameters, PPI_CustomStencil);
 float stencil = CenterStencil.r;
 float primary = 1.0 - step(0.5, abs(stencil - MaskStencil));
 float secondary = 1.0 - step(0.5, abs(stencil - SecondaryStencil));
@@ -52,7 +52,9 @@ float nearMask = 1.0;
 float2 offsets[4] = {float2(1,0), float2(-1,0), float2(0,1), float2(0,-1)};
 [unroll] for (int i = 0; i < 4; ++i)
 {
-    float other = SceneTextureLookup(uv + offsets[i] * pixel, 25, false).r;
+    // NOTE: 分开计算坐标 避免 UE 5.9 将循环下标识别为场景纹理编号
+    float2 neighborUV = uv + offsets[i] * pixel;
+    float other = SceneTextureLookup(neighborUV, PPI_CustomStencil, false).r;
     nearMask = min(nearMask, 1.0 - step(0.5, abs(other - selectedStencil)));
 }
 float edge = (1.0 - nearMask) * marked * visible * saturate(opacity) * step(0.01, width);
