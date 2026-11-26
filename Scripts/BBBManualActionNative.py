@@ -1312,7 +1312,7 @@ def _copy_sequence(sequence, scope, name):
     return copied
 
 
-def _export(sequence, source, mesh, scope, name, duplicate=True, require_source_tracks=True):
+def _export(sequence, source, mesh, scope, name, duplicate=True, require_source_tracks=True, keep_visible_wrist=False):
     """/** @param sequence\t制作序列 @param source\t源动画 @param mesh\t网格 @param scope\t瞬态作用域 @param name\t名称 @return\t官方直接导出结果 */"""
     copied = sequence
     if duplicate:
@@ -1348,7 +1348,7 @@ def _export(sequence, source, mesh, scope, name, duplicate=True, require_source_
         raise RuntimeError('NATIVE_ACTION_EXPORT_MISSING_BONES: expected=' + str(len(expected_bones))
             + ' exported=' + str(len(exported_bones)))
     encoded = unreal.EditorAssetLibrary.get_metadata_tag(sequence, 'BBB_RuntimeRightWristPreview')
-    if encoded:
+    if encoded and not keep_visible_wrist:
         inverse = unreal.Quat(*json.loads(encoded)).inversed()
         values = list(unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(result, 'hand_r'))
         if not values:

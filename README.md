@@ -1,5 +1,7 @@
 # BBBUE MCP Tools
 
+`control_rig.bake_control_rig_animation` 支持用 `dry_run` 逐骨对照正式序列与瞬态原生烘焙 并通过 `keep_visible_wrist` 检查未经右腕逆补偿的可见姿势。已在 UE 5.9 对照 Mossberg 590 三段装填序列。
+
 2026-11-23 角色内描边使用明确的自定义模板纹理编号 分开计算邻点坐标 修复 UE 5.9 误识别纹理编号后回退默认材质的问题
 
 2026-11-22 新增 `monster_director` 领域工具（`inspect_directors` / `collect_regions` / `validate_director` / `preview_spawn` / `read_pie_status` / `control_pie`），桥接 `UBBBMonsterDirectorEditorLibrary`，支持 L4D 推进式关卡导演的检查、区域收集、三通道出生预览与 PIE 调试。详见 [关卡导演工具](Docs/BBBMonsterDirectorMCP.md)。

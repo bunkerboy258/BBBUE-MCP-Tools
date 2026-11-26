@@ -419,17 +419,19 @@ def _pose(animation, mesh, time):
     return unreal.AnimPoseExtensions.get_anim_pose_at_time(animation, time, options)
 
 
-def _bake_existing_animation(sequence, animation, mesh, validate_bake=None, static_frame=False):
+def _bake_existing_animation(sequence, animation, mesh, validate_bake=None, static_frame=False, keep_visible_wrist=False, dry_run=False):
     """/** @param sequence 已审核的制作序列 @param animation 已有正式动画 @param mesh 预览网格 @param validate_bake 可选的瞬态候选检查 @return 保持时序和元数据的骨轨更新结果 */"""
     from BBBAnimationTrajectoryTools import replace_tracks
     from BBBManualActionNative import _export
 
-    require_write_access(animation)
+    if not dry_run:
+        require_write_access(animation)
     if animation.get_editor_property('additive_anim_type') != unreal.AdditiveAnimationType.AAT_NONE:
         raise RuntimeError('现有加法动画须使用对应的加法烘焙流程')
 
     outer = unreal.new_object(unreal.LevelSequence, name='BBBPoseBake_' + uuid.uuid4().hex)
-    baked = _export(sequence, animation, mesh, outer, 'ApprovedPose', require_source_tracks=False)
+    baked = _export(sequence, animation, mesh, outer, 'ApprovedPose', require_source_tracks=False,
+                    keep_visible_wrist=keep_visible_wrist)
     if validate_bake is not None:
         validate_bake(baked)
     data = animation.data_model_interface
@@ -449,6 +451,23 @@ def _bake_existing_animation(sequence, animation, mesh, validate_bake=None, stat
             tracks[name].append(_read_transform(value))
 
     path = animation.get_path_name().split('.')[0]
+    if dry_run:
+        differences = {}
+        for name, keys in tracks.items():
+            existing = unreal.BBBBlueprintEditorLibrary.get_animation_bone_track_transforms(animation, name)
+            if len(existing) != len(keys):
+                raise RuntimeError("审计骨轨长度不匹配 " + name)
+            position_error = 0.0
+            rotation_error = 0.0
+            for original, requested in zip(existing, keys):
+                position_error = max(position_error, (original.translation - unreal.Vector(*requested["position"])).length())
+                current = original.rotation.normalized()
+                candidate = unreal.Quat(*requested["rotation"]).normalized()
+                dot = abs(sum(a * b for a, b in zip(current.to_tuple(), candidate.to_tuple())))
+                rotation_error = max(rotation_error, math.degrees(2.0 * math.acos(min(1.0, dot))))
+            if position_error > 0.01 or rotation_error > 0.05:
+                differences[name] = {"positionCm": position_error, "rotationDeg": rotation_error}
+        return json.dumps({"asset": path, "keys": data.get_number_of_keys(), "differences": differences}, ensure_ascii=False)
     result = json.loads(replace_tracks(path, json.dumps(tracks)))
     result.update({'animation': animation.get_path_name(), 'length': animation.get_play_length(), 'metadata_preserved': True})
     return json.dumps(result)
@@ -1657,7 +1676,8 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
-    def bake_control_rig_animation(sequence_path: str, animation_path: str, mesh_path: str) -> str:
+    def bake_control_rig_animation(sequence_path: str, animation_path: str, mesh_path: str,
+                                   keep_visible_wrist: bool = False, dry_run: bool = False) -> str:
         """
         /**
          * 将指定控制绑定序列通过官方烘焙器导出到明确的动画路径
@@ -1672,6 +1692,13 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         binding = _mesh_binding(sequence, mesh)
         if not binding.find_tracks_by_type(unreal.MovieSceneControlRigParameterTrack):
             raise RuntimeError("序列缺少控制绑定轨道")
+
+        if unreal.EditorAssetLibrary.does_asset_exist(animation_path):
+            animation = _asset(animation_path, unreal.AnimSequence)
+            return _bake_existing_animation(sequence, animation, mesh,
+                                            keep_visible_wrist=keep_visible_wrist, dry_run=dry_run)
+        if dry_run or keep_visible_wrist:
+            raise RuntimeError('比对或保留制作右腕要求已有正式动画')
 
         source_animations = []
         for track in binding.find_tracks_by_type(unreal.MovieSceneSkeletalAnimationTrack):
@@ -1724,10 +1751,6 @@ class BBBControlRigAuthoringToolset(unreal.ToolsetDefinition):
         /**
          * 读取绑定实际导入的参考骨骼局部与组件姿势
          * @param asset_path	控制绑定
-        if unreal.EditorAssetLibrary.does_asset_exist(animation_path):
-            animation = _asset(animation_path, unreal.AnimSequence)
-            return _bake_existing_animation(sequence, animation, mesh)
-
          * @param bone_names	明确骨骼列表
          * @return 原始参考变换
          */
