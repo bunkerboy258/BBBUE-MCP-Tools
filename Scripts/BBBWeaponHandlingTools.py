@@ -355,41 +355,14 @@ class _Graph:
         raise RuntimeError("结构拆分输入缺失 " + struct_name)
 
 
-def _find_function_graph(blueprint, name):
-    """/** @param blueprint 蓝图 @param name 函数名 @return 已有函数图 */"""
-    path_name = blueprint.get_path_name()
-    direct = unreal.load_object(None, path_name + ":" + name)
-    if direct is not None:
-        return direct
-    generated = unreal.BlueprintEditorLibrary.add_function_graph(blueprint, name)
-    if generated is not None and generated.get_name() == name:
-        editor = unreal.BlueprintGraphEditor.get_graph_editor(generated)
-        nodes = list(editor.list_all_nodes())
-        if len(nodes) > 1:
-            return generated
-    raise RuntimeError("无法定位函数图 " + path_name + ":" + name)
-
-
 def _function(blueprint, name):
-    graph = _find_function_graph(blueprint, name)
+    graph = unreal.BlueprintEditorLibrary.add_function_graph(blueprint, name)
     editor = unreal.BlueprintGraphEditor.get_graph_editor(graph)
-    keep = (unreal.K2Node_FunctionEntry, unreal.K2Node_FunctionResult)
-    for _ in range(8):
-        nodes = list(editor.list_all_nodes())
-        entry = next((node for node in nodes if isinstance(node, unreal.K2Node_FunctionEntry)), None)
-        if entry is None:
-            raise RuntimeError("函数入口缺失 " + name)
-        for node in nodes:
-            if isinstance(node, keep):
-                for pin in node.list_all_pins():
-                    pin.break_pin_links()
-        removable = [node for node in nodes if not isinstance(node, keep)]
-        if not removable:
-            break
-        editor.remove_nodes(removable)
-    leftover = [node.get_name() for node in editor.list_all_nodes() if not isinstance(node, keep)]
-    if leftover:
-        raise RuntimeError("函数体清空失败 " + name + " " + str(leftover))
+    nodes = list(editor.list_all_nodes())
+    editor.remove_nodes([node for node in nodes if not isinstance(node, (unreal.K2Node_FunctionEntry, unreal.K2Node_FunctionResult))])
+    for node in editor.list_all_nodes():
+        for pin in node.list_all_pins():
+            pin.break_pin_links()
     return _Graph(graph)
 
 
@@ -621,72 +594,37 @@ def configure_continuous_bone_rotation(blueprint_path, bone_name, snapshot_prope
     return {"asset": blueprint_path, "bone": bone_name, "snapshotProperties": snapshot_properties, "saved": True}
 
 
-def _entry_character_pin(entry):
-    """/** @param entry 函数入口 @return 角色动画输出引脚 */"""
-    outputs = list(entry.list_output_pins())
-    names = [str(pin.get_pin_name()) for pin in outputs]
-    for pin in outputs:
-        if str(pin.get_pin_name()).replace(" ", "") == "CharacterAnimation":
-            return pin
-    object_pins = [pin for pin in outputs if "Object" in str(pin.get_pin_type()) or "BBBAnimInstance" in str(getattr(pin, "get_pin_type", lambda: "")())]
-    if len(object_pins) == 1:
-        return object_pins[0]
-    raise RuntimeError("函数入口缺少角色动画引脚 " + entry.get_name() + " " + str(names))
-
-
 def configure_camera_recoil(blueprint_path):
     """
     /**
-     * 在相机蓝图中选择武器动画快照的腰射 瞄准 空中 下蹲与原地镜头冲击
+     * 在相机蓝图中选择武器动画快照的腰射 瞄准及空中镜头贡献
      * @param blueprint_path	相机蓝图资产
-     * @return 编译结果 不自动保存 回正速度由角色相机配置提供
+     * @return 编译结果 不自动保存
      */
     """
     blueprint = unreal.load_asset(blueprint_path)
     require_write_access(blueprint)
-    graphs = []
-    for attr in ("get_function_graphs", "function_graphs"):
-        getter = getattr(blueprint, attr, None)
-        if callable(getter):
-            graphs = list(getter())
-            break
-        if getter is not None:
-            graphs = list(getter)
-            break
-    graph_report = []
-    for graph in graphs:
-        name = graph.get_name() if hasattr(graph, "get_name") else str(graph)
-        if "ReadRecoil" not in name and "RecoilSource" not in name:
-            continue
-        editor = unreal.BlueprintGraphEditor.get_graph_editor(graph)
-        entries = [node for node in editor.list_all_nodes() if isinstance(node, unreal.K2Node_FunctionEntry)]
-        pins = []
-        if entries:
-            pins = [str(pin.get_pin_name()) for pin in entries[0].list_output_pins()]
-        graph_report.append({"graph": name, "nodes": len(list(editor.list_all_nodes())), "entry_pins": pins})
     g = _function(blueprint, "ReadRecoilSource")
     entry = next(node for node in g.editor.list_all_nodes() if isinstance(node, unreal.K2Node_FunctionEntry))
-    try:
-        character = _entry_character_pin(entry)
-    except RuntimeError as error:
-        raise RuntimeError(str(error) + " graphs=" + str(graph_report)) from error
+    character = g.out(entry, "CharacterAnimation")
     branch, weapon = _weapon_source(g, character, entry.find_then_pin())
     aiming, falling = _aim_air(g, character)
     hip = g.break_struct(_weapon_get(g, weapon, "GetHipFireCameraSettings"), "BBBPlayerCameraRecoilSettings")
     ads = g.break_struct(_weapon_get(g, weapon, "GetAimFireCameraSettings"), "BBBPlayerCameraRecoilSettings")
     source_settings = {}
     impulse_scale = g.select(_weapon_get(g, weapon, "GetAirborneCameraImpulseScale"), 1, falling)
+    recovery_scale = g.select(_weapon_get(g, weapon, "GetAirborneCameraRecoveryScale"), 1, falling)
     crouching = g.get("bSourceCrouching", character, "/Script/ABBB_Evac.BBBAnimInstance")
     crouched_impulse = g.select(_weapon_get(g, weapon, "GetCrouchedCameraImpulseScale"), 1, crouching)
-    stationary = g.out(g.call("/Script/ABBB_Evac.BBBAnimInstance.IsStationaryForRecoil", character))
-    stationary_impulse = g.select(_weapon_get(g, weapon, "GetStationaryCameraImpulseScale"), 1, stationary)
+    crouched_recovery = g.select(_weapon_get(g, weapon, "GetCrouchedCameraRecoveryScale"), 1, crouching)
     impulse_scale = g.binary("Multiply_DoubleDouble", impulse_scale, crouched_impulse)
-    impulse_scale = g.binary("Multiply_DoubleDouble", impulse_scale, stationary_impulse)
+    recovery_scale = g.binary("Multiply_DoubleDouble", recovery_scale, crouched_recovery)
     for name in ("ImpulseDegrees", "RandomDegrees", "LimitDegrees"):
         value = g.out(g.call("SelectVector", inputs={"A": g.out(ads, name), "B": g.out(hip, name), "bPickA": aiming}))
         if name != "LimitDegrees":
             value = g.binary("Multiply_VectorFloat", value, impulse_scale)
         source_settings[name] = value
+    source_settings["RecoverySpeed"] = g.binary("Multiply_DoubleDouble", g.select(g.out(ads, "RecoverySpeed"), g.out(hip, "RecoverySpeed"), aiming), recovery_scale)
     source_settings["PitchRetention"] = g.select(g.out(ads, "PitchRetention"), g.out(hip, "PitchRetention"), aiming)
     available = list(g.editor.list_available_nodes([]))
     matches = [name for name in available if name.rsplit("|", 1)[-1] == "MakeBBBPlayerCameraRecoilSettings"]
