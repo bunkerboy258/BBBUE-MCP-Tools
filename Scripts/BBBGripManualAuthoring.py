@@ -168,7 +168,7 @@ def prepare(recipe, path, project):
         hierarchy.set_control_shape_transform(control, unreal.Transform(scale=unreal.Vector(size, size, size)), True)
         controls.append(control_name)
 
-    source = _asset('/Game/_Project/Characters/BBBC_UA/Rigs/CR_BBB_UA_LeftHand', unreal.ControlRigBlueprint).get_controller().get_graph()
+    source = _asset('/Game/_Project/Characters/Rigs/CR_BBB_UA_LeftHand', unreal.ControlRigBlueprint).get_controller().get_graph()
     nodes = []
     for node in source.get_nodes():
         defaults = {pin.get_name(): pin.get_default_value() for pin in node.get_pins()
