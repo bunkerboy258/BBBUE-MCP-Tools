@@ -21,7 +21,6 @@ from MCP.mcp_jobs import JobQueue, JobConflict
 from MCP.mcp_response import response, argument_failure, next_call
 from MCP.mcp_asset_scope import asset_targets
 from MCP.mcp_project_host import project_identity
-from MCP.mcp_test_hosts import ProjectJobs
 from MCP.mcp_result import McpBusinessError, public_value, requested_values_match, property_schema, native_property_values
 
 
@@ -31,7 +30,7 @@ def public_tools():
         ("manage_operator", "登记单行任务 更新等级或结束逻辑会话 默认2级", {"action": {"type": "string", "enum": ["join", "update", "finish"], "default": "join"}, "task": {"type": "string", "minLength": 1, "maxLength": 20}, "level": {"type": "integer", "enum": [0, 1, 2]}, "operator": {"type": "string"}}, []),
         ("find_tools", "按中英文目标搜索 最多三项 首项包含调用参数", {"query": {"type": "string", "minLength": 1}, "limit": {"type": "integer", "minimum": 1, "maximum": 3, "default": 3}}, ["query"]),
         ("describe_tool", "读取一个工具的参数与权限", {"tool": {"type": "string"}}, ["tool"]),
-        ("submit_batch", "自动保存目标并执行 操作冲突自动排队 按next继续", {"operations": {"type": "array", "minItems": 1, "maxItems": 16, "items": {"type": "object", "properties": {"tool": {"type": "string"}, "arguments": {"type": "object"}}, "required": ["tool", "arguments"], "additionalProperties": False}}, "await_seconds": {"type": "number", "minimum": 0, "maximum": 10, "default": 2}, "label": {"type": "string", "maxLength": 120}, "environment": {"type": "string", "enum": ["editor", "test"], "default": "editor"}, "test_host": {"type": "string", "pattern": "^[0-9a-f]{16}$"}, "test_options": {"type": "object", "properties": {"map": {"type": "string", "pattern": "^/(Game|Engine)/[A-Za-z0-9_/]+$"}, "rendering": {"type": "boolean"}, "scene_performance": {"type": "boolean"}, "audio": {"type": "boolean"}, "players": {"type": "integer", "minimum": 1, "maximum": 8}, "net_mode": {"type": "string", "enum": ["standalone", "listen", "client"]}}, "required": ["map"], "additionalProperties": False}}, ["operations"]),
+        ("submit_batch", "自动保存目标并执行 冲突自动排队 PIE测试须单批次闭环并及时StopPIE(空闲30s/总计180s自动回收)", {"operations": {"type": "array", "minItems": 1, "maxItems": 16, "items": {"type": "object", "properties": {"tool": {"type": "string"}, "arguments": {"type": "object"}}, "required": ["tool", "arguments"], "additionalProperties": False}}, "await_seconds": {"type": "number", "minimum": 0, "maximum": 10, "default": 2}, "label": {"type": "string", "maxLength": 120}}, ["operations"]),
         ("inspect_tasks", "读取占用与批次结果 operators=true展开干员池", {"batch": {"type": "string"}, "detail": {"type": "boolean"}, "operators": {"type": "boolean"}, "after_revision": {"type": "integer", "minimum": 0}, "wait_seconds": {"type": "number", "minimum": 0, "maximum": 60}}, []),
         ("control_task", "正常关闭shutdown_host 弹窗inspect_dialog/respond_dialog 批次收尾与0级管理", {"action": {"type": "string", "enum": ["cancel", "close", "recover", "shutdown_host", "inspect_dialog", "respond_dialog", "pause_operator", "resume_operator", "cancel_blocker", "terminate_host"]}, "batch": {"type": "string", "description": "cancel close recover cancel_blocker 的目标批次"}, "operator": {"type": "string", "description": "pause_operator resume_operator 的干员ID"}, "lease_seconds": {"type": "number", "minimum": 1, "maximum": 300, "default": 60}, "host": {"type": "string", "description": "terminate_host 使用 inspect_tasks.hosts.id"}, "dialog": {"type": "string"}, "button": {"type": "string"}}, ["action"]),
     ]
@@ -473,16 +472,78 @@ class UnrealBackend:
 class TaskGateway:
     """/** 五入口公开协议 */"""
 
-    def __init__(self, backend, catalog=None, start_worker=True, test_factory=None, version=None, test_limit=2, test_output_root=None, clients=None, test_restore=None):
+    def __init__(self, backend, catalog=None, start_worker=True, clients=None, event_journal=None, project_key=""):
         """/** @param backend 官方后端 @param catalog 测试目录 @param start_worker 启动执行循环 @return 网关 */"""
         self.catalog = catalog or ToolCatalog(backend)
         backend.catalog = self.catalog
         state_path = Path(backend.project) / "Saved" / "McpState" / "gateway.sqlite" if hasattr(backend, "project") else None
-        self.jobs = ProjectJobs(JobQueue(backend, self.catalog, start_worker=start_worker, state_path=state_path, clients=clients), test_factory, version, test_limit, test_output_root, test_restore)
-        self.clients = self.jobs.editor.clients
+        self.event_journal = event_journal
+        self.project_key = project_key
+        self.jobs = JobQueue(backend, self.catalog, start_worker=start_worker, state_path=state_path, clients=clients,
+            event_journal=event_journal, project_key=project_key)
+        self.clients = self.jobs.clients
         self.tools = {item["name"]: item for item in public_tools()}
 
     def handle(self, method, headers, body):
+        """/** @param method HTTP 方法 @param headers 会话头 @param body 请求 @return 状态 头 响应 */"""
+        if body.get("method") != "tools/call" or self.event_journal is None:
+            return self._handle_request(method, headers, body)
+        parameters = body.get("params") if isinstance(body.get("params"), dict) else {}
+        name = parameters.get("name") if isinstance(parameters.get("name"), str) else "unknown"
+        client = self.clients.resolve(headers.get("Mcp-Session-Id"))
+        source, task = self._event_identity(client, name, parameters.get("arguments", {}))
+        started = time.monotonic()
+        self.event_journal.append(project=self.project_key, source=source, task=task, tool=name, kind="start")
+        try:
+            result = self._handle_request(method, headers, body)
+        except BaseException:
+            self.event_journal.append(project=self.project_key, source=source, task=task, tool=name,
+                kind="error", code="REQUEST_FAILED", duration_ms=(time.monotonic() - started) * 1000)
+            raise
+        kind, code = self._event_outcome(result)
+        self.event_journal.append(project=self.project_key, source=source, task=task, tool=name,
+            kind=kind, code=code, duration_ms=(time.monotonic() - started) * 1000)
+        return result
+
+    def _event_identity(self, client, name, arguments):
+        """/** @param client 会话 @param name 工具名 @param arguments 请求参数 @return 来源与单行任务 */"""
+        if client is None:
+            return "system", ""
+        with self.clients.condition:
+            owner = self.clients.operators.owner(client)
+            operator = self.clients.operators.rows.get(owner)
+            if operator and not operator.get("ended"):
+                task = operator.get("task", "")
+            elif name == "manage_operator" and isinstance(arguments, dict) and arguments.get("action", "join") in {"join", "update"}:
+                task = arguments.get("task", "")
+            else:
+                task = ""
+        if task == "面板调度":
+            return "panel", task
+        if not operator and name == "inspect_tasks":
+            return "system", ""
+        return "ai", task
+
+    @staticmethod
+    def _event_outcome(result):
+        """/** @param result 协议响应 @return 脱敏状态与原因码 */"""
+        try:
+            payload = result[2]
+            tool_result = payload.get("result", {})
+            content = tool_result.get("content", [])
+            value = json.loads(content[0].get("text", "{}")) if content else {}
+            if not isinstance(value, dict):
+                value = {}
+            code = value.get("code")
+            if tool_result.get("isError") or value.get("status") in {"rejected", "failed", "cancelled"}:
+                return ("blocked" if value.get("status") in {"rejected", "queued", "waiting"} else "error"), code
+            if isinstance(value, dict) and value.get("status") in {"queued", "running", "waiting"}:
+                return "queued", code
+            return "complete", code
+        except (IndexError, KeyError, TypeError, ValueError, AttributeError):
+            return "complete", None
+
+    def _handle_request(self, method, headers, body):
         """/** @param method HTTP 方法 @param headers 会话头 @param body 请求 @return 状态 头 响应 */"""
         session_id = headers.get("Mcp-Session-Id")
         if method == "DELETE":
@@ -631,10 +692,10 @@ class TaskGateway:
                 schema = self.catalog.tools.get(target, {}).get("parameters", {})
         return argument_failure(details, schema, target)
 
-    def submit(self, client, operations, label="", environment="editor", test_options=None, test_host=None, await_seconds=2):
-        """/** @param client\t客户端 @param operations\t有序操作 @param label\t用途 @param environment\t宿主类别 @param test_options\t测试配置 @param test_host\t所属测试宿主 @param await_seconds\t短等待时间 @return 执行结果或唯一继续动作 */"""
+    def submit(self, client, operations, label="", await_seconds=2):
+        """/** @param client\t客户端 @param operations\t有序操作 @param label\t用途 @param await_seconds\t短等待时间 @return 执行结果或唯一继续动作 */"""
         try:
-            accepted = self.jobs.submit(client, operations, label, environment, test_options, test_host)
+            accepted = self.jobs.submit(client, operations, label)
         except ValueError as error:
             raise McpBusinessError(self._argument_failure({"name": "submit_batch", "arguments": {"operations": operations}}, error)) from error
         if not await_seconds:

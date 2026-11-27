@@ -661,24 +661,6 @@ def resolve_access(contract, arguments):
     return access, world
 
 
-def allows_test(access, world):
-    """/** @param access 实际权限 @param world 实际世界 @return 是否允许在测试宿主上执行 */"""
-    return access in {"read", "pie"} or world == "pie"
-
-
-def test_arguments(contract):
-    """/** @param contract 工具契约 @return 允许测试的默认或指定参数组合 */"""
-    defaults = default_arguments(contract, {})
-    if allows_test(*resolve_access(contract, defaults)):
-        return [{}]
-    choices = {"action": ("inspect", "audit", "review", "status"),
-               "dry_run": (True,), "pause_game": (False,), "generate": (False,)}
-    properties = contract["parameters"].get("properties", {})
-    return [{name: value} for name, values in choices.items() if name in properties
-            for value in values if value in properties[name].get("enum", values)
-            and allows_test(*resolve_access(contract, {**defaults, name: value}))]
-
-
 def write_scope(contract, arguments, access=None, world=None):
     """/** @param contract 契约 @param arguments 本次参数 @param access 权限 @param world 世界 @return 目标字段值与范围证据 */"""
     if access is None:

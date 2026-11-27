@@ -24,10 +24,12 @@ class JobConflict(McpBusinessError):
 class JobQueue:
     """/** 原项目批次执行槽与活动归属 */"""
 
-    def __init__(self, backend, catalog, clock=time.monotonic, start_worker=True, state_path=None, clients=None):
+    def __init__(self, backend, catalog, clock=time.monotonic, start_worker=True, state_path=None, clients=None, event_journal=None, project_key=""):
         """/** @param backend 官方后端 @param catalog 契约目录 @param clock 时间来源 @param start_worker 启动执行循环 @return 批次调度 */"""
         self.backend = backend
         self.catalog = catalog
+        self.event_journal = event_journal
+        self.project_key = project_key
         backend.catalog = catalog
         self.clock = clock
         self.changed = threading.Condition(threading.RLock())
@@ -41,6 +43,10 @@ class JobQueue:
         self.pie_owner = None
         self.pie_batch = None
         self.pie_pending = False
+        self.pie_idle_timeout = 30.0
+        self.pie_max_lease = 180.0
+        self.pie_started_at = None
+        self.pie_last_active_at = None
         self.activity_owners = {}
         self.activity = None
         self.host_identity = None
@@ -234,6 +240,12 @@ class JobQueue:
                 if not self.pie_pending and not business.get("pie_active") and not business.get("worlds"):
                     self.pie_owner = None
                     self.pie_batch = None
+                    self.pie_started_at = None
+                    self.pie_last_active_at = None
+                elif business.get("pie_active") and self.pie_started_at is None:
+                    now = self.clock()
+                    self.pie_started_at = now
+                    self.pie_last_active_at = now
                 return copy.deepcopy(business)
         finally:
             self.probe_lock.release()
@@ -242,6 +254,11 @@ class JobQueue:
         """/** @param client 客户端 @param operations 完整批次 @param label 阶段用途 @return 即时接收结果 */"""
         self.touch(client)
         registration = self.clients.operators.identity(client)
+        event_task = ""
+        with self.clients.condition:
+            current_operator = self.clients.operators.rows.get(self.clients.operators.owner(client))
+            if current_operator and not current_operator.get("ended"):
+                event_task = current_operator.get("task", "")
         prepared = self.catalog.prepare(operations)
         self.catalog.verify_host(prepared, self.backend)
         for item in prepared:
@@ -273,7 +290,8 @@ class JobQueue:
                 "baseline": [], "dirty": [], "owned_dirty": set(), "await_activity": set(), "started": False,
                 "activities": set(), "effects_completed": 0, "timings": {"operations_seconds": []},
                 "code": None, "failed_index": None, "uncertain": set(), "host": self.host_identity,
-                "operator": self.clients.operators.identity(client)}
+                "operator": self.clients.operators.identity(client), "event_task": event_task or label,
+                "event_source": "panel" if event_task == "面板调度" else "ai"}
             self.jobs[identity] = job
             self.queue.append(identity)
             self._signal()
@@ -317,18 +335,56 @@ class JobQueue:
                 rows.append({"id": self.pie_batch, "owner": self.pie_owner, "status": "running"})
             return rows
 
+    def wake(self):
+        """/** @return 唤醒调度线程 */"""
+        with self.changed:
+            self.changed.notify_all()
+
+    def detach(self):
+        """/** @return 停止本调度循环并保留编辑器宿主 */"""
+        self.close()
+
+    def pie_lease_remaining(self):
+        """/** @return 当前共享 PIE 距离自动回收的剩余秒数 */"""
+        if not self.activity or not self.activity.get("pie_active") or self.pie_started_at is None:
+            return None
+        now = self.clock()
+        max_remaining = self.pie_max_lease - (now - self.pie_started_at)
+        owner_busy = (self.pie_owner is not None and (
+            any(row["owner"] == self.pie_owner and row["status"] in {"queued", "running"} for row in self.jobs.values())
+            or self.pie_owner in self.activity_owners.values()))
+        if owner_busy:
+            return max(0, int(round(max_remaining)))
+        idle_base = self.pie_last_active_at if self.pie_last_active_at is not None else self.pie_started_at
+        idle_remaining = self.pie_idle_timeout - (now - idle_base)
+        return max(0, int(round(min(max_remaining, idle_remaining))))
+
     def run_once(self):
         """/** @return 执行一个可调度批次 */"""
         activity = self.observe()
-        closing_pie = self.pie_owner is not None and self.clients.operators.releasing(self.pie_owner) and not any(row["owner"] == self.pie_owner and row["status"] in {"queued", "running"} for row in self.jobs.values()) and self.pie_owner not in self.activity_owners.values()
-        if self.pie_owner is not None and (closing_pie or (self.clock() >= self.clients.get(self.pie_owner, 0) and not self.clients.operators.releasing(self.pie_owner)) or self.clients.operators.ended(self.pie_owner)) and self.clock() >= self.activity_retry_at and not self.draining:
-            self.activity_retry_at = self.clock() + 30
+        now = self.clock()
+        owner_has_work = (self.pie_owner is not None and (
+            any(row["owner"] == self.pie_owner and row["status"] in {"queued", "running"} for row in self.jobs.values())
+            or self.pie_owner in self.activity_owners.values()))
+        if self.pie_owner is not None and owner_has_work:
+            self.pie_last_active_at = now
+        closing_pie = self.pie_owner is not None and self.clients.operators.releasing(self.pie_owner) and not owner_has_work
+        owner_expired = self.pie_owner is not None and ((now >= self.clients.get(self.pie_owner, 0) and not self.clients.operators.releasing(self.pie_owner)) or self.clients.operators.ended(self.pie_owner))
+        pie_idle_expired = (self.pie_owner is not None and bool(activity.get("pie_active")) and not owner_has_work
+            and self.pie_last_active_at is not None and now - self.pie_last_active_at >= self.pie_idle_timeout)
+        pie_lease_expired = (self.pie_owner is not None and bool(activity.get("pie_active"))
+            and self.writer is None and self.pie_started_at is not None and now - self.pie_started_at >= self.pie_max_lease)
+        if self.pie_owner is not None and (closing_pie or owner_expired or pie_idle_expired or pie_lease_expired) and now >= self.activity_retry_at and not self.draining:
+            reclaim_code = "PIE_LEASE_EXPIRED" if pie_lease_expired else "PIE_IDLE_TIMEOUT" if pie_idle_expired else "PIE_OWNER_ENDED"
+            self.activity_retry_at = now + 15
             try:
                 contract = next(item for item in self.catalog.tools.values() if item["name"] == "StopPIE" or item.get("action") == "stop_pie")
                 self.call_active = True
                 self.backend.invoke(contract, {})
                 self._wait_pie(False, self.jobs.get(self.pie_batch))
                 self.cleanup_failure = None
+                if self.event_journal is not None:
+                    self.event_journal.append(project=self.project_key, source="system", task="PIE自动回收", tool="app.StopPIE", kind="complete", code=reclaim_code)
             except Exception as error:
                 self.cleanup_failure = {"code": "ACTIVITY_CLEANUP_FAILED", "error": str(error)}
             finally:
@@ -360,6 +416,7 @@ class JobQueue:
                     break
                 if job["code"] != reason:
                     job["code"] = reason
+                    self._event(job, "batch_blocked", "submit_batch", code=reason, batch=job["id"])
                     self._signal()
             recoveries = [self.jobs[identity] for identity, claim in self.assets.claims.items()
                 if claim["phase"] == "fault" and claim["retry_at"] is not None and claim["retry_at"] <= now
@@ -406,6 +463,9 @@ class JobQueue:
 
     def _execute(self, job):
         operation = {}
+        if not job.get("event_started"):
+            job["event_started"] = True
+            self._event(job, "batch_start", "submit_batch")
         if job.get("yield_versions") is not None and job.pop("yield_versions") != self._saved_versions(job):
             with self.changed:
                 job.update(status="failed", code="RESUME_ASSET_CHANGED", execution="partial")
@@ -434,6 +494,7 @@ class JobQueue:
                         raise JobConflict("EDITOR_WORLD_CHANGED")
                 reason = self._reason(job, current)
                 if reason:
+                    self._event(job, "batch_blocked", "submit_batch", code=reason)
                     with self.changed:
                         job["status"], job["code"] = "queued", reason
                         self.queue.append(job["id"])
@@ -459,6 +520,7 @@ class JobQueue:
                 job["failed_index"] = index
                 job["effect_scope"] = asset_targets(operation.get("targets", []))
                 contract = operation["contract"]
+                event_step = (index + 1, len(job["operations"]))
                 start_pie = contract["name"] == "StartPIE" or contract.get("action") == "start_pie"
                 stop_pie = contract["name"] == "StopPIE" or contract.get("action") == "stop_pie"
                 if operation["world"] == "pie" and not self.activity.get("pie_active"):
@@ -474,6 +536,8 @@ class JobQueue:
                         self.pie_owner = job["owner"]
                         self.pie_batch = job["id"]
                         self.pie_pending = True
+                        self.pie_started_at = self.clock()
+                        self.pie_last_active_at = self.pie_started_at
                 before_activities = {item["id"] if isinstance(item, dict) else item for item in self.activity.get("activities", [])}
                 job["segment_activities"] = before_activities
                 before_dirty = set(self.activity.get("dirty_packages", []))
@@ -482,6 +546,8 @@ class JobQueue:
                     self._checkpoint(job)
                 self.call_active = True
                 called_at = self.clock()
+                event_started_at = time.monotonic()
+                self._event(job, "step_start", contract["id"], step=event_step)
                 try:
                     result = self.backend.invoke(contract, operation["arguments"])
                 finally:
@@ -493,6 +559,8 @@ class JobQueue:
                     result = result_artifacts(result, Path(self.backend.project) / "Saved/temp/McpResults" / job["id"])
                 job["results"].append(public_value(result))
                 job["completed"] += 1
+                self._event(job, "step_complete", contract["id"], step=event_step,
+                    duration_ms=(time.monotonic() - event_started_at) * 1000)
                 with self.changed:
                     self._checkpoint(job)
                 if operation["access"] != "read":
@@ -500,6 +568,13 @@ class JobQueue:
                 if start_pie or stop_pie:
                     self._wait_pie(start_pie, job)
                     self.pie_pending = False
+                    if start_pie:
+                        self.pie_last_active_at = self.clock()
+                    if stop_pie:
+                        self.pie_started_at = None
+                        self.pie_last_active_at = None
+                elif self.pie_owner == job["owner"]:
+                    self.pie_last_active_at = self.clock()
                 if operation["access"] != "read":
                     snapshot = self.observe(force=True)
                     if not snapshot["host_verified"]:
@@ -525,6 +600,11 @@ class JobQueue:
                 return
             self._finish(job)
         except JobConflict as error:
+            step_pending = bool(operation) and isinstance(job.get("failed_index"), int) and job["completed"] <= job["failed_index"]
+            self._event(job, "step_blocked" if step_pending else "batch_blocked",
+                operation.get("contract", {}).get("id", "submit_batch") if step_pending else "submit_batch",
+                code=error.value.get("code"),
+                step=(job["failed_index"] + 1, len(job["operations"])) if step_pending else None)
             if job["effects_completed"]:
                 job["failure"] = copy.deepcopy(error.value)
                 self._recover(job, error.value["code"], "partial")
@@ -540,6 +620,12 @@ class JobQueue:
                     self.pie_pending = False
                 self._signal()
         except McpBusinessError as error:
+            state = error.value.get("execution", {}).get("state")
+            step_pending = bool(operation) and isinstance(job.get("failed_index"), int) and job["completed"] <= job["failed_index"]
+            self._event(job, ("step_blocked" if state == "rejected" else "step_error") if step_pending else "batch_error",
+                operation.get("contract", {}).get("id", "submit_batch") if step_pending else "submit_batch",
+                code=error.value.get("code", "TOOL_FAILED"),
+                step=(job["failed_index"] + 1, len(job["operations"])) if step_pending else None)
             job["failure"] = copy.deepcopy(error.value)
             job["failure"]["operation"] = job["failed_index"]
             recovery = error.value.get("execution", {}).get("details", {}).get("recovery")
@@ -588,6 +674,10 @@ class JobQueue:
                 return
             self._recover(job, code, state)
         except Exception as error:
+            step_pending = bool(operation) and isinstance(job.get("failed_index"), int) and job["completed"] <= job["failed_index"]
+            self._event(job, "step_error" if step_pending else "batch_error",
+                operation.get("contract", {}).get("id", "submit_batch") if step_pending else "submit_batch",
+                code="EXECUTION_UNVERIFIED", step=(job["failed_index"] + 1, len(job["operations"])) if step_pending else None)
             job["failure"] = {"error": str(error), "type": type(error).__name__}
             if operation.get("access") == "read" and job["effects_completed"]:
                 self._recover(job, "READ_FAILED", "partial")
@@ -750,6 +840,8 @@ class JobQueue:
             job.pop("save_code", None)
             job.setdefault("proof", {})["dirty"] = []
             job["timings"]["total_seconds"] = self.clock() - job["submitted_at"]
+            self._event(job, "batch_error" if failed else "batch_complete", "submit_batch",
+                code=job.get("code"), duration_ms=job["timings"]["total_seconds"] * 1000, batch=job["id"])
             self.assets.release(job["id"])
             for identity, claim in list(self.assets.claims.items()):
                 if job["access"] != "read" and claim["phase"] == "fault" and self.jobs[identity]["owner"] == job["owner"] and conflicting_packages(claim["packages"], job["targets"] | job["owned_dirty"]) == set(claim["packages"]):
@@ -761,6 +853,14 @@ class JobQueue:
             if self.writer == job["id"]:
                 self.writer = None
             self._signal()
+
+    def _event(self, job, kind, tool, code=None, duration_ms=None, batch=None, step=None):
+        """/** @param job 当前批次 @param kind 事件阶段 @param tool 工具标识 @return 已追加脱敏事件 */"""
+        if self.event_journal is None:
+            return
+        self.event_journal.append(project=self.project_key, source=job.get("event_source", "ai"),
+            task=job.get("event_task", job.get("label", "")),
+            tool=tool, kind=kind, code=code, duration_ms=duration_ms, batch=batch or job.get("id"), step=step)
 
     def _recover(self, job, code, execution, settle=True):
         """/** @param job	失败批次 @param code	原因 @param execution	已知执行边界 @param settle	尝试已知修改收尾 @return 精确范围的恢复状态 */"""
@@ -1053,6 +1153,10 @@ class JobQueue:
             result["proof"] = copy.deepcopy(job["proof"])
             if job["proof"].get("move_recovery", {}).get("success") and claim["phase"] == "released":
                 result["hint"] = "迁移收尾已核验并释放资产；原执行错误保留，后续按当前资产状态继续"
+        if not summary and job["status"] == "completed" and self.pie_owner == job["owner"] and self.activity and self.activity.get("pie_active"):
+            remaining = self.pie_lease_remaining()
+            if remaining is not None and "hint" not in result:
+                result["hint"] = f"共享 PIE 仍在运行（剩余约 {remaining}s 将自动回收），完成采样后请立即调用 app.StopPIE 释放。"
         if "next" not in result:
             result["next"] = None
         return response(result)
@@ -1106,6 +1210,9 @@ class JobQueue:
                         result["activity_fault"] = copy.deepcopy(self.cleanup_failure)
                     if result["pie"]:
                         result["pie_owner"] = "mine" if self.pie_owner == client else "other"
+                        remaining = self.pie_lease_remaining()
+                        if remaining is not None:
+                            result["pie_lease_remaining"] = remaining
                     if self.draining:
                         result["available"] = ["prepare", "inspect"]
                     owned = [job for job in self.jobs.values() if job["owner"] == client and job["status"] in {"queued", "running"}]
@@ -1132,7 +1239,7 @@ class JobQueue:
                     self.draining = True
                     self._signal()
             with self.changed:
-                self.changed.wait(0.5 if self.queue or self.activity_owners else 2)
+                self.changed.wait(0.5 if self.queue or self.activity_owners or self.pie_owner else 2)
 
     def close(self):
         """/** @return 结束本调度循环 保留实际宿主 */"""

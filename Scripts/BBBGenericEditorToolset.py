@@ -34,15 +34,6 @@ MCP_INPUTS = {
     'configure_asset_properties': {'properties_json': {'type': 'object', 'additionalProperties': True}},
     'configure_niagara_burst_layer': {'layer_json': {'type': 'object', 'properties': {'name': {'type': 'string'}, 'material': {'type': 'string'}, 'count': {'type': 'integer', 'minimum': 1, 'maximum': 256}, 'lifetime': {'type': 'number', 'minimum': 0.01, 'maximum': 5}, 'speed': {'type': 'number', 'minimum': 0, 'maximum': 5000}, 'drag': {'type': 'number', 'minimum': 0, 'maximum': 100}, 'gravity': {'type': 'number', 'minimum': 0, 'maximum': 2000}, 'growth': {'type': 'number', 'minimum': 0, 'maximum': 10}, 'size': {'type': 'array', 'items': {'type': 'number', 'minimum': 0.1, 'maximum': 1000}, 'minItems': 2, 'maxItems': 2}, 'color': {'type': 'array', 'items': {'type': 'number', 'minimum': 0, 'maximum': 100}, 'minItems': 4, 'maxItems': 4}, 'aligned': {'type': 'boolean'}}, 'required': ['name', 'material', 'count', 'lifetime', 'speed', 'drag', 'gravity', 'growth', 'size', 'color', 'aligned'], 'additionalProperties': False}},
     'configure_niagara_parameters': {'changes_json': {'type': 'array', 'items': {'type': 'object', 'properties': {'store': {'type': 'string'}, 'name': {'type': 'string'}, 'value': {'type': 'string'}}, 'required': ['store', 'name', 'value'], 'additionalProperties': False}, 'minItems': 1}},
-    'process_animation_fingers': {'profile_json': {'type': 'object', 'additionalProperties': True}},
-    'sample_skeletal_mesh_surface': {'local_rotations_json': {'type': 'object', 'additionalProperties': {'type': 'array', 'items': {'type': 'number'}, 'minItems': 4, 'maxItems': 4}}},
-    'configure_niagara_parameters': {'changes_json': {'type': 'array', 'items': {'type': 'object', 'properties': {'store': {'type': 'string'}, 'name': {'type': 'string'}, 'value': {'type': 'string'}}, 'required': ['store', 'name', 'value'], 'additionalProperties': False}, 'minItems': 1}},
-    'configure_niagara_particle_stage': {'stage_json': {'type': 'object', 'properties': {'stage': {'type': 'string', 'enum': ['spawn', 'update']}, 'name': {'type': 'string'}, 'code': {'type': 'string'}, 'inputs': {'type': 'array', 'items': {'type': 'object', 'properties': {'name': {'type': 'string'}, 'type': {'type': 'string', 'enum': ['float', 'int', 'bool', 'position', 'vec2', 'vec3', 'color', 'quat']}}, 'required': ['name', 'type'], 'additionalProperties': False}}, 'outputs': {'type': 'array', 'minItems': 1, 'items': {'type': 'object', 'properties': {'name': {'type': 'string'}, 'type': {'type': 'string', 'enum': ['float', 'int', 'bool', 'position', 'vec2', 'vec3', 'color', 'quat']}}, 'required': ['name', 'type'], 'additionalProperties': False}}, 'render': {'type': 'object', 'properties': {'kind': {'type': 'string', 'enum': ['none', 'sprite', 'mesh']}, 'material': {'type': 'string'}, 'mesh': {'type': 'string'}, 'aligned': {'type': 'boolean'}}, 'required': ['kind'], 'additionalProperties': False}, 'modules': {'type': 'array', 'items': {'type': 'string'}, 'maxItems': 8}, 'parameters': {'type': 'array', 'items': {'type': 'object', 'properties': {'name': {'type': 'string'}, 'type': {'type': 'string', 'enum': ['float', 'int', 'bool', 'position', 'vec2', 'vec3', 'color', 'quat']}, 'value': {'type': 'string'}}, 'required': ['name', 'type', 'value'], 'additionalProperties': False}}}, 'required': ['stage', 'name', 'code', 'inputs', 'outputs'], 'additionalProperties': False}},
-    'configure_niagara_burst_layer': {'layer_json': {'type': 'object', 'properties': {'name': {'type': 'string'}, 'material': {'type': 'string'}, 'count': {'type': 'integer', 'minimum': 1, 'maximum': 256}, 'lifetime': {'type': 'number', 'minimum': 0.01, 'maximum': 5}, 'speed': {'type': 'number', 'minimum': 0, 'maximum': 5000}, 'drag': {'type': 'number', 'minimum': 0, 'maximum': 100}, 'gravity': {'type': 'number', 'minimum': 0, 'maximum': 2000}, 'growth': {'type': 'number', 'minimum': 0, 'maximum': 10}, 'size': {'type': 'array', 'items': {'type': 'number', 'minimum': 0.1, 'maximum': 1000}, 'minItems': 2, 'maxItems': 2}, 'color': {'type': 'array', 'items': {'type': 'number', 'minimum': 0, 'maximum': 100}, 'minItems': 4, 'maxItems': 4}, 'aligned': {'type': 'boolean'}}, 'required': ['name', 'material', 'count', 'lifetime', 'speed', 'drag', 'gravity', 'growth', 'size', 'color', 'aligned'], 'additionalProperties': False}},
-    'configure_asset_properties': {'properties_json': {'type': 'object', 'additionalProperties': True}},
-    'spawn_pie_niagara_instances': {'positions_json': {'type': 'array', 'items': {'type': 'array', 'items': {'type': 'number'}, 'minItems': 3, 'maxItems': 3}, 'minItems': 1, 'maxItems': 16}},
-    'audit_animation_library_batch': {'pairs_json': {'type': 'array', 'minItems': 1, 'maxItems': 16, 'items': {'type': 'object', 'properties': {'source': {'type': 'string'}, 'target': {'type': 'string'}}, 'required': ['source', 'target'], 'additionalProperties': False}}},
-    'import_animation_library_batch': {'requests_json': {'type': 'array', 'minItems': 1, 'maxItems': 16, 'items': {'type': 'object', 'properties': {'source_file': {'type': 'string'}, 'asset_path': {'type': 'string'}, 'skeleton_path': {'type': 'string'}, 'mesh_path': {'type': 'string'}, 'import_pitch': {'type': 'number'}, 'import_yaw': {'type': 'number'}, 'import_roll': {'type': 'number'}, 'sample_rate': {'type': 'integer', 'minimum': 1, 'maximum': 240}}, 'required': ['source_file', 'asset_path', 'skeleton_path', 'mesh_path'], 'additionalProperties': False}}},
     'configure_data_asset': {'properties_json': {'type': 'object', 'additionalProperties': True}},
     'repair_blueprint_function_references': {'replacements_json': {'$ref': '#/$defs/StringMap'}},
     'migrate_actor_blueprint': {'defaults_json': {'$ref': '#/$defs/Properties'}},
@@ -71,8 +62,11 @@ MCP_INPUTS = {
         },
     },
     'create_asset_with_factory': {'factory_properties_json': {'$ref': '#/$defs/Properties'}},
+    'spawn_pie_niagara_instances': {'positions_json': {'type': 'array', 'items': {'type': 'array', 'items': {'type': 'number'}, 'minItems': 3, 'maxItems': 3}, 'minItems': 1, 'maxItems': 16}},
     'import_files_from_directory': {'extensions_json': {'type': 'array', 'items': {'type': 'string'}, 'minItems': 1}},
     'import_skeletal_animation_set': {'source_files_json': {'type': 'array', 'items': {'type': 'string'}, 'minItems': 1}},
+    'import_animation_library_batch': {'requests_json': {'type': 'array', 'minItems': 1, 'maxItems': 16, 'items': {'type': 'object', 'properties': {'source_file': {'type': 'string'}, 'asset_path': {'type': 'string'}, 'skeleton_path': {'type': 'string'}, 'mesh_path': {'type': 'string'}, 'import_pitch': {'type': 'number'}, 'import_yaw': {'type': 'number'}, 'import_roll': {'type': 'number'}, 'sample_rate': {'type': 'integer', 'minimum': 1, 'maximum': 240}}, 'required': ['source_file', 'asset_path', 'skeleton_path', 'mesh_path'], 'additionalProperties': False}}},
+    'audit_animation_library_batch': {'pairs_json': {'type': 'array', 'minItems': 1, 'maxItems': 16, 'items': {'type': 'object', 'properties': {'source': {'type': 'string'}, 'target': {'type': 'string'}}, 'required': ['source', 'target'], 'additionalProperties': False}}},
     'render_asset_thumbnails': {
         'requests_json': {
             'type': 'array',
@@ -222,6 +216,7 @@ MCP_INPUTS = {
 }
 
 
+
 def _serialize_value(value):
     if value is None:
         return None
@@ -248,6 +243,19 @@ def _serialize_value(value):
         return _serialize_value(value.to_tuple())
 
     return str(value)
+
+
+def _read_asset_property_path(value, path):
+    """/** @param value\t当前属性对象 @param path\t点分隔的属性路径 @return\t保留数组顺序的只读属性结果 */"""
+    if not path:
+        return _serialize_value(value)
+
+    if isinstance(value, (list, tuple, unreal.Array, unreal.Set, unreal.FixedArray)):
+        return [_read_asset_property_path(item, path) for item in value]
+
+    name, _, remainder = path.partition(".")
+    child = value.get_editor_property(name)
+    return _read_asset_property_path(child, remainder)
 
 
 def _function_argument(value):
@@ -345,20 +353,6 @@ def _apply_editor_property(target, property_name, requested_value):
     target.set_editor_property(property_name, requested_value)
 
 
-def _read_asset_property_path(value, path):
-    """/** @param value\t当前属性对象 @param path\t点分隔的属性路径 @return\t保留数组顺序的只读属性结果 */"""
-    if not path:
-        return _serialize_value(value)
-
-    if isinstance(value, (list, tuple, unreal.Array, unreal.Set, unreal.FixedArray)):
-        return [_read_asset_property_path(item, path) for item in value]
-
-    name, _, remainder = path.partition(".")
-    child = value.get_editor_property(name)
-    return _read_asset_property_path(child, remainder)
-
-
-
 def _materialize_property_value(value):
     """/** @param value\t结构 数组 枚举或引用描述 @return\t可直接写入编辑器属性的值 */"""
     if isinstance(value, list):
@@ -409,7 +403,6 @@ def _materialize_property_value(value):
     return {key: _materialize_property_value(item) for key, item in value.items()}
 
 
-
 def _float_curve_key_details(animation, curve_name):
     """/** @param animation 动画序列 @param curve_name 浮点曲线名称 @return 原始关键帧的插值与切线 */"""
     model = animation.data_model_interface
@@ -440,6 +433,7 @@ def _float_curve_key_details(animation, curve_name):
         raise RuntimeError("动画曲线原始关键帧导出为空")
     return result
 
+
 def _set_flat_cubic_curve(animation, curve_name, keys):
     """/** @param animation 动画序列 @param curve_name 浮点曲线名称 @param keys 时间值数组 @return 写入真实三次曲线并校验水平切线 */"""
     identifier = unreal.AnimationCurveIdentifier()
@@ -465,8 +459,6 @@ def _set_flat_cubic_curve(animation, curve_name, keys):
 
 @unreal.uclass()
 class BBBGenericEditorToolset(unreal.ToolsetDefinition):
-    """提供不绑定具体领域的官方 UE 编辑器工具"""
-
     @mcp_tool
     @staticmethod
     def create_metasound_preset(asset_path: str, reference_path: str, object_array_inputs_json: str,
@@ -485,7 +477,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         return json.dumps(importlib.reload(BBBAudioAssetAuthoring).create_preset(
             asset_path, reference_path, json.loads(object_array_inputs_json), json.loads(float_inputs_json)), ensure_ascii=False)
 
-
+    """提供不绑定具体领域的官方 UE 编辑器工具"""
 
     @mcp_tool
     @staticmethod
@@ -505,7 +497,6 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         import BBBAnimationCurveTools
         return importlib.reload(BBBAnimationCurveTools).inspect(asset_paths, bone_names)
 
-
     @mcp_tool
     @staticmethod
     def rename_animation_curve(asset_paths: list[str], old_name: str, new_name: str, dry_run: bool = True) -> str:
@@ -514,7 +505,6 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         import BBBAnimationCurveTools
         return importlib.reload(BBBAnimationCurveTools).rename(asset_paths, old_name, new_name, dry_run)
 
-
     @mcp_tool
     @staticmethod
     def copy_animation_float_curves(source_path: str, target_paths: list[str], dry_run: bool = True, source_content_directory: str = '') -> str:
@@ -522,7 +512,6 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         import importlib
         import BBBAnimationCurveTools
         return importlib.reload(BBBAnimationCurveTools).copy(source_path, target_paths, dry_run, source_content_directory)
-
 
     @mcp_tool
     @staticmethod
@@ -573,7 +562,6 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             raise RuntimeError('当前 PIE 玩家不存在')
         return unreal.BBBBlueprintEditorLibrary.probe_character_animation_runtime(pawn)
 
-
     @mcp_tool
     @staticmethod
     def configure_data_asset(asset_path: str, properties_json: str) -> str:
@@ -599,6 +587,14 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             raise RuntimeError('数据资产保存失败')
         return json.dumps({'asset': asset_path, 'properties': list(properties), 'saved': True}, ensure_ascii=False)
 
+    @mcp_tool
+    @staticmethod
+    def configure_asset_properties(asset_path: str, properties_json: str) -> str:
+        """/** @param asset_path 自有资产路径 @param properties_json 编辑器属性和值 @return 保存与属性回读 */"""
+        import importlib
+        import BBBAssetPropertyEditing
+        return importlib.reload(BBBAssetPropertyEditing).configure(asset_path, properties_json,
+            _apply_editor_property, _materialize_property_value, _serialize_value)
 
     @mcp_tool
     @staticmethod
@@ -641,7 +637,6 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             raise RuntimeError('蓝图保存失败')
         return json.dumps({'asset': asset_path, 'changed': changed, 'saved': True})
 
-
     @mcp_tool
     @staticmethod
     def configure_boolean_pose_overlay(blueprint_path: str, animation_path: str, layer_name: str,
@@ -676,7 +671,6 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             raise RuntimeError('动画层保存失败')
         return json.dumps({'asset': blueprint_path, 'layer': layer_name, 'saved': True})
 
-
     @mcp_tool
     @staticmethod
     def capture_niagara_asset(system_path: str, age_seconds: float, camera_offset: list[float], file_name: str) -> str:
@@ -702,6 +696,29 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         """/** @return 最近一次特效拍摄的真实状态 不创建或重置预览 */"""
         import BBBDisplayAssetCaptureTools
         return BBBDisplayAssetCaptureTools.get_niagara_capture_status()
+
+    @mcp_tool
+    @staticmethod
+    def record_pie_player_view(file_prefix: str, duration_seconds: float = 5.0, fps: int = 24, width: int = 960, height: int = 540) -> str:
+        """
+        /**
+         * @param file_prefix\t不存在的任务目录
+         * @param duration_seconds\t连续世界录制秒数
+         * @param fps\t目标采样帧率
+         * @param width\t输出宽度
+         * @param height\t输出高度
+         * @return 录制状态
+         */
+        """
+        from BBBDisplayAssetCaptureTools import record_pie_player_view
+        return record_pie_player_view(file_prefix, duration_seconds, fps, width, height)
+
+    @mcp_tool
+    @staticmethod
+    def get_pie_view_recording_status() -> str:
+        """/** @return 最近的连续玩家视角录制状态 */"""
+        from BBBDisplayAssetCaptureTools import get_pie_view_recording_status
+        return get_pie_view_recording_status()
 
     @mcp_tool
     @staticmethod
@@ -806,8 +823,6 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
          * @return 实际网络模式与进程内选项 仅修改当前编辑器内存
          */
         """
-        if os.environ.get("BBB_MCP_HOST_ROLE") == "test":
-            raise RuntimeError("此入口使用主编辑器 测试宿主沿用批次配置")
         if unreal.EditorLevelLibrary.get_pie_worlds(False):
             raise RuntimeError("请先结束当前 PIE")
         modes = {"standalone": "PIE_Standalone", "listen": "PIE_ListenServer"}
@@ -1681,7 +1696,6 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         from BBBAnimationLibraryImport import import_animation_library_batch
         return import_animation_library_batch(requests_json)
 
-
     @mcp_tool
     @staticmethod
     def clone_retargeter_for_source_mesh(template_path: str, source_mesh_path: str, source_rig_path: str, retargeter_path: str) -> str:
@@ -1697,7 +1711,6 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         from BBBAnimationLibraryImport import clone_retargeter_for_source_mesh
         return clone_retargeter_for_source_mesh(template_path, source_mesh_path, source_rig_path, retargeter_path)
 
-
     @mcp_tool
     @staticmethod
     def audit_animation_library_batch(pairs_json: str, mesh_path: str) -> str:
@@ -1710,7 +1723,6 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         """
         from BBBAnimationLibraryImport import audit_animation_library_batch
         return audit_animation_library_batch(pairs_json, mesh_path)
-
 
     @mcp_tool
     @staticmethod
@@ -2058,6 +2070,69 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
                 result["saved"] = unreal.EditorAssetLibrary.save_loaded_asset(texture, False)
 
         return json.dumps(results, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def capture_blueprint_thumbnail(asset_path: str) -> str:
+        """渲染并保存角色蓝图缩略图 只保存目标资产包"""
+
+        def fail(message: str) -> None:
+            unreal.log_error("[BBB][BlueprintThumbnail] " + message)
+            raise RuntimeError(message)
+
+        if not isinstance(asset_path, str) or not asset_path.startswith("/Game/"):
+            fail("目标蓝图必须位于 Game 内容目录")
+
+        if unreal.EditorLevelLibrary.get_pie_worlds(False):
+            fail("PIE 期间禁止生成角色蓝图缩略图")
+
+        blueprint = unreal.EditorAssetLibrary.load_asset(asset_path)
+        if not isinstance(blueprint, unreal.Blueprint):
+            fail("目标资产不是蓝图: " + asset_path)
+
+        object_path = blueprint.get_path_name()
+        package_path = object_path.split(".", 1)[0]
+        dirty_package_paths = sorted(
+            package.get_path_name()
+            for package in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()
+        )
+        if package_path in dirty_package_paths:
+            fail("目标蓝图包已有未保存改动: " + package_path)
+
+        if not unreal.SourceControl.is_enabled() or not unreal.SourceControl.is_available():
+            fail("生成缩略图前必须连接 Perforce")
+
+        if unreal.SourceControl.current_provider() != "Perforce":
+            fail("目标蓝图必须由 Perforce 管理")
+
+        state = unreal.SourceControl.query_file_state(object_path)
+        writable = state.is_valid and state.is_checked_out and state.can_edit
+        if state.is_valid and state.is_added and state.can_edit and not state.is_checked_out_other:
+            writable = True
+
+        if not state.is_valid or state.is_unknown or state.is_checked_out_other or state.is_conflicted or state.is_deleted or not writable:
+            fail("目标蓝图必须已独占签出或已打开添加且可编辑: " + object_path)
+
+        if not unreal.BBBAssetThumbnailEditorLibrary.capture_blueprint_thumbnail(blueprint, 512, 512):
+            fail("原生蓝图缩略图渲染失败: " + object_path)
+
+        if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
+            fail("保存角色蓝图缩略图失败: " + object_path)
+
+        if any(package.get_path_name() == package_path
+               for package in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()):
+            fail("保存后目标蓝图仍处于脏状态: " + object_path)
+
+        unrelated_dirty_packages = [path for path in dirty_package_paths if path != package_path]
+        result = {
+            "asset": object_path,
+            "saved": True,
+            "thumbnailSize": [512, 512],
+            "sourceControlAdded": bool(state.is_added),
+            "untouchedDirtyPackages": unrelated_dirty_packages,
+        }
+        unreal.log("[BBB][BlueprintThumbnail] " + json.dumps(result, ensure_ascii=False))
+        return json.dumps(result, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod
@@ -2694,7 +2769,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         properties = json.loads(properties_json)
         if not isinstance(properties, dict) or len(location) != 3 or any(not math.isfinite(value) for value in location):
             raise RuntimeError("临时演员配置或位置无效")
-        worlds = unreal.EditorLevelLibrary.get_pie_worlds(False)
+        worlds = list(unreal.EditorLevelLibrary.get_pie_worlds(False))
         world = next((value for value in worlds if value.get_path_name() == world_path), None)
         actor_class = unreal.load_class(None, class_path)
         if world is None or actor_class is None:
@@ -2738,6 +2813,37 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def spawn_pie_niagara_instances(system_path: str, positions_json: str, world_path: str) -> str:
+        """
+        /**
+         * 在明确 PIE 世界同时生成自动回收的特效实例用于实际场景与性能验收
+         * @param system_path\t特效资产路径
+         * @param positions\t一至十六个有限世界位置
+         * @param world_path\t当前 PIE 世界路径
+         * @return 组件路径和开始世界时间 不保存资产
+         */
+        """
+        positions = json.loads(positions_json)
+        if not isinstance(positions, list) or not 1 <= len(positions) <= 16 or any(not isinstance(value, list) or len(value) != 3 or any(not isinstance(item, (int, float)) or not math.isfinite(item) for item in value) for value in positions):
+            raise RuntimeError("必须提供一至十六个有效世界位置")
+        world = next((value for value in unreal.EditorLevelLibrary.get_pie_worlds(False) if value.get_path_name() == world_path), None)
+        system = unreal.load_asset(system_path)
+        if world is None or not isinstance(system, unreal.NiagaraSystem):
+            raise RuntimeError("必须提供活动 PIE 世界和特效资产")
+        if not unreal.BBBNiagaraEditorLibrary.prepare_system_for_preview(system_path):
+            raise RuntimeError("特效系统及 GPU 着色器尚未就绪")
+        components = []
+        for position in positions:
+            component = unreal.NiagaraFunctionLibrary.spawn_system_at_location(
+                world, system, unreal.Vector(*position), unreal.Rotator(), unreal.Vector(1, 1, 1),
+                auto_destroy=True, auto_activate=True, pooling_method=unreal.NCPoolMethod.AUTO_RELEASE, pre_cull_check=False)
+            if component is None:
+                raise RuntimeError("特效实例生成失败")
+            components.append(component.get_path_name())
+        return json.dumps({"world": world_path, "worldTime": unreal.GameplayStatics.get_time_seconds(world), "components": components})
+
+    @mcp_tool
+    @staticmethod
     def invoke_pie_actor_function(actor_path: str, function_name: str, arguments_json: str = "[]") -> str:
         """调用当前 PIE 世界中指定 Actor 的反射函数 不接受编辑器世界对象"""
         actor = unreal.find_object(None, actor_path)
@@ -2752,7 +2858,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
     @mcp_tool
     @staticmethod
     def schedule_pie_actor_function(action: str, actor_path: str = "", function_name: str = "",
-        arguments_json: str = "[]", delay_seconds: float = 0.0,
+        arguments_json: str = "[]", delay_seconds: float = 0.0, anchor_run_id: str = "",
         repeat_count: int = 1, interval_seconds: float = 0.0) -> str:
         """
         /**
@@ -2780,6 +2886,8 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             or not math.isfinite(interval_seconds) or interval_seconds < 0
             or delay_seconds + (repeat_count - 1) * interval_seconds > 60):
             raise RuntimeError("重复调用需要有界次数与有限间隔 总时长最多六十游戏秒")
+        if anchor_run_id and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", anchor_run_id) is None:
+            raise RuntimeError("输入序列锚点必须使用明确的运行标识")
         world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
         actor = unreal.find_object(None, actor_path)
         arguments = json.loads(arguments_json)
@@ -2790,7 +2898,8 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         values = tuple(_function_argument(value) for value in arguments)
         start = unreal.GameplayStatics.get_time_seconds(world)
         state = {"state": "running", "actor": actor_path, "function": function_name,
-            "requestedTime": start + delay_seconds, "executedTime": None, "result": None, "errors": [],
+            "requestedTime": None if anchor_run_id else start + delay_seconds,
+            "anchorRunId": anchor_run_id, "executedTime": None, "result": None, "errors": [],
             "executedCount": 0, "calls": []}
         _pie_scheduled_actor_call = state
 
@@ -2800,6 +2909,14 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
                 if current != world or actor.is_actor_being_destroyed():
                     raise RuntimeError("定时调用期间 PIE 或目标 Actor 已结束")
                 now = unreal.GameplayStatics.get_time_seconds(world)
+                if state["requestedTime"] is None:
+                    sequence = json.loads(unreal.BBBPIEInputEditorLibrary.get_pie_input_sequence_status())
+                    if sequence.get("runId") == anchor_run_id and sequence.get("totalInjectedFrames", 0) > 0:
+                        state["requestedTime"] = now + delay_seconds
+                    if state["requestedTime"] is None:
+                        if now - start > 5:
+                            raise RuntimeError("定时调用等待输入序列开始超时")
+                        return
                 if now < state["requestedTime"]:
                     return
                 state["executedTime"] = now
@@ -2845,7 +2962,12 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         controller = unreal.GameplayStatics.get_player_controller(world, 0) if world else None
         if controller is None:
             raise RuntimeError("PIE 视点需要已生成的本地玩家")
-        if _pie_view_camera is None or not unreal.SystemLibrary.is_valid(_pie_view_camera) or _pie_view_camera.get_world() != world:
+        try:
+            camera_valid = (_pie_view_camera is not None and unreal.SystemLibrary.is_valid(_pie_view_camera)
+                and _pie_view_camera.get_world() == world)
+        except (TypeError, ReferenceError):
+            camera_valid = False
+        if not camera_valid:
             _pie_view_camera = unreal.BBBBlueprintEditorLibrary.spawn_transient_pie_actor(world, unreal.CameraActor, unreal.Transform())
         if _pie_view_camera is None:
             raise RuntimeError("PIE 临时相机生成失败")
@@ -2870,7 +2992,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         manager = unreal.GameplayStatics.get_player_camera_manager(world, player_index)
         if manager is None:
             raise RuntimeError("玩家相机不存在")
-        directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "Diagnostics", "PlayerView"))
+        directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "temp", "PlayerView"))
         path = os.path.join(directory, file_name)
         if os.path.exists(path):
             raise RuntimeError("截图文件已存在 请使用新的文件名")
@@ -3651,6 +3773,55 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
 
     @mcp_tool
     @staticmethod
+    def inspect_niagara_parameters(system_path: str) -> str:
+        """/** @param system_path 系统资产路径 @return 公开参数 快速迭代值与活动图表 */"""
+        return unreal.BBBNiagaraEditorLibrary.inspect_parameters(system_path)
+
+    @mcp_tool
+    @staticmethod
+    def configure_niagara_burst_layer(system_path: str, layer_json: str) -> str:
+        """/** @param system_path 自有系统路径 @param layer_json 精灵爆发层参数 @return 编译与保存结果 */"""
+        from BBBAssetWritePolicy import require_write_access
+        system = unreal.load_asset(system_path)
+        if not isinstance(system, unreal.NiagaraSystem):
+            raise RuntimeError('目标不是 Niagara 系统')
+        require_write_access(system)
+        return unreal.BBBNiagaraEditorLibrary.configure_burst_sprite_layer(system_path, layer_json)
+
+    @mcp_tool
+    @staticmethod
+    def configure_niagara_particle_stage(system_path: str, emitter_name: str, stage_json: str) -> str:
+        """
+        /**
+         * @param system_path\t自有系统路径
+         * @param emitter_name\t现有发射器名称
+         * @param stage_json\t完整粒子阶段描述
+         * @return 原位替换 编译和保存结果
+         */
+        """
+        from BBBAssetWritePolicy import require_write_access
+        system = unreal.load_asset(system_path)
+        if not system_path.startswith('/Game/_Project/') or not isinstance(system, unreal.NiagaraSystem):
+            raise RuntimeError('目标必须为自有 Niagara 系统')
+        require_write_access(system)
+        result = unreal.BBBNiagaraEditorLibrary.configure_particle_stage(system_path, emitter_name, stage_json)
+        if result.startswith('失败'):
+            raise RuntimeError(result)
+        return result
+
+    @mcp_tool
+    @staticmethod
+    def configure_niagara_parameters(system_path: str, changes_json: str) -> str:
+        """/** @param system_path 自有系统路径 @param changes_json 存储 名称与结构文本数组 @return 保存后参数回读 */"""
+        from BBBAssetWritePolicy import require_write_access
+        system = unreal.load_asset(system_path)
+        if not isinstance(system, unreal.NiagaraSystem):
+            raise RuntimeError('目标不是 Niagara 系统')
+        require_write_access(system)
+        return unreal.BBBNiagaraEditorLibrary.configure_parameters(system_path, changes_json)
+
+    @mcp_tool
+    @staticmethod
     def set_niagara_pin_default(system_path: str, node_path: str, pin_name: str, value: str) -> str:
         """修改系统内未连接引脚默认值并保存"""
         from BBBAssetWritePolicy import require_write_access
@@ -3845,6 +4016,75 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         editing.recompile_material(material)
         if not unreal.EditorAssetLibrary.save_loaded_asset(material, False):
             raise RuntimeError("粒子材质保存失败")
+        return material.get_path_name()
+
+    @mcp_tool
+    @staticmethod
+    def create_particle_surface_material(material_path: str, kind: str) -> str:
+        """
+        /**
+         * @param material_path\t新建自有材质路径
+         * @param kind\t尘土 dust 或不透明碎屑 debris
+         * @return 材质编译和保存结果
+         */
+        """
+        from BBBAssetWritePolicy import require_asset_write
+        if not material_path.startswith('/Game/_Project/') or kind not in {'dust', 'debris'}:
+            raise RuntimeError('需要自有材质路径与 dust 或 debris 类型')
+        require_asset_write([], [material_path])
+        if unreal.EditorAssetLibrary.does_asset_exist(material_path):
+            raise RuntimeError('目标材质已经存在')
+        directory, name = material_path.rsplit('/', 1)
+        material = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, directory, unreal.Material, unreal.MaterialFactoryNew())
+        if material is None:
+            raise RuntimeError('材质创建失败')
+        edit = unreal.MaterialEditingLibrary
+        material.set_editor_property('two_sided', True)
+        material.set_editor_property('used_with_niagara_sprites', kind == 'dust')
+        material.set_editor_property('used_with_niagara_mesh_particles', kind == 'debris')
+        tint = edit.create_material_expression(material, unreal.MaterialExpressionParticleColor, -600, 0)
+        edit.connect_material_property(tint, 'RGB', unreal.MaterialProperty.MP_BASE_COLOR)
+        rough = edit.create_material_expression(material, unreal.MaterialExpressionConstant, -300, 250)
+        rough.set_editor_property('r', 0.88)
+        edit.connect_material_property(rough, '', unreal.MaterialProperty.MP_ROUGHNESS)
+        if kind == 'dust':
+            material.set_editor_property('blend_mode', unreal.BlendMode.BLEND_TRANSLUCENT)
+            uv = edit.create_material_expression(material, unreal.MaterialExpressionTextureCoordinate, -600, -200)
+            mask = edit.create_material_expression(material, unreal.MaterialExpressionCustom, -300, -100)
+            mask.set_editor_property('output_type', unreal.CustomMaterialOutputType.CMOT_FLOAT1)
+            field = unreal.CustomInput()
+            field.set_editor_property('input_name', 'UV')
+            mask.set_editor_property('inputs', [field])
+            mask.set_editor_property('code', '''
+float2 p=UV*2-1;
+float2 q=p*3.8;
+float n=0;
+float a=0.55;
+for(int k=0;k<4;k++)
+{
+    float2 i=floor(q);
+    float2 f=frac(q);
+    f=f*f*(3-2*f);
+    float4 h=frac(sin(float4(dot(i,float2(127.1,311.7)),dot(i+float2(1,0),float2(127.1,311.7)),dot(i+float2(0,1),float2(127.1,311.7)),dot(i+1,float2(127.1,311.7))))*43758.5453);
+    n+=lerp(lerp(h.x,h.y,f.x),lerp(h.z,h.w,f.x),f.y)*a;
+    q=q*2.03+float2(1.7,9.2);
+    a*=0.5;
+}
+float edge=1-length(p+float2(n-0.4,0.15-n*0.25)*0.25);
+return saturate(edge*3)*smoothstep(0.18,0.7,n)*0.8;
+''')
+            edit.connect_material_expressions(uv, '', mask, 'UV')
+            multiply = edit.create_material_expression(material, unreal.MaterialExpressionMultiply, -100, -100)
+            edit.connect_material_expressions(mask, '', multiply, 'A')
+            edit.connect_material_expressions(tint, 'A', multiply, 'B')
+            fade = edit.create_material_expression(material, unreal.MaterialExpressionDepthFade, 100, -100)
+            fade.set_editor_property('fade_distance_default', 25.0)
+            if not edit.connect_material_expressions(multiply, '', fade, 'Opacity'):
+                raise RuntimeError('尘土透明度连接失败')
+            edit.connect_material_property(fade, '', unreal.MaterialProperty.MP_OPACITY)
+        edit.recompile_material(material)
+        if not unreal.EditorAssetLibrary.save_loaded_asset(material, False):
+            raise RuntimeError('粒子表面材质保存失败')
         return material.get_path_name()
 
 
@@ -4445,7 +4685,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         dirty = {value.get_path_name() for value in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
         if mesh.get_outermost().get_path_name() in dirty:
             raise RuntimeError('源网格存在未保存修改')
-        root = os.environ.get('BBB_MCP_TEST_OUTPUT') if os.environ.get('BBB_MCP_HOST_ROLE') == 'test' else os.path.join(unreal.Paths.project_saved_dir(), 'temp', task_name)
+        root = os.path.join(unreal.Paths.project_saved_dir(), 'temp', task_name)
         if not root:
             raise RuntimeError('宿主缺少输出目录')
         directory = os.path.abspath(os.path.join(root, export_name))
@@ -4479,7 +4719,6 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             raise RuntimeError('骨架载体导出失败')
         return json.dumps({'directory': directory, 'source': source_file, 'skeleton': reference_file,
             'vertices': len(data['vertices']), 'triangles': len(data['triangles']), 'boneCount': len(data['bones'])}, ensure_ascii=False)
-
 
     @mcp_tool
     @staticmethod
@@ -4525,11 +4764,6 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "Exports", export_name))
         if task_name:
             directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "temp", task_name, export_name))
-        if os.environ.get("BBB_MCP_HOST_ROLE") == "test":
-            output_root = os.environ.get("BBB_MCP_TEST_OUTPUT")
-            if not output_root or not os.path.isdir(output_root):
-                fail("隔离宿主缺少自己的输出目录")
-            directory = os.path.abspath(os.path.join(output_root, export_name))
         if os.path.exists(directory):
             fail("交付目录已经存在 " + directory)
 
@@ -4619,7 +4853,6 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         from BBBFontFaceImport import import_font_faces
         return import_font_faces(requests_json)
 
-
     @mcp_tool
     @staticmethod
     def rebind_asset_import_sources(requests_json: str) -> str:
@@ -4656,6 +4889,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             results.append({"asset": asset.get_path_name(), "source": source})
         return json.dumps(results, ensure_ascii=False)
 
+
     @mcp_tool
     @staticmethod
     def dispatch_slate_key(key_name: str, pressed: bool) -> bool:
@@ -4668,6 +4902,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
          */
         """
         return unreal.BBBAssetThumbnailEditorLibrary.dispatch_slate_key(key_name, pressed)
+
 
     @mcp_tool
     @staticmethod
@@ -4786,6 +5021,151 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
             ensure_ascii=False,
         )
 
+
+    @mcp_tool
+    @staticmethod
+    def sample_skeletal_mesh_surface(mesh_path: str, animation_path: str, time_seconds: float,
+                                     selected_bones: list[str], minimum_weight: float,
+                                     material_indices: list[int], output_name: str,
+                                     local_rotations_json: str = '{}') -> str:
+        """只读采样明确姿势的真实蒙皮表面 输出至任务临时目录"""
+        import BBBGripGeometryTools
+
+        return BBBGripGeometryTools.sample_surface(
+            mesh_path, animation_path, time_seconds, selected_bones, minimum_weight,
+            material_indices, output_name, local_rotations_json)
+
+    @mcp_tool
+    @staticmethod
+    def audit_hand_pose_layer(mesh_path: str, base_animation_path: str, grip_animation_path: str,
+                             base_path: str, interface_path: str, layer_name: str, alphas: list[float]) -> str:
+        """/** @param mesh_path 实际网格 @param base_animation_path 输入动作 @param grip_animation_path 握姿 @param base_path 正式层 @param interface_path 层接口 @param layer_name 层名称 @param alphas 混合权重 @return 临时预览世界真实求值与逐骨误差 */"""
+        from BBBHandPoseLayerTools import audit_hand_pose_layer
+        return json.dumps(audit_hand_pose_layer(mesh_path, base_animation_path, grip_animation_path,
+                                               base_path, interface_path, layer_name, alphas), ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def sample_hand_handling_surface(mesh_path: str, main_path: str, base_path: str, interface_path: str,
+                                      animation_path: str, grip_path: str, time_seconds: float,
+                                      right_hand_offset: list[float], equipment_enabled: bool,
+                                      left_grip_alpha: float, right_grip_alpha: float,
+                                      selected_bones: list[str], minimum_selected_weight: float,
+                                      material_indices: list[int]) -> str:
+        """/** @param mesh_path 实际网格 @param main_path 主实例类型 @param base_path 正式基础层 @param interface_path 正式接口 @param animation_path 动作 @param grip_path 握姿 @param time_seconds 秒数 @param right_hand_offset 俯仰偏航滚转 @param equipment_enabled 装备快照 @param left_grip_alpha 左指权重 @param right_grip_alpha 右指权重 @param selected_bones 表面骨骼 @param minimum_selected_weight 选取阈值 @param material_indices 材质筛选 @return 实际正式层求值和原生蒙皮 无 PIE */"""
+        from BBBHandPoseLayerTools import sample_hand_handling_surface
+        return json.dumps(sample_hand_handling_surface(mesh_path, main_path, base_path, interface_path,
+            animation_path, grip_path, time_seconds, right_hand_offset, equipment_enabled,
+            left_grip_alpha, right_grip_alpha, selected_bones, minimum_selected_weight, material_indices), ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def configure_right_hand_grip_rotation(base_path: str, child_layer_paths: list[str], main_path: str,
+                                           graph_name: str, before_node_guid: str) -> str:
+        """/** @param base_path 基础层 @param child_layer_paths 明确继承层 @param main_path 主图 @param graph_name 骨骼控制图 @param before_node_guid 已有瞄准节点 @return 原生右腕增量配置与全部编译保存结果 */"""
+        from BBBHandPoseLayerTools import configure_right_hand_grip_rotation
+        return json.dumps(configure_right_hand_grip_rotation(base_path, child_layer_paths, main_path,
+                                                            graph_name, before_node_guid), ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def configure_hand_pose_layer(main_path: str, base_path: str, interface_path: str,
+                                  child_layer_paths: list[str], old_layer_name: str,
+                                  layer_name: str, before_layer_name: str, grip_getter_name: str,
+                                  left_disable_curve: str, right_disable_curve: str,
+                                  left_finger_roots: list[str], right_finger_roots: list[str]) -> str:
+        """定向配置共享双手握姿层并在全部目标编译回读后保存"""
+        import BBBHandPoseLayerTools
+
+        result = BBBHandPoseLayerTools.configure_hand_pose_layer(
+            main_path, base_path, interface_path, child_layer_paths, old_layer_name,
+            layer_name, before_layer_name, grip_getter_name, left_disable_curve,
+            right_disable_curve, left_finger_roots, right_finger_roots)
+        return json.dumps(result, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def inspect_mesh_lod_statistics(mesh_paths: list[str]) -> str:
+        """
+        /**
+         * 只读检查明确网格的各渲染档几何与材质槽
+         * @param mesh_paths	一至八个明确网格包路径
+         * @return 各档三角面 顶点 区段与材质槽 JSON
+         */
+        """
+        if isinstance(mesh_paths, unreal.Array):
+            mesh_paths = list(mesh_paths)
+
+        if not isinstance(mesh_paths, list) or not 1 <= len(mesh_paths) <= 8:
+            raise RuntimeError('网格统计需要一至八个明确路径')
+        if any(not isinstance(path, str) or re.fullmatch(r'/Game/(?:[\w-]+/)*[\w-]+', path) is None for path in mesh_paths):
+            raise RuntimeError('网格统计只接受明确的 Game 包路径')
+        if len(set(mesh_paths)) != len(mesh_paths):
+            raise RuntimeError('网格统计拒绝重复路径')
+
+        assets = []
+        for path in mesh_paths:
+            asset = unreal.load_asset(path)
+            if not isinstance(asset, (unreal.SkeletalMesh, unreal.StaticMesh)):
+                raise RuntimeError('目标不是静态或骨骼网格: ' + path)
+            assets.append((path, asset))
+        dirty = {package.get_path_name() for package in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
+        for path, asset in assets:
+            if asset.get_outermost().get_path_name() in dirty:
+                raise RuntimeError('目标网格存在未保存修改: ' + path)
+
+        subsystem = unreal.get_editor_subsystem(unreal.SkeletalMeshEditorSubsystem)
+        rows = []
+        for path, asset in assets:
+            skeletal = isinstance(asset, unreal.SkeletalMesh)
+            count = subsystem.get_lod_count(asset) if skeletal else asset.get_num_lods()
+            if count < 1:
+                raise RuntimeError('目标网格没有有效渲染档: ' + path)
+            materials = asset.get_editor_property('materials' if skeletal else 'static_materials')
+            slots = []
+            for index, material in enumerate(materials):
+                interface = material.get_editor_property('material_interface')
+                slots.append({'index': index, 'name': str(material.get_editor_property('material_slot_name')),
+                              'material': interface.get_path_name() if interface else None})
+            native_lods, native_reason = {}, None
+            if skeletal:
+                library = getattr(unreal, 'BBBBlueprintEditorLibrary', None)
+                inspector = getattr(library, 'inspect_skeletal_mesh_render_data', None)
+                if not callable(inspector):
+                    native_reason = 'RENDER_INSPECTOR_UNAVAILABLE'
+                else:
+                    try:
+                        native = json.loads(str(inspector([asset])))['meshes'][0]
+                        native_reason = native.get('unavailableReason')
+                        native_lods = {row['lod']: row for row in native['lods']}
+                    except (KeyError, IndexError, TypeError, ValueError) as error:
+                        native_reason = 'RENDER_INSPECTION_FAILED: ' + str(error)
+            lods = []
+            for index in range(count):
+                sections = subsystem.get_num_sections(asset, index) if skeletal else asset.get_num_sections(index)
+                vertices = subsystem.get_num_verts(asset, index) if skeletal else asset.get_num_vertices(index)
+                if sections < 0 or vertices < 0:
+                    raise RuntimeError('渲染档区段或顶点数量无效: ' + path + ' LOD ' + str(index))
+                if skeletal:
+                    triangles, reason = None, native_reason
+                    section_slots = [subsystem.get_lod_material_slot(asset, index, section) for section in range(sections)]
+                    native_lod = native_lods.get(index)
+                    if reason is None and native_lod is None:
+                        reason = 'RENDER_LOD_UNAVAILABLE'
+                    if reason is None and (native_lod['renderVertices'] != vertices or len(native_lod['sections']) != sections):
+                        reason = 'RENDER_LOD_MISMATCH'
+                    if reason is None:
+                        triangles = native_lod['triangles']
+                else:
+                    triangles = asset.get_num_triangles(index)
+                    reason = None
+                    section_slots = None
+                lods.append({'lod': index, 'triangles': triangles, 'triangleUnavailableReason': reason,
+                             'renderVertices': vertices, 'sections': sections, 'sectionMaterialSlots': section_slots,
+                             'uvChannels': native_lod.get('uvChannels') if skeletal and reason is None else None})
+            rows.append({'asset': path, 'type': 'SkeletalMesh' if skeletal else 'StaticMesh',
+                         'materialSlots': slots, 'lods': lods})
+        return json.dumps({'readOnly': True, 'geometrySource': 'RenderData', 'meshes': rows}, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod
@@ -4967,6 +5347,7 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         return unreal.BBBMonsterDirectorEditorLibrary.validate_basic_assets()
 
 
+
     @mcp_tool
     @staticmethod
     def configure_action_montage(asset_path: str, sequence_paths: list[str], start_times: list[float], end_times: list[float], play_rates: list[float], loop_index: int = -1, blend_in: float = 0.12, blend_out: float = 0.16) -> str:
@@ -5004,258 +5385,6 @@ class BBBGenericEditorToolset(unreal.ToolsetDefinition):
         result.update({'asset': asset_path, 'sequences': list(sequence_paths), 'saved': True})
         return json.dumps(result)
 
-
-    @mcp_tool
-    @staticmethod
-    def spawn_pie_niagara_instances(system_path: str, positions_json: str, world_path: str) -> str:
-        """
-        /**
-         * 在明确 PIE 世界同时生成自动回收的特效实例用于实际场景与性能验收
-         * @param system_path\t特效资产路径
-         * @param positions\t一至十六个有限世界位置
-         * @param world_path\t当前 PIE 世界路径
-         * @return 组件路径和开始世界时间 不保存资产
-         */
-        """
-        positions = json.loads(positions_json)
-        if not isinstance(positions, list) or not 1 <= len(positions) <= 16 or any(not isinstance(value, list) or len(value) != 3 or any(not isinstance(item, (int, float)) or not math.isfinite(item) for item in value) for value in positions):
-            raise RuntimeError("必须提供一至十六个有效世界位置")
-        world = next((value for value in unreal.EditorLevelLibrary.get_pie_worlds(False) if value.get_path_name() == world_path), None)
-        system = unreal.load_asset(system_path)
-        if world is None or not isinstance(system, unreal.NiagaraSystem):
-            raise RuntimeError("必须提供活动 PIE 世界和特效资产")
-        if not unreal.BBBNiagaraEditorLibrary.prepare_system_for_preview(system_path):
-            raise RuntimeError("特效系统及 GPU 着色器尚未就绪")
-        components = []
-        for position in positions:
-            component = unreal.NiagaraFunctionLibrary.spawn_system_at_location(
-                world, system, unreal.Vector(*position), unreal.Rotator(), unreal.Vector(1, 1, 1),
-                auto_destroy=True, auto_activate=True, pooling_method=unreal.NCPoolMethod.AUTO_RELEASE, pre_cull_check=False)
-            if component is None:
-                raise RuntimeError("特效实例生成失败")
-            components.append(component.get_path_name())
-        return json.dumps({"world": world_path, "worldTime": unreal.GameplayStatics.get_time_seconds(world), "components": components})
-
-
-    @mcp_tool
-    @staticmethod
-    def configure_asset_properties(asset_path: str, properties_json: str) -> str:
-        """/** @param asset_path 自有资产路径 @param properties_json 编辑器属性和值 @return 保存与属性回读 */"""
-        import importlib
-        import BBBAssetPropertyEditing
-        return importlib.reload(BBBAssetPropertyEditing).configure(asset_path, properties_json,
-            _apply_editor_property, _materialize_property_value, _serialize_value)
-
-
-    @mcp_tool
-    @staticmethod
-    def record_pie_player_view(file_prefix: str, duration_seconds: float = 5.0, fps: int = 24, width: int = 960, height: int = 540) -> str:
-        """
-        /**
-         * @param file_prefix\t不存在的任务目录
-         * @param duration_seconds\t连续世界录制秒数
-         * @param fps\t目标采样帧率
-         * @param width\t输出宽度
-         * @param height\t输出高度
-         * @return 录制状态
-         */
-        """
-        from BBBDisplayAssetCaptureTools import record_pie_player_view
-        return record_pie_player_view(file_prefix, duration_seconds, fps, width, height)
-
-
-    @mcp_tool
-    @staticmethod
-    def get_pie_view_recording_status() -> str:
-        """/** @return 最近的连续玩家视角录制状态 */"""
-        from BBBDisplayAssetCaptureTools import get_pie_view_recording_status
-        return get_pie_view_recording_status()
-
-
-    @mcp_tool
-    @staticmethod
-    def inspect_niagara_parameters(system_path: str) -> str:
-        """/** @param system_path 系统资产路径 @return 公开参数 快速迭代值与活动图表 */"""
-        return unreal.BBBNiagaraEditorLibrary.inspect_parameters(system_path)
-
-
-    @mcp_tool
-    @staticmethod
-    def configure_niagara_burst_layer(system_path: str, layer_json: str) -> str:
-        """/** @param system_path 自有系统路径 @param layer_json 精灵爆发层参数 @return 编译与保存结果 */"""
-        from BBBAssetWritePolicy import require_write_access
-        system = unreal.load_asset(system_path)
-        if not isinstance(system, unreal.NiagaraSystem):
-            raise RuntimeError('目标不是 Niagara 系统')
-        require_write_access(system)
-        return unreal.BBBNiagaraEditorLibrary.configure_burst_sprite_layer(system_path, layer_json)
-
-
-    @mcp_tool
-    @staticmethod
-    def configure_niagara_particle_stage(system_path: str, emitter_name: str, stage_json: str) -> str:
-        """
-        /**
-         * @param system_path\t自有系统路径
-         * @param emitter_name\t现有发射器名称
-         * @param stage_json\t完整粒子阶段描述
-         * @return 原位替换 编译和保存结果
-         */
-        """
-        from BBBAssetWritePolicy import require_write_access
-        system = unreal.load_asset(system_path)
-        if not system_path.startswith('/Game/_Project/') or not isinstance(system, unreal.NiagaraSystem):
-            raise RuntimeError('目标必须为自有 Niagara 系统')
-        require_write_access(system)
-        result = unreal.BBBNiagaraEditorLibrary.configure_particle_stage(system_path, emitter_name, stage_json)
-        if result.startswith('失败'):
-            raise RuntimeError(result)
-        return result
-
-
-    @mcp_tool
-    @staticmethod
-    def configure_niagara_parameters(system_path: str, changes_json: str) -> str:
-        """/** @param system_path 自有系统路径 @param changes_json 存储 名称与结构文本数组 @return 保存后参数回读 */"""
-        from BBBAssetWritePolicy import require_write_access
-        system = unreal.load_asset(system_path)
-        if not isinstance(system, unreal.NiagaraSystem):
-            raise RuntimeError('目标不是 Niagara 系统')
-        require_write_access(system)
-        return unreal.BBBNiagaraEditorLibrary.configure_parameters(system_path, changes_json)
-
-
-    @mcp_tool
-    @staticmethod
-    def create_particle_surface_material(material_path: str, kind: str) -> str:
-        """
-        /**
-         * @param material_path\t新建自有材质路径
-         * @param kind\t尘土 dust 或不透明碎屑 debris
-         * @return 材质编译和保存结果
-         */
-        """
-        from BBBAssetWritePolicy import require_asset_write
-        if not material_path.startswith('/Game/_Project/') or kind not in {'dust', 'debris'}:
-            raise RuntimeError('需要自有材质路径与 dust 或 debris 类型')
-        require_asset_write([], [material_path])
-        if unreal.EditorAssetLibrary.does_asset_exist(material_path):
-            raise RuntimeError('目标材质已经存在')
-        directory, name = material_path.rsplit('/', 1)
-        material = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, directory, unreal.Material, unreal.MaterialFactoryNew())
-        if material is None:
-            raise RuntimeError('材质创建失败')
-        edit = unreal.MaterialEditingLibrary
-        material.set_editor_property('two_sided', True)
-        material.set_editor_property('used_with_niagara_sprites', kind == 'dust')
-        material.set_editor_property('used_with_niagara_mesh_particles', kind == 'debris')
-        tint = edit.create_material_expression(material, unreal.MaterialExpressionParticleColor, -600, 0)
-        edit.connect_material_property(tint, 'RGB', unreal.MaterialProperty.MP_BASE_COLOR)
-        rough = edit.create_material_expression(material, unreal.MaterialExpressionConstant, -300, 250)
-        rough.set_editor_property('r', 0.88)
-        edit.connect_material_property(rough, '', unreal.MaterialProperty.MP_ROUGHNESS)
-        if kind == 'dust':
-            material.set_editor_property('blend_mode', unreal.BlendMode.BLEND_TRANSLUCENT)
-            uv = edit.create_material_expression(material, unreal.MaterialExpressionTextureCoordinate, -600, -200)
-            mask = edit.create_material_expression(material, unreal.MaterialExpressionCustom, -300, -100)
-            mask.set_editor_property('output_type', unreal.CustomMaterialOutputType.CMOT_FLOAT1)
-            field = unreal.CustomInput()
-            field.set_editor_property('input_name', 'UV')
-            mask.set_editor_property('inputs', [field])
-            mask.set_editor_property('code', '''
-float2 p=UV*2-1;
-float2 q=p*3.8;
-float n=0;
-float a=0.55;
-for(int k=0;k<4;k++)
-{
-    float2 i=floor(q);
-    float2 f=frac(q);
-    f=f*f*(3-2*f);
-    float4 h=frac(sin(float4(dot(i,float2(127.1,311.7)),dot(i+float2(1,0),float2(127.1,311.7)),dot(i+float2(0,1),float2(127.1,311.7)),dot(i+1,float2(127.1,311.7))))*43758.5453);
-    n+=lerp(lerp(h.x,h.y,f.x),lerp(h.z,h.w,f.x),f.y)*a;
-    q=q*2.03+float2(1.7,9.2);
-    a*=0.5;
-}
-float edge=1-length(p+float2(n-0.4,0.15-n*0.25)*0.25);
-return saturate(edge*3)*smoothstep(0.18,0.7,n)*0.8;
-''')
-            edit.connect_material_expressions(uv, '', mask, 'UV')
-            multiply = edit.create_material_expression(material, unreal.MaterialExpressionMultiply, -100, -100)
-            edit.connect_material_expressions(mask, '', multiply, 'A')
-            edit.connect_material_expressions(tint, 'A', multiply, 'B')
-            fade = edit.create_material_expression(material, unreal.MaterialExpressionDepthFade, 100, -100)
-            fade.set_editor_property('fade_distance_default', 25.0)
-            if not edit.connect_material_expressions(multiply, '', fade, 'Opacity'):
-                raise RuntimeError('尘土透明度连接失败')
-            edit.connect_material_property(fade, '', unreal.MaterialProperty.MP_OPACITY)
-        edit.recompile_material(material)
-        if not unreal.EditorAssetLibrary.save_loaded_asset(material, False):
-            raise RuntimeError('粒子表面材质保存失败')
-        return material.get_path_name()
-
-
-    @mcp_tool
-    @staticmethod
-    def sample_skeletal_mesh_surface(mesh_path: str, animation_path: str, time_seconds: float,
-                                     selected_bones: list[str], minimum_weight: float,
-                                     material_indices: list[int], output_name: str,
-                                     local_rotations_json: str = '{}') -> str:
-        """只读采样明确姿势的真实蒙皮表面 输出至任务临时目录"""
-        import BBBGripGeometryTools
-
-        return BBBGripGeometryTools.sample_surface(
-            mesh_path, animation_path, time_seconds, selected_bones, minimum_weight,
-            material_indices, output_name, local_rotations_json)
-
-    @mcp_tool
-    @staticmethod
-    def audit_hand_pose_layer(mesh_path: str, base_animation_path: str, grip_animation_path: str,
-                             base_path: str, interface_path: str, layer_name: str, alphas: list[float]) -> str:
-        """/** @param mesh_path 实际网格 @param base_animation_path 输入动作 @param grip_animation_path 握姿 @param base_path 正式层 @param interface_path 层接口 @param layer_name 层名称 @param alphas 混合权重 @return 临时预览世界真实求值与逐骨误差 */"""
-        from BBBHandPoseLayerTools import audit_hand_pose_layer
-        return json.dumps(audit_hand_pose_layer(mesh_path, base_animation_path, grip_animation_path,
-                                               base_path, interface_path, layer_name, alphas), ensure_ascii=False)
-
-    @mcp_tool
-    @staticmethod
-    def configure_hand_pose_layer(main_path: str, base_path: str, interface_path: str,
-                                  child_layer_paths: list[str], old_layer_name: str,
-                                  layer_name: str, before_layer_name: str, grip_getter_name: str,
-                                  left_disable_curve: str, right_disable_curve: str,
-                                  left_finger_roots: list[str], right_finger_roots: list[str]) -> str:
-        """定向配置共享双手握姿层并在全部目标编译回读后保存"""
-        import BBBHandPoseLayerTools
-
-        result = BBBHandPoseLayerTools.configure_hand_pose_layer(
-            main_path, base_path, interface_path, child_layer_paths, old_layer_name,
-            layer_name, before_layer_name, grip_getter_name, left_disable_curve,
-            right_disable_curve, left_finger_roots, right_finger_roots)
-        return json.dumps(result, ensure_ascii=False)
-
-    @mcp_tool
-    @staticmethod
-    def sample_hand_handling_surface(mesh_path: str, main_path: str, base_path: str, interface_path: str,
-                                      animation_path: str, grip_path: str, time_seconds: float,
-                                      right_hand_offset: list[float], equipment_enabled: bool,
-                                      left_grip_alpha: float, right_grip_alpha: float,
-                                      selected_bones: list[str], minimum_selected_weight: float,
-                                      material_indices: list[int]) -> str:
-        """/** @param mesh_path 实际网格 @param main_path 主实例类型 @param base_path 正式基础层 @param interface_path 正式接口 @param animation_path 动作 @param grip_path 握姿 @param time_seconds 秒数 @param right_hand_offset 俯仰偏航滚转 @param equipment_enabled 装备快照 @param left_grip_alpha 左指权重 @param right_grip_alpha 右指权重 @param selected_bones 表面骨骼 @param minimum_selected_weight 选取阈值 @param material_indices 材质筛选 @return 实际正式层求值和原生蒙皮 无 PIE */"""
-        from BBBHandPoseLayerTools import sample_hand_handling_surface
-        return json.dumps(sample_hand_handling_surface(mesh_path, main_path, base_path, interface_path,
-            animation_path, grip_path, time_seconds, right_hand_offset, equipment_enabled,
-            left_grip_alpha, right_grip_alpha, selected_bones, minimum_selected_weight, material_indices), ensure_ascii=False)
-
-    @mcp_tool
-    @staticmethod
-    def configure_right_hand_grip_rotation(base_path: str, child_layer_paths: list[str], main_path: str,
-                                           graph_name: str, before_node_guid: str) -> str:
-        """/** @param base_path 基础层 @param child_layer_paths 明确继承层 @param main_path 主图 @param graph_name 骨骼控制图 @param before_node_guid 已有瞄准节点 @return 原生右腕增量配置与全部编译保存结果 */"""
-        from BBBHandPoseLayerTools import configure_right_hand_grip_rotation
-        return json.dumps(configure_right_hand_grip_rotation(base_path, child_layer_paths, main_path,
-                                                            graph_name, before_node_guid), ensure_ascii=False)
-
     @mcp_tool
     @staticmethod
     def reparent_skeletal_mesh_socket(mesh_path: str, socket_name: str, parent_bone_name: str, dry_run: bool = True) -> str:
@@ -5283,10 +5412,6 @@ return saturate(edge*3)*smoothstep(0.18,0.7,n)*0.8;
             raise RuntimeError('插槽重挂保存失败')
         result.update({'mesh': mesh_path, 'socket': socket_name, 'saved': not dry_run})
         return json.dumps(result)
-
-
-
-
 
     @mcp_tool
     @staticmethod
@@ -5333,92 +5458,6 @@ return saturate(edge*3)*smoothstep(0.18,0.7,n)*0.8;
         result["saved"] = not dry_run
         return json.dumps(result, ensure_ascii=False)
 
-
-    @mcp_tool
-    @staticmethod
-    def inspect_mesh_lod_statistics(mesh_paths: list[str]) -> str:
-        """
-        /**
-         * 只读检查明确网格的各渲染档几何与材质槽
-         * @param mesh_paths	一至八个明确网格包路径
-         * @return 各档三角面 顶点 区段与材质槽 JSON
-         */
-        """
-        if isinstance(mesh_paths, unreal.Array):
-            mesh_paths = list(mesh_paths)
-
-        if not isinstance(mesh_paths, list) or not 1 <= len(mesh_paths) <= 8:
-            raise RuntimeError('网格统计需要一至八个明确路径')
-        if any(not isinstance(path, str) or re.fullmatch(r'/Game/(?:[\w-]+/)*[\w-]+', path) is None for path in mesh_paths):
-            raise RuntimeError('网格统计只接受明确的 Game 包路径')
-        if len(set(mesh_paths)) != len(mesh_paths):
-            raise RuntimeError('网格统计拒绝重复路径')
-
-        assets = []
-        for path in mesh_paths:
-            asset = unreal.load_asset(path)
-            if not isinstance(asset, (unreal.SkeletalMesh, unreal.StaticMesh)):
-                raise RuntimeError('目标不是静态或骨骼网格: ' + path)
-            assets.append((path, asset))
-        dirty = {package.get_path_name() for package in unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()}
-        for path, asset in assets:
-            if asset.get_outermost().get_path_name() in dirty:
-                raise RuntimeError('目标网格存在未保存修改: ' + path)
-
-        subsystem = unreal.get_editor_subsystem(unreal.SkeletalMeshEditorSubsystem)
-        rows = []
-        for path, asset in assets:
-            skeletal = isinstance(asset, unreal.SkeletalMesh)
-            count = subsystem.get_lod_count(asset) if skeletal else asset.get_num_lods()
-            if count < 1:
-                raise RuntimeError('目标网格没有有效渲染档: ' + path)
-            materials = asset.get_editor_property('materials' if skeletal else 'static_materials')
-            slots = []
-            for index, material in enumerate(materials):
-                interface = material.get_editor_property('material_interface')
-                slots.append({'index': index, 'name': str(material.get_editor_property('material_slot_name')),
-                              'material': interface.get_path_name() if interface else None})
-            native_lods, native_reason = {}, None
-            if skeletal:
-                library = getattr(unreal, 'BBBBlueprintEditorLibrary', None)
-                inspector = getattr(library, 'inspect_skeletal_mesh_render_data', None)
-                if not callable(inspector):
-                    native_reason = 'RENDER_INSPECTOR_UNAVAILABLE'
-                else:
-                    try:
-                        native = json.loads(str(inspector([asset])))['meshes'][0]
-                        native_reason = native.get('unavailableReason')
-                        native_lods = {row['lod']: row for row in native['lods']}
-                    except (KeyError, IndexError, TypeError, ValueError) as error:
-                        native_reason = 'RENDER_INSPECTION_FAILED: ' + str(error)
-            lods = []
-            for index in range(count):
-                sections = subsystem.get_num_sections(asset, index) if skeletal else asset.get_num_sections(index)
-                vertices = subsystem.get_num_verts(asset, index) if skeletal else asset.get_num_vertices(index)
-                if sections < 0 or vertices < 0:
-                    raise RuntimeError('渲染档区段或顶点数量无效: ' + path + ' LOD ' + str(index))
-                if skeletal:
-                    triangles, reason = None, native_reason
-                    section_slots = [subsystem.get_lod_material_slot(asset, index, section) for section in range(sections)]
-                    native_lod = native_lods.get(index)
-                    if reason is None and native_lod is None:
-                        reason = 'RENDER_LOD_UNAVAILABLE'
-                    if reason is None and (native_lod['renderVertices'] != vertices or len(native_lod['sections']) != sections):
-                        reason = 'RENDER_LOD_MISMATCH'
-                    if reason is None:
-                        triangles = native_lod['triangles']
-                else:
-                    triangles = asset.get_num_triangles(index)
-                    reason = None
-                    section_slots = None
-                lods.append({'lod': index, 'triangles': triangles, 'triangleUnavailableReason': reason,
-                             'renderVertices': vertices, 'sections': sections, 'sectionMaterialSlots': section_slots,
-                             'uvChannels': native_lod.get('uvChannels') if skeletal and reason is None else None})
-            rows.append({'asset': path, 'type': 'SkeletalMesh' if skeletal else 'StaticMesh',
-                         'materialSlots': slots, 'lods': lods})
-        return json.dumps({'readOnly': True, 'geometrySource': 'RenderData', 'meshes': rows}, ensure_ascii=False)
-
-
     @mcp_tool
     @staticmethod
     def configure_preview_attachments(asset_path: str, remove_paths: list[str], dry_run: bool = True) -> str:
@@ -5457,13 +5496,19 @@ return saturate(edge*3)*smoothstep(0.18,0.7,n)*0.8;
             result['saved'] = True
         return json.dumps(result, ensure_ascii=False)
 
-
     @mcp_tool
     @staticmethod
     def configure_inner_outline_material(material_path: str) -> str:
         """/** @param material_path 自有描边材质包 @return 原位构建的双组内侧描边材质与保存回读 */"""
         from BBBInnerOutlineMaterialTools import configure_inner_outline_material
         return configure_inner_outline_material(material_path)
+
+    @mcp_tool
+    @staticmethod
+    def configure_outer_outline_material(material_path: str, width: float = 4.0, opacity: float = 0.95) -> str:
+        """/** @param material_path 自有外描边材质包 @param width 向外扩张像素宽度 @param opacity 描边不透明度 @return 保存并回读的 CustomStencil 外描边材质 */"""
+        from BBBInnerOutlineMaterialTools import configure_outer_outline_material
+        return configure_outer_outline_material(material_path, width, opacity)
 
     @mcp_tool
     @staticmethod

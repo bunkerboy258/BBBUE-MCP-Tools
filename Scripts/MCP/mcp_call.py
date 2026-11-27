@@ -268,13 +268,9 @@ class McpSession:
             self._cache[tool] = self.request("describe_tool", {"tool": tool})
         return copy.deepcopy(self._cache[tool])
 
-    def submit_batch(self, operations, label="", environment="editor", test_options=None, test_host=None, await_seconds=2):
+    def submit_batch(self, operations, label="", await_seconds=2):
         """/** @param operations 有序操作 @param label 阶段用途 @return 即时批次编号 */"""
-        arguments = {"operations": operations, "label": label, "environment": environment, "await_seconds": await_seconds}
-        if test_options is not None:
-            arguments["test_options"] = test_options
-        if test_host is not None:
-            arguments["test_host"] = test_host
+        arguments = {"operations": operations, "label": label, "await_seconds": await_seconds}
         return self.request("submit_batch", arguments)
 
     def inspect_tasks(self, batch=None, detail=False, after_revision=None, wait_seconds=0, operators=False):

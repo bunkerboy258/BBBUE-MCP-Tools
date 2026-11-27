@@ -186,9 +186,7 @@ class HostRegistry:
                         continue
                     if re.fullmatch(r"/bbb-mcp-[0-9a-f]{32}", endpoint.path) is None:
                         continue
-                    if value.get("role") not in {"editor", "test"} or value["role"] != actual[pid].get("role", "editor"):
-                        continue
-                    if value["role"] == "test" and (re.fullmatch(r"[0-9a-f]{16}", str(value.get("batch"))) is None or value["batch"] != actual[pid].get("batch")):
+                    if value.get("role", "editor") != "editor":
                         continue
                     value["project"] = project
                     value["connection"] = "registered"
@@ -269,12 +267,11 @@ class RegistryGuard:
     """/** 资产宿主与独立测试使用登记簿维护实际归属 */"""
 
     def __init__(self, registry, project, process_id):
-        """/** @param registry 进程登记簿 @param project 项目 @param process_id 资产宿主 @return 项目归属检查 */"""
+        """/** @param registry 进程登记簿 @param project 项目 @param process_id 共享宿主 @return 项目归属检查 */"""
         self.registry = registry
         self.project = project_identity(project)
         self.process_id = process_id
         self.lock = registry.lock
-        self.tests = {}
         row = registry.hosts.get(process_id)
         self.created = row.get("created") if row else None
 
@@ -290,16 +287,6 @@ class RegistryGuard:
             selected = self.registry.selected.get(self.project)
             return {"verified": self.registry.error is None, "exclusive": selected == self.process_id,
                     "hosts": [row for row in self.registry.public() if row["process_id"] in self.registry.hosts and self.registry.hosts[row["process_id"]]["project"] == self.project]}
-
-    def register_test(self, batch, process_id):
-        """/** @param batch 测试归属 @param process_id 测试进程 @return 已登记的测试编号 */"""
-        with self.lock:
-            self.tests[batch] = process_id
-
-    def release_test(self, batch):
-        """/** @param batch 已退出测试 @return 已释放归属 */"""
-        with self.lock:
-            self.tests.pop(batch, None)
 
 
 def project_key(project):

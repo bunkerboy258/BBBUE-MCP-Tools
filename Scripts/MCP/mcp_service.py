@@ -13,7 +13,7 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, build_opener, ProxyHandler
 
 sys.dont_write_bytecode = True
@@ -30,8 +30,8 @@ from MCP.mcp_project_host import project_identity
 from MCP.mcp_result import McpBusinessError
 from MCP.mcp_response import response
 from MCP.mcp_decision import require_control
+from MCP.mcp_events import McpEventJournal
 from MCP.mcp_task_gateway import TaskGateway, UnrealBackend, public_tools
-from MCP.mcp_test_hosts import TestHost, project_version
 from MCP.mcp_source_version import source_version
 
 _loaded_source_version = source_version()
@@ -192,12 +192,13 @@ class CachedCatalog(ToolCatalog):
 class ProjectRuntime:
     """/** 服务进程内持续存在的项目连接与调度上下文 */"""
 
-    def __init__(self, project_file, registry, test_limit=2):
-        """/** @param project_file 项目 @param registry 进程登记 @param test_limit 测试容量 @return 项目上下文 */"""
+    def __init__(self, project_file, registry, event_journal=None):
+        """/** @param project_file 项目 @param registry 进程登记 @return 项目上下文 */"""
         self.project_file = Path(project_file).resolve()
         self.project = project_identity(project_file)
+        self.project_key = project_key(self.project)
+        self.event_journal = event_journal
         self.registry = registry
-        self.test_limit = test_limit
         self.lock = threading.RLock()
         self.progress = threading.Condition()
         self.progress_revision = 0
@@ -222,6 +223,8 @@ class ProjectRuntime:
         self.protocol.clients = self.clients
         self.protocol.jobs = self
         self.protocol.tools = {row["name"]: row for row in public_tools()}
+        self.protocol.event_journal = event_journal
+        self.protocol.project_key = self.project_key
 
     def source_state(self, backend=None):
         """/** @return 磁盘与两个执行进程的源码版本 */"""
@@ -291,7 +294,7 @@ class ProjectRuntime:
             return
         identity = (row["process_id"], row["created"])
         if identity == self.identity and self.backend is not None:
-            queue = self.gateway.jobs.editor
+            queue = self.gateway.jobs
             if queue.call_active:
                 return
             try:
@@ -310,7 +313,7 @@ class ProjectRuntime:
         if time.monotonic() < self.retry_at:
             return
         self.retry_at = time.monotonic() + 5
-        if self.gateway and (self.gateway.jobs.editor.call_active or self.gateway.jobs.editor.writer):
+        if self.gateway and (self.gateway.jobs.call_active or self.gateway.jobs.writer):
             return
         self.state = "connecting"
         self.registry.mark(row["process_id"], "connecting")
@@ -322,7 +325,7 @@ class ProjectRuntime:
             backend.remap = True
             with self.lock:
                 if self.gateway is not None:
-                    old = self.gateway.jobs.editor
+                    old = self.gateway.jobs
                     old.close()
                     if old.worker and old.worker.is_alive():
                         raise RuntimeError("PREVIOUS_EXECUTION_SETTLING")
@@ -334,19 +337,17 @@ class ProjectRuntime:
                 self.backend = backend
                 self.identity = identity
                 if self.gateway is None:
-                    self.gateway = TaskGateway(backend, catalog=self.catalog, test_factory=self._test_factory,
-                        version=self._version, test_limit=self.test_limit,
-                        test_output_root=self.project_file.parent / "Saved/temp/McpTests", clients=self.clients,
-                        test_restore=self._restore_test)
+                    self.gateway = TaskGateway(backend, catalog=self.catalog, clients=self.clients,
+                        event_journal=self.event_journal, project_key=self.project_key)
                 if previous_backend is not None:
                     from MCP.mcp_jobs import JobQueue
-                    self.gateway.jobs.editor = JobQueue(backend, self.catalog, clients=self.clients)
+                    self.gateway.jobs = JobQueue(backend, self.catalog, clients=self.clients,
+                        event_journal=self.event_journal, project_key=self.project_key)
                     for client in list(self.clients):
                         if not client.startswith("@"):
                             self.gateway.jobs.connect(client)
                     previous_backend.close()
                 self.gateway.jobs.on_change = self.notify_progress
-                self.gateway.jobs.editor.on_change = self.notify_progress
                 self.backend = backend
                 self.identity = identity
                 self.state = "ready"
@@ -361,59 +362,21 @@ class ProjectRuntime:
             self.registry.mark(row["process_id"], "connecting", self.error)
             logging.warning("host_connect_failed project=%s pid=%s type=%s", project_key(self.project), row["process_id"], type(error).__name__)
 
-    def _test_factory(self, batch, options):
-        """/** @param batch 批次 @param options 测试配置 @return 受限原项目测试宿主 */"""
-        host = TestHost(batch, options, self.project_file, Path(self.identity_row()["editor_path"]), self.backend.guard, UnrealBackend)
-        try:
-            self.require_current(host.backend)
-        except McpBusinessError:
-            host.close()
-            raise
-        return host
-
-    def _restore_test(self, batch, options, pid):
-        """/** @param batch 原测试 @param options 原配置 @param pid 原进程 @return 核验后接回的测试宿主 */"""
-        with self.registry.lock:
-            row = self.registry.hosts.get(pid)
-            if row is None or row.get("batch") != batch or row["project"] != self.project:
-                raise RuntimeError("TEST_HOST_IDENTITY_REQUIRED")
-            row = dict(row)
-        return TestHost.adopt(row, self.backend.guard, UnrealBackend)
-
     def identity_row(self):
-        """/** @return 当前资产宿主的已登记身份 */"""
+        """/** @return 当前共享宿主的已登记身份 */"""
         row = self.registry.candidate(self.project)
         if row is None or (row["process_id"], row["created"]) != self.identity:
             raise RuntimeError("HOST_EPOCH_CHANGED")
         return row
 
-    def _version(self, record):
-        """/** @param record 测试批次 @return 原项目输入的当前版本 */"""
-        from MCP.mcp_asset_scope import asset_targets
-        if "input_files" not in record:
-            paths = sorted({record["options"]["map"]} | asset_targets(record["operations"]))
-            backend = self.backend
-            if record["test_host"] != record["batch"]:
-                backend = self.gateway.jobs.continuation_backend(record["owner"], record["test_host"])
-                if backend is None:
-                    raise RuntimeError("TEST_HOST_NOT_READY")
-                self.require_current(backend)
-            backend._toolsets()
-            record["input_files"] = backend._call("call_tool", {"toolset_name": backend.task_name,
-                "tool_name": "inspect_saved_test_inputs", "arguments": {"asset_paths": paths}})["files"]
-        return project_version(self.project, record["input_files"])
-
-    def submit(self, client, operations, label="", environment="editor", test_options=None, test_host=None):
-        """/** @param client 所属客户端 @param operations 操作 @param label 用途 @param environment 执行环境 @param test_options 测试配置 @param test_host 测试归属 @return 已提交批次 */"""
+    def submit(self, client, operations, label=""):
+        """/** @param client 所属客户端 @param operations 操作 @param label 用途 @return 已提交批次 */"""
         with self.lock:
-            backend = None
-            if self.gateway is not None and environment == "test" and test_host is not None:
-                backend = self.gateway.jobs.continuation_backend(client, test_host)
-            if backend is None and (self.gateway is None or self.state != "ready"):
+            if self.gateway is None or self.state != "ready":
                 raise McpBusinessError({"status": "waiting", "code": "EDITOR_CONNECTING" if self.state == "connecting" else "EDITOR_OFFLINE",
                     "revision": self.view_revision, "retry_after_seconds": 2, "hint": "编辑器接入后重新提交"})
-            self.require_current(backend)
-            return self.gateway.jobs.submit(client, operations, label, environment, test_options, test_host)
+            self.require_current()
+            return self.gateway.jobs.submit(client, operations, label)
 
     def inspect(self, client, batch=None, detail=False, after_revision=None, wait_seconds=0):
         """/** @param client 所属客户端 @param batch 批次 @param detail 详细信息 @param after_revision 上次版本 @param wait_seconds 等待上限 @return 项目与连接状态 */"""
@@ -422,12 +385,12 @@ class ProjectRuntime:
             with self.progress:
                 observed = self.progress_revision
             dialog = self._inspect_dialog()
-            if dialog.get("code") == "EDITOR_DIALOG_OPEN" and (batch is None or (self.gateway is not None and batch in self.gateway.jobs.editor.jobs)):
+            if dialog.get("code") == "EDITOR_DIALOG_OPEN" and (batch is None or (self.gateway is not None and batch in self.gateway.jobs.jobs)):
                 result = dict(dialog)
                 result["next"] = {"tool": "control_task", "arguments": {"action": "inspect_dialog"}}
                 result["host"] = {"process_id": self.identity[0] if self.identity else None, "verified": True}
                 if batch is not None and self.gateway is not None:
-                    editor = self.gateway.jobs.editor
+                    editor = self.gateway.jobs
                     with editor.changed:
                         job = editor.jobs.get(batch)
                         if job is not None and job["owner"] == client:
@@ -443,7 +406,7 @@ class ProjectRuntime:
                 if gateway is None:
                     value = {"revision": 0, "host": {"process_id": None, "verified": False, "exclusive": False},
                         "queued": 0, "pie": False, "activities": 0, "dirty": 0, "asset_occupancy": [],
-                        "tests": {"running": 0, "queued": 0, "limit": self.test_limit}, "owned_activities": []}
+                        "owned_activities": []}
                     if batch:
                         stored = next((item for item in self.clients.stored_jobs() if item["id"] == batch and item["owner"] == self.clients.digest(client)), None)
                         if stored is None:
@@ -461,8 +424,8 @@ class ProjectRuntime:
                         value["host"] = {**value["host"], "verified": False}
                         if self.state == "offline":
                             value["host"]["process_id"] = None
-                            if gateway is not None and gateway.jobs.editor.shutdown_requested:
-                                process_id = gateway.jobs.editor.activity["process_id"]
+                            if gateway is not None and gateway.jobs.shutdown_requested:
+                                process_id = gateway.jobs.activity["process_id"]
                                 current = process_identity(process_id)
                                 same_process = current is not None and self.identity == (process_id, current["created"])
                                 value["shutdown"] = {"status": "exit_pending" if same_process else "exited", "process_id": process_id}
@@ -479,7 +442,7 @@ class ProjectRuntime:
                 revision = value.get("revision", 0)
             if after_revision is None or after_revision != revision or time.monotonic() >= deadline:
                 return response(value)
-            interval = 0.5 if gateway and gateway.jobs.editor.call_active else 3
+            interval = 0.5 if gateway and gateway.jobs.call_active else 3
             with self.progress:
                 if observed == self.progress_revision:
                     self.progress.wait(min(interval, max(0, deadline - time.monotonic())))
@@ -519,7 +482,7 @@ class ProjectRuntime:
                 raise McpBusinessError({"status": "rejected", "code": "EDITOR_OFFLINE"})
             owned = False
             if self.gateway is not None:
-                editor = self.gateway.jobs.editor
+                editor = self.gateway.jobs
                 with editor.changed:
                     running = [item for item in editor.jobs.values() if item["status"] == "running"]
                     owned = bool(running) and all(item["owner"] == client for item in running)
@@ -558,13 +521,13 @@ class ProjectRuntime:
 class McpService:
     """/** 与 UE 生命周期独立的本机服务 */"""
 
-    def __init__(self, projects, test_limit=2, registry=None, config_path=None):
-        """/** @param projects 项目文件列表 @param test_limit 并行测试容量 @param registry 进程发现 @return 常驻服务 */"""
+    def __init__(self, projects, registry=None, config_path=None):
+        """/** @param projects 项目文件列表 @param registry 进程发现 @return 常驻服务 */"""
         self.registry = registry or HostRegistry(projects)
-        self.projects = {project_key(path): ProjectRuntime(path, self.registry, test_limit) for path in projects}
+        self.event_journal = McpEventJournal()
+        self.projects = {project_key(path): ProjectRuntime(path, self.registry, self.event_journal) for path in projects}
         self.default = next(iter(self.projects))
         self.config_path = config_path
-        self.test_limit = test_limit
         self.stop_event = threading.Event()
         self.thread = threading.Thread(target=self._monitor, daemon=True, name="BBB-MCP-hosts")
 
@@ -578,7 +541,7 @@ class McpService:
                         key = project_key(path)
                         if key not in self.projects:
                             self.registry.projects[project_identity(path)] = Path(path).resolve()
-                            self.projects[key] = ProjectRuntime(path, self.registry, self.test_limit)
+                            self.projects[key] = ProjectRuntime(path, self.registry, self.event_journal)
                 self.registry.refresh()
                 for context in list(self.projects.values()):
                     before = (context.state, context.revision, context.clients.operators.revision)
@@ -649,11 +612,47 @@ def make_service_server(service, port):
             return host.hostname in {"127.0.0.1", "localhost"} and host.port == self.server.server_address[1] and not self.headers.get("Origin")
 
         def do_GET(self):
-            if self.path != "/health" or not self.local_request():
+            if not self.local_request():
                 self.send_error(403)
                 return
-            self.send_value(200, {}, {"service": "BBB-MCP", "protocol": 6, "process_id": os.getpid(),
-                "projects": list(service.projects), "default": service.default, "source_version": _loaded_source_version})
+            route = urlparse(self.path)
+            if route.path == "/health":
+                self.send_value(200, {}, {"service": "BBB-MCP", "protocol": 6, "process_id": os.getpid(),
+                    "projects": list(service.projects), "default": service.default, "source_version": _loaded_source_version})
+                return
+            if route.path == "/events" or (route.path.startswith("/projects/") and route.path.endswith("/events")):
+                try:
+                    query = parse_qs(route.query, strict_parsing=True)
+                    after = int(query.get("after", ["0"])[0])
+                    limit = int(query.get("limit", ["100"])[0])
+                    if set(query) - {"after", "limit"} or any(len(values) != 1 for values in query.values()):
+                        raise ValueError("EVENT_QUERY")
+                    key = service.default
+                    if route.path.startswith("/projects/") and route.path.endswith("/events"):
+                        key = route.path[len("/projects/"):-len("/events")].rstrip("/")
+                    if len(key) != 16 or any(character not in "0123456789abcdef" for character in key) or key not in service.projects:
+                        self.send_error(404)
+                        return
+                    journal = getattr(service, "event_journal", None)
+                    value = journal.read(after, limit, project=key) if journal else {
+                        "schema": "ue-mcp-events/v1", "epoch": "", "cursor": 0, "gap": False, "events": []}
+                except (ValueError, TypeError):
+                    self.send_error(400)
+                    return
+                self.send_value(200, {}, value)
+                return
+            mcp_path = route.path
+            project_key = service.default
+            if mcp_path.startswith("/projects/") and mcp_path.endswith("/mcp"):
+                project_key = mcp_path[len("/projects/"):-len("/mcp")]
+                mcp_path = "/mcp"
+            if mcp_path == "/mcp":
+                if project_key not in service.projects:
+                    self.send_error(404)
+                    return
+                self.send_value(405, {"Allow": "POST, DELETE"}, {"error": "SSE_UNSUPPORTED"})
+                return
+            self.send_error(404)
 
         def do_POST(self):
             self.dispatch()
@@ -713,7 +712,6 @@ def main():
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--ensure", action="store_true")
     parser.add_argument("--supervise", action="store_true")
-    parser.add_argument("--test-hosts", type=int, choices=(1, 2), default=2)
     arguments = parser.parse_args()
     directory = arguments.directory or service_directory()
     if arguments.supervise:
@@ -733,7 +731,7 @@ def main():
         config = configuration(project, arguments.port, directory)
     handler = RotatingFileHandler(directory / "service.log", maxBytes=1048576, backupCount=2, encoding="utf-8")
     logging.basicConfig(level=logging.INFO, handlers=[handler], format="%(asctime)s %(levelname)s %(message)s")
-    service = McpService(config["projects"], arguments.test_hosts, config_path=directory / "service.json")
+    service = McpService(config["projects"], config_path=directory / "service.json")
     try:
         server = make_service_server(service, arguments.port)
     except OSError:

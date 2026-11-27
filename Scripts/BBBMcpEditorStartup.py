@@ -106,8 +106,6 @@ def start_editor_mcp():
     from BBBMcpBootstrap import register_mcp_toolsets
 
     register_mcp_toolsets()
-    if role == "test" or os.environ.get("BBB_MCP_HOST_ROLE") == "test":
-        return {"status": "skipped"}
     if not hasattr(unreal, "BBBMcpEditorStartupLibrary"):
         raise RuntimeError("MCP_STARTUP_NATIVE_LIBRARY_REQUIRED")
     identity = json.loads(unreal.BBBMcpEditorStartupLibrary.inspect_private_backend())

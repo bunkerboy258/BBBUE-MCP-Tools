@@ -33,14 +33,13 @@ ROUTES = {
         "use_when": "采样武器装备或换弹的实际运行时事实",
         "difference": "run_pie_input_sequence 注入输入；采样事实与图像各自提供验收证据",
         "workflow": [
-            {"environment": "test", "when": "独立测试", "inputs": ["test_options.map", "实际玩家与渲染需求"]},
-            {"tool": "app.StartPIE", "when": "启动所属测试世界", "inputs": ["options"]},
+            {"tool": "app.StartPIE", "when": "启动共享 PIE 并尽快在完成后 StopPIE（空闲30s自动回收）", "inputs": ["options"]},
             {"tool": "animation.sample_weapon_handling_runtime", "when": "启动对应运行时采样", "inputs": ["action=start", "seconds"]},
             {"tool": "animation.run_pie_input_sequence", "when": "已有采样与实际玩法输入", "inputs": ["steps"]},
             {"tool": "inspect_tasks", "when": "按业务版本等待所属 weapon:probe 活动结束", "inputs": ["batch", "after_revision", "wait_seconds=30"]},
             {"tool": "animation.sample_weapon_handling_runtime", "when": "输入与采样活动完成后读取事实", "inputs": ["action=status"]},
-            {"tool": "app.StopPIE", "when": "证据交付后结束所属 PIE", "inputs": []},
-            {"evidence": "输入注入、实际状态与时序满足任务判据、测试宿主收尾"},
+            {"tool": "app.StopPIE", "when": "证据交付后立即结束所属 PIE", "inputs": []},
+            {"evidence": "输入注入、实际状态与时序满足任务判据、已及时 StopPIE"},
         ],
     },
 }

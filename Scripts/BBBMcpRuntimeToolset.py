@@ -2,6 +2,7 @@ import ctypes
 import json
 import os
 import re
+import uuid
 
 import unreal
 
@@ -20,6 +21,7 @@ _active_profile = "Unconfigured"
 _configured_max_fps = None
 _scene_gpu_profile_settings = None
 _scene_gpu_profile_ready_frame = None
+_scene_test_camera = None
 
 
 def _profile_options():
@@ -184,6 +186,20 @@ def _configure(profile, max_fps):
 
 @unreal.uclass()
 class BBBMcpRuntimeToolset(unreal.ToolsetDefinition):
+    @mcp_tool
+    @staticmethod
+    def capture_memory_report() -> str:
+        """
+        /**
+         * 请求宿主生成原生完整内存报告 此操作会执行垃圾回收并短暂停顿
+         * @return 待生成报告的名称及目录 JSON
+         */
+        """
+        report_name = "BBBMemory_" + uuid.uuid4().hex[:12]
+        report_directory = os.path.abspath(os.path.join(unreal.Paths.project_saved_dir(), "Profiling", "MemReports"))
+        unreal.SystemLibrary.execute_console_command(None, "MemReport -full -name=" + report_name)
+        return json.dumps({"status": "requested", "report_name": report_name, "report_directory": report_directory})
+
     """
     /**
      * 提供 MCP 宿主运行时性能档位与只读诊断 不修改资产或持久配置
@@ -200,6 +216,48 @@ class BBBMcpRuntimeToolset(unreal.ToolsetDefinition):
          */
         """
         return json.dumps(_snapshot(), ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def inspect_scene_frame_metrics() -> str:
+        """
+        /**
+         * 读取真实引擎帧指标与玩家机位 不将帧率上限或截图成本作为场景性能
+         * @return 帧号 线程与 GPU 毫秒 渲染设置和玩家机位 JSON
+         */
+        """
+        metrics = list(unreal.BBBAnimationGraphEditorLibrary.read_performance_frame_metrics())
+        if len(metrics) != 5:
+            raise RuntimeError("SCENE_FRAME_METRICS_INVALID")
+
+        resources = _snapshot()
+        settings = {}
+        for name in ("r.ScreenPercentage", "r.RayTracing", "r.Lumen.DiffuseIndirect.Allow",
+                     "r.Lumen.Reflections.Allow", "r.Streaming.PoolSize", "r.ViewDistanceScale",
+                     "sg.ViewDistanceQuality", "sg.ShadowQuality", "sg.TextureQuality", "sg.EffectsQuality"):
+            settings[name] = unreal.SystemLibrary.get_console_variable_float_value(name)
+
+        worlds = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        camera = None
+        viewport_size = None
+        if worlds is not None:
+            controller = unreal.GameplayStatics.get_player_controller(worlds, 0)
+            if controller is not None:
+                viewport_size = list(controller.get_viewport_size())
+                manager = controller.get_editor_property("player_camera_manager")
+                if manager is not None:
+                    position = manager.get_camera_location()
+                    rotation = manager.get_camera_rotation()
+                    camera = {"position": [position.x, position.y, position.z],
+                              "rotation": [rotation.pitch, rotation.yaw, rotation.roll],
+                              "fov": manager.get_fov_angle()}
+
+        return json.dumps({"process_id": os.getpid(), "frame": int(metrics[0]),
+                           "game_ms": metrics[1], "render_ms": metrics[2], "gpu_ms": metrics[3],
+                           "delta_ms": metrics[4], "gpu_valid": not resources["null_rhi"] and metrics[3] > 0,
+                           "max_fps": resources["max_fps"], "settings": settings, "camera": camera,
+                           "viewport_size": viewport_size,
+                           "scope": "whole_engine_frame"}, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod
@@ -229,6 +287,56 @@ class BBBMcpRuntimeToolset(unreal.ToolsetDefinition):
         return json.dumps({"settings_class": settings.get_class().get_path_name(), "quality": quality,
                            "actual_overall_quality": settings.get_overall_scalability_level(),
                            "settings": values, "saved": False}, ensure_ascii=False)
+
+    @mcp_tool
+    @staticmethod
+    def configure_scene_test_view(position: list[float], rotation: list[float], width: int = 1920,
+                                  height: int = 1080, quality: int = 3, fov: float = 90.0) -> str:
+        """
+        /**
+         * 在受限测试宿主设置临时玩家相机与固定画质 不保存资产或用户配置
+         * @param position\t世界位置三分量
+         * @param rotation\t俯仰 偏航 滚转三分量
+         * @param width\t目标输出宽度
+         * @param height\t目标输出高度
+         * @param quality\t统一画质档位零至四
+         * @param fov\t水平视野角度
+         * @return 玩家机位与实际帧设置 JSON 分辨率须另行核验
+         */
+        """
+        import math
+        global _scene_test_camera
+        position = list(position)
+        rotation = list(rotation)
+        if len(position) != 3 or len(rotation) != 3 or not all(math.isfinite(value) for value in position + rotation):
+            raise ValueError("SCENE_VIEW_TRANSFORM_INVALID")
+        if not 320 <= width <= 3840 or not 240 <= height <= 2160 or not 0 <= quality <= 4 or not 10 <= fov <= 150:
+            raise ValueError("SCENE_VIEW_SETTINGS_RANGE")
+        world = unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world()
+        if world is None:
+            raise RuntimeError("SCENE_VIEW_PIE_REQUIRED")
+        controller = unreal.GameplayStatics.get_player_controller(world, 0)
+        if controller is None:
+            raise RuntimeError("SCENE_VIEW_PLAYER_REQUIRED")
+        if _scene_test_camera is None or not unreal.SystemLibrary.is_valid(_scene_test_camera):
+            _scene_test_camera = unreal.BBBBlueprintEditorLibrary.spawn_transient_pie_actor(
+                world, unreal.CameraActor, unreal.Transform())
+        if _scene_test_camera is None:
+            raise RuntimeError("SCENE_VIEW_CAMERA_FAILED")
+
+        camera_rotation = unreal.Rotator(pitch=rotation[0], yaw=rotation[1], roll=rotation[2])
+        _scene_test_camera.set_actor_location_and_rotation(unreal.Vector(*position), camera_rotation, False, True)
+        _scene_test_camera.get_component_by_class(unreal.CameraComponent).set_field_of_view(fov)
+        controller.set_view_target_with_blend(_scene_test_camera, 0.0)
+        settings = unreal.GameUserSettings.get_game_user_settings()
+        settings.set_screen_resolution(unreal.IntPoint(width, height))
+        settings.apply_resolution_settings(False)
+        for name in ("ViewDistance", "AntiAliasing", "Shadow", "GlobalIllumination", "Reflection",
+                     "PostProcess", "Texture", "Effects", "Foliage", "Shading"):
+            unreal.SystemLibrary.execute_console_command(world, "sg.{}Quality {}".format(name, quality))
+        unreal.SystemLibrary.execute_console_command(world, "r.ScreenPercentage 100")
+        return json.dumps({"camera": _scene_test_camera.get_path_name(), "width": width, "height": height,
+                           "quality": quality, "position": position, "rotation": rotation, "fov": fov}, ensure_ascii=False)
 
     @mcp_tool
     @staticmethod
@@ -291,7 +399,6 @@ class BBBMcpRuntimeToolset(unreal.ToolsetDefinition):
         return json.dumps({"status": "requested", "frame": frame, "pipeline_settings": pipeline,
                            "log_directory": unreal.Paths.project_log_dir(),
                            "next_action": "保持标记不变 可再次 capture 结束后 restore"}, ensure_ascii=False)
-
 
     @mcp_tool
     @staticmethod

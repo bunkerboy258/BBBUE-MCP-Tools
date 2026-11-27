@@ -39,9 +39,6 @@ def editor_inventory():
         if match is None:
             continue
         port = re.search(r"-BBBMcpServicePort=(\d+)(?:\s|$)", command_line, re.I)
-        role = re.search(r"-BBBMcpHostRole=(\w+)(?:\s|$)", command_line, re.I)
-        test = re.search(r"-BBBMcpTestId=([0-9a-f]{16})(?:\s|$)", command_line, re.I)
         hosts.append({"kind": "editor", "process_id": item["ProcessId"], "project_root": project_identity(match.group(1) or match.group(2)),
-            "public_port": int(port.group(1)) if port else None, "role": "test" if role and role.group(1).lower() == "test" else "editor",
-            "batch": test.group(1) if test else None})
+            "public_port": int(port.group(1)) if port else None, "role": "editor"})
     return hosts
