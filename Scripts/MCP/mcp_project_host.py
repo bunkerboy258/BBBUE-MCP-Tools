@@ -39,6 +39,7 @@ def editor_inventory():
         if match is None:
             continue
         port = re.search(r"-BBBMcpServicePort=(\d+)(?:\s|$)", command_line, re.I)
+        automated = re.search(r"(?:^|\s)-(?:Unattended|NullRHI|RenderOffscreen|BBBMcpHostRole=Test)(?:\s|$)", command_line, re.I) is not None
         hosts.append({"kind": "editor", "process_id": item["ProcessId"], "project_root": project_identity(match.group(1) or match.group(2)),
-            "public_port": int(port.group(1)) if port else None, "role": "editor"})
+            "public_port": int(port.group(1)) if port else None, "role": "editor", "automated": automated})
     return hosts

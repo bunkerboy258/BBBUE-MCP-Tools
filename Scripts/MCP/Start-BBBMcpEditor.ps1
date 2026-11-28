@@ -64,8 +64,7 @@ if (-not $EnginePath)
     {
         $running = @(Get-CimInstance Win32_Process -Filter "Name = 'UnrealEditor.exe'" |
             Where-Object { $_.ExecutablePath -and $_.CommandLine -and
-                $_.CommandLine.Replace('/', '\') -match $projectPattern -and
-                $_.CommandLine -notmatch '(?i)-BBBMcpHostRole=Test(\s|$)' })
+                $_.CommandLine.Replace('/', '\') -match $projectPattern })
         if ($running.Count -eq 1)
         {
             $EnginePath = [IO.Directory]::GetParent($running[0].ExecutablePath).Parent.Parent.Parent.FullName
@@ -130,10 +129,10 @@ try
     {
         throw '项目编辑器正在启动 请稍后复用当前服务'
     }
-    $editors = @(Get-CimInstance Win32_Process -Filter "Name = 'UnrealEditor.exe'" | Where-Object { $_.CommandLine -and $_.CommandLine.Replace('/', '\') -match $projectPattern -and $_.CommandLine -notmatch '(?i)-BBBMcpHostRole=Test(\s|$)' })
+    $editors = @(Get-CimInstance Win32_Process -Filter "Name = 'UnrealEditor.exe'" | Where-Object { $_.CommandLine -and $_.CommandLine.Replace('/', '\') -match $projectPattern })
     if ($editors.Count -gt 1 -or ($editors.Count -eq 1 -and $editors[0].ExecutablePath -ine $editorPath))
     {
-        throw '项目已有其他编辑器宿主 请先核验归属并完成交接'
+        throw '项目已有其他编辑器宿主 严禁多开 请先核验归属并复用现有宿主'
     }
     if ($editors.Count -eq 1)
     {
@@ -162,7 +161,7 @@ try
         {
             $frames = $MaxFPS
         }
-        $editorArguments = @('"' + $projectFile + '"', '-Multiprocess', '-NoSplash', '-AutoDeclinePackageRecovery',
+        $editorArguments = @('"' + $projectFile + '"', '-NoSplash', '-AutoDeclinePackageRecovery',
             "-BBBMcpServicePort=$Port", ('-BBBMcpServicePython="' + $PythonPath + '"'), "-BBBMcpPerformanceProfile=$PerformanceProfile", "-BBBMcpMaxFPS=$frames",
             '-ini:EditorPerProjectUserSettings:[/Script/ModelContextProtocol.ModelContextProtocolSettings]:bAutoStartServer=False',
             ('-ExecCmds="t.MaxFPS ' + $frames + ',t.IdleWhenNotForeground 0"'))

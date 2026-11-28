@@ -1,3 +1,6 @@
+import ctypes
+from ctypes import wintypes
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -20,6 +23,32 @@ from MCP.mcp_host_registry import publish_host, write_host
 
 
 _startup = None
+_single_editor_mutex = None
+
+
+def _acquire_single_editor_mutex(project_file):
+    """/** @param project_file 项目文件 @return 项目级单编辑器互斥句柄，已被其他实例持有时返回 None */"""
+    if os.name != "nt":
+        return True
+    normalized = os.path.normcase(str(Path(project_file).resolve().parent))
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]
+    kernel32.CreateMutexW.restype = wintypes.HANDLE
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    handle = kernel32.CreateMutexW(None, False, "Local\\BBBMcpSingleEditor_" + digest)
+    if not handle:
+        return None
+    if ctypes.get_last_error() == 183:
+        kernel32.CloseHandle(handle)
+        return None
+    return handle
+
+
+def _is_automated_editor_launch(command):
+    """/** @param command 编辑器命令行 @return 是否为脚本或 AI 拉起的自动化/无头副本 */"""
+    return re.search(r'(?:^|\s)-(?:Unattended|NullRHI|RenderOffscreen|BBBMcpServicePort=|BBBMcpHostRole=)', command, re.I) is not None
 
 
 def _argument(command, name, default):
@@ -96,9 +125,8 @@ def start_editor_mcp():
      * @return 当前接入状态 测试宿主由所属调度登记
      */
     """
-    global _startup
+    global _startup, _single_editor_mutex
     command = unreal.SystemLibrary.get_command_line()
-    role = _argument(command, "BBBMcpHostRole", "editor").lower()
     if _argument(command, "run", None) is not None:
         return {"status": "skipped"}
     if _startup is not None:
@@ -117,6 +145,13 @@ def start_editor_mcp():
     editor = Path(identity["editor_path"]).resolve()
     if not project_file.is_file() or project_file.suffix.lower() != ".uproject" or not editor.is_file() or editor.name != "UnrealEditor.exe":
         raise RuntimeError("MCP_STARTUP_PROJECT_IDENTITY")
+    mutex = _acquire_single_editor_mutex(project_file)
+    if mutex is None:
+        unreal.log_error("[BBBMcpEditorStartup] 拒绝多开：项目已有运行中的共享编辑器宿主，严禁拉起复数编辑器 PID {}".format(os.getpid()))
+        if _is_automated_editor_launch(command):
+            unreal.SystemLibrary.quit_editor()
+        return {"status": "rejected", "code": "DUPLICATE_EDITOR_FORBIDDEN"}
+    _single_editor_mutex = mutex
     port = int(_argument(command, "BBBMcpServicePort", "8000"))
     if not 1 <= port <= 65535:
         raise RuntimeError("MCP_STARTUP_OPTIONS")

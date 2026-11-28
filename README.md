@@ -238,3 +238,5 @@ GPU 分析改为 prepare、等待至少 60 帧、连续 capture、最后 restore
 
 
 2026-11-27 共享宿主与 PIE 租期硬控：干净移除独立测试宿主（`mcp_test_hosts.py`、`mcp_test_process.py`、`submit_batch` 的 `environment/test_host/test_options` 参数与相关测试登记逻辑），原项目统一使用唯一共享编辑器宿主；在 `JobQueue` 新增 PIE 空闲 30 秒与总租期 180 秒自动 `StopPIE` 硬回收，`inspect_tasks` 暴露 `pie_lease_remaining`，批次完成仍持 PIE 时返回倒计时提示。已完成全部改动文件 Python 语法静态编译校验与常驻 MCP 服务重启核验。
+
+2026-11-28 严禁多开编辑器三层硬拦截：修订 Law 移除“拉起独立进程”表述；`Start-BBBMcpEditor.ps1` 移除 `-Multiprocess`；`BBBMcpEditorStartup.py` 加入项目级 Win32 单实例互斥锁并在自动化多开时拒绝登记且立即退出；`HostRegistry.refresh()` 巡检发现已有主共享宿主后多余的自动化/无头 `UnrealEditor.exe` 副本时自动终止并告警。已完成语法编译校验与常驻服务重启。

@@ -2,6 +2,7 @@ import ctypes
 from ctypes import wintypes
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -208,6 +209,23 @@ class HostRegistry:
                 if selected not in hosts:
                     candidates = [pid for pid, row in hosts.items() if row["project"] == project and row["role"] == "editor"]
                     self.selected[project] = min(candidates, key=lambda pid: int(hosts[pid]["created"])) if candidates else None
+                    selected = self.selected[project]
+                if selected is not None:
+                    for found in self.discovered:
+                        dup_pid = found["process_id"]
+                        if dup_pid == selected or project_identity(found["project_root"]) != project:
+                            continue
+                        if not found.get("automated"):
+                            continue
+                        dup_identity = self.identify(dup_pid)
+                        if dup_identity is not None:
+                            try:
+                                terminate_process(dup_identity)
+                                logging.warning("duplicate_editor_terminated project=%s kept=%s terminated=%s",
+                                    project_key(project), selected, dup_pid)
+                            except Exception:
+                                logging.warning("duplicate_editor_terminate_failed project=%s kept=%s target=%s",
+                                    project_key(project), selected, dup_pid)
             if previous != self.public():
                 self.revision += 1
 
