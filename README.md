@@ -130,6 +130,8 @@ $env:BBB_MCP_URL = $hostInfo.Endpoint
 
 ## 本轮更新
 
+2026-11-28 武器调试工具使用 `Characters/Debug/Item/BP_ItemDebug` 新路径 UE 蓝图编译与旧路径清理通过
+
 2026-11-27 共用握持制作模板改用 `Characters/Rigs/CR_BBB_UA_LeftHand` UE 资产回读与 Rig 编译通过
 
 2026-11-21：工具发现按实际用途排序，离线契约标注缓存状态，普通蓝图优先使用 DSL。批次等待由状态变更唤醒，已就绪的独立测试沿所属宿主继续。强制重存统一使用 `assets.resave_assets`。本机目录的 99 条离线搜索首项命中 99 条。

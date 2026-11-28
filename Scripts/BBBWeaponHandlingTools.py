@@ -150,7 +150,7 @@ def sample_runtime(action, seconds, equipment_class_path):
                 raise RuntimeError("玩家物品选择输入未接受")
             unreal.log("[BBBWeaponHandling] 已提交物品选择 等待实际手持事实 " + equipment_class_path)
             return {"state": "select_submitted", "source_slot": slot, "target_slot": 0, "equipment": equipment_class_path}
-        debug_class = unreal.load_class(None, "/Game/_Project/Characters/BBBC_UA/Debug/Item/BP_ItemDebug.BP_ItemDebug_C")
+        debug_class = unreal.load_class(None, "/Game/_Project/Characters/Debug/Item/BP_ItemDebug.BP_ItemDebug_C")
         if debug_class is None:
             raise RuntimeError("现有物品调试蓝图不存在")
         transform = unreal.Transform()
