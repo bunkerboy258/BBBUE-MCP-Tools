@@ -30,7 +30,7 @@ def _acquire_single_editor_mutex(project_file):
     """/** @param project_file 项目文件 @return 项目级单编辑器互斥句柄，已被其他实例持有时返回 None */"""
     if os.name != "nt":
         return True
-    normalized = os.path.normcase(str(Path(project_file).resolve().parent))
+    normalized = Path(project_file).name.lower()
     digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR]

@@ -878,12 +878,6 @@ class ToolCatalog:
                 unavailable = [dependency for dependency in item["dependencies"] if dependency in missing or dependency.split(".", 1)[0] in missing]
                 if unavailable:
                     result["unavailable_editor_dependencies"] = unavailable
-        result["environments"] = ["editor"]
-        options = test_arguments(item)
-        if options:
-            result["environments"].append("test")
-        if options and options != [{}]:
-            result["test_arguments"] = options
         result.update(guidance(item, self.tools))
         return result
 

@@ -38,8 +38,10 @@ def editor_inventory():
         match = re.search(r'(?:"([^"\r\n]+\.uproject)"|([^\s"]+\.uproject))', command_line, re.I)
         if match is None:
             continue
+        project_path = match.group(1) or match.group(2)
         port = re.search(r"-BBBMcpServicePort=(\d+)(?:\s|$)", command_line, re.I)
-        automated = re.search(r"(?:^|\s)-(?:Unattended|NullRHI|RenderOffscreen|BBBMcpHostRole=Test)(?:\s|$)", command_line, re.I) is not None
-        hosts.append({"kind": "editor", "process_id": item["ProcessId"], "project_root": project_identity(match.group(1) or match.group(2)),
-            "public_port": int(port.group(1)) if port else None, "role": "editor", "automated": automated})
+        automated = re.search(r"(?:^|\s)-(?:Unattended|NullRHI|RenderOffscreen|ModelContextProtocolStartServer|BBBMcpHostRole=Test)(?:\s|$)", command_line, re.I) is not None
+        hosts.append({"kind": "editor", "process_id": item["ProcessId"], "project_root": project_identity(project_path),
+            "project_name": Path(project_path).name.lower(), "public_port": int(port.group(1)) if port else None,
+            "role": "editor", "automated": automated})
     return hosts

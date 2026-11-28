@@ -211,9 +211,16 @@ class HostRegistry:
                     self.selected[project] = min(candidates, key=lambda pid: int(hosts[pid]["created"])) if candidates else None
                     selected = self.selected[project]
                 if selected is not None:
+                    project_path = Path(project)
+                    project_name = self.projects[project].name.lower()
                     for found in self.discovered:
                         dup_pid = found["process_id"]
-                        if dup_pid == selected or project_identity(found["project_root"]) != project:
+                        if dup_pid == selected:
+                            continue
+                        found_root = project_identity(found["project_root"])
+                        same_tree = found_root == project or Path(found_root).is_relative_to(project_path)
+                        same_name = found.get("project_name") == project_name
+                        if not same_tree and not same_name:
                             continue
                         if not found.get("automated"):
                             continue
